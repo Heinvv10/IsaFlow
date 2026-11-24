@@ -65,13 +65,14 @@ export async function booksRefusal(companyId: string, f: ClearingFacts, amount: 
   return null;
 }
 
-/** (j).5 the receiver-readiness preflight, the only cross-company question (last): its word, logged when it is not `ready`. Only a word the
- *  definer is known to answer is logged (RECEIVER_READY_REASONS); anything else is logged as `unknown` and is not ready. */
-export async function receiverWord(companyId: string, f: ClearingFacts, amount: number): Promise<string> {
+/** (j).5 the receiver-readiness preflight, the only cross-company question (last): its word, logged when it is not `ready` (at info for the
+ *  POST's refusal; the preview, a page view, logs at debug: fix round 2 8f). Only a word the definer is known to answer is logged
+ *  (RECEIVER_READY_REASONS); anything else is logged as `unknown` and is not ready. */
+export async function receiverWord(companyId: string, f: ClearingFacts, amount: number, level: 'info' | 'debug' = 'info'): Promise<string> {
   const word = await receiverReadiness(f.link!.id, f.bill!.id, amount);
   if (word !== 'ready') {
     // the word stays in the log (it names the partner's state); the person reads one generic sentence
-    log.info('Intercompany loan clearing refused: the partner is not ready', {
+    log[level]('Intercompany loan clearing: the partner is not ready', {
       companyId, billId: f.bill!.id, reason: RECEIVER_READY_REASONS.has(word) ? word : 'unknown',
     }, 'intercompany');
   }

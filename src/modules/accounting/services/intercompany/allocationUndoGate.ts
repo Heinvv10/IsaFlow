@@ -24,9 +24,11 @@ import { findJournalChainRoot } from '../shared/journalChainHead';
 
 type Row = Record<string, unknown>;
 
+/** Fix round 2 (MED-5): honest. The message stays accepted even after the partner cancels its clearing receipt, and this gate refuses
+ *  whatever the receipt, so there is NO in-app path to undo it until intercompany reversals exist (#1772): the sentence says so. */
 export const PARTNER_CLEARED_SENTENCE = 'The partner already cleared this payment against the intercompany loan (it accepted the allocation message), so it cannot be '
-  + 'voided, unapplied or reversed here: ask them to cancel their clearing receipt first, then reverse it with your accountant (intercompany '
-  + 'reversals are not automated yet). Nothing was changed.';
+  + 'voided, unapplied or reversed here, and this cannot be undone in the app yet (intercompany reversals are not automated). Contact support '
+  + 'to correct it. Nothing was changed.';
 
 export const LOAN_CLEARED_UNAPPLY_SENTENCE = 'This payment cleared the bill against the intercompany loan and its allocation message was sent to the partner, so it '
   + 'cannot be unapplied (the clearing journal would stay and the bill could be cleared twice). Void the payment instead: that reverses the clearing '
@@ -76,7 +78,9 @@ export async function partnerClearedRefusal(companyId: string, paymentId: string
     SELECT 1 AS one FROM intercompany_messages m
      WHERE m.from_company_id = ${companyId}::UUID AND m.kind = 'allocation' AND m.status = 'accepted'
        AND ((m.payload #>> '{payment,id}') = ${paymentId}::UUID::TEXT
-         OR m.source_doc_id IN (SELECT pa.id FROM payment_allocations pa WHERE pa.payment_id = ${paymentId}::UUID))
+         OR m.source_doc_id IN (SELECT pa.id FROM payment_allocations pa
+                                  JOIN supplier_payments sp ON sp.id = pa.payment_id AND sp.company_id = ${companyId}::UUID
+                                 WHERE pa.payment_id = ${paymentId}::UUID))
      LIMIT 1
   `) as Row[];
   if (accepted.length === 0) return null;
@@ -84,9 +88,13 @@ export async function partnerClearedRefusal(companyId: string, paymentId: string
   return PARTNER_CLEARED_SENTENCE;
 }
 
-/** A journal reversal (called by `reverseJournalEntry` for every entry, under its claim, before any write): refused when the entry, or the
- *  entry its chain starts from, is the journal an ACCEPTED allocation message of this company (the payer) stands on. */
-export async function partnerClearedJournalRefusal(companyId: string, entryId: string): Promise<string | null> {
+/**
+ * The payer's journal key (1027's cap-lock key on the entry's chain ROOT), taken by `claimJournalReversal` BEFORE its claim row lock (fix
+ * round 2, LOW-1): a payer void takes its keys (payment, journal, bill) and only then the journal row (the reversal claim of its chain), so a
+ * GL reversal that took the row first and the key second could deadlock with it (40P01, a 500). Same order now: key, then row. Returns the
+ * root, or null when this company sent no allocation message (nothing can race: no key). Re-entrant: the refusal below takes it again.
+ */
+export async function lockPayerJournalKey(companyId: string, entryId: string): Promise<string | null> {
   // the cheap question first: a company that sent no allocation message walks no chain
   const any = (await sql`
     SELECT 1 AS one FROM intercompany_messages WHERE from_company_id = ${companyId}::UUID AND kind = 'allocation' LIMIT 1
@@ -94,6 +102,14 @@ export async function partnerClearedJournalRefusal(companyId: string, entryId: s
   if (any.length === 0) return null;
   const root = (await findJournalChainRoot(companyId, entryId)) ?? entryId;
   await lockKeys((await sql`SELECT pg_catalog.hashtextextended(${companyId}::UUID::TEXT || ':journal:' || ${root}::UUID::TEXT, 1027) AS k`) as Row[]);
+  return root;
+}
+
+/** A journal reversal (called by `reverseJournalEntry` for every entry, under its claim, before any write): refused when the entry, or the
+ *  entry its chain starts from, is the journal an ACCEPTED allocation message of this company (the payer) stands on. */
+export async function partnerClearedJournalRefusal(companyId: string, entryId: string): Promise<string | null> {
+  const root = await lockPayerJournalKey(companyId, entryId);
+  if (root === null) return null;
   const accepted = (await sql`
     SELECT 1 AS one FROM intercompany_messages
      WHERE from_company_id = ${companyId}::UUID AND kind = 'allocation' AND status = 'accepted' AND source_journal_entry_id = ${root}::UUID

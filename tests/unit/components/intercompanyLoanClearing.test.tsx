@@ -1,7 +1,9 @@
 // Supplier bill detail, P4-E: "Clear against the intercompany loan". Shown only for a bill linked on a loan connection with the dark flag on
 // (the preview 403s with the flag off: nothing shows). The dialog previews DR Accounts Payable / CR the loan account, the amount (the open
 // amount, editable down to a partial clearing), the partner and whether the partner can clear it; Review, then a confirm that says what posts;
-// the POST sends back what the preview showed. A refusal shows its sentence (nothing posted); a posted clearing names its payment and journal.
+// the POST sends back what the preview showed. A refusal shows its sentence (nothing posted); a posted clearing names its payment and journal
+// (the result is the PAGE's state: `Harness` holds it as the bill page does). The amount is a MoneyField: typed, then committed on blur.
+import { useState } from 'react';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
@@ -11,7 +13,7 @@ useApiJsonOverMock();
 
 import { apiFetch } from '@/lib/apiFetch';
 import { LoanClearingPanel } from '@/components/accounting/intercompany/LoanClearingPanel';
-import type { LoanClearingPreview } from '@/modules/accounting/services/intercompany/payerLoanClearTypes';
+import type { LoanClearingPreview, LoanClearResult } from '@/modules/accounting/services/intercompany/payerLoanClearTypes';
 import { formatCurrency } from '@/utils/formatters';
 import { envelope, failure } from './intercompanyFixtures';
 
@@ -36,22 +38,34 @@ beforeEach(() => {
 afterEach(() => { vi.restoreAllMocks(); });
 
 const BUTTON = 'Clear against the intercompany loan';
+const onCleared = vi.fn();
+/** The panel as the bill page holds it: the page keeps the clearing's result. */
+function Harness({ billId = 'bill-1' }: { billId?: string }) {
+  const [cleared, setCleared] = useState<LoanClearResult | null>(null);
+  return <LoanClearingPanel billId={billId} cleared={cleared} onCleared={(out) => { setCleared(out); onCleared(out); }} />;
+}
 async function open() {
-  render(<LoanClearingPanel billId="bill-1" onCleared={onCleared} />);
+  render(<Harness />);
   fireEvent.click(await screen.findByRole('button', { name: BUTTON }));
   return screen.findByRole('dialog', { name: BUTTON });
 }
-const onCleared = vi.fn();
+/** Type into the MoneyField and commit it (blur), as a person tabbing on does. */
+function setAmount(dialog: HTMLElement, text: string) {
+  const field = within(dialog).getByLabelText('Amount');
+  fireEvent.change(field, { target: { value: text } });
+  fireEvent.blur(field);
+}
+const bodyOf = (n: number) => JSON.parse(String((posts()[n]![1] as RequestInit).body)) as { amount: number; expected: Record<string, unknown> };
 
 describe('Clear against the intercompany loan', () => {
   it('nothing shows with the flag off (403) or for a bill not linked on a loan connection', async () => {
     answer = { get: () => failure('Clearing intercompany payments against the loan account is not enabled for this company.', 403) };
-    const { unmount } = render(<LoanClearingPanel billId="bill-1" onCleared={onCleared} />);
+    const { unmount } = render(<Harness />);
     await waitFor(() => expect(previews()).toBe(1));
     expect(screen.queryByRole('button', { name: BUTTON })).toBeNull();
     unmount();
     answer = { get: () => envelope(preview({ linked: false })) };
-    render(<LoanClearingPanel billId="bill-1" onCleared={onCleared} />);
+    render(<Harness />);
     await waitFor(() => expect(previews()).toBe(2));
     expect(screen.queryByRole('button', { name: BUTTON })).toBeNull();
     expect(screen.queryByRole('region', { name: 'Intercompany loan' })).toBeNull();
@@ -65,10 +79,9 @@ describe('Clear against the intercompany loan', () => {
     const dialog = await open();
     const shown = within(dialog).getByTestId('loan-clearing-preview').textContent ?? '';
     for (const text of ['2000 Accounts Payable', '2800 Loan from Velocity', formatCurrency(1150), 'Velocity Fibre']) expect(shown).toContain(text);
-    expect(shown).toMatch(/can clear it/i);
-    const amount = within(dialog).getByLabelText('Amount') as HTMLInputElement;
-    expect(amount.value).toBe('1150');
-    fireEvent.change(amount, { target: { value: '400' } });
+    expect(shown).toMatch(/can clear against its loan account/i);
+    expect((within(dialog).getByLabelText('Amount') as HTMLInputElement).value.replace(/\D/g, '')).toBe('115000');
+    setAmount(dialog, '400');
     fireEvent.click(within(dialog).getByRole('button', { name: 'Review clearing' }));
     expect(within(dialog).getByTestId('loan-clearing-confirm').textContent).toMatch(/debit 2000 Accounts Payable, credit 2800 Loan from Velocity/);
     expect(posts()).toHaveLength(0);
@@ -87,7 +100,7 @@ describe('Clear against the intercompany loan', () => {
   it('an amount above what is open is refused in the dialog, before any request', async () => {
     answer = { get: () => envelope(preview()) };
     const dialog = await open();
-    fireEvent.change(within(dialog).getByLabelText('Amount'), { target: { value: '2000' } });
+    setAmount(dialog, '2000');
     fireEvent.click(within(dialog).getByRole('button', { name: 'Review clearing' }));
     expect(within(dialog).queryByTestId('loan-clearing-confirm')).toBeNull();
     expect(within(dialog).getByRole('alert').textContent).toMatch(/open/i);
@@ -123,12 +136,12 @@ describe('Clear against the intercompany loan', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: 'Post clearing' }));
     expect(await within(dialog).findByText(/changed since the preview/)).toBeInTheDocument();
     await waitFor(() => expect(previews()).toBe(2));
-    await waitFor(() => expect((within(dialog).getByLabelText('Amount') as HTMLInputElement).value).toBe('1000'));
+    await waitFor(() => expect((within(dialog).getByLabelText('Amount') as HTMLInputElement).value.replace(/\D/g, '')).toBe('100000'));
     expect(within(dialog).getByText(/changed since the preview/)).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole('button', { name: 'Review clearing' }));
     fireEvent.click(within(dialog).getByRole('button', { name: 'Post clearing' }));
     expect(await screen.findByText(/SP-00043/)).toBeInTheDocument();
-    expect(JSON.parse(String((posts()[1]![1] as RequestInit).body)).expected).toMatchObject({ openAmount: 1000, amount: 1000 });
+    expect(bodyOf(1).expected).toMatchObject({ openAmount: 1000, amount: 1000 });
   });
 
   it('a refusal other than 409 does not fetch the preview again', async () => {
@@ -143,7 +156,54 @@ describe('Clear against the intercompany loan', () => {
   it('blocked by something else, the partner still reads ready when the preflight said so (E)', async () => {
     answer = { get: () => envelope(preview({ receiverReady: true, blocked: 'Not cleared: an approval rule applies to payments of this size.' })) };
     const dialog = await open();
-    expect(within(dialog).getByTestId('loan-clearing-preview').textContent).toMatch(/can clear it/i);
+    expect(within(dialog).getByTestId('loan-clearing-preview').textContent).toMatch(/can clear against its loan account/i);
     expect(within(dialog).getByRole('button', { name: 'Review clearing' })).toBeDisabled();
+  });
+
+  it('MED-3: the partner ready for less than the bill: the full amount is refused, a smaller one posts (the amount stays editable)', async () => {
+    const NOT_READY = 'The partner company cannot clear this against its loan account yet. Nothing was posted.';
+    answer = {
+      get: () => envelope(preview()),
+      post: (body) => ((body as { amount: number }).amount > 400 ? failure(NOT_READY, 409)
+        : envelope({ cleared: true, billId: 'bill-1', paymentId: 'pay-3', paymentNumber: 'SP-00044', journalEntryId: 'je-11', messageId: 'm-3' })),
+    };
+    const dialog = await open();
+    expect(within(dialog).getByTestId('loan-clearing-preview').textContent).toMatch(/checked when you post/);
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Review clearing' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Post clearing' }));
+    expect(await within(dialog).findByText(NOT_READY)).toBeInTheDocument();
+    await waitFor(() => expect(previews()).toBe(2));
+    expect(within(dialog).getByLabelText('Amount')).not.toBeDisabled();
+    setAmount(dialog, '400');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Review clearing' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Post clearing' }));
+    expect(await screen.findByText(/SP-00044/)).toBeInTheDocument();
+    expect(bodyOf(1)).toMatchObject({ amount: 400, expected: { amount: 400 } });
+  });
+
+  it('8e: Review moves the focus to Post clearing; a refusal moves it to the sentence', async () => {
+    answer = { get: () => envelope(preview()), post: () => failure('The posting date is in a closed or locked financial period.', 400) };
+    const dialog = await open();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Review clearing' }));
+    await waitFor(() => expect(document.activeElement).toBe(within(dialog).getByRole('button', { name: 'Post clearing' })));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Post clearing' }));
+    const sentence = await within(dialog).findByText(/closed or locked financial period/);
+    await waitFor(() => expect(document.activeElement).toBe(sentence));
+  });
+
+  it("8c: only the latest preview is applied (an older answer that resolves later is dropped)", async () => {
+    let releaseOld: (r: Response) => void = () => undefined;
+    vi.mocked(apiFetch).mockImplementation(async (url: unknown) => {
+      if (String(url).includes('billId=bill-1')) return new Promise<Response>((resolve) => { releaseOld = resolve; });
+      if (String(url).includes('billId=bill-2')) return envelope(preview({ billId: 'bill-2', partnerName: 'Blitz Fibre' }));
+      return envelope([]);
+    });
+    const { rerender } = render(<Harness billId="bill-1" />);
+    rerender(<Harness billId="bill-2" />);
+    expect(await screen.findByText(/Blitz Fibre/)).toBeInTheDocument();
+    releaseOld(envelope(preview({ partnerName: 'Stale Partner' })));
+    await new Promise((r) => { setTimeout(r, 20); });
+    expect(screen.queryByText(/Stale Partner/)).toBeNull();
+    expect(screen.getByText(/Blitz Fibre/)).toBeInTheDocument();
   });
 });

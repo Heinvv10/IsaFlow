@@ -22,8 +22,11 @@ import { permitCovers, type LoanClearPermit } from './loanClearPermit';
 
 type Row = Record<string, unknown>;
 
+/** Fix round 2 (LOW-2): the guard covers every linked bill on an active loan connection (the sender sends for all of them), also ones E
+ *  refuses (dated before the pair's cut-over, a connection that is not a group one, a partner not ready): the sentence does not promise E. */
 export const LOAN_ACCOUNT_PAYMENT_REFUSED = 'This bill is linked to the partner\'s invoice on an intercompany connection and the account is your loan account for it: '
-  + 'use Clear against the intercompany loan on the bill (it checks the link, the cut-over and the partner first). Nothing was posted.';
+  + 'use Clear against the intercompany loan on the bill (it checks the link, the cut-over and the partner first). If that cannot clear it either '
+  + '(for example the bill is dated before the pair\'s cut-over, or the partner cannot clear it yet), pay the bill from another account. Nothing was posted.';
 
 export interface LoanAccountPaymentUse {
   billIds: readonly string[];

@@ -35,6 +35,7 @@ import { withAlsTransaction } from '@/lib/alsTransaction';
 import type { DbRow } from '@/lib/neon';
 import { als, assertTxUsable } from '@/lib/als';
 import { log } from '@/lib/logger';
+import { lockPayerJournalKey } from '../intercompany/allocationUndoGate';
 
 /** Postgres `lock_not_available` — `lock_timeout` elapsed waiting for the row. */
 const LOCK_NOT_AVAILABLE = '55P03';
@@ -110,6 +111,8 @@ export async function claimJournalReversal(
     .rows[0]?.v as string | undefined;
   await client.query("SELECT set_config('lock_timeout', '5s', true)");
   try {
+    // P4-E fix round 2 (LOW-1): the payer's journal key BEFORE the row, the order a payer void takes them (else 40P01); bounded by the 5 s.
+    await lockPayerJournalKey(companyId, entryId);
     const rows = (await sql`
       UPDATE gl_journal_entries
       SET reversed_by = ${userId}::UUID, reversed_at = NOW()

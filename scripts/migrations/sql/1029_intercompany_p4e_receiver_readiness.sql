@@ -1,7 +1,8 @@
 -- 1029: Intercompany P4-E, the PAYER's question "can the partner clear what I am about to clear?". Plan: docs/plans/2026-11-24-intercompany-p4e-payer-loan-clearing.md
 -- (section (j) binding, items 5 and 8; parent: docs/plans/2026-11-17-intercompany-mirror-posting.md, P4). Applies on top of 1028; idempotent
 -- (CREATE OR REPLACE, ON CONFLICT). Forward only: no table, column or index changes, no change to any guard or to an existing function. Edited in
--- place (not yet released) by fix round 1 (B: the connection hold definer; C: the preflight counts this payer's own messages).
+-- place (not yet released) by fix round 1 (B: the connection hold definer; C: the preflight counts this payer's own messages) and fix round 2
+-- (MED-1: a bank-paid message is neither claimed nor a hold; LOW-5: the grant checks warn, only the owner, hash and search_path halt).
 
 -- WHAT
 --   intercompany_receiver_loan_ready(link, bill, amount) RETURNS text, a registered SECURITY DEFINER (owner migration_admin), STABLE: it reads and
@@ -25,9 +26,13 @@
 --                                P4-D's clearing and E use) or the invoice is dated before it
 --     exceeds_open               the amount is more than the invoice's open amount less the partner's DRAFT receipts on it, less (fix round 1,
 --                                C) what THIS payer's own allocation messages to that invoice claim and the partner has not cleared: a pending,
---                                failed or dismissed one whose payer side still stands (intercompany_allocation_payer_standing), and an
---                                accepted one whose clearing receipt the partner voided (its journal chain even, P4-D's rule). An accepted
---                                one whose receipt stands is in the invoice's amount_paid already (P4-D posts and allocates it): not counted.
+--                                failed or dismissed LOAN one (its payment credited the payer's loan account: cashLegIsLoanAccount, fix round
+--                                2 MED-1) whose payer side still stands (intercompany_allocation_payer_standing), and an accepted one whose
+--                                clearing receipt the partner voided (its journal chain even, P4-D's rule). An accepted one whose receipt
+--                                stands is in the invoice's amount_paid already (P4-D posts and allocates it): not counted. A BANK-paid one
+--                                (cashLegIsLoanAccount false) claims nothing: P4-D can never accept it (cash_not_through_loan), and the
+--                                partner's receipt of that cash, if any, is already in amount_paid. The accepted arm reads no flag: an accepted
+--                                message is one P4-D cleared against the loan, whatever its payload says.
 --     ready                      none of the above
 --   ADVISORY: the receiver's clearing re-judges everything under its own locks; this only stops the payer posting a clearing the partner cannot
 --   take today. A manual receiver contra on the invoice (no stamp) shows here as a smaller open amount.
@@ -40,9 +45,12 @@
 --
 --   intercompany_connection_allocation_held(connection) RETURNS boolean, a registered SECURITY DEFINER (owner migration_admin), STABLE, no lock:
 --   (fix round 1, B) for a signed-in member with an intercompany write role of a company on the connection, whether an allocation message on
---   it still holds the relationship (P4-E (j).8: unlink, settlement mode, loan accounts): ACCEPTED, or pending / failed / dismissed (restorable)
---   while its payer side stands. A message the payer voided, unapplied or reversed holds nothing (it can never be accepted). NULL for anyone
---   else (the caller holds on NULL: fail closed). One boolean, no row data.
+--   it still holds the relationship (P4-E (j).8: unlink, settlement mode, loan accounts): ACCEPTED, or a pending / failed / dismissed
+--   (restorable) LOAN one (cashLegIsLoanAccount, fix round 2 MED-1) while its payer side stands. A BANK-paid one holds nothing (P4-D can never
+--   accept it: cash_not_through_loan), nor does one the payer voided, unapplied or reversed (it can never be accepted). A FAILED loan message
+--   holds whatever the receiver's refusal was (wrong_customer, pre_cutover_invoice, loan_account_unusable, ...): the safer reading, because
+--   every one of those is the receiver's own state, which it can put right and then accept the message; the remedy is the payer's void or the
+--   receiver's reject. NULL for anyone else (the caller holds on NULL: fail closed). One boolean, no row data.
 
 -- DEFINER REGISTRY (930): registered in app_definer_reviews AFTER the owner is set (the hash covers the owner). OLD COLOUR: nothing in the previous
 -- release calls it.
@@ -99,7 +107,8 @@ BEGIN
     SELECT 1 FROM public.intercompany_messages m
      WHERE m.connection_id = p_connection AND m.kind = 'allocation'
        AND (m.status = 'accepted'
-         OR (m.status IN ('pending', 'failed', 'dismissed') AND public.intercompany_allocation_payer_standing(m.id))));
+         OR (m.status IN ('pending', 'failed', 'dismissed') AND (m.payload #>> '{payment,cashLegIsLoanAccount}') = 'true'
+             AND public.intercompany_allocation_payer_standing(m.id))));
 END;
 $$;
 ALTER FUNCTION public.intercompany_connection_allocation_held(uuid) OWNER TO migration_admin;
@@ -191,7 +200,8 @@ BEGIN
     FROM public.intercompany_messages m
    WHERE m.from_company_id = v_co AND m.to_company_id = k.partner AND m.kind = 'allocation' AND m.source_doc_type = 'payment_allocation'
      AND (m.payload #>> '{issuerDocument,id}') = k.invoice::text AND pg_catalog.jsonb_typeof(m.payload -> 'amount') = 'number'
-     AND ((m.status IN ('pending', 'failed', 'dismissed') AND public.intercompany_allocation_payer_standing(m.id))
+     AND ((m.status IN ('pending', 'failed', 'dismissed') AND (m.payload #>> '{payment,cashLegIsLoanAccount}') = 'true'
+           AND public.intercompany_allocation_payer_standing(m.id))
        OR (m.status = 'accepted' AND NOT EXISTS (
              SELECT 1 FROM public.customer_payments r
               WHERE m.target_doc_type = 'customer_payment' AND r.id = m.target_doc_id AND r.company_id = k.partner
@@ -210,15 +220,18 @@ INSERT INTO public.app_definer_reviews (signature, writes, body_md5)
 SELECT v.signature, v.writes, public.app_definer_hash(v.fn::regprocedure)
   FROM (VALUES
     ('intercompany_receiver_loan_ready(uuid,uuid,numeric)', 'public.intercompany_receiver_loan_ready(uuid, uuid, numeric)',
-     'nothing (STABLE, no lock): for the PAYER of a linked bill (a signed-in member of the session company with an intercompany write role) only, a read of the ACTIVE intercompany_document_links row joining its bill to the partner''s customer invoice on an active group loan intercompany_connections row, then of the PARTNER''s rows: feature_flags / company_feature_overrides (its intercompany_loan_clearing override, else is_global), its intercompany_connection_sides row and loan account (gl_accounts, and through intercompany_is_loan_class the bank tables), the payer side''s loan account type, the partner''s customer_invoices row, company_group_members and intercompany_pair_cutovers (the pair''s cut-over), customer_payment_allocations / customer_payments (its draft receipts on the invoice), and this payer''s own intercompany_messages to that invoice with, through intercompany_allocation_payer_standing, their payment_allocations / supplier_payments / supplier_payment_batches rows and journal chain, and an accepted one''s clearing receipt (customer_payments, its journal chain); answers ONE coarse word (ready or a reason) and no row data, no figure, no id; not_found for anyone else'),
+     'nothing (STABLE, no lock): for the PAYER of a linked bill (a signed-in member of the session company with an intercompany write role) only, a read of the ACTIVE intercompany_document_links row joining its bill to the partner''s customer invoice on an active group loan intercompany_connections row, then of the PARTNER''s rows: feature_flags / company_feature_overrides (its intercompany_loan_clearing override, else is_global), its intercompany_connection_sides row and loan account (gl_accounts, and through intercompany_is_loan_class the bank tables), the payer side''s loan account type, the partner''s customer_invoices row, company_group_members and intercompany_pair_cutovers (the pair''s cut-over), customer_payment_allocations / customer_payments (its draft receipts on the invoice), and this payer''s own intercompany_messages to that invoice (their loan-credit flag) with, through intercompany_allocation_payer_standing, their payment_allocations / supplier_payments / supplier_payment_batches rows and journal chain, and an accepted one''s clearing receipt (customer_payments, its journal chain); answers ONE coarse word (ready or a reason) and no row data, no figure, no id; not_found for anyone else'),
     ('intercompany_connection_allocation_held(uuid)', 'public.intercompany_connection_allocation_held(uuid)',
-     'nothing (STABLE, no lock): for a signed-in member with an intercompany write role of a company on the connection only, a read of the intercompany_connections row and of the connection''s allocation intercompany_messages, and, through intercompany_allocation_payer_standing, their payment_allocations / supplier_payments / supplier_payment_batches rows and the recorded journal''s reversal chain; answers ONE boolean (held or not) and no row data; NULL for anyone else')
+     'nothing (STABLE, no lock): for a signed-in member with an intercompany write role of a company on the connection only, a read of the intercompany_connections row and of the connection''s allocation intercompany_messages (their status and loan-credit flag), and, through intercompany_allocation_payer_standing, their payment_allocations / supplier_payments / supplier_payment_batches rows and the recorded journal''s reversal chain; answers ONE boolean (held or not) and no row data; NULL for anyone else')
   ) AS v(signature, fn, writes)
 ON CONFLICT (signature) DO UPDATE SET writes = EXCLUDED.writes, body_md5 = EXCLUDED.body_md5;
 
--- DEPLOY-SAFE (the 1027 pattern): any role other than a superuser, the owner (or a member of it), app_user or migration_admin (or a member of
--- either) found able to EXECUTE it (a default privilege of the creating role, e.g. Supabase's anon / authenticated / service_role) has it REVOKED;
--- a revoke the migration role cannot make is a WARNING naming the role, never a halt. Strict below: PUBLIC, app_user, the owner and the hash.
+-- DEPLOY-SAFE (the 1027 pattern, fix round 2 LOW-5): any role other than a superuser, the owner (or a member of it), app_user or migration_admin
+-- (or a member of either; app_user is NOT exempt for the INVOKER helper) found able to EXECUTE one (a default privilege of the creating role,
+-- e.g. Supabase's anon / authenticated / service_role) has it REVOKED, CASCADE (a grant it passed on goes with it); a revoke that fails for any
+-- reason is a WARNING naming the role, never a halt, and so is a role that can still execute it after. The last block halts ONLY on what makes a
+-- definer unsafe whatever the grants: its owner, its registry hash, and the search_path of all three; PUBLIC / app_user / migration_admin
+-- grants that are not as intended are WARNINGS (fail closed: a missing app_user grant refuses the feature, it opens nothing).
 DO $$
 DECLARE
   g RECORD;
@@ -236,8 +249,8 @@ BEGIN
      ORDER BY r.rolname, f.sig
   LOOP
     BEGIN
-      EXECUTE pg_catalog.format('REVOKE ALL ON FUNCTION %s FROM %I', g.sig, g.rolname);
-    EXCEPTION WHEN insufficient_privilege OR undefined_object THEN
+      EXECUTE pg_catalog.format('REVOKE ALL ON FUNCTION %s FROM %I CASCADE', g.sig, g.rolname);
+    EXCEPTION WHEN OTHERS THEN
       RAISE WARNING '1029: could not revoke EXECUTE on % from % (%): revoke it by hand', g.sig, g.rolname, SQLERRM;
     END;
     IF pg_catalog.has_function_privilege(g.rolname, g.sig, 'EXECUTE') THEN
@@ -250,19 +263,28 @@ DO $$
 DECLARE
   d RECORD;
 BEGIN
-  FOR d IN SELECT * FROM (VALUES ('public.intercompany_receiver_loan_ready(uuid, uuid, numeric)', 'intercompany_receiver_loan_ready(uuid,uuid,numeric)'),
-                                 ('public.intercompany_connection_allocation_held(uuid)', 'intercompany_connection_allocation_held(uuid)')) AS x(fn, sig) LOOP
-    IF pg_catalog.has_function_privilege('public', d.fn, 'EXECUTE') OR NOT pg_catalog.has_function_privilege('app_user', d.fn, 'EXECUTE') THEN
-      RAISE EXCEPTION '1029: PUBLIC can execute %, or app_user cannot', d.fn;
+  FOR d IN SELECT * FROM (VALUES ('public.intercompany_receiver_loan_ready(uuid, uuid, numeric)', 'intercompany_receiver_loan_ready(uuid,uuid,numeric)', true),
+                                 ('public.intercompany_connection_allocation_held(uuid)', 'intercompany_connection_allocation_held(uuid)', true),
+                                 ('public.intercompany_allocation_payer_standing(uuid)', NULL, false)) AS x(fn, sig, app) LOOP
+    -- the halts: what makes the function unsafe whatever its grants
+    IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_proc p WHERE p.oid = d.fn::regprocedure
+                      AND p.proconfig @> ARRAY['search_path=pg_catalog, public, pg_temp']) THEN
+      RAISE EXCEPTION '1029: % does not pin its search_path', d.fn;
     END IF;
-    IF (SELECT pg_catalog.pg_get_userbyid(p.proowner) FROM pg_catalog.pg_proc p WHERE p.oid = d.fn::regprocedure) <> 'migration_admin'
-       OR NOT EXISTS (SELECT 1 FROM public.app_definer_reviews r WHERE r.signature = d.sig AND r.body_md5 = public.app_definer_hash(d.fn::regprocedure)) THEN
+    IF d.sig IS NOT NULL AND ((SELECT pg_catalog.pg_get_userbyid(p.proowner) FROM pg_catalog.pg_proc p WHERE p.oid = d.fn::regprocedure) <> 'migration_admin'
+       OR NOT EXISTS (SELECT 1 FROM public.app_definer_reviews r WHERE r.signature = d.sig AND r.body_md5 = public.app_definer_hash(d.fn::regprocedure))) THEN
       RAISE EXCEPTION '1029: % is not owned by migration_admin, or its registry row does not hold its hash', d.fn;
     END IF;
+    -- the grants: warnings (the REVOKE loop above already took back what it could)
+    IF pg_catalog.has_function_privilege('public', d.fn, 'EXECUTE') THEN
+      RAISE WARNING '1029: PUBLIC can still execute %: revoke it by hand', d.fn;
+    END IF;
+    IF pg_catalog.has_function_privilege('app_user', d.fn, 'EXECUTE') IS DISTINCT FROM d.app THEN
+      RAISE WARNING '1029: app_user % execute %: % it by hand', CASE WHEN d.app THEN 'cannot' ELSE 'can still' END, d.fn,
+        CASE WHEN d.app THEN 'grant' ELSE 'revoke' END;
+    END IF;
+    IF NOT pg_catalog.has_function_privilege('migration_admin', d.fn, 'EXECUTE') THEN
+      RAISE WARNING '1029: migration_admin cannot execute %: grant it by hand', d.fn;
+    END IF;
   END LOOP;
-  IF pg_catalog.has_function_privilege('public', 'public.intercompany_allocation_payer_standing(uuid)', 'EXECUTE')
-     OR pg_catalog.has_function_privilege('app_user', 'public.intercompany_allocation_payer_standing(uuid)', 'EXECUTE')
-     OR NOT pg_catalog.has_function_privilege('migration_admin', 'public.intercompany_allocation_payer_standing(uuid)', 'EXECUTE') THEN
-    RAISE EXCEPTION '1029: intercompany_allocation_payer_standing must be executable by migration_admin only';
-  END IF;
 END $$;

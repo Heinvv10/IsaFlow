@@ -4,9 +4,12 @@
  * as today), then a confirm that says what will post. The request sends back what the preview showed (loan account, link, amount, the bill's
  * open amount, the AP control): the server refuses (409) if the books changed since. A refusal shows its sentence; nothing was posted. After a
  * 409 (the books changed, or the bill is busy) the panel fetches the preview again (`onStale`), so a retry sends what the books now say; the
- * sentence stays until the person acts.
+ * sentence stays until the person acts. "Partner ready" means the partner can clear SOMETHING now (fix round 2 MED-3: the preview asks for one
+ * cent); the amount chosen is judged when it posts. The amount is a MoneyField (integer cents, parsed on blur / Enter). Focus (fix round 2):
+ * after Review it moves to Post clearing; a refusal moves it to the sentence.
  */
 import { useEffect, useId, useRef, useState } from 'react';
+import { MoneyField } from '@/components/ui/MoneyField';
 import { Loader2 } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
 import { DateField } from '@/components/ui/DateField';
@@ -28,9 +31,13 @@ const TITLE = 'Clear against the intercompany loan';
 const FAIL = 'Could not clear this bill - try again';
 const btn = 'px-3 py-2 text-sm rounded-lg border border-line text-ink hover:bg-surface-sunken disabled:opacity-50';
 const toCents = (n: number) => Math.round(n * 100);
+/** Long account and partner names wrap inside the grid at 360 px (fix round 2). */
+const cell = 'text-ink min-w-0 break-words';
 
 export function LoanClearingModal({ open, preview, onClose, onDone, onStale }: Props) {
-  const [amountText, setAmountText] = useState('');
+  const [amountCents, setAmountCents] = useState<number | null>(null);
+  const [amountRefused, setAmountRefused] = useState<string | null>(null);
+  const [amountReset, setAmountReset] = useState(0);
   const [date, setDate] = useState('');
   const [dateRefused, setDateRefused] = useState(false);
   const [step, setStep] = useState<'review' | 'confirm'>('review');
@@ -38,24 +45,33 @@ export function LoanClearingModal({ open, preview, onClose, onDone, onStale }: P
   const [error, setError] = useState('');
   const submitting = useRef(false);
   const field = useRef<HTMLInputElement>(null);
+  const alertRef = useRef<HTMLParagraphElement>(null);
+  const postRef = useRef<HTMLButtonElement>(null);
   const confirmId = `${useId()}-confirm`;
   const amountId = `${useId()}-amount`;
-  const maxText = preview.maxAmount === null ? '' : String(preview.maxAmount);
+  const maxCents = preview.maxAmount === null ? null : toCents(preview.maxAmount);
   // opening the dialog starts it afresh; a preview fetched again while it is open (after a 409) only moves the proposed amount
   useEffect(() => {
     if (!open) return;
     setDate(preview.defaultPostingDate); setDateRefused(false); setStep('review'); setError('');
     // eslint-disable-next-line react-hooks/exhaustive-deps -- on opening only: a refetched preview must not wipe the date or the sentence
   }, [open]);
-  useEffect(() => { if (open) setAmountText(maxText); }, [open, maxText]);
+  useEffect(() => {
+    if (!open) return;
+    setAmountCents(maxCents); setAmountRefused(null); setAmountReset((k) => k + 1);
+  }, [open, maxCents]);
+  // a refusal (the dialog's own or the server's) takes the focus to its sentence; Review takes it to Post clearing
+  useEffect(() => { if (error) alertRef.current?.focus(); }, [error]);
+  useEffect(() => { if (step === 'confirm') postRef.current?.focus(); }, [step]);
 
-  const amount = Number(amountText);
+  const amount = amountCents === null ? NaN : amountCents / 100;
   const ready = preview.linked && preview.blocked === null && preview.loanAccountId !== null && preview.linkId !== null && preview.openAmount !== null
     && preview.payableAccountId !== null;
 
   function review() {
     const max = preview.maxAmount ?? 0;
-    if (!Number.isFinite(amount) || amount <= 0 || toCents(amount) / 100 !== amount) { setError('Enter an amount in rand and cents, more than zero.'); return; }
+    if (amountRefused) { setError(amountRefused); return; }
+    if (amountCents === null || amountCents <= 0) { setError('Enter an amount in rand and cents, more than zero.'); return; }
     if (toCents(amount) > toCents(max)) { setError(`The amount is more than what is still open on this bill (${formatCurrency(max)}).`); return; }
     if (!date || dateRefused) { setError("Choose a posting date in an open period, on or after the bill's date, not after today."); return; }
     setError('');
@@ -96,31 +112,30 @@ export function LoanClearingModal({ open, preview, onClose, onDone, onStale }: P
           <p className="text-ink-muted">
             This posts one journal in your books: the bill is settled against your intercompany loan account, with no bank and no VAT. The partner is then sent the payment, to clear its invoice against its own loan account.
           </p>
-          <dl className="grid grid-cols-[9rem_1fr] gap-y-1.5" data-testid="loan-clearing-preview">
-            <dt className="text-ink-muted">Debit</dt><dd className="text-ink">{preview.payableLabel ?? 'Accounts Payable'}</dd>
-            <dt className="text-ink-muted">Credit</dt><dd className="text-ink">{preview.loanAccountLabel ?? '—'}</dd>
-            <dt className="text-ink-muted">Open on the bill</dt><dd className="text-ink tabular-nums">{preview.openAmount === null ? '—' : formatCurrency(preview.openAmount)}</dd>
-            <dt className="text-ink-muted">Partner</dt><dd className="text-ink">{preview.partnerName ?? '—'}</dd>
+          <dl className="grid grid-cols-[minmax(0,9rem)_minmax(0,1fr)] gap-x-2 gap-y-1.5" data-testid="loan-clearing-preview">
+            <dt className="text-ink-muted">Debit</dt><dd className={cell}>{preview.payableLabel ?? 'Accounts Payable'}</dd>
+            <dt className="text-ink-muted">Credit</dt><dd className={cell}>{preview.loanAccountLabel ?? '—'}</dd>
+            <dt className="text-ink-muted">Open on the bill</dt><dd className={`${cell} tabular-nums`}>{preview.openAmount === null ? '—' : formatCurrency(preview.openAmount)}</dd>
+            <dt className="text-ink-muted">Partner</dt><dd className={cell}>{preview.partnerName ?? '—'}</dd>
             <dt className="text-ink-muted">Partner ready</dt>
-            <dd className="text-ink">{preview.receiverReady ? 'Can clear it against its loan account' : 'Not ready to clear it'}</dd>
+            <dd className={cell}>{preview.receiverReady ? 'Can clear against its loan account (the amount is checked when you post)' : 'Not ready to clear it'}</dd>
           </dl>
-          {preview.blocked && <p role="alert" className="text-sm text-amber-700 dark:text-amber-400">{preview.blocked}</p>}
+          {preview.blocked && <p role="alert" className="text-sm text-amber-700 dark:text-amber-400 break-words">{preview.blocked}</p>}
           {step === 'review' ? (
             <div className="space-y-2">
-              <label htmlFor={amountId} className="block text-ink-muted">Amount</label>
-              <input id={amountId} type="number" step="0.01" min="0.01" inputMode="decimal" value={amountText} disabled={busy || !ready}
-                onChange={(e) => setAmountText(e.target.value)} className="w-40 rounded-lg border border-line bg-surface px-2 py-1 text-ink tabular-nums" />
+              <MoneyField id={amountId} label="Amount" value={amountCents} resetKey={amountReset} disabled={busy || !ready} className="w-48"
+                onChange={(cents, v) => { setAmountCents(cents); setAmountRefused(v.valid ? null : v.reason ?? 'Enter an amount in rand and cents.'); }} />
               <DateField id="ic-loan-clear-date" ref={field} label="Posting date" value={date || null} postingDate keepsEscape
                 minDate={preview.floorDate ?? undefined} maxDate={todayInSast()} minMessage="The posting date must be on or after the bill's date and the pair's cut-over."
                 maxMessage="The posting date cannot be after today." disabled={busy || !ready}
                 onChange={(iso, v) => { setDate(v.valid && iso ? iso : ''); setDateRefused(!v.valid); }} />
             </div>
           ) : (
-            <p id={confirmId} className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-ink" data-testid="loan-clearing-confirm">
+            <p id={confirmId} className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-ink break-words" data-testid="loan-clearing-confirm">
               Post {shown} on {formatDate(date)}: debit {preview.payableLabel ?? 'Accounts Payable'}, credit {preview.loanAccountLabel}, against bill {preview.billNumber ?? ''}?
             </p>
           )}
-          {error && <p role="alert" tabIndex={-1} className="text-sm text-red-600 dark:text-red-400">{error}</p>}
+          {error && <p ref={alertRef} role="alert" tabIndex={-1} className="text-sm text-red-600 dark:text-red-400 break-words">{error}</p>}
         </div>
       </Modal.Body>
       <Modal.Footer>
@@ -133,7 +148,7 @@ export function LoanClearingModal({ open, preview, onClose, onDone, onStale }: P
         ) : (
           <>
             <button type="button" onClick={() => setStep('review')} disabled={busy} className={btn}>Back</button>
-            <button type="button" aria-describedby={confirmId} onClick={() => void post()} disabled={busy}
+            <button ref={postRef} type="button" aria-describedby={confirmId} onClick={() => void post()} disabled={busy}
               className="px-4 py-2 text-sm font-medium rounded-lg bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-50 inline-flex items-center gap-2">
               {busy && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}Post clearing
             </button>

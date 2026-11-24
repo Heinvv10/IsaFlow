@@ -24,7 +24,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // here it is a no-op, and the error class stays real.
 // intercompany P4-E (j).4: the payer undo gate asks its own queries (tested in the intercompany suites); off here
 vi.mock('@/modules/accounting/services/intercompany/allocationUndoGate', () => ({
-  PARTNER_CLEARED_SENTENCE: 'refused', partnerClearedRefusal: vi.fn(async () => null), partnerClearedJournalRefusal: vi.fn(async () => null),
+  PARTNER_CLEARED_SENTENCE: 'refused', partnerClearedRefusal: vi.fn(async () => null), partnerClearedJournalRefusal: vi.fn(async () => null), lockPayerJournalKey: vi.fn(async () => null),
 }));
 vi.mock('@/modules/accounting/services/gl/journalVatLockGuard', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/modules/accounting/services/gl/journalVatLockGuard')>()),

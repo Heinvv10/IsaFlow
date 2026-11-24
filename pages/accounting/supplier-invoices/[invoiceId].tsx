@@ -31,6 +31,7 @@ import { DueDateEditor } from '@/components/accounting/terms/DueDateEditor';
 import { useBudgetApprove } from '@/components/accounting/ap/useBudgetApprove';
 import { CommentsPanel } from '@/components/accounting/comments/CommentsPanel';
 import { LoanClearingPanel } from '@/components/accounting/intercompany/LoanClearingPanel';
+import type { LoanClearResult } from '@/modules/accounting/services/intercompany/payerLoanClearTypes';
 
 function StatusBadge({ status }: { status: string }) {
   const colors: Record<string, string> = {
@@ -62,6 +63,9 @@ export default function SupplierInvoiceDetailPage() {
   const dates = useDateGate();
   const [editForm, setEditForm] = useState({ invoiceNumber: '', dueDate: '', paymentTerms: '', notes: '' });
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  // P4-E: a loan clearing's confirmation outlives the reload behind the spinner (it unmounts the panel); another bill starts without one
+  const [loanCleared, setLoanCleared] = useState<LoanClearResult | null>(null);
+  useEffect(() => { setLoanCleared(null); }, [invoiceId]);
 
   const loadInvoice = useCallback(async () => {
     setIsLoading(true);
@@ -228,7 +232,7 @@ export default function SupplierInvoiceDetailPage() {
 
           <ThreeWayMatchPanel invoiceId={invoiceId as string} />
           {/* intercompany P4-E: only for a bill linked on a loan connection, with the dark flag on */}
-          <LoanClearingPanel billId={invoiceId as string} onCleared={() => void loadInvoice()} />
+          <LoanClearingPanel billId={invoiceId as string} cleared={loanCleared} onCleared={(out) => { setLoanCleared(out); void loadInvoice(); }} />
 
           <AccountingDocumentPanel
             entityType="supplier_invoice"

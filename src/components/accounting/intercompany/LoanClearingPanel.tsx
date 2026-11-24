@@ -2,9 +2,12 @@
  * Supplier bill detail, intercompany P4-E: "Clear against the intercompany loan". Asks the preview (GET loan-clearings?billId=) once per bill:
  * with the dark flag off the route answers 403 and nothing shows; a bill that is not linked on a loan connection shows nothing either; a preview
  * that fails otherwise says so in one line. Otherwise
- * a short section with the action; the dialog (`LoanClearingModal`) previews and confirms. A posted clearing names its payment and journal.
+ * a short section with the action; the dialog (`LoanClearingModal`) previews and confirms. A posted clearing names its payment and journal:
+ * the PAGE holds that result (`cleared`, fix round 2 MED-1 of the blind review), because the page reloads the bill after a clearing behind its
+ * full-page spinner, which unmounts this panel. Only the latest preview request is applied (a sequence number: an older answer that resolves
+ * later is dropped).
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { Landmark } from 'lucide-react';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
@@ -13,8 +16,10 @@ import { LoanClearingModal } from './LoanClearingModal';
 
 interface Props {
   billId: string;
-  /** A clearing posted: the page reloads the bill. */
-  onCleared: () => void;
+  /** The clearing this page posted (kept by the page: the panel is unmounted while the page reloads the bill), or null. */
+  cleared: LoanClearResult | null;
+  /** A clearing posted: the page keeps the result and reloads the bill. */
+  onCleared: (out: LoanClearResult) => void;
 }
 
 export const LOAN_CLEARING_ACTION = 'Clear against the intercompany loan';
@@ -30,17 +35,21 @@ async function loadPreview(billId: string): Promise<LoanClearingPreview | null> 
   return body.data ?? null;
 }
 
-export function LoanClearingPanel({ billId, onCleared }: Props) {
+export function LoanClearingPanel({ billId, cleared: done, onCleared }: Props) {
   const [preview, setPreview] = useState<LoanClearingPreview | null>(null);
   const [open, setOpen] = useState(false);
-  const [done, setDone] = useState<LoanClearResult | null>(null);
   const [failed, setFailed] = useState('');
+  const seq = useRef(0);
 
   const reload = useCallback(async () => {
+    const mine = ++seq.current;
     try {
-      setPreview(await loadPreview(billId));
+      const next = await loadPreview(billId);
+      if (mine !== seq.current) return;
+      setPreview(next);
       setFailed('');
     } catch (err) {
+      if (mine !== seq.current) return;
       // the action hides, and says why (the bill page itself still works)
       setPreview(null);
       setFailed(apiErrorMessage(err, PREVIEW_FAIL));
@@ -72,7 +81,7 @@ export function LoanClearingPanel({ billId, onCleared }: Props) {
       )}
       {preview && (
         <LoanClearingModal open={open} preview={preview} onClose={() => setOpen(false)}
-          onDone={(out) => { setOpen(false); setDone(out); onCleared(); void reload(); }} onStale={() => { void reload(); }} />
+          onDone={(out) => { setOpen(false); onCleared(out); void reload(); }} onStale={() => { void reload(); }} />
       )}
     </section>
   );

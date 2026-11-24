@@ -15,6 +15,8 @@ vi.mock('@/lib/neon', () => ({
 }));
 vi.mock('@/lib/alsTransaction', () => ({ withAlsTransaction: vi.fn() }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() } }));
+// P4-E round 2: the payer's journal key is taken before the claim (its own tests are the intercompany integration suites)
+vi.mock('@/modules/accounting/services/intercompany/allocationUndoGate', () => ({ lockPayerJournalKey: vi.fn(async () => null) }));
 
 import { sql } from '@/lib/neon';
 import { als } from '@/lib/als';

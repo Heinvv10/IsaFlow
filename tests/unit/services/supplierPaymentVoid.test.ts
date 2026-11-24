@@ -25,7 +25,7 @@ const { mockTx } = vi.hoisted(() => ({
 }));
 // intercompany P4-E (j).4: the payer undo gate asks its own queries (tested in the intercompany suites); off here
 vi.mock('@/modules/accounting/services/intercompany/allocationUndoGate', () => ({
-  PARTNER_CLEARED_SENTENCE: 'refused', partnerClearedRefusal: vi.fn(async () => null), partnerClearedJournalRefusal: vi.fn(async () => null),
+  PARTNER_CLEARED_SENTENCE: 'refused', partnerClearedRefusal: vi.fn(async () => null), partnerClearedJournalRefusal: vi.fn(async () => null), lockPayerJournalKey: vi.fn(async () => null),
 }));
 vi.mock('@/lib/als', async () => {
   const actual = await vi.importActual<typeof import('@/lib/als')>('@/lib/als');
