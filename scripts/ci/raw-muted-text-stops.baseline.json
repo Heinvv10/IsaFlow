@@ -263,7 +263,7 @@
   "pages/accounting/journal-entries/new.tsx": 9,
   "pages/accounting/journal-entries/[entryId].tsx": 1,
   "pages/accounting/reports/builder.tsx": 1,
-  "pages/accounting/reports/my-reports.tsx": 7,
+  "pages/accounting/reports/my-reports.tsx": 5,
   "pages/accounting/reports/journal-entries.tsx": 2,
   "pages/accounting/reports/customer-communication.tsx": 1,
   "pages/accounting/reports/audit-trail.tsx": 3,
