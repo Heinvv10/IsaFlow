@@ -46,14 +46,14 @@ export function BulkConfirmModal({ action, count, busy, onCancel, onConfirm }: P
       className="fixed inset-0 z-50 flex items-center justify-center px-4 bg-slate-950/80 backdrop-blur-sm"
       onClick={e => e.target === e.currentTarget && !busy && onCancel()}
     >
-      <div className="w-full max-w-sm bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
-        <div className="px-6 py-5 border-b border-slate-100 dark:border-slate-800">
+      <div className="w-full max-w-sm bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden max-lg:flex max-lg:flex-col max-lg:max-h-[calc(100dvh-2rem)]">
+        <div className="px-6 py-5 border-b border-slate-100 dark:border-slate-800 max-lg:overflow-y-auto max-lg:overscroll-contain">
           <h2 id="bulk-confirm-title" className="text-base font-semibold text-slate-900 dark:text-white">{verb} {count} period{count !== 1 ? 's' : ''}?</h2>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">{explainer}</p>
         </div>
-        <div className="px-6 py-4 border-t border-slate-100 dark:border-slate-800 flex justify-end gap-2 bg-slate-50/50 dark:bg-slate-800/20">
-          <button ref={cancelRef} onClick={onCancel} disabled={busy} className="px-4 py-2 text-sm text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors disabled:opacity-50">Cancel</button>
-          <button onClick={onConfirm} disabled={busy} className={`px-5 py-2 text-sm font-semibold text-white rounded-lg transition-colors disabled:opacity-50 flex items-center gap-2 ${tone}`}>
+        <div className="px-6 py-4 border-t border-slate-100 dark:border-slate-800 flex justify-end gap-2 bg-slate-50/50 dark:bg-slate-800/20 max-lg:flex-wrap max-lg:shrink-0">
+          <button ref={cancelRef} onClick={onCancel} disabled={busy} className="px-4 py-2 text-sm text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors disabled:opacity-50 max-lg:min-h-11">Cancel</button>
+          <button onClick={onConfirm} disabled={busy} className={`px-5 py-2 text-sm font-semibold text-white rounded-lg transition-colors disabled:opacity-50 flex items-center gap-2 max-lg:min-h-11 ${tone}`}>
             {busy && <Loader2 className="w-4 h-4 animate-spin" />}
             {busy ? `${verb}ing…` : verb}
           </button>
