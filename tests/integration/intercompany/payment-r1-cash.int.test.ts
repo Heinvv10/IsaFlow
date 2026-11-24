@@ -6,6 +6,11 @@
  *   LOW-1  D2 answers `not_cash` once the connection is off cash (between connection_gone and not_enabled).
  *   B6     D2 answers `closed` for a rejected / dismissed / failed message, `open` again after a restore.
  *   auto   the auto-accept worker never takes a payment message, even with auto_accept on for the receiver's side.
+ * Review round 2 (plan (n)):
+ *   MED-R1 a bank-first (R-127) payment is cash: its own journal is the RECLASS (DR AP / CR the provisional's expense lines), the provisional
+ *          it settles credited the bank. D1 sends it and the unsent read lists it (settlementKind's rule 2, intercompany_payment_cash_word).
+ *   LOW-R2 a journal crediting no money account is `no_money_account` (not `not_cash`, which is the connection's mode and a contra set-off),
+ *          and the unsent read LISTS it, marked, so the payer sees it; still nothing is sent.
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
@@ -14,7 +19,7 @@ import { runAutoAccept } from '../../../src/modules/accounting/services/intercom
 import { asAppUser, count, withoutTrigger } from './intercompany.helpers';
 import { mirrorCleanup, wipeConnections } from './mirror.helpers';
 import { setLoanClearing } from './loan-clearing.helpers';
-import { clearPayments, plantBill, plantPaid } from './allocation.helpers';
+import { clearPayments, plantBill, plantPaid, plantPaymentJournal } from './allocation.helpers';
 import {
   acct, cashConnect, clearReceipts, co, dataOf, errorText, payApi, paymentMessages, paymentSetup, plantReceipt, sendAlloc, sendPay, sentPayment, stateOf, U,
 } from './payment.helpers';
@@ -22,17 +27,18 @@ import {
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 6 });
 let conn = '';
-const acc = { clearing: '', paycard: '', bareNoLines: '' };
+const acc = { clearing: '', paycard: '', bareNoLines: '', expense: '' };
 
 beforeAll(async () => {
   await paymentSetup(pool);
   for (const k of Object.keys(acc) as (keyof typeof acc)[]) acc[k] = crypto.randomUUID();
   const tag = co.B.slice(0, 5);
   // a balance-sheet clearing account (not money), a paycard whose subtype was never set but holds a statement line (money), and a bare one
-  for (const [id, code, subtype] of [[acc.clearing, `CL1${tag}`, 'other_current_asset'], [acc.paycard, `PC1${tag}`, null], [acc.bareNoLines, `NS1${tag}`, null]] as const) {
+  for (const [id, code, subtype, type] of [[acc.clearing, `CL1${tag}`, 'other_current_asset', 'asset'], [acc.paycard, `PC1${tag}`, null, 'asset'],
+    [acc.bareNoLines, `NS1${tag}`, null, 'asset'], [acc.expense, `EX1${tag}`, 'operating_expense', 'expense']] as const) {
     await pool.query(
       `INSERT INTO gl_accounts(id, company_id, account_code, account_name, account_type, normal_balance, is_active, account_subtype)
-       VALUES ($1, $2, $3, $3, 'asset', 'debit', true, $4)`, [id, co.B, code, subtype]);
+       VALUES ($1, $2, $3, $3, $5, 'debit', true, $4)`, [id, co.B, code, subtype, type]);
   }
   await pool.query("INSERT INTO bank_transactions(company_id, bank_account_id, transaction_date, amount, description) VALUES ($1, $2, DATE '2026-09-01', -5, 'IC r1 paycard line')", [co.B, acc.paycard]);
 }, 60000);
@@ -60,13 +66,27 @@ describe('MED-1: D1 sends for cash only', () => {
   });
 
   it.each([
-    ['a contra whose contra account IS a bank account', { method: 'contra' }],
-    ['an eft payment whose journal credits a clearing account', { leg: 'clearing' }],
-    ['an eft payment whose journal credits an account with no subtype and no statement line', { leg: 'bareNoLines' }],
-  ] as const)('%s: not_cash, nothing written', async (_name, over) => {
+    ['a contra whose contra account IS a bank account', { method: 'contra' }, 'not_cash'],
+    ['(round 2 LOW-R2) an eft payment whose journal credits a clearing account', { leg: 'clearing' }, 'no_money_account'],
+    ['(round 2 LOW-R2) an eft payment whose journal credits an account with no subtype and no statement line', { leg: 'bareNoLines' }, 'no_money_account'],
+  ] as const)('%s, nothing written', async (_name, over, reason) => {
     const leg = 'leg' in over ? acc[over.leg] : undefined;
     const p = await paid({ ...('method' in over ? { method: over.method } : {}), ...(leg ? { leg } : {}) });
-    expect((await sendPay(pool, p.allocation)).reason).toBe('not_cash');
+    expect((await sendPay(pool, p.allocation)).reason).toBe(reason);
+    expect(await paymentMessages(pool)).toHaveLength(0);
+  });
+
+  it('(round 2 MED-R1) a bank-first payment (its reclass journal credits expense; the provisional it settles credited the bank) is sent', async () => {
+    const prov = await plantPaymentJournal(pool, 1150);                                // the provisional: credits B's bank
+    const p = await paid({ leg: acc.expense, provisional: prov });                    // the reclass: DR AP / CR the provisional's expense line
+    expect(await sendPay(pool, p.allocation)).toMatchObject({ reason: null, detail: null });
+    expect(await paymentMessages(pool, p.allocation)).toHaveLength(1);
+  });
+
+  it('(round 2 MED-R1) control: the same reclass with NO provisional, or a provisional that credited a clearing account, is no_money_account', async () => {
+    const bare = await paid({ leg: acc.expense });
+    const viaClearing = await paid({ leg: acc.expense, provisional: await plantPaymentJournal(pool, 1150, { leg: acc.clearing }) });
+    for (const p of [bare, viaClearing]) expect((await sendPay(pool, p.allocation)).reason, p.allocation).toBe('no_money_account');
     expect(await paymentMessages(pool)).toHaveLength(0);
   });
 
@@ -80,11 +100,13 @@ describe('MED-1: D1 sends for cash only', () => {
 });
 
 describe('B5: the unsent read lists only what D1 could still send', () => {
-  it('lists the lost eft, never a contra, a non-money leg, a loan leg, a reversed journal or a superseded payment', async () => {
+  it('lists the lost eft and a bank-first one, marks a non-money leg, never a contra, a loan leg, a reversed journal or a superseded payment', async () => {
     const lost = await paid();                                                          // control: flag off at send, nothing written
-    const shown = [lost.allocation];
+    const bankFirst = await paid({ leg: acc.expense, provisional: await plantPaymentJournal(pool, 1150) });   // round 2 MED-R1
+    const noMoney = [await paid({ leg: acc.clearing }), await paid({ leg: acc.bareNoLines })];             // round 2 LOW-R2: listed, marked
+    const shown = [lost.allocation, bankFirst.allocation, ...noMoney.map((p) => p.allocation)].sort();
     const hidden = [
-      await paid({ method: 'contra', leg: acc.clearing }), await paid({ method: 'contra' }), await paid({ leg: acc.clearing }),
+      await paid({ method: 'contra', leg: acc.clearing }), await paid({ method: 'contra' }),
       await paid({ leg: acct.bLoan }), await paid({ reversed: true }),
     ].map((p) => p.allocation);
     // superseded: an accepted message of a payment whose allocation row is gone; the payment re-applied to another bill sends nothing
@@ -97,9 +119,15 @@ describe('B5: the unsent read lists only what D1 could still send', () => {
     hidden.push(re);
     const res = await payApi.unsent(U.b, co.B);
     expect(res.state.statusCode, errorText(res)).toBe(200);
-    const ids = dataOf<{ items: { allocationId: string }[] }>(res).items.map((i) => i.allocationId);
-    expect(ids).toEqual(shown);
+    const items = dataOf<{ items: { allocationId: string; refusal: string | null }[] }>(res).items;
+    const ids = items.map((i) => i.allocationId);
+    expect([...ids].sort()).toEqual(shown);
     for (const h of hidden) expect(ids, h).not.toContain(h);
+    const marked = Object.fromEntries(items.map((i) => [i.allocationId, i.refusal]));
+    expect(marked).toEqual(Object.fromEntries([[lost.allocation, null], [bankFirst.allocation, null], ...noMoney.map((p) => [p.allocation, 'no_money_account'])]));
+    // the marked ones are what D1 refuses (fail closed), the rest D1 sends
+    for (const p of noMoney) expect((await sendPay(pool, p.allocation)).reason).toBe('no_money_account');
+    expect((await sendPay(pool, bankFirst.allocation)).reason).toBeNull();
   });
 });
 
