@@ -46,7 +46,7 @@ export default function ItemListingReport() {
     <AppLayout>
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
         <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-6 py-4">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between max-lg:flex-wrap max-lg:gap-3">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-indigo-500/10"><List className="h-6 w-6 text-indigo-500" /></div>
               <div>
@@ -54,13 +54,13 @@ export default function ItemListingReport() {
                 <p className="text-sm text-[var(--ff-text-secondary)]">Master list of all stock items</p>
               </div>
             </div>
-            <div className="flex items-center gap-3">
-              <div className="relative">
+            <div className="flex items-center gap-3 max-lg:flex-wrap max-lg:w-full">
+              <div className="relative max-lg:flex-1 max-lg:min-w-0">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--ff-text-tertiary)]" />
-                <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search..." className="ff-input pl-9 text-sm" />
+                <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search..." className="ff-input pl-9 text-sm max-lg:min-h-11" />
               </div>
               <button onClick={() => window.open(`/api/accounting/reports/item-listing?format=csv${search ? `&search=${encodeURIComponent(search)}` : ''}`, '_blank')}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-brand-600 hover:bg-brand-700 text-white rounded-lg">
+                className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-brand-600 hover:bg-brand-700 text-white rounded-lg max-lg:min-h-11">
                 <Download className="h-4 w-4" /> CSV
               </button>
             </div>
@@ -74,7 +74,7 @@ export default function ItemListingReport() {
             ) : rows.length === 0 ? (
               <div className="p-8 text-center text-[var(--ff-text-tertiary)]">No items found</div>
             ) : (
-              <table className="w-full text-sm">
+              <table className="w-full text-sm table-cards">
                 <thead><tr className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-tertiary)]">
                   <th className="px-4 py-3 text-left text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Code</th>
                   <th className="px-4 py-3 text-left text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Name</th>
@@ -88,12 +88,12 @@ export default function ItemListingReport() {
                   {rows.map(r => (
                     <tr key={r.id} className="hover:bg-teal-500/[0.04]">
                       <td className="px-4 py-3 font-mono text-xs text-[var(--ff-text-tertiary)]">{r.itemCode}</td>
-                      <td className="px-4 py-3 text-[var(--ff-text-primary)]">{r.name}</td>
-                      <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{r.category}</td>
-                      <td className="px-4 py-3 text-[var(--ff-text-tertiary)]">{r.uom}</td>
-                      <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">{fmt(r.sellingPrice)}</td>
-                      <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-secondary)]">{fmt(r.costPrice)}</td>
-                      <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">{r.qtyOnHand}</td>
+                      <td data-label="Name" className="px-4 py-3 text-[var(--ff-text-primary)]">{r.name}</td>
+                      <td data-label="Category" className="px-4 py-3 text-[var(--ff-text-secondary)]">{r.category}</td>
+                      <td data-label="UOM" className="px-4 py-3 text-[var(--ff-text-tertiary)]">{r.uom}</td>
+                      <td data-label="Selling" className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">{fmt(r.sellingPrice)}</td>
+                      <td data-label="Cost" className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-secondary)]">{fmt(r.costPrice)}</td>
+                      <td data-label="Qty" className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">{r.qtyOnHand}</td>
                     </tr>
                   ))}
                 </tbody>

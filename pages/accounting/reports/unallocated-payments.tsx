@@ -47,7 +47,7 @@ export default function UnallocatedPaymentsReport() {
     <AppLayout>
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
         <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-6 py-4">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between max-lg:flex-wrap max-lg:gap-3">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-amber-500/10"><AlertCircle className="h-6 w-6 text-amber-500" /></div>
               <div>
@@ -56,7 +56,7 @@ export default function UnallocatedPaymentsReport() {
               </div>
             </div>
             <Link href="/accounting/supplier-allocations"
-              className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 text-sm font-medium">
+              className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 text-sm font-medium max-lg:min-h-11 max-lg:inline-flex max-lg:items-center">
               Allocate Payments
             </Link>
           </div>
@@ -77,7 +77,7 @@ export default function UnallocatedPaymentsReport() {
             ) : items.length === 0 ? (
               <div className="p-8 text-center text-[var(--ff-text-tertiary)]">All payments are fully allocated</div>
             ) : (
-              <table className="w-full text-sm">
+              <table className="w-full text-sm table-cards">
                 <thead><tr className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-tertiary)]">
                   <th className="px-4 py-3 text-left text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Payment No</th>
                   <th className="px-4 py-3 text-left text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Supplier</th>
@@ -92,11 +92,11 @@ export default function UnallocatedPaymentsReport() {
                       <td className="px-4 py-3 font-medium text-[var(--ff-text-primary)]">
                         <Link href={`/accounting/supplier-payments/${p.id}`} className="hover:text-orange-400">{p.paymentNumber}</Link>
                       </td>
-                      <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{p.supplierName}</td>
-                      <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{formatDisplayDate(p.date)}</td>
-                      <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">{fmt(Number(p.amount))}</td>
-                      <td className="px-4 py-3 text-right tabular-nums text-teal-400">{fmt(Number(p.allocatedAmount))}</td>
-                      <td className="px-4 py-3 text-right tabular-nums font-bold text-amber-400">{fmt(Number(p.amount) - Number(p.allocatedAmount))}</td>
+                      <td data-label="Supplier" className="px-4 py-3 text-[var(--ff-text-secondary)]">{p.supplierName}</td>
+                      <td data-label="Date" className="px-4 py-3 text-[var(--ff-text-secondary)]">{formatDisplayDate(p.date)}</td>
+                      <td data-label="Total" className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">{fmt(Number(p.amount))}</td>
+                      <td data-label="Allocated" className="px-4 py-3 text-right tabular-nums text-teal-400">{fmt(Number(p.allocatedAmount))}</td>
+                      <td data-label="Unallocated" className="px-4 py-3 text-right tabular-nums font-bold text-amber-400">{fmt(Number(p.amount) - Number(p.allocatedAmount))}</td>
                     </tr>
                   ))}
                 </tbody>
