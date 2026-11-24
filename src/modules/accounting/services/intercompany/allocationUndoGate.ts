@@ -17,6 +17,13 @@
  * would stand, the message would die (allocation_gone), the bill would reopen and could be cleared again (the loan credited twice). VOID is the
  * undo (it reverses the journal). Being refused whatever a receiver does, the unapply takes no advisory key (N: so it never holds a bill row
  * while waiting for a key, the opposite of the void's key-then-bill order).
+ *
+ * F (migration 1031, plan (k) H-1 / (l) MED-1): a `payment` message (cash mode) the receiver ACCEPTED (matched to its receipt, or drafted one)
+ * stops the payer's unapply, void and journal reversal exactly as an accepted allocation message does: every read here takes
+ * kind IN ('allocation', 'payment'); the loan-credit unapply refusal stays allocation-only (a payment message never credits the loan).
+ * N is amended for payment messages only: when the payment has one, the unapply takes the same payment / journal / bill keys RIGHT AFTER its
+ * payment row lock (the void's order: payment row, then keys) and only then reads this gate (`lockPaymentMessageKeys`), so an unapply racing
+ * an accept waits for it and is refused. An allocation-only payment keeps N (no key).
  */
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
@@ -30,6 +37,13 @@ export const PARTNER_CLEARED_SENTENCE = 'The partner already cleared this paymen
   + 'voided, unapplied or reversed here, and this cannot be undone in the app yet (intercompany reversals are not automated). Contact support '
   + 'to correct it. Nothing was changed.';
 
+/** F: the same, for a cash-mode payment message the partner matched in its own books. */
+export const PARTNER_MATCHED_SENTENCE = 'The partner already matched this payment in its books (it accepted the payment message), so it cannot be '
+  + 'voided, unapplied or reversed here, and this cannot be undone in the app yet (intercompany reversals are not automated). Contact support '
+  + 'to correct it. Nothing was changed.';
+
+const sentenceOf = (kinds: unknown): string => (String(kinds ?? '').includes('allocation') ? PARTNER_CLEARED_SENTENCE : PARTNER_MATCHED_SENTENCE);
+
 export const LOAN_CLEARED_UNAPPLY_SENTENCE = 'This payment cleared the bill against the intercompany loan and its allocation message was sent to the partner, so it '
   + 'cannot be unapplied (the clearing journal would stay and the bill could be cleared twice). Void the payment instead: that reverses the clearing '
   + 'and the partner can no longer clear it. Nothing was changed.';
@@ -38,11 +52,12 @@ export const LOAN_CLEARED_UNAPPLY_SENTENCE = 'This payment cleared the bill agai
  *  loan-account credit (any status), else null. Reads only; no lock (see the header, A and N). */
 export async function loanClearedUnapplyRefusal(companyId: string, paymentId: string): Promise<string | null> {
   const rows = (await sql`
-    SELECT bool_or(m.status = 'accepted') AS accepted, bool_or((m.payload #>> '{payment,cashLegIsLoanAccount}') = 'true') AS loan
+    SELECT bool_or(m.status = 'accepted') AS accepted, string_agg(DISTINCT m.kind, ',') FILTER (WHERE m.status = 'accepted') AS kinds,
+           bool_or(m.kind = 'allocation' AND (m.payload #>> '{payment,cashLegIsLoanAccount}') = 'true') AS loan
       FROM intercompany_messages m
-     WHERE m.from_company_id = ${companyId}::UUID AND m.kind = 'allocation' AND (m.payload #>> '{payment,id}') = ${paymentId}::UUID::TEXT
+     WHERE m.from_company_id = ${companyId}::UUID AND m.kind IN ('allocation', 'payment') AND (m.payload #>> '{payment,id}') = ${paymentId}::UUID::TEXT
   `) as Row[];
-  if (rows[0]?.accepted === true) return PARTNER_CLEARED_SENTENCE;
+  if (rows[0]?.accepted === true) return sentenceOf(rows[0].kinds);
   if (rows[0]?.loan === true) {
     log.info('Payer unapply refused: the payment cleared a bill against the intercompany loan', { companyId, paymentId }, 'intercompany');
     return LOAN_CLEARED_UNAPPLY_SENTENCE;
@@ -54,33 +69,51 @@ export async function loanClearedUnapplyRefusal(companyId: string, paymentId: st
 export async function partnerClearedRefusal(companyId: string, paymentId: string): Promise<string | null> {
   const any = (await sql`
     SELECT 1 AS one FROM intercompany_messages m
-     WHERE m.from_company_id = ${companyId}::UUID AND m.kind = 'allocation' AND (m.payload #>> '{payment,id}') = ${paymentId}::UUID::TEXT
+     WHERE m.from_company_id = ${companyId}::UUID AND m.kind IN ('allocation', 'payment') AND (m.payload #>> '{payment,id}') = ${paymentId}::UUID::TEXT
      LIMIT 1
   `) as Row[];
   if (any.length === 0) return null;
-  // exactly the keys the receiver's clearing of each of these messages takes (1027 intercompany_allocation_cap_lock)
+  await lockMessageKeys(companyId, paymentId);
+  const accepted = (await sql`
+    SELECT m.kind FROM intercompany_messages m
+     WHERE m.from_company_id = ${companyId}::UUID AND m.kind IN ('allocation', 'payment') AND m.status = 'accepted'
+       AND ((m.payload #>> '{payment,id}') = ${paymentId}::UUID::TEXT
+         OR m.source_doc_id IN (SELECT pa.id FROM payment_allocations pa
+                                  JOIN supplier_payments sp ON sp.id = pa.payment_id AND sp.company_id = ${companyId}::UUID
+                                 WHERE pa.payment_id = ${paymentId}::UUID))
+     ORDER BY m.kind
+  `) as Row[];
+  if (accepted.length === 0) return null;
+  log.info('Payer undo refused: the partner already cleared this payment', { companyId, paymentId }, 'intercompany');
+  return sentenceOf(accepted.map((a) => String(a.kind)).join(','));
+}
+
+/** Exactly the keys the receiver's accept of each message of this payment takes (1027 / 1031 intercompany_allocation_cap_lock), ascending. */
+async function lockMessageKeys(companyId: string, paymentId: string): Promise<void> {
   const keys = (await sql`
     SELECT DISTINCT pg_catalog.hashtextextended(m.from_company_id::TEXT || x.part, 1027) AS k
       FROM intercompany_messages m
      CROSS JOIN LATERAL (VALUES (':payment:' || COALESCE(m.payload #>> '{payment,id}', '')),
                                 (':journal:' || COALESCE(m.source_journal_entry_id::TEXT, '')),
                                 (':bill:' || COALESCE(m.payload #>> '{payerDocument,id}', ''))) AS x(part)
-     WHERE m.from_company_id = ${companyId}::UUID AND m.kind = 'allocation' AND (m.payload #>> '{payment,id}') = ${paymentId}::UUID::TEXT
+     WHERE m.from_company_id = ${companyId}::UUID AND m.kind IN ('allocation', 'payment') AND (m.payload #>> '{payment,id}') = ${paymentId}::UUID::TEXT
      ORDER BY k
   `) as Row[];
   await lockKeys(keys);
-  const accepted = (await sql`
+}
+
+/**
+ * (l) MED-1: the unapply's keys. Called RIGHT AFTER the unapply's payment row lock, before its bill locks: when a `payment` message of this
+ * payment exists, the payment / journal / bill keys are taken (an accept in flight is waited for; the gate read after this sees it), else
+ * nothing (an allocation-only payment keeps N).
+ */
+export async function lockPaymentMessageKeys(companyId: string, paymentId: string): Promise<void> {
+  const any = (await sql`
     SELECT 1 AS one FROM intercompany_messages m
-     WHERE m.from_company_id = ${companyId}::UUID AND m.kind = 'allocation' AND m.status = 'accepted'
-       AND ((m.payload #>> '{payment,id}') = ${paymentId}::UUID::TEXT
-         OR m.source_doc_id IN (SELECT pa.id FROM payment_allocations pa
-                                  JOIN supplier_payments sp ON sp.id = pa.payment_id AND sp.company_id = ${companyId}::UUID
-                                 WHERE pa.payment_id = ${paymentId}::UUID))
+     WHERE m.from_company_id = ${companyId}::UUID AND m.kind = 'payment' AND (m.payload #>> '{payment,id}') = ${paymentId}::UUID::TEXT
      LIMIT 1
   `) as Row[];
-  if (accepted.length === 0) return null;
-  log.info('Payer undo refused: the partner already cleared this payment', { companyId, paymentId }, 'intercompany');
-  return PARTNER_CLEARED_SENTENCE;
+  if (any.length > 0) await lockMessageKeys(companyId, paymentId);
 }
 
 /** A journal reversal (called by `reverseJournalEntry` for every entry, under its claim, before any write): refused when the entry, or the
@@ -90,9 +123,9 @@ export async function partnerClearedJournalRefusal(companyId: string, entryId: s
   const root = await lockPayerJournalKey(companyId, entryId);
   if (root === null) return null;
   const accepted = (await sql`
-    SELECT 1 AS one FROM intercompany_messages
-     WHERE from_company_id = ${companyId}::UUID AND kind = 'allocation' AND status = 'accepted' AND source_journal_entry_id = ${root}::UUID
-     LIMIT 1
+    SELECT kind FROM intercompany_messages
+     WHERE from_company_id = ${companyId}::UUID AND kind IN ('allocation', 'payment') AND status = 'accepted' AND source_journal_entry_id = ${root}::UUID
+     ORDER BY kind
   `) as Row[];
-  return accepted.length > 0 ? PARTNER_CLEARED_SENTENCE : null;
+  return accepted.length > 0 ? sentenceOf(accepted.map((a) => String(a.kind)).join(',')) : null;
 }

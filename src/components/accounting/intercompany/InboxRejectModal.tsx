@@ -9,15 +9,15 @@ interface Props {
   item: Pick<InboxItem, 'id' | 'number' | 'senderName'> | null;
   onClose: () => void;
   onDone: (message: string) => void;
-  /** The route family the message is rejected through: `inbox` (invoices and credit notes) or `allocations` (payments). */
-  path?: 'inbox' | 'allocations';
+  /** The route family the message is rejected through: `inbox` (invoices and credit notes), `allocations` (loan payments) or `payments` (F: cash payments). */
+  path?: 'inbox' | 'allocations' | 'payments';
   /** The server refused with a 409 (someone else handled it, the connection ended), with its sentence: the list behind the dialog should
    *  reload (and close this dialog if the message is no longer listed, saying why). */
   onConflict?: (message: string) => void;
 }
 
 export function InboxRejectModal({ item, onClose, onDone, path = 'inbox', onConflict }: Props) {
-  const payment = path === 'allocations';
+  const payment = path !== 'inbox';
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
   // `busy` is state: a second submit in the same event batch still sees the enabled button. The ref is read at once.

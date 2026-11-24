@@ -67,13 +67,14 @@ describe('another company\'s rows are not found', () => {
 });
 
 describe('a session cannot write an allocation message, and a definer cannot name a row that is not the sender\'s', () => {
-  it('app_user: the kind alone and the source type alone are refused (42501); a payment message naming a payment is still open', async () => {
+  it('app_user: the kind alone and the source type alone are refused (42501); a payment message (1031) too; a reject naming a payment is still open', async () => {
     const own = (await plantPaid(pool, (await plantBill(pool, conn)).bill)).allocation;
     await asAppUser(pool, U.b, co.B, async (q) => {
       expect(await outcome(q, INSERT, [conn, co.B, co.A, 'allocation', 'payment_allocation', own])).toMatch(BY_DB);
       expect(await outcome(q, INSERT, [conn, co.B, co.A, 'allocation', 'payment', own])).toMatch(BY_DB);             // the kind
       expect(await outcome(q, INSERT, [conn, co.B, co.A, 'payment', 'payment_allocation', own])).toMatch(BY_DB);     // the source type
-      expect(await outcome(q, INSERT, [conn, co.B, co.A, 'payment', 'payment', crypto.randomUUID()])).toBe('ok');
+      expect(await outcome(q, INSERT, [conn, co.B, co.A, 'payment', 'payment', crypto.randomUUID()])).toMatch(BY_DB);
+      expect(await outcome(q, INSERT, [conn, co.B, co.A, 'reject', 'payment', crypto.randomUUID()])).toBe('ok');
     });
     expect(await allocationMessages(pool)).toHaveLength(0);
   });
