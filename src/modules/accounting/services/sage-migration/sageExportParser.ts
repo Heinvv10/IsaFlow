@@ -20,9 +20,23 @@ export class SageExportShapeError extends Error {}
 
 const TOP_KEYS = ['Items', 'PurchaseOrders'];
 
+/** The keys a Sage list page may carry; any other $-key on a page ($Next, $TotalResults ...) is refused, never ignored. */
+const PAGE_KEYS = new Set(['$resources', '$totalResults', '$startIndex', '$itemsPerPage', '$next', '$back']);
+/** The page markers a ROW must not carry (in any case): such a row is a nested page, whose rows would otherwise vanish into one bad row. */
+const ROW_MARKERS = new Set(['$resources', '$next', '$totalresults', '$startindex', '$back']);
+
+/** A row that is an array or carries a page marker refuses the whole file: it is a nested page, not a row. */
+function assertPlainRows(rows: readonly unknown[], key: string): void {
+  rows.forEach((r, i) => {
+    if (Array.isArray(r)) throw new SageExportShapeError(`${key}: row ${i} is an array, not a row: give rows or pages of rows, so the export can be checked whole`);
+    const marker = isRaw(r) ? Object.keys(r).find((k) => ROW_MARKERS.has(k.toLowerCase())) : undefined;
+    if (marker !== undefined) throw new SageExportShapeError(`${key}: row ${i} is a page (it carries ${marker}): pages inside pages are not read, so the export cannot be checked whole`);
+  });
+}
+
 /**
- * The rows of one top-level key: an array of rows, a page, or an array of pages. A page that says there is more than it holds
- * ($totalResults above the rows read, or a $next link) is a PARTIAL export and refuses the whole file.
+ * The rows of one top-level key: an array of rows, a page, or an array of pages. A page that says the export is not what was read
+ * ($totalResults other than the rows read across ALL pages, a $next link, an unknown $-key) is a PARTIAL export and refuses the whole file.
  */
 export function rowsOf(value: unknown, key: string): unknown[] {
   if (value === undefined || value === null) return [];
@@ -36,19 +50,23 @@ export function rowsOf(value: unknown, key: string): unknown[] {
     ? (value.length > 0 && value.every(isPage) ? value as never : [])
     : isPage(value) ? [value] : [];
   if (pages.length === 0) {
-    if (Array.isArray(value)) return value;
+    if (Array.isArray(value)) { assertPlainRows(value, key); return value; }
     throw new SageExportShapeError(`${key} must be an array of rows, a Sage page with $resources, or an array of pages`);
   }
   const rows = pages.flatMap((p) => p.$resources);
+  assertPlainRows(rows, key);
   const whole = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 0;
   let before = 0;
   pages.forEach((p, n) => {
+    const unknownKey = Object.keys(p).find((k) => k.startsWith('$') && !PAGE_KEYS.has(k));
+    if (unknownKey !== undefined) throw new SageExportShapeError(`${key}: a page carries "${unknownKey}", which is not a page key this import knows (${[...PAGE_KEYS].join(', ')}): a re-cased or unknown marker is never ignored`);
     if (p.$next !== undefined && p.$next !== null && p.$next !== '') throw new SageExportShapeError(`${key}: a page has a $next link, so the export stops before its end`);
     // Only the first page may lack a $back link: a page that has one is not the start of the export.
     if (n === 0 && p.$back !== undefined && p.$back !== null && p.$back !== '') throw new SageExportShapeError(`${key}: a page has a $back link, so it is not the start of the export`);
     if (p.$totalResults !== undefined && p.$totalResults !== null) {
       if (!whole(p.$totalResults)) throw new SageExportShapeError(`${key}: $totalResults must be a whole number (got ${JSON.stringify(p.$totalResults)}); it is how a partial export is told`);
-      if (p.$totalResults > rows.length) throw new SageExportShapeError(`${key}: $totalResults is ${p.$totalResults} but ${rows.length} rows were read, so the export is partial`);
+      // Against the rows of ALL pages (page 1 of a whole export holds fewer): above is a partial export, below an export that is not what it says.
+      if (p.$totalResults !== rows.length) throw new SageExportShapeError(`${key}: $totalResults is ${p.$totalResults} but ${rows.length} rows were read across all pages, so the export is not whole as it says`);
     }
     if (p.$startIndex !== undefined && p.$startIndex !== null) {
       if (!whole(p.$startIndex)) throw new SageExportShapeError(`${key}: $startIndex must be a whole number (got ${JSON.stringify(p.$startIndex)})`);
