@@ -52,7 +52,7 @@ describe('B15-1: --report never overwrites the export', () => {
     writeFileSync(report, JSON.stringify({ status: 'completed' }));
     const r = cli(['--file', FIXTURE, '--report', report, ...who()]);
     expect(r.status).toBe(2);
-    expect(r.stderr).toMatch(/already exists: .*pick a new path or delete the old file \(nothing written; --report .* was not created by this run\)/);
+    expect(r.stderr).toMatch(/already exists: .*pick a new path or delete the old file \(nothing written\)$/m);
     expect(JSON.parse(readFileSync(report, 'utf8'))).toEqual({ status: 'completed' });
     const fresh = join(d, 'fresh.json');
     expect(cli(['--file', FIXTURE, '--report', fresh, ...who()]).status).toBe(0);

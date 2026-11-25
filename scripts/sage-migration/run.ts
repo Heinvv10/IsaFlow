@@ -148,7 +148,7 @@ async function main(): Promise<void> {
   try { parsedArgs = parseCli(); } catch (err) { fail(err instanceof Error ? err.message : String(err)); }
   const { values } = parsedArgs;
   const target = checkReportArgs(process.argv.slice(2), values.report);
-  if (!target.ok) fail(target.why);
+  if (!target.ok) fail(`${target.why} (nothing written)`);
   reportAsked = target.path;
   // Every check that needs no database comes first (round 17): a refusal here writes nothing anywhere, --report not even created.
   try { assertLocalDatabase(); } catch (err) { fail(err instanceof Error ? err.message : String(err)); }

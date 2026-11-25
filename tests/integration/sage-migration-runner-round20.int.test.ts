@@ -57,7 +57,7 @@ describe('B17-3: a signal during the live run', () => {
     const report = join(d, 'report.json');
     const r = cli(['--report', report, ...live], { SAGE_SIGNAL_AT_COMMIT: '1' }, 'tests/integration/helpers/sageSignalAtCommitPreload.ts');
     expect(r.status).toBe(4);
-    expect(r.stderr).toMatch(/SIGTERM: the run stops before its next batch/);
+    expect(r.stderr).toMatch(/SIGTERM: the live run stops before its next batch/);
     const json = JSON.parse(readFileSync(report, 'utf8'));
     expect(json).toMatchObject({ status: 'stopped', liveStarted: true, message: expect.stringMatching(/stopped by SIGTERM: no further batch is sent/) });
     expect(json.committed.map((b: { entity: string; n: number }) => `${b.entity} ${b.n}`)).toEqual(['category 1']);
@@ -67,6 +67,6 @@ describe('B17-3: a signal during the live run', () => {
     const report = join(d, 'report.json');
     const r = cli(['--report', report, ...live], { SAGE_SIGNAL_AT_COMMIT: '1', SAGE_SIGNAL: 'SIGINT', SAGE_SIGNAL_TIMES: '2' }, 'tests/integration/helpers/sageSignalAtCommitPreload.ts');
     expect(r.status).toBe(4);
-    expect(JSON.parse(readFileSync(report, 'utf8'))).toMatchObject({ status: 'stopped', message: expect.stringMatching(/stopped at once by a second SIGINT/) });
+    expect(JSON.parse(readFileSync(report, 'utf8'))).toMatchObject({ status: 'stopped', message: expect.stringMatching(/stopped at once by a second signal \(SIGINT\)/) });
   }, 180_000);
 });

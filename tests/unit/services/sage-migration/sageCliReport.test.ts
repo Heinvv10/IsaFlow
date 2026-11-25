@@ -108,6 +108,7 @@ describe('a refusal before the create: nothing written anywhere', () => {
     writeFileSync(report, JSON.stringify({ status: 'running', startedAt: 'run A' }));
     expect(await runCli(report)).toBe(2);
     expect(json(report)).toEqual({ status: 'running', startedAt: 'run A' });
+    expect(err.join('')).toMatch(/already exists: .*delete the old file \(nothing written\)\n$/);
     expect(h.calls).toBe(0);
   });
 });
