@@ -16,7 +16,7 @@ import { PayrollBankFileRefusal } from '@/modules/accounting/services/payroll/pa
 const RUN = { period_year: 2026, period_month: 11, pay_frequency: 'monthly', run_kind: 'regular', off_cycle_reason: null, run_date: null, period_end: '2026-11-30' };
 const item = (o: Partial<Record<string, unknown>> = {}) => ({
   cents: '1000000', creditor_name: 'Acme Credit', employee_number: 'E1', payable: 'pay-1', changed: false, payable_active: true,
-  action_date: '2026-11-25', ...o,
+  action_date: '2026-11-25', applied_cents: String(o.cents ?? '1000000'), ...o,
 });
 const judge = () => judgeCreditorConfirm({ companyId: 'co', runId: 'run', fileId: 'file', paidAsGenerated: false });
 const refusal = async (p: Promise<unknown>) => {
@@ -64,6 +64,15 @@ describe('judgeCreditorConfirm', () => {
     answers.push([item({ changed: true })], [], [RUN], [{ id: 'bank-1', is_active: true }]);
     const attested = await judgeCreditorConfirm({ companyId: 'co', runId: 'run', fileId: 'file', paidAsGenerated: true });
     expect(attested!.attestedChanged).toEqual(['Acme Credit (employee E1)']);
+  });
+
+  it('CREDITOR_AMOUNT_DIFFERS when a line is not the run\'s currently applied deduction (reopened: none applied), even attested', async () => {
+    answers.push([item({ applied_cents: '0' })]);
+    const reopened = await refusal(judgeCreditorConfirm({ companyId: 'co', runId: 'run', fileId: 'file', paidAsGenerated: true }));
+    expect(reopened.reason).toBe('CREDITOR_AMOUNT_DIFFERS');
+    expect(reopened.problems[0]).toMatch(/^Acme Credit \(employee E1\): the file paid R.?10.000\.00, the run now applies R.?0\.00$/);
+    answers.push([item({ applied_cents: '500000' })]);
+    expect((await refusal(judge())).reason).toBe('CREDITOR_AMOUNT_DIFFERS');
   });
 
   it('nothing to post for a file without creditor lines', async () => {

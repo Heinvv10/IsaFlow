@@ -10,7 +10,7 @@ import orders from '../../pages/api/payroll/employees/[id]/garnishee-orders/inde
 import orderRoute from '../../pages/api/payroll/employees/[id]/garnishee-orders/[orderId]';
 import { todayInSast } from '@/lib/saDateParser';
 import { rig, type Route } from './brkr.helpers';
-import { act, bank, cleanup, enable, generate, payingAccount, type R } from './payroll-bank-file.helpers';
+import { act, bank, cleanup, enable, generate, payingAccount, reason, type R } from './payroll-bank-file.helpers';
 
 let a: R;
 let b: R;
@@ -120,7 +120,7 @@ describe('re-approving a run whose confirmed bank file paid garnishee creditors'
     expect((await b.pool.query('SELECT count(*)::int AS n FROM payroll_bank_files WHERE company_id = $1', [b.company])).rows[0]!.n).toBe(0);
   }, 240_000);
 
-  it('G2: a stale file confirmed while the run is reopened, then smaller pay: the re-approval is refused 409, writing nothing (B, 10x)', async () => {
+  it('G2 (both orderings): a stale file is not confirmed while the run applies another deduction, reopened or re-approved; it is once they match (B, 10x)', async () => {
     const e = await b.employee(2000000);
     await bank(b, e.employee, '4071234568');
     const o = await newOrder(b, e.employee, { reference: 'G2', instalment: 100000, totalDebt: 300000, startDate: '2026-01-01' });
@@ -128,20 +128,72 @@ describe('re-approving a run whose confirmed bank file paid garnishee creditors'
     expect((await b.api.approve(run)).statusCode).toBe(200);
     const g = await generate(b, run, { actionDate: TODAY });
     expect(g.statusCode, JSON.stringify(g.body)).toBe(200);
+    const file = String(g.body.data!.id);
     expect((await b.api.reopen(run)).statusCode).toBe(200);
-    const c = await act(b, run, String(g.body.data!.id), 'confirm', { body: {} });
-    expect(c.statusCode, JSON.stringify(c.body)).toBe(200);
-    expect(await paidToCreditor(b, o)).toBe(100000);
+    const fileState = async () => (await b.pool.query('SELECT status, creditor_journal_id FROM payroll_bank_files WHERE id = $1', [file])).rows[0];
 
+    // Reopened: no deduction applied, so the stale file cannot record a creditor payment (even attested).
+    const whileOpen = await act(b, run, file, 'confirm', { body: { paidAsGenerated: true } });
+    expect([whileOpen.statusCode, reason(whileOpen)], JSON.stringify(whileOpen.body)).toEqual([409, 'CREDITOR_AMOUNT_DIFFERS']);
+    expect(await fileState()).toEqual({ status: 'generated', creditor_journal_id: null });
+
+    // The other ordering: re-approved with a smaller deduction (no confirmed file yet, so approval allows it), THEN confirm.
     expect((await b.api.reverse(String((await head(b, run)).journal_entry_id))).statusCode).toBe(200);
-    await b.setSalary(e.salaryRow, 200000); // the cap now limits the deduction below what the bank paid
+    await b.setSalary(e.salaryRow, 200000);
     expect((await b.api.calculate(run)).statusCode).toBe(200);
-    const now = (await deductions(b, run)).find((d) => d.order_id === o)!.amount;
-    expect(now).toBeLessThan(100000);
     await b.authorise(run);
-    const before = { head: await head(b, run), order: await order(b, o), gl: await payableGl(b) };
-    const refused = await b.api.approve(run);
-    expect(refused.statusCode, JSON.stringify(refused.body)).toBe(409);
-    expect({ head: await head(b, run), order: await order(b, o), gl: await payableGl(b) }).toEqual(before);
+    expect((await b.api.approve(run)).statusCode).toBe(200);
+    const smaller = (await deductions(b, run)).find((d) => d.order_id === o)!.amount;
+    expect(smaller).toBeLessThan(100000);
+    const before = { order: await order(b, o), gl: await payableGl(b) };
+    const after = await act(b, run, file, 'confirm', { body: {} });
+    expect([after.statusCode, reason(after)]).toEqual([409, 'CREDITOR_AMOUNT_DIFFERS']);
+    expect(after.body.error.details.problems[0]).toMatch(/the file paid R.?100.000\.00, the run now applies R/);
+    expect({ order: await order(b, o), gl: await payableGl(b), file: await fileState() })
+      .toEqual({ ...before, file: { status: 'generated', creditor_journal_id: null } });
+
+    // Remedy: approved again with the deduction the file paid; the confirm then records it, and the balance counts it.
+    expect((await b.api.reopen(run)).statusCode).toBe(200);
+    expect((await b.api.reverse(String((await head(b, run)).journal_entry_id))).statusCode).toBe(200);
+    await b.setSalary(e.salaryRow, 2000000);
+    expect((await b.api.calculate(run)).statusCode).toBe(200);
+    await b.authorise(run);
+    expect((await b.api.approve(run)).statusCode).toBe(200);
+    const ok = await act(b, run, file, 'confirm', { body: {} });
+    expect(ok.statusCode, JSON.stringify(ok.body)).toBe(200);
+    expect(await paidToCreditor(b, o)).toBe(100000);
+    expect(await order(b, o)).toMatchObject({ balance: 200000 });
+  }, 240_000);
+
+  it('race: a confirm waits for the run header an approval / reopen holds, then judges what it committed (two sessions)', async () => {
+    const e = await b.employee(2000000);
+    await bank(b, e.employee, '4071234569');
+    const o = await newOrder(b, e.employee, { reference: 'RACE', instalment: 100000, totalDebt: 300000, startDate: '2026-01-01' });
+    const run = await b.calculatedRun(10, 2026);
+    expect((await b.api.approve(run)).statusCode).toBe(200);
+    const g = await generate(b, run, { actionDate: TODAY });
+    expect(g.statusCode).toBe(200);
+    const c = await b.pool.connect();
+    try {
+      // Session 1 holds the header as a reopen does and takes the run's deduction back out (what a reopen commits).
+      await c.query('BEGIN');
+      await c.query('SELECT 1 FROM payroll_run_headers WHERE id = $1 FOR UPDATE', [run]);
+      const pending = act(b, run, String(g.body.data!.id), 'confirm', { body: {} });
+      for (let i = 0; ; i += 1) {
+        const waiting = await b.pool.query(
+          "SELECT count(*)::int AS n FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND query LIKE '%FOR SHARE%' AND pid <> $1",
+          [(await c.query('SELECT pg_backend_pid() AS p')).rows[0]!.p]);
+        if (waiting.rows[0]!.n > 0) break;
+        if (i > 300) throw new Error('the confirm never waited on the header');
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      await c.query("UPDATE payroll_run_headers SET status = 'calculated', approved_at = NULL, approval_grandfathered_at = NULL WHERE id = $1", [run]);
+      await c.query('UPDATE payroll_garnishee_deductions SET balance_applied = false WHERE run_id = $1', [run]);
+      await c.query("UPDATE payroll_garnishee_orders SET balance = total_debt, status = 'active' WHERE id = $1", [o]);
+      await c.query('COMMIT');
+      const res = await pending;
+      expect([res.statusCode, reason(res)], JSON.stringify(res.body)).toEqual([409, 'CREDITOR_AMOUNT_DIFFERS']);
+    } finally { c.release(); }
+    expect(await paidToCreditor(b, o)).toBe(0);
   }, 240_000);
 });

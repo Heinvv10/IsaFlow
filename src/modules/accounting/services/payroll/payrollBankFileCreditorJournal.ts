@@ -12,6 +12,8 @@
  * source_record_id = the file. Amounts are what the FILE paid each creditor (its items), never a recomputation.
  *
  * judgeCreditorConfirm decides everything before the first write (spec rule 12; a 4xx commits):
+ *   CREDITOR_AMOUNT_DIFFERS   a creditor line is not the run's CURRENTLY APPLIED deduction for its order (a reopened run, or
+ *                             one approved again with other deductions): refused, never attestable.
  *   CREDITOR_DETAILS_CHANGED  an order's creditor_bank_set_at is not the one snapshotted on its line (GC1 design input):
  *                             the details changed since the file was built. If it was not sent: void it and generate
  *                             again. If the bank already paid it as built, the confirm says so (paidAsGenerated), and
@@ -40,6 +42,7 @@ import { cleanUpAfter } from '@/modules/accounting/services/gl/reversalCleanup';
 import { NET_PAY_CLEARING_DESCRIPTION, NET_PAY_DESCRIPTION } from './payrollLabourComparison';
 import { runJournalDescriptionOf } from './payrollJournalDescription';
 import { PayrollBankFileRefusal } from './payrollBankFileStatus';
+import { formatCents } from '@/lib/money/formatMoney';
 
 export interface CreditorPosting {
   entryDate: string;
@@ -60,7 +63,10 @@ export async function judgeCreditorConfirm(opts: {
   const items = (await sql`
     SELECT i.amount_cents::text AS cents, o.creditor_name, e.employee_number, o.payable_account_id::text AS payable,
            (o.creditor_bank_set_at IS DISTINCT FROM i.creditor_bank_set_at) AS changed,
-           a.is_active AS payable_active, f.action_date::text AS action_date
+           a.is_active AS payable_active, f.action_date::text AS action_date,
+           COALESCE((SELECT round(d.amount * 100)::bigint FROM payroll_garnishee_deductions d
+                      WHERE d.run_id = f.run_id AND d.order_id = i.garnishee_order_id AND d.company_id = i.company_id
+                        AND d.balance_applied), 0)::text AS applied_cents
       FROM payroll_bank_file_items i
       JOIN payroll_bank_files f ON f.id = i.file_id AND f.company_id = i.company_id
       JOIN payroll_garnishee_orders o ON o.id = i.garnishee_order_id AND o.company_id = i.company_id
@@ -71,6 +77,20 @@ export async function judgeCreditorConfirm(opts: {
   `) as DbRow[];
   if (items.length === 0) return null;
   const label = (r: DbRow) => `${String(r.creditor_name)} (employee ${String(r.employee_number)})`;
+
+  // Security review on #1929 (the other ordering of the breaker's HIGH): a file generated, the run reopened and approved
+  // again with another deduction, THEN the old file confirmed would record a creditor payment the order's balance never
+  // counts. Each creditor line must equal the run's CURRENTLY APPLIED deduction for its order (a reopened run applies
+  // none). Remedy: approve the run with deductions equal to what the file paid (payrollBankFileReapproval holds that
+  // from then on), then confirm. Holds even under paidAsGenerated: that attests the account, not the amount.
+  const differ = items.filter((r) => String(r.cents) !== String(r.applied_cents));
+  if (differ.length > 0) {
+    const named = differ.map((r) => `${label(r)}: the file paid ${formatCents(Number(r.cents))}, the run now applies ${formatCents(Number(r.applied_cents))}`);
+    throw new PayrollBankFileRefusal('CREDITOR_AMOUNT_DIFFERS',
+      `The file's garnishee payments no longer match the run's approved deductions (${named.join('; ')}). Confirming it would pay `
+      + 'the creditor an amount the order\'s balance does not count. Approve the run so each deduction equals what the file paid, then confirm it.',
+      named);
+  }
 
   const changed = items.filter((r) => r.changed === true).map(label);
   if (changed.length > 0 && !opts.paidAsGenerated) {

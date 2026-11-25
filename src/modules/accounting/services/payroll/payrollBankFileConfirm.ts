@@ -38,6 +38,11 @@ export async function settleBankFile(opts: {
   }
   const file = await withBoundedLockWait(runId, async (tx) => {
     await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`payroll_bank_file:${runId}`}, 0))`;
+    // GC2 (security review on #1929): the run header FOR SHARE, after the advisory lock (generate's order: advisory ->
+    // header). Approval and reopen hold the header FOR UPDATE through their garnishee writes and the re-approval guard
+    // (payrollBankFileReapproval), so a confirm and an approval of the run serialise: whichever is second reads what the
+    // first committed. Neither approval nor reopen takes the bank-file advisory lock, so no cycle is added.
+    await tx`SELECT 1 FROM payroll_run_headers WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid FOR SHARE`;
     return ((await tx`
       SELECT f.id, f.status
         FROM payroll_bank_files f
