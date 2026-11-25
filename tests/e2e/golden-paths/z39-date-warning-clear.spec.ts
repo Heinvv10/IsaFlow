@@ -1,6 +1,7 @@
 /**
  * Golden path Z39 - on a phone, the closed-period warning under the invoice date is readable right after typing: the
- * sticky action bar covers under 5% of it, and the bar is opaque. iPhone 14 and Pixel 7 profiles (viewport, scale,
+ * sticky action bar covers under 5% of it, none of it once the bar has grown by its autosave line, and the bar is
+ * opaque. iPhone 14 and Pixel 7 profiles (viewport, scale,
  * touch, user agent), both on Chromium, the only browser the golden job installs.
  * The fiscal periods are mocked in the browser, so nothing depends on the company's calendar and nothing is saved.
  */
@@ -77,7 +78,8 @@ for (const name of ['iPhone 14', 'Pixel 7'] as const) {
       await date.blur();
       const bar = page.getByRole('group', { name: 'Invoice actions' });
       await expect(bar.getByText(/Saved on this device/)).toBeVisible({ timeout: 15_000 });
-      await expect.poll(() => coveredPct(page), { timeout: 2_000, message: 'after the autosave line appears' }).toBeLessThan(5);
+      // Not even the descenders of the last line: the warning is placed with room for the bar to grow.
+      await expect.poll(() => coveredPct(page), { timeout: 2_000, message: 'after the autosave line appears' }).toBe(0);
       const paint = await bar.evaluate((el) => {
         const s = getComputedStyle(el);
         const a = s.backgroundColor.match(/rgba\([^)]*[,/]\s*([\d.]+)\)$/);
@@ -86,7 +88,7 @@ for (const name of ['iPhone 14', 'Pixel 7'] as const) {
       expect(paint.alpha, `bar background ${paint.color}`).toBe(1);
       expect(paint.opacity).toBe('1');
       await expect(date).toBeInViewport({ ratio: 1 });
-      expect(await coveredPct(page), 'still clear at the end').toBeLessThan(5);
+      expect(await coveredPct(page), 'still clear at the end').toBe(0);
     });
   });
 }

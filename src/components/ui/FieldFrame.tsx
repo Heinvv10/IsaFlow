@@ -49,7 +49,8 @@ export function FieldFrame({ id, label, labelHidden, required, requiredMark = tr
   const caution = React.useRef<HTMLParagraphElement>(null);
   const shownWarning = error ? null : warning;
   // A warning that appears while the user is in the field must be readable: `nearest` honours the scroller's bottom
-  // scroll padding, which keeps it above a sticky action bar. A frame later, so focus handed back by a popup counts.
+  // scroll padding, which keeps it above a sticky action bar; its own `scroll-mb-6` leaves room for that bar to grow
+  // by a line (autosave). A frame later, so focus handed back by a popup counts.
   // A warning on a field nobody is in (a pre-filled value) never moves the page.
   React.useEffect(() => {
     if (!shownWarning) return undefined;
@@ -87,7 +88,7 @@ export function FieldFrame({ id, label, labelHidden, required, requiredMark = tr
         </p>
       )}
       {shownWarning && (
-        <p ref={caution} id={ids.warning} role="status" className="text-xs font-medium text-amber-700 dark:text-amber-300">
+        <p ref={caution} id={ids.warning} role="status" className="scroll-mb-6 text-xs font-medium text-amber-700 dark:text-amber-300">
           {shownWarning}
         </p>
       )}
