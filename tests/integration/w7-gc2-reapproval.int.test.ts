@@ -179,10 +179,13 @@ describe('re-approving a run whose confirmed bank file paid garnishee creditors'
       await c.query('BEGIN');
       await c.query('SELECT 1 FROM payroll_run_headers WHERE id = $1 FOR UPDATE', [run]);
       const pending = act(b, run, String(g.body.data!.id), 'confirm', { body: {} });
+      const holder = (await c.query('SELECT pg_backend_pid() AS p')).rows[0]!.p;
       for (let i = 0; ; i += 1) {
+        // Exactly the confirm's statement, blocked by THIS session (not any other lock wait on the box).
         const waiting = await b.pool.query(
-          "SELECT count(*)::int AS n FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND query LIKE '%FOR SHARE%' AND pid <> $1",
-          [(await c.query('SELECT pg_backend_pid() AS p')).rows[0]!.p]);
+          `SELECT count(*)::int AS n FROM pg_stat_activity
+            WHERE wait_event_type = 'Lock' AND $1 = ANY(pg_blocking_pids(pid)) AND query LIKE '%FROM payroll_run_headers WHERE id = $1::uuid%FOR SHARE%'`,
+          [holder]);
         if (waiting.rows[0]!.n > 0) break;
         if (i > 300) throw new Error('the confirm never waited on the header');
         await new Promise((r) => setTimeout(r, 100));

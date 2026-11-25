@@ -23,7 +23,10 @@
 --     and whose debits equal the file's creditor lines; a confirm of a file without creditor lines names none. So a
 --     confirm that skips the creditor journal (the old colour's confirm of a new file) is refused, never half-recorded.
 --
--- No SECURITY DEFINER is created or changed (both guards stay INVOKER): no 930 row.
+--   payroll_garnishee_order_counted + 999z's payroll_garnishee_orders_guard (balance line only): an order's balance is
+--     total_debt less, per run, the GREATER of its applied deduction and what a confirmed file paid its creditor.
+--
+-- No SECURITY DEFINER is created or changed (every function here is INVOKER): no 930 row.
 --
 -- OLD COLOUR (the release before GC2, running beside this schema):
 --   generate  inserts employee items naming (company_id, file_id, employee_id, amount_cents): garnishee_order_id and the
@@ -32,10 +35,15 @@
 --   confirm   of a file it made (no creditor lines): allowed, as before. Of a file the NEW release made with creditor
 --             lines: refused by the guard (no journal), so the payable is never left open behind a confirmed file; the
 --             new colour confirms it.
+--   reopen / approve of a run whose order has a confirmed creditor line its approval no longer applies: the old
+--             colour's settleBalances writes total_debt - applied, which the replaced guard refuses (a 500, rolled back):
+--             fail closed, never a balance that forgets a payment. Orders without confirmed creditor lines: counted = applied,
+--             so the old colour's balances still pass.
 --   settlement / status reads  read payroll_bank_file_items by employee_id and would count a new file's creditor lines
 --             as paid to the employee: only for a file the new release made, and only while both colours serve.
 --
 -- Rollback (down SQL; roll the code back first; refused while any creditor line exists, as it should be):
+--   restore 999z's payroll_garnishee_orders_guard body; DROP FUNCTION IF EXISTS public.payroll_garnishee_order_counted(uuid);
 --   restore 999h's payroll_bank_files_guard and payroll_bank_file_items_guard bodies;
 --   ALTER TABLE public.payroll_bank_file_items ADD CONSTRAINT payroll_bank_file_items_one_per_employee UNIQUE (file_id, employee_id);
 --   DROP INDEX IF EXISTS public.payroll_bank_file_items_employee_line, public.payroll_bank_file_items_creditor_line,
@@ -223,6 +231,95 @@ BEGIN
     NEW.voided_by := uid;
     NEW.voided_at := clock_timestamp();
   END IF;
+  RETURN NEW;
+END $$;
+
+
+-- ── The order's balance counts what a confirmed file paid (breaker round 2 on #1929; coordinator ruling) ─────────
+-- 999z held balance = total_debt - applied deductions, and a reopen unapplies its run's deductions: a run whose file the
+-- bank had paid (confirmed) then gave its instalment back to the balance, and later months garnished (and paid) it again
+-- (R40 000 on a R30 000 order). The amount counted against the debt is now, per run, the GREATER of what its approval
+-- applied and what its confirmed salary bank files paid the creditor. A reopen keeps the paid part; a re-approval of the
+-- same amount counts it once (GREATEST, per run and order); a different amount is refused at approval
+-- (payrollBankFileReapproval) and at confirm (CREDITOR_AMOUNT_DIFFERS), so the two never disagree on a live run.
+-- INVOKER, STABLE: it reads under the caller's RLS, as the guard it serves.
+CREATE OR REPLACE FUNCTION public.payroll_garnishee_order_counted(p_order uuid) RETURNS numeric
+LANGUAGE sql STABLE SECURITY INVOKER SET search_path = pg_catalog, public, pg_temp AS $$
+  SELECT COALESCE(sum(GREATEST(COALESCE(d.amount, 0), COALESCE(p.paid, 0))), 0)
+    FROM (SELECT run_id, sum(amount) AS amount FROM public.payroll_garnishee_deductions
+           WHERE order_id = p_order AND balance_applied GROUP BY run_id) d
+    FULL JOIN (SELECT f.run_id, sum(i.amount_cents)::numeric / 100 AS paid
+                 FROM public.payroll_bank_file_items i
+                 JOIN public.payroll_bank_files f ON f.id = i.file_id AND f.company_id = i.company_id
+                WHERE i.garnishee_order_id = p_order AND f.status = 'confirmed'
+                GROUP BY f.run_id) p ON p.run_id = d.run_id
+$$;
+GRANT EXECUTE ON FUNCTION public.payroll_garnishee_order_counted(uuid) TO app_user;
+
+-- 999z's order guard, unchanged but for the balance line (the counted amount above).
+CREATE OR REPLACE FUNCTION public.payroll_garnishee_orders_guard() RETURNS trigger
+LANGUAGE plpgsql SECURITY INVOKER SET search_path = pg_catalog, public, pg_temp AS $$
+DECLARE
+  uid text := auth.uid();
+  applied numeric;
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    IF uid IS NULL THEN
+      RAISE EXCEPTION 'payroll_garnishee_orders: an order needs a session user' USING ERRCODE = '42501';
+    END IF;
+    -- The company's payroll approval lock (payrollRunLock.payrollApprovalLockScope), which calculate, approve and
+    -- reopen hold for their whole transaction: an order is never committed in the middle of a calculation, whoever
+    -- writes it, and created_at below is stamped after any calculation in flight (review #1574 round 2).
+    PERFORM pg_advisory_xact_lock(hashtextextended('payroll_approval:' || NEW.company_id::text, 0));
+    IF NOT EXISTS (SELECT 1 FROM public.payroll_employees e WHERE e.id = NEW.employee_id AND e.company_id = NEW.company_id) THEN
+      RAISE EXCEPTION 'payroll_garnishee_orders: the employee is not this company''s' USING ERRCODE = 'foreign_key_violation';
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM public.gl_accounts a WHERE a.id = NEW.payable_account_id AND a.company_id = NEW.company_id
+                     AND a.account_type = 'liability') THEN
+      RAISE EXCEPTION 'payroll_garnishee_orders: the payable is not this company''s liability account' USING ERRCODE = 'foreign_key_violation';
+    END IF;
+    IF NEW.status <> 'active' OR NEW.balance IS DISTINCT FROM NEW.total_debt OR NEW.ended_by IS NOT NULL THEN
+      RAISE EXCEPTION 'payroll_garnishee_orders: a new order is active and owes its total debt' USING ERRCODE = 'check_violation';
+    END IF;
+    NEW.created_by := uid;
+    NEW.created_at := clock_timestamp();
+    NEW.updated_at := NEW.created_at;
+    RETURN NEW;
+  END IF;
+  IF (NEW.company_id, NEW.employee_id, NEW.kind, NEW.reference, NEW.creditor_name, NEW.instalment, NEW.total_debt,
+      NEW.start_date, NEW.priority, NEW.payable_account_id, NEW.created_by, NEW.created_at)
+     IS DISTINCT FROM (OLD.company_id, OLD.employee_id, OLD.kind, OLD.reference, OLD.creditor_name, OLD.instalment, OLD.total_debt,
+      OLD.start_date, OLD.priority, OLD.payable_account_id, OLD.created_by, OLD.created_at) THEN
+    RAISE EXCEPTION 'payroll_garnishee_orders: an order''s facts never change; end it and enter a new one' USING ERRCODE = 'check_violation';
+  END IF;
+  -- An ended order stays ended; only its balance still follows the approvals of runs that deducted before it ended.
+  IF OLD.status = 'ended' AND (NEW.status, NEW.end_date, NEW.end_reason, NEW.ended_by, NEW.ended_at)
+       IS DISTINCT FROM (OLD.status, OLD.end_date, OLD.end_reason, OLD.ended_by, OLD.ended_at) THEN
+    RAISE EXCEPTION 'payroll_garnishee_orders: an ended order is final' USING ERRCODE = 'check_violation';
+  END IF;
+  -- An order that is not ended keeps its end date and has no end facts: they are set only by the UPDATE that ends it.
+  IF OLD.status <> 'ended' AND NEW.status <> 'ended' AND (NEW.end_date, NEW.end_reason, NEW.ended_by, NEW.ended_at)
+       IS DISTINCT FROM (OLD.end_date, OLD.end_reason, OLD.ended_by, OLD.ended_at) THEN
+    RAISE EXCEPTION 'payroll_garnishee_orders: an order''s end date changes only when it is ended' USING ERRCODE = 'check_violation';
+  END IF;
+  IF NEW.total_debt IS NOT NULL THEN
+    -- 1057 (GC2): per run, the larger of what its approval applied and what a confirmed salary bank file paid the
+    -- creditor (payroll_garnishee_order_counted): a reopen does not give back what the bank already paid.
+    applied := public.payroll_garnishee_order_counted(NEW.id);
+    IF NEW.balance IS DISTINCT FROM NEW.total_debt - applied THEN
+      RAISE EXCEPTION 'payroll_garnishee_orders: the balance is the total debt less the deductions applied or paid (%)', NEW.total_debt - applied
+        USING ERRCODE = 'check_violation';
+    END IF;
+  END IF;
+  IF NEW.status = 'ended' AND OLD.status <> 'ended' THEN
+    PERFORM pg_advisory_xact_lock(hashtextextended('payroll_approval:' || NEW.company_id::text, 0)); -- as INSERT
+    IF uid IS NULL THEN
+      RAISE EXCEPTION 'payroll_garnishee_orders: ending an order needs a session user' USING ERRCODE = '42501';
+    END IF;
+    NEW.ended_by := uid;
+    NEW.ended_at := clock_timestamp();
+  END IF;
+  NEW.updated_at := clock_timestamp();
   RETURN NEW;
 END $$;
 

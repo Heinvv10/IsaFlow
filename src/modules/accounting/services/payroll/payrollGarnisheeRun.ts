@@ -31,20 +31,27 @@ import type { ValidationResult } from './payrollTypes';
 
 const day = (v: unknown): string => (v instanceof Date ? v.toISOString().slice(0, 10) : String(v).slice(0, 10));
 
-/** Each employee's orders in force for the period [periodStart, periodEnd], keyed by employee id. */
+/**
+ * Each employee's orders in force for the period [periodStart, periodEnd], keyed by employee id. GC2 (1057): the
+ * balance this run may take adds back what a confirmed salary bank file of THIS run already paid the creditor (the
+ * order's balance keeps that payment through a reopen), so recalculating a reopened run whose file the bank paid
+ * deducts it again, and its re-approval counts it once (payroll_garnishee_order_counted), even on a last instalment.
+ */
 export async function loadRunGarnisheeOrders(
-  companyId: string, employeeIds: readonly string[], periodStart: unknown, periodEnd: unknown,
+  companyId: string, employeeIds: readonly string[], periodStart: unknown, periodEnd: unknown, runId?: string,
 ): Promise<Map<string, GarnisheeOrderInput[]>> {
   const byEmployee = new Map<string, GarnisheeOrderInput[]>();
   if (employeeIds.length === 0) return byEmployee;
   const rows = (await sql`
-    SELECT id::text AS id, employee_id::text AS employee_id, kind, reference, creditor_name, instalment, balance, priority, created_at,
-           (start_date > ${day(periodStart)}::date OR end_date < ${day(periodEnd)}::date) AS part_month
-      FROM payroll_garnishee_orders
-     WHERE company_id = ${companyId}::uuid AND employee_id::text = ANY(${[...employeeIds]}::text[])
-       AND status IN ('active', 'ended') AND start_date <= ${day(periodEnd)}::date
-       AND (end_date IS NULL OR end_date >= ${day(periodStart)}::date)
-       AND (balance IS NULL OR balance > 0)
+    SELECT o.id::text AS id, o.employee_id::text AS employee_id, o.kind, o.reference, o.creditor_name, o.instalment,
+           o.balance + p.paid AS balance, o.priority, o.created_at,
+           (o.start_date > ${day(periodStart)}::date OR o.end_date < ${day(periodEnd)}::date) AS part_month
+      FROM payroll_garnishee_orders o
+      CROSS JOIN LATERAL (${runCreditorPaidSql(runId ?? null)}) p
+     WHERE o.company_id = ${companyId}::uuid AND o.employee_id::text = ANY(${[...employeeIds]}::text[])
+       AND (o.status IN ('active', 'ended') OR p.paid > 0) AND o.start_date <= ${day(periodEnd)}::date
+       AND (o.end_date IS NULL OR o.end_date >= ${day(periodStart)}::date)
+       AND (o.balance IS NULL OR o.balance + p.paid > 0)
   `) as DbRow[];
   for (const r of rows) {
     const list = byEmployee.get(String(r.employee_id)) ?? [];
@@ -57,6 +64,19 @@ export async function loadRunGarnisheeOrders(
     byEmployee.set(String(r.employee_id), list);
   }
   return byEmployee;
+}
+
+/**
+ * GC2: what confirmed salary bank files of `runId` paid the creditor of order `o` (alias o), in rands; 0 with no run.
+ * Read only where the run's own deductions are NOT applied (calculation, or the approval of a run not yet approved).
+ */
+function runCreditorPaidSql(runId: string | null) {
+  return sql`
+    SELECT COALESCE(sum(i.amount_cents), 0)::numeric / 100 AS paid
+      FROM payroll_bank_file_items i
+      JOIN payroll_bank_files f ON f.id = i.file_id AND f.company_id = i.company_id
+     WHERE i.garnishee_order_id = o.id AND i.company_id = o.company_id AND f.status = 'confirmed'
+       AND f.run_id = ${runId}::uuid`;
 }
 
 /** Replace the run's deductions with what this calculation took (amounts of nil are not recorded). */
@@ -83,9 +103,10 @@ export async function replaceRunGarnisheeDeductions(
 export async function judgeGarnisheeBalances(companyId: string, runId: string, alreadyApproved = false): Promise<void> {
   await judgeConfirmedCreditorPayments(companyId, runId); // GC2: a creditor a confirmed file paid is never re-deducted differently
   const rows = (await sql`
-    SELECT o.creditor_name, o.instalment, o.balance, o.status, d.amount
+    SELECT o.creditor_name, o.instalment, o.balance + p.paid AS balance, o.status, d.amount
       FROM payroll_garnishee_deductions d
       JOIN payroll_garnishee_orders o ON o.id = d.order_id AND o.company_id = d.company_id
+      CROSS JOIN LATERAL (${runCreditorPaidSql(runId)}) p -- GC2: this run's own confirmed payment is already counted
      WHERE d.run_id = ${runId}::uuid AND d.company_id = ${companyId}::uuid AND NOT d.balance_applied
      ORDER BY o.id
        FOR UPDATE OF o
@@ -140,7 +161,7 @@ export async function restoreRunGarnishees(companyId: string, runId: string): Pr
   return settleBalances(companyId, restored.map((r) => String(r.order_id)));
 }
 
-/** balance = total_debt - applied deductions; nil = satisfied, above nil = active again (an ended order stays ended). */
+/** balance = total_debt - per run max(applied deduction, confirmed file's creditor payment) (1057); nil = satisfied, above nil = active again (an ended order stays ended). */
 async function settleBalances(companyId: string, orderIds: string[]): Promise<number> {
   if (orderIds.length === 0) return 0;
   const moved = (await sql`
@@ -148,8 +169,7 @@ async function settleBalances(companyId: string, orderIds: string[]): Promise<nu
        SET balance = o.total_debt - a.applied,
            status = CASE WHEN o.status = 'ended' THEN 'ended'
                          WHEN o.total_debt - a.applied = 0 THEN 'satisfied' ELSE 'active' END
-      FROM (SELECT o2.id, COALESCE((SELECT sum(d.amount) FROM payroll_garnishee_deductions d
-                                     WHERE d.order_id = o2.id AND d.balance_applied), 0) AS applied
+      FROM (SELECT o2.id, public.payroll_garnishee_order_counted(o2.id) AS applied -- GC2 1057: applied, or paid by a confirmed file
               FROM payroll_garnishee_orders o2
              WHERE o2.company_id = ${companyId}::uuid AND o2.id::text = ANY(${[...new Set(orderIds)]}::text[])) a
      WHERE o.id = a.id AND o.company_id = ${companyId}::uuid AND o.total_debt IS NOT NULL

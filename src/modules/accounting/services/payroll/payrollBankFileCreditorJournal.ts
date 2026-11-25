@@ -39,6 +39,7 @@ import type { DbRow } from '@/lib/neon';
 import { createJournalEntry } from '@/modules/accounting/services/gl/journalEntryCrudService';
 import { postJournalEntry } from '@/modules/accounting/services/gl/journalEntryPostingService';
 import { cleanUpAfter } from '@/modules/accounting/services/gl/reversalCleanup';
+import { ClosedFiscalPeriodError, InactiveAccountError } from '@/modules/accounting/services/gl/journalEntryPostingGuards';
 import { NET_PAY_CLEARING_DESCRIPTION, NET_PAY_DESCRIPTION } from './payrollLabourComparison';
 import { runJournalDescriptionOf } from './payrollJournalDescription';
 import { PayrollBankFileRefusal } from './payrollBankFileStatus';
@@ -169,6 +170,14 @@ export async function postCreditorJournal(companyId: string, fileId: string, pos
     // must not survive it. `status = 'draft'` keeps this from ever touching a posted journal.
     await cleanUpAfter(err, () => sql`
       DELETE FROM gl_journal_entries WHERE id = ${entry.id}::uuid AND company_id = ${companyId}::uuid AND status = 'draft'`);
+    // The two refusals the window can meet answer as the judge's own would (409), not as a fault.
+    if (err instanceof ClosedFiscalPeriodError) {
+      throw new PayrollBankFileRefusal('PERIOD_CLOSED',
+        `The fiscal period of the file's action date ${posting.entryDate} was closed while the file was being confirmed (${err.periodStatus}). Reopen that period, then confirm the file.`);
+    }
+    if (err instanceof InactiveAccountError) {
+      throw new PayrollBankFileRefusal('CREDITORS_NOT_PAYABLE', `${err.message} Then confirm the file.`);
+    }
     throw err;
   }
   return entry.id;
