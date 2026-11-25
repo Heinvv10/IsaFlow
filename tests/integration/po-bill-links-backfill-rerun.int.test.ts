@@ -6,19 +6,15 @@
  * clause removed, created inside the rolled-back transaction) must return some: the checks have teeth.
  * Fixture route: isaflow_schema_fixture (assertDisposable). Never skips.
  */
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool, type PoolClient } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { dropBillFixture, seedBillFixture, type BillFixture } from './helpers/budgetBillFixture';
 import { seedPo, seedRawBill, seedSupplier } from './helpers/poBillLinkHarness';
+import { INSTALL, MIGRATION } from './helpers/backfillRerunMigration';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
-const MIGRATION = readFileSync(join(process.cwd(), 'scripts/migrations/sql/1032_purchase_order_bill_links_backfill_rerun.sql'), 'utf8');
-/** The migration without its final call: installs the definition only. */
-const INSTALL = MIGRATION.replace(/\nSELECT public\.purchase_order_bill_links_backfill\(\);\s*$/, '\n');
 let a: BillFixture;
 let b: BillFixture;
 const bill: Record<string, { id: string; subtotal: number }> = {};
@@ -263,49 +259,5 @@ describe('the checks have teeth: each mutant of the live function is caught', ()
     const faults = await evaluate(mutant(await live(), from, to), 'SELECT public.bf_mutant()');
     expect(faults.length, 'the mutant is not caught').toBeGreaterThan(0);
     expect(faults.join(' | ')).toMatch(caught);
-  }, 60_000);
-});
-
-describe('the stale link beside a re-pointed header (design note, M1): the header PO gets the remainder, never a second full amount', () => {
-  let m: BillFixture;
-  beforeAll(async () => { m = await seedBillFixture(pool, 'po-bf-rerun-stale'); }, 60_000);
-  afterAll(async () => { await dropBillFixture(pool, m); }, 60_000);
-  const sql = () => /```sql\n([\s\S]*?)```/.exec(readFileSync(join(process.cwd(), 'docs/design/po-bill-links-backfill.md'), 'utf8'))?.[1]?.replace(/;\s*$/, '');
-
-  it('stale 100.00 on A, header B: no link to B (the bill stays at its subtotal); stale 30.00: B gets 70.00; a plain header-only bill is linked; a second run writes 0', async () => {
-    const poA = await seedPo(pool, m, { lines: [100] });
-    const poB = await seedPo(pool, m, { lines: [100] });
-    const poC = await seedPo(pool, m, { lines: [100] });
-    const poD = await seedPo(pool, m, { lines: [100] });
-    const poE = await seedPo(pool, m, { lines: [100] });
-    const full = await seedRawBill(pool, m, { items: [{ total: 100 }], subtotal: 100, total: 115, header: poB.po });
-    const part = await seedRawBill(pool, m, { items: [{ total: 100 }], subtotal: 100, total: 115, header: poD.po });
-    const plain = await seedRawBill(pool, m, { items: [{ total: 100 }], subtotal: 100, total: 115, header: poE.po });
-    const c = await pool.connect();
-    try {
-      await c.query('BEGIN');
-      await c.query(INSTALL);
-      // The stale links: written by an earlier backfill while the headers named A / C, then re-pointed to B / D outside the app.
-      for (const [po, bill, amount] of [[poA.po, full.id, 100], [poC.po, part.id, 30]] as const) {
-        await c.query(`INSERT INTO purchase_order_bill_links (company_id, purchase_order_id, supplier_invoice_id, amount, source) VALUES ($1, $2, $3, $4, 'backfill')`, [m.co, po, bill, amount]);
-      }
-      const q = sql();
-      expect(q, 'the design note carries the count query').toBeDefined();
-      const count = async () => (await c.query(`SELECT * FROM (${q!}) q WHERE q.company_id = $1`, [m.co])).rows;
-      expect(await count(), 'the note\'s query finds both bills before the run').toEqual([{ company_id: m.co, bills: '2' }]);
-      const links = async () => (await c.query('SELECT supplier_invoice_id AS bill, purchase_order_id AS po, amount::TEXT AS amount FROM purchase_order_bill_links WHERE company_id = $1 ORDER BY 1, 2', [m.co])).rows;
-      await c.query('SELECT purchase_order_bill_links_backfill($1)', [m.co]);
-      const after = await links();
-      const of = (bill: string) => after.filter((l) => l.bill === bill).map((l) => [l.po, l.amount]).sort();
-      expect(of(full.id)).toEqual([[poA.po, '100.00']]);
-      expect(of(part.id)).toEqual([[poC.po, '30.00'], [poD.po, '70.00']].sort());
-      expect(of(plain.id)).toEqual([[poE.po, '100.00']]);
-      for (const bill of [full, part, plain]) expect(after.filter((l) => l.bill === bill.id).reduce((t, l) => t + Number(l.amount), 0)).toBeLessThanOrEqual(100);
-      expect((await c.query('SELECT purchase_order_bill_links_backfill($1) AS n', [m.co])).rows[0].n).toBe('0');
-      expect(await links()).toEqual(after);
-      // The query lists bills whose header PO has no link yet and which hold an owned link elsewhere: `full` still (it was left unlinked on purpose), `part` no longer.
-      expect((await count()).map((r) => r.bills)).toEqual(['1']);
-      await c.query('ROLLBACK');
-    } finally { c.release(); }
   }, 60_000);
 });
