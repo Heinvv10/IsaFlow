@@ -13,6 +13,7 @@
  * after layout so a slip that flows onto more pages carries them too.
  */
 import { COLORS, type JsPdfDoc } from '@/modules/accounting/services/core/pdfShared';
+import { isMonthlyRegular, payslipPeriodTitle, payslipPeriodToken } from './payslipPeriod';
 import { cleanAddress, money, particulars, shortDate } from './payslipFacts';
 import { BENEFIT_NOTE, notItemisedNote, PAID_DIRECTLY_NOTE, type PayslipItem } from './payslipItems';
 import type { Payslip, PayslipRun } from './payslipModel';
@@ -99,7 +100,9 @@ function heading(doc: JsPdfDoc, run: PayslipRun, slip: Payslip, pageW: number): 
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(...COLORS.TEXT_PRIMARY);
   let y = 24 + address.length * 3.6;
-  const periodLabel = `${MONTHS[run.periodMonth - 1]} ${run.periodYear}: ${payPeriodLabel(run.periodMonth, run.periodYear)}`;
+  const periodLabel = isMonthlyRegular(run)
+    ? `${MONTHS[run.periodMonth - 1]} ${run.periodYear}: ${payPeriodLabel(run.periodMonth, run.periodYear)}`
+    : payslipPeriodTitle(run); // wave 7 PP (RS1): a weekly or fortnightly run prints its own dates, an off-cycle run says what it is
   const facts = particulars(run, slip, periodLabel);
   y = Math.max(y, 30);
   for (const [label, value] of facts) {
@@ -186,6 +189,6 @@ export async function buildPayslipPdf(run: PayslipRun, opts: PayslipPdfOptions =
 /** A filename that can only hold safe characters, whatever an employee number holds. */
 export function payslipFilename(run: PayslipRun, employeeNumber?: string): string {
   const safe = (s: string) => s.replace(/[^A-Za-z0-9_-]/g, '');
-  const period = `${run.periodYear}-${pad(run.periodMonth)}`;
+  const period = payslipPeriodToken(run);
   return employeeNumber ? `payslip-${period}-${safe(employeeNumber) || 'employee'}.pdf` : `payslips-${period}.pdf`;
 }

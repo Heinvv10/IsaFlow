@@ -49,13 +49,24 @@ describe('employee portal home', () => {
   });
 
   it('names each download by its visible text plus the month (WCAG 2.5.3), in a captioned table', async () => {
-    slips = [{ runId: 'r1', periodYear: 2026, periodMonth: 10, runDate: null, netPay: 100 }];
+    slips = [{ runId: 'r1', periodYear: 2026, periodMonth: 10, periodLabel: 'October 2026', runDate: null, netPay: 100 }];
     render(<EmployeePortalHome />);
     const link = await screen.findByRole('link', { name: 'Download PDF for October 2026' });
     expect(link.textContent?.startsWith('Download PDF')).toBe(true);
     expect(link.getAttribute('aria-label')).toBeNull();
     expect(screen.getByRole('table', { name: 'Your payslips, newest first' })).toBeTruthy();
     expect(screen.getAllByRole('columnheader').every((th) => th.getAttribute('scope') === 'col')).toBe(true);
+  });
+
+  it('lists a weekly slip and a bonus slip under their own period (wave 7 PP)', async () => {
+    slips = [
+      { runId: 'r2', periodYear: 2026, periodMonth: 11, periodLabel: 'Week 16–22 Nov 2026', runDate: null, netPay: 100 },
+      { runId: 'r3', periodYear: 2026, periodMonth: 11, periodLabel: 'Bonus, Nov 2026', runDate: '2026-11-20', netPay: 500 },
+    ];
+    render(<EmployeePortalHome />);
+    await screen.findByRole('link', { name: 'Download PDF for Week 16–22 Nov 2026' });
+    expect(screen.getByRole('link', { name: 'Download PDF for Bonus, Nov 2026' })).toBeTruthy();
+    expect(screen.getByRole('columnheader', { name: 'Pay period' })).toBeTruthy();
   });
 
   it('goes to sign in even when the sign-out call fails', async () => {

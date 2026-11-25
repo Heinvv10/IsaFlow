@@ -25,7 +25,7 @@ const slip: Payslip = {
   yearToDate: { grossPay: 25000, taxableIncome: 25000, paye: 3500, uifEmployee: 177.12, netPay: 21322.88 },
 };
 const run: PayslipRun = {
-  runId: '22222222-2222-4222-8222-222222222222', periodMonth: 11, periodYear: 2026, runDate: '2026-11-25', final: true,
+  runId: '22222222-2222-4222-8222-222222222222', periodMonth: 11, periodYear: 2026, periodStart: null, periodEnd: null, payFrequency: 'monthly', runKind: 'regular', offCycleReason: null, runDate: '2026-11-25', final: true,
   detailsAsAt: 'approval', employer: { name: 'Fixture <Payroll>\r\nBcc: x@example.invalid', address: '1 Main Road, Durban' }, payslips: [slip],
 };
 const APPROVED = new Date('2026-11-17T04:12:33.123Z');
@@ -75,6 +75,13 @@ describe('the emailed payslip PDF', () => {
     // Wave 7 PX: a control character (NUL, say) is no password; the passport is used, else none.
     expect(payslipPassword({ idNumber: '8001\u00005009087', passportNumber: 'M1234567' })).toEqual({ password: 'M1234567', source: 'passport_number' });
     expect(payslipPassword({ idNumber: '8001\u0000', passportNumber: 'M\u0007' })).toBeNull();
+  });
+
+  it('the subject names the real period of a weekly slip and of a bonus run (wave 7 PP)', () => {
+    const weekly = { ...run, payFrequency: 'weekly', periodMonth: 2, periodYear: 2027, periodStart: '2027-02-22', periodEnd: '2027-02-28' };
+    expect(payslipEmailMessage(weekly, slip, 'id_number').subject).toContain('Your payslip for Week 22–28 Feb 2027 from');
+    expect(payslipEmailMessage(weekly, slip, 'id_number').html).toContain('Your payslip for Week 22–28 Feb 2027 from');
+    expect(payslipEmailMessage({ ...run, runKind: 'off_cycle', offCycleReason: 'bonus' }, slip, 'id_number').subject).toContain('Bonus, Nov 2026');
   });
 
   it('the mail names the document, never the password, and the subject is one line', () => {
