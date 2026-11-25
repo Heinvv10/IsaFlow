@@ -42,7 +42,7 @@ export function ConfirmDialog({
   const destructive = tone === 'destructive';
 
   const latest = React.useRef({ loading, onCancel });
-  latest.current = { loading, onCancel };
+  React.useEffect(() => { latest.current = { loading, onCancel }; });
 
   React.useEffect(() => {
     if (!open) return;
