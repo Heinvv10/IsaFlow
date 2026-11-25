@@ -1,14 +1,13 @@
 /**
  * The PAYE tax year is March-February for EVERY company, whatever its
  * financial year end. A company whose books run July-June
- * (financial_year_start = 7) must still number payroll periods from March and
- * decide "locked at tax year end" on the last day of February, 29th in a leap
- * year. Calls the real routes on a disposable Postgres. All data synthetic.
+ * (financial_year_start = 7) must still number payroll periods from March.
+ * (The "locked at tax year end" block went with the payroll year-end status
+ * route, W31: no surviving surface computes that lock.) Calls the real routes on a disposable Postgres. All data synthetic.
  */
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Pool } from 'pg';
 import periodContext from '../../pages/api/payroll/period-context';
-import yearEndStatus from '../../pages/api/payroll/year-end/status';
 import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
 import { dropSetupUsers, newSetupUser, type SetupUser } from './helpers/onboardingSetupFixture';
 
@@ -97,35 +96,5 @@ describe('period-context numbers payroll periods from March for a June year end'
     try {
       expect((await context(u)).periodNumber).toBe(period);
     } finally { vi.useRealTimers(); }
-  });
-});
-
-describe('year-end status decides "locked at tax year end" on the last day of February', () => {
-  async function lockedOn(taxYear: number, lockdownDate: string): Promise<boolean> {
-    await pool.query(`UPDATE companies SET lockdown_enabled = true, lockdown_date = $2 WHERE id = $1`, [u.homeCompanyId, lockdownDate]);
-    const out = await get(yearEndStatus, u, '/api/payroll/year-end/status', { taxYear: String(taxYear) });
-    expect(out.status, JSON.stringify(out.body)).toBe(200);
-    return (out.body as unknown as { data: { periodLock: { locked: boolean } } }).data.periodLock.locked;
-  }
-
-  it('28 February closes a common tax year', async () => {
-    expect(await lockedOn(2027, '2027-02-28')).toBe(true);
-    expect(await lockedOn(2027, '2027-02-27')).toBe(false);
-  });
-
-  it('28 February does NOT close a leap tax year; 29 February does', async () => {
-    expect(await lockedOn(2028, '2028-02-28')).toBe(false);
-    expect(await lockedOn(2028, '2028-02-29')).toBe(true);
-  });
-
-  it('the same holds for a company that never declared a financial year start', async () => {
-    const undeclared = await companyStarting(null);
-    const prior = u;
-    u = undeclared;
-    try {
-      expect(await lockedOn(2027, '2027-02-28')).toBe(true);
-      expect(await lockedOn(2028, '2028-02-28')).toBe(false);
-      expect(await lockedOn(2028, '2028-02-29')).toBe(true);
-    } finally { u = prior; }
   });
 });

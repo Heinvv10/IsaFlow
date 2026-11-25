@@ -85,7 +85,6 @@
   "pages/payroll/pay-packages/[id].tsx": 1,
   "pages/payroll/training/index.tsx": 3,
   "pages/payroll/uif/index.tsx": 3,
-  "pages/payroll/year-end/index.tsx": 1,
   "src/components/accounting/AccountReportingGroupModal.tsx": 1,
   "src/components/accounting/AssetLocationSelect.tsx": 1,
   "src/components/accounting/CreateRuleModal.tsx": 1,
