@@ -4,7 +4,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const push = vi.fn(() => Promise.resolve(true));
 const beforePopState = vi.fn();
-vi.mock('next/router', () => ({ useRouter: () => ({ query: {}, push, beforePopState }) }));
+// The shared router every public instance delegates to; push/replace are prototype-style (not own) like Next's.
+class Shared { push = push; replace = vi.fn(() => Promise.resolve(true)); }
+const shared = new Shared();
+vi.mock('next/router', () => ({
+  useRouter: () => ({ query: {}, asPath: '/accounting/company-settings', push, beforePopState }),
+  default: { get router() { return shared; } },
+}));
 const apiFetch = vi.fn();
 vi.mock('@/lib/apiFetch', async (orig) => ({ ...(await orig<typeof import('@/lib/apiFetch')>()), apiFetch: (...a: unknown[]) => apiFetch(...a) }));
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
@@ -89,6 +95,57 @@ describe('useUnsavedChangesGuard', () => {
     act(() => result.current.push('/accounting'));
     act(() => result.current.leave());
     expect(push).toHaveBeenCalledWith('/accounting');
+  });
+
+  it('an anchor marked data-no-guard is never intercepted', () => {
+    const { result } = renderHook(() => useUnsavedChangesGuard(true));
+    const l = link('/logout', { 'data-no-guard': '' });
+    act(() => { click(l.a); });
+    expect(l.onReact).toHaveBeenCalled();
+    expect(result.current.pending).toBeNull();
+  });
+
+  it('a refused Back/Forward puts this page URL back before asking', () => {
+    const pushState = vi.spyOn(window.history, 'pushState');
+    renderHook(() => useUnsavedChangesGuard(true));
+    const handler = beforePopState.mock.calls[0]![0] as (s: { as: string }) => boolean;
+    act(() => { handler({ as: '/accounting/bank' }); });
+    expect(pushState).toHaveBeenCalledWith(null, '', '/accounting/company-settings');
+  });
+
+  it('programmatic push/replace to another page (command palette, menus) opens the dialog and resolves false; Leave runs the original', async () => {
+    const origPush = shared.push; const origReplace = shared.replace;
+    const { result, unmount } = renderHook(() => useUnsavedChangesGuard(true));
+    expect(shared.push).not.toBe(origPush);
+    let r: unknown;
+    await act(async () => { r = await (shared.push as (u: string) => Promise<boolean>)('/accounting/bank'); });
+    expect(r).toBe(false);
+    expect(origPush).not.toHaveBeenCalled();
+    expect(result.current.pending).toBe('/accounting/bank');
+    await act(async () => { r = await (shared.replace as (u: string) => Promise<boolean>)('/accounting/bank'); });
+    expect(r).toBe(false);
+    expect(origReplace).not.toHaveBeenCalled();
+    act(() => result.current.leave());
+    expect(origPush).toHaveBeenCalledWith('/accounting/bank');
+    expect(rejections).toEqual([]);
+    unmount();
+    expect(shared.push).toBe(origPush); expect(shared.replace).toBe(origReplace);
+  });
+
+  it('programmatic calls to this page or shallow pass straight through', async () => {
+    const origPush = shared.push;
+    renderHook(() => useUnsavedChangesGuard(true));
+    await (shared.push as (u: string, a?: unknown, o?: object) => Promise<boolean>)('/accounting/bank', undefined, { shallow: true });
+    await (shared.push as (u: string) => Promise<boolean>)(`${window.location.pathname}?tab=vat`);
+    expect(origPush).toHaveBeenCalledTimes(2);
+  });
+
+  it('cleanup does not clobber a wrapper someone installed after ours', () => {
+    const { unmount } = renderHook(() => useUnsavedChangesGuard(true));
+    const theirs = vi.fn(); shared.push = theirs as never;
+    unmount();
+    expect(shared.push).toBe(theirs);
+    shared.push = push;
   });
 
   it('unmount (or going clean) removes the listeners', () => {
