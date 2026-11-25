@@ -179,6 +179,14 @@ describe('updateQuote: per-line VAT', () => {
     expect(wrote()).toBe(false);
   });
 
+  it('round 6 LOW 1: a legacy 15% line with no item resent naming an item is re-priced (typed, the item written), not kept as stored', async () => {
+    world.head = { amounts_are: null, subtotal: '100', tax_amount: '15', total: '115', tax_rate: '15' };
+    world.stored = [storedLine({ id: 'a', description: 'Svc', unit_price: '100.00', amount: '100.00', tax_rate: '15', vat_type: null, tax_amount: null })];
+    await updateQuote(COMPANY_ID, QUOTE_ID, { customerName: 'Acme', lines: [{ description: 'Svc', quantity: 1, unitPrice: 100, itemId: ITEM_ID }] }, 'u1');
+    // Re-priced through the typed path: the line keeps its standard type (the same line, policy) and now carries VAT per line.
+    expect(inserted('customer_quote_lines').map((l) => [l.vat_type, l.tax_amount, l.item_id])).toEqual([['standard', 15, ITEM_ID]]);
+  });
+
   it('L1: a line with no description (a bare API body) is a clean 400 naming the line, nothing written', async () => {
     await expect(updateQuote(COMPANY_ID, QUOTE_ID, { customerName: 'Acme', lines: [{ quantity: 1, unitPrice: 1 }] } as never, 'u1'))
       .rejects.toThrow('Line 1: description is required');

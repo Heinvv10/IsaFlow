@@ -84,7 +84,12 @@ const itemOf = (l: SentQuoteLine): string | null => (typeof l.itemId === 'string
 const sameItem = (l: SentQuoteLine, s: StoredQuoteVatLine) => itemOf(l) !== null && !!s.itemId && itemOf(l) === s.itemId.toLowerCase();
 const itemsDiffer = (l: SentQuoteLine, s: StoredQuoteVatLine) => itemOf(l) !== null && !!s.itemId && !sameItem(l, s);
 const key = (l: { description: string; quantity: unknown; unitPrice: unknown }) => identicalLineKey(descOf(l.description), l.quantity, l.unitPrice);
-const identical = (l: SentQuoteLine, s: StoredQuoteVatLine) => key(l) === key(s) && !itemsDiffer(l, s);
+/**
+ * Whether the item a sent line names is not the stored line's: another item, one added where it had none, or one
+ * removed (`itemId` null or ''). An `itemId` left out keeps the stored item (itemEditLines), so it is no change.
+ */
+const itemChanged = (l: SentQuoteLine, s: StoredQuoteVatLine) => l.itemId !== undefined && itemOf(l) !== (s.itemId ? s.itemId.toLowerCase() : null);
+const identical = (l: SentQuoteLine, s: StoredQuoteVatLine) => key(l) === key(s) && !itemChanged(l, s);
 const sameDescription = (l: SentQuoteLine, s: StoredQuoteVatLine) => descOf(l.description) === descOf(s.description) && !itemsDiffer(l, s);
 
 /** See the header: the same count, every line of a compatible rate, identical in its place but at most one changed in place. */
@@ -159,8 +164,10 @@ export const keptQuoteTypes = (matches: readonly (LineMatch | null)[]): (Documen
 
 /**
  * Whether a LEGACY quote's edit leaves every line as stored: the same number of lines, each identical to its match,
- * naming no type and no rate other than the stored one, and the mode not turned inclusive. Such an edit (notes, the
- * customer, the expiry) keeps the stored lines and figures: a legacy line is never re-priced.
+ * naming no type, no rate other than the stored one and no item other than the stored one (an item added, changed or
+ * removed is a change: the line is re-priced), and the mode not turned inclusive. Such an edit (notes, the customer,
+ * the expiry) keeps the stored lines and figures: a legacy line left as it is is never re-priced, not when the quote's
+ * date moves nor when the company's VAT registration changes (documented rule; it is re-priced once its lines change).
  */
 export function legacyLinesUnchanged(
   sent: readonly SentQuoteLine[], stored: readonly StoredQuoteVatLine[], matches: readonly (LineMatch | null)[], amountsAre: unknown,

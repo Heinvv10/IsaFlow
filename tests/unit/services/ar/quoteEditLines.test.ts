@@ -150,6 +150,22 @@ describe('review round 6: a line matched by id is never "unchanged" at another r
   });
 });
 
+describe('round 6 LOW 1: an item added, changed or removed is a change, never "unchanged"', () => {
+  const legacy = (o: Partial<StoredQuoteVatLine>) => stored('a', { description: 'Svc', vatType: null, taxAmount: null, taxRate: 15, ...o });
+  const unchanged = (sent: SentQuoteLine[], st: StoredQuoteVatLine[]) => legacyLinesUnchanged(sent, st, matchQuoteLines(sent, st, D).matches, undefined);
+
+  it('a legacy line with no item resent identical but naming an item: changed', () => {
+    expect(unchanged([line({ description: 'Svc', itemId: A })], [legacy({})])).toBe(false);
+  });
+  it('the stored item removed (null or \'\') or changed: changed; left out (kept by itemEditLines) or the same: unchanged', () => {
+    expect(unchanged([line({ description: 'Svc', itemId: null as unknown as string })], [legacy({ itemId: A })])).toBe(false);
+    expect(unchanged([line({ description: 'Svc', itemId: '' })], [legacy({ itemId: A })])).toBe(false);
+    expect(unchanged([line({ description: 'Svc', itemId: B })], [legacy({ itemId: A })])).toBe(false);
+    expect(unchanged([line({ description: 'Svc' })], [legacy({ itemId: A })])).toBe(true);
+    expect(unchanged([line({ description: 'Svc', itemId: A.toUpperCase() })], [legacy({ itemId: A })])).toBe(true);
+  });
+});
+
 describe('a quote of standard lines only: content passes, no refusal (nothing to mistype)', () => {
   const hosting = stored('h', { description: 'Hosting' });
   it('matches identical, then same description, then same item, anywhere; a new line has no match', () => {
