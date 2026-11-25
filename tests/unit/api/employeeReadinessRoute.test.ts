@@ -64,9 +64,12 @@ describe('GET readiness', () => {
     for (let i = 0; i < 300; i += 1) statuses.push((await call()).status);
     expect(statuses.filter(s => s !== 200)).toEqual([]);
   });
-  it('still refuses a runaway client, under a cap the window can reach', async () => {
+  it('still refuses a runaway client: the configured cap (1200) passes, the 1201st read is 429', async () => {
     st.window = { used: 0 };
-    await call();
-    expect(st.max[0]).toBeLessThanOrEqual(5000);
+    const statuses: number[] = [];
+    for (let i = 0; i < 1201; i += 1) statuses.push((await call()).status);
+    expect(statuses.slice(0, 1200).every(s => s === 200)).toBe(true);
+    expect(statuses[1200]).toBe(429);
+    expect(st.reads).toBe(1200);
   });
 });

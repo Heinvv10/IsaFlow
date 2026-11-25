@@ -27,16 +27,16 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const employeeId = requireUuidParam(req, res, 'id');
   if (!employeeId) return;
   try {
-    await timed(res, 'f-human', () => assertHumanSession('read employee readiness'));
+    await timed(res, 'human', () => assertHumanSession('read employee readiness'));
   } catch (err) {
     if (respondIfBankControlRefused(res, err)) return;
     throw err;
   }
-  if (!(await timed(res, 'g-ratelimit', () => checkReportRateLimit(companyId, `employee-readiness:u:${user.id}`, READINESS_RATE_LIMIT)))) {
+  if (!(await timed(res, 'ratelimit', () => checkReportRateLimit(companyId, `employee-readiness:u:${user.id}`, READINESS_RATE_LIMIT)))) {
     log.warn('Readiness read rate limit exceeded', { companyId, userId: user.id }, 'employee-readiness');
     return apiResponse.tooManyRequests(res, 'Too many requests. Please try again shortly.');
   }
-  const read = await timed(res, 'h-query', () => readEmployeeReadiness(companyId, employeeId));
+  const read = await timed(res, 'query', () => readEmployeeReadiness(companyId, employeeId));
   if (!read) return apiResponse.notFound(res, 'Employee');
   return apiResponse.success(res, read);
 }

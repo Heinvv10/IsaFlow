@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import React from 'react';
 import { render, screen, cleanup, waitFor, fireEvent } from '@testing-library/react';
 import { EmployeeReadinessCard } from '@/components/payroll/EmployeeReadinessCard';
-import { prefetchReadiness, clearReadinessReads } from '@/components/payroll/employeeBankState';
+import { prefetchReadiness, clearReadinessReads, loadReadiness, invalidateReadiness } from '@/components/payroll/employeeBankState';
 import { EmployeeDrawerBody } from '@/components/payroll/EmployeeDrawerBody';
 
 const EMP = '11111111-1111-4111-8111-111111111111';
@@ -180,6 +180,24 @@ describe('EmployeeReadinessCard', () => {
     await waitFor(() => expect(urls().filter(u => u.endsWith('/readiness'))).toHaveLength(2));
   });
 
+  it('a failed read finishing late does not drop the newer read that replaced it (identity check)', async () => {
+    let failFirst: (r: Response) => void = () => undefined;
+    let n = 0;
+    fetchMock.mockImplementation((u: string) => {
+      if (!String(u).endsWith('/readiness')) return Promise.resolve(ok([]));
+      n += 1;
+      return n === 1 ? new Promise<Response>(r => { failFirst = r; }) : Promise.resolve(ok({ bank: 'on-file', runs: [], hasFinalRun: false }));
+    });
+    const first = loadReadiness(EMP, 0);
+    invalidateReadiness(EMP);
+    const second = loadReadiness(EMP, 0);
+    failFirst(fail(500));
+    expect((await first).bank).toBe('unknown');
+    expect((await second).bank).toBe('on-file');
+    await loadReadiness(EMP, 0); // still the second read, shared
+    expect(urls().filter(u => u.endsWith('/readiness'))).toHaveLength(2);
+  });
+
   it('judges the salary against the month after the latest calculated run', async () => {
     runs = [{ periodYear: 2026, periodMonth: 11, status: 'calculated' }];
     serveBank(() => ok({ id: 'b1' }));
@@ -235,6 +253,12 @@ describe('EmployeeDrawerBody readiness line', () => {
     serve(ok(null));
     render(<EmployeeDrawerBody employeeId={EMP} mayWrite />);
     expect(await screen.findByText('1 thing before the next pay run: bank details')).toBeTruthy();
+  });
+
+  it('a 429 on the bank read says the check is paused, same as the card (RS3)', async () => {
+    serve(fail(429));
+    render(<EmployeeDrawerBody employeeId={EMP} mayWrite />);
+    expect(await screen.findByText('1 thing before the first pay run: Bank check paused: too many requests, try again in a minute')).toBeTruthy();
   });
 
   it('a failed bank read shows the check line, never Ready to pay', async () => {

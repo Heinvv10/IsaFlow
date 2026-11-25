@@ -9,7 +9,7 @@ import { nextRunMonth, type BankState } from './employeeReadiness';
 export async function loadBankState(employeeId: string): Promise<BankState> {
   try {
     const res = await apiFetch(`/api/payroll/employees/${employeeId}/bank-details?view=masked`);
-    if (!res.ok) return 'unknown';
+    if (!res.ok) return res.status === 429 ? 'limited' : 'unknown';
     const json = (await res.json()) as { data?: unknown };
     return json.data ? 'on-file' : 'none';
   } catch (err) {
@@ -90,7 +90,7 @@ export function loadReadiness(employeeId: string, key = 0): Promise<ReadinessSta
   const read = fetchReadiness(employeeId);
   reads.set(id, { at: now, read });
   // A failed read is shared while it is in flight only: asking again after it answered must ask the server.
-  void read.then(r => { if (r.bank === 'unknown' || r.bank === 'limited') reads.delete(id); });
+  void read.then(r => { if ((r.bank === 'unknown' || r.bank === 'limited') && reads.get(id)?.read === read) reads.delete(id); });
   if (reads.size > 50) for (const [k, v] of reads) if (now - v.at >= SHARE_MS) reads.delete(k);
   return read;
 }
@@ -98,6 +98,11 @@ export function loadReadiness(employeeId: string, key = 0): Promise<ReadinessSta
 /** Start the read as soon as the page knows the employee, before the profile it waits on has loaded. */
 export function prefetchReadiness(employeeId: string, key = 0): void {
   void loadReadiness(employeeId, key);
+}
+
+/** The employee's bank details changed: no shared read of theirs, under any key, may answer a card that mounts next. */
+export function invalidateReadiness(employeeId: string): void {
+  for (const k of [...reads.keys()]) if (k.startsWith(`${employeeId}:`)) reads.delete(k);
 }
 
 /** Forget every shared read (a test starts from none). */
