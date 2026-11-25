@@ -103,7 +103,7 @@ export default function NewGRNPage() {
       const res = await apiFetch('/api/accounting/goods-received', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ purchaseOrderId: selectedPO, receivedDate, receivedBy: deliveryNote || null, notes: notes || null, items }),
+        body: JSON.stringify({ purchaseOrderId: selectedPO, receivedDate, notes: [deliveryNote && `Delivery note: ${deliveryNote}`, notes].filter(Boolean).join(' — ') || null, items }),
       });
       await assertOk(res, 'Could not create the goods received note - try again');
       try { await router.push('/accounting/goods-received'); } catch (e) { log.warn('navigation failed', { error: e }, 'goods-received-new'); }
