@@ -24,10 +24,13 @@
 --      The new MEMBER term in WITH CHECK changes nothing for a real session: every app_user entry point (withAuth,
 --      bearerPipeline / MCP, companyOwnTx, auditTx, the budget and intercompany jobs) sets the active company only for
 --      a member user. app_service keeps its USING (true) mirrors (app_service_sync_policies(), below).
---   2. payroll_employees_company_fixed: BEFORE UPDATE OF company_id, ENABLE ALWAYS, INVOKER. An employee's company
---      never changes, for every role but a SUPERUSER session (999n's exemption: a superuser can disable any trigger
---      anyway). It binds the BYPASSRLS roles (platform_admin, migration_admin, production's postgres) that the policy
---      does not.
+--   2. payroll_employees_company_fixed and payroll_run_headers_company_fixed (one INVOKER function,
+--      payroll_row_company_fixed; BEFORE UPDATE, ENABLE ALWAYS): a row's company never changes, for every role but a
+--      SUPERUSER session (999n's exemption: a superuser can disable any trigger anyway). It binds the BYPASSRLS roles
+--      (platform_admin, migration_admin, production's postgres) that the policy does not. 999n already froze a FINAL
+--      header's company; this covers every header (security review of 4bbded8c0b: a reopened client header moved into
+--      the Demo would have met rule 3b's Demo exemption), so the Demo exemption below reaches only rows born in the
+--      Demo.
 --   3. W35, closed by EVIDENCE, not by the current state (security review of 22b1532807: approve, then a status flip
 --      out of approved, then DELETE and INSERT again, would have passed a rule that judged only the current state).
 --      payroll_run_headers.ever_final_at (new, NULL) is kept by payroll_run_headers_final_evidence (BEFORE INSERT OR
@@ -56,13 +59,17 @@
 --          Demo's final runs first (scripts/lib/demoReseed/payrollFinal.ts reopenFinalRuns), which satisfies rule a,
 --          and then deletes runs that carry evidence. This is exactly the exemption 999x's history guard already gives
 --          the Demo for approval_history, so it reaches no row that was not deletable before; the Demo holds no real
---          money. Rule a still binds the Demo.
+--          money. Rule a still binds the Demo. With every header's company fixed (2 above), the exemption reaches only
+--          rows created in the Demo. A role-based path for the reseed was rejected: the app pool can SET ROLE and
+--          set_config('role', ...) inside a transaction, so a rule on the role is forgeable where a fixed company id is
+--          not (999n, 999x); a SECURITY DEFINER wipe would need its own unforgeable caller test for the same reason.
 --
 -- OLD COLOUR (the release before this one, against this schema). Writer census in the PR body:
 --   headers    the one app DELETE is payrollRunDelete (a never-calculated draft, by id and the request's company); every
 --              INSERT and UPDATE names the request's company (withAuth / bearer), a company the user is a member of
 --              and the active one; approve, reopen and the definers (872, owned by migration_admin) are unaffected.
 --   employees  every UPDATE names the request's company and none sets company_id; INSERT is the request's company.
+--   company    no header or employee writer, old or new, changes company_id (census in the PR body).
 --   reseed     the old colour's reseed also reopens before its wipe (999n), so it is not refused.
 --   ever_final_at  the old colour never names it (no SELECT * that is written back); its header writes pass through
 --              the evidence trigger, which keeps or stamps the column itself.
@@ -78,7 +85,8 @@
 --   DROP FUNCTION IF EXISTS public.payroll_run_headers_final_evidence();
 --   ALTER TABLE public.payroll_run_headers DROP COLUMN IF EXISTS ever_final_at;
 --   DROP TRIGGER IF EXISTS payroll_employees_company_fixed ON public.payroll_employees;
---   DROP FUNCTION IF EXISTS public.payroll_run_headers_final_no_delete(), public.payroll_employees_company_fixed();
+--   DROP TRIGGER IF EXISTS payroll_run_headers_company_fixed ON public.payroll_run_headers;
+--   DROP FUNCTION IF EXISTS public.payroll_run_headers_final_no_delete(), public.payroll_row_company_fixed();
 --   for t in payroll_run_headers, payroll_employees: DROP POLICY IF EXISTS tenant_isolation_{select,insert,update,delete}
 --   ON public.<t>; CREATE POLICY tenant_isolation ON public.<t> FOR ALL TO app_user
 --     USING (company_id IN (SELECT company_users.company_id FROM company_users WHERE company_users.user_id = auth.uid()))
@@ -142,26 +150,32 @@ ALTER TABLE public.payroll_run_headers FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.payroll_employees ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.payroll_employees FORCE ROW LEVEL SECURITY;
 
--- ── 2. an employee's company is fixed ───────────────────────────────────────────────────────────────────────────
+-- ── 2. a row's company is fixed (employees and pay run headers) ──────────────────────────────────────────────────
 
-CREATE OR REPLACE FUNCTION public.payroll_employees_company_fixed() RETURNS trigger
+CREATE OR REPLACE FUNCTION public.payroll_row_company_fixed() RETURNS trigger
 LANGUAGE plpgsql SECURITY INVOKER SET search_path = pg_catalog, public, pg_temp AS $$
 BEGIN
   IF current_setting('is_superuser') = 'on' THEN
     RETURN NEW;
   END IF;
   IF NEW.company_id IS DISTINCT FROM OLD.company_id THEN
-    RAISE EXCEPTION 'payroll_employees: an employee''s company is fixed (create the employee in the other company instead)'
+    RAISE EXCEPTION '%: a row''s company is fixed (create it in the other company instead)', TG_TABLE_NAME
       USING ERRCODE = '23514';
   END IF;
   RETURN NEW;
 END
 $$;
 
+-- Every UPDATE, not UPDATE OF company_id: the column list is the statement's SET list, so it would miss a value
+-- changed by another BEFORE trigger.
 CREATE OR REPLACE TRIGGER payroll_employees_company_fixed
-  BEFORE UPDATE OF company_id ON public.payroll_employees
-  FOR EACH ROW EXECUTE FUNCTION public.payroll_employees_company_fixed();
+  BEFORE UPDATE ON public.payroll_employees
+  FOR EACH ROW EXECUTE FUNCTION public.payroll_row_company_fixed();
 ALTER TABLE public.payroll_employees ENABLE ALWAYS TRIGGER payroll_employees_company_fixed;
+CREATE OR REPLACE TRIGGER payroll_run_headers_company_fixed
+  BEFORE UPDATE ON public.payroll_run_headers
+  FOR EACH ROW EXECUTE FUNCTION public.payroll_row_company_fixed();
+ALTER TABLE public.payroll_run_headers ENABLE ALWAYS TRIGGER payroll_run_headers_company_fixed;
 
 -- ── 3. a header that was ever final is not deleted ─────────────────────────────────────────────────────────────
 

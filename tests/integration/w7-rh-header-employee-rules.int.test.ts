@@ -7,18 +7,13 @@
  *    for app_user and platform_admin alike; nor, outside the Demo, is one with past-approval evidence (ever_final_at,
  *    which the trigger keeps and no statement clears, reopened_at, a stamp or approval_history), so no run that was
  *    approved can be deleted and inserted again with its off-cycle snapshot reset (W35); a never-final draft deletes;
- *  - the Demo reseed's wipe path (reopenFinalRuns, then the plan's DELETE steps) still empties the Demo's runs, as a
- *    non-superuser, runs that were approved before included (the Demo is exempt from the evidence rule only, as 999x's
- *    history guard exempts it); without the reopen it is refused (the final rule binds the Demo);
- *  - a company delete still cascades its final runs (coordinator ruling B: pg_trigger_depth() > 1), and companies is
- *    the only parent that cascades into payroll_run_headers.
+ *  - a header's company is fixed, so the Demo exemption reaches only rows born in the Demo;
+ *  - companies is the only parent that cascades into payroll_run_headers (the cascade exemption's census).
+ * The Demo reseed wipe and the company-delete cascade: w7-rh-teardown.int.test.ts.
  * Seeding runs as the fixture's superuser (exempt); every refused statement is followed by a check that no row moved.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import pg, { Pool, type PoolClient } from 'pg';
-import { reopenFinalRuns } from '../../scripts/lib/demoReseed/payrollFinal';
-import { txOver } from '../../scripts/lib/demoReseed/db';
-import { WIPE_STEPS, deleteSql } from '../../scripts/lib/demoReseed/wipePlan';
+import { Pool, type PoolClient } from 'pg';
 
 const su = new Pool({ connectionString: process.env.DATABASE_URL, max: 2 });
 const DEMO = '00000000-0000-0000-0000-000000000001';
@@ -26,7 +21,7 @@ const [A, B, UA, UAB] = [crypto.randomUUID(), crypto.randomUUID(), crypto.random
 const [EA, EB] = [crypto.randomUUID(), crypto.randomUUID()];
 const YEAR = 2100 + Math.floor(Math.random() * 800);
 const FINAL_REFUSED = /a final pay run is not deleted \(reopen or cancel it first\)/;
-const MOVE_REFUSED = /an employee's company is fixed/;
+const MOVE_REFUSED = /a row's company is fixed/;
 // The same words as 999x's history guard, which this rule widens (its pins in w6-oc-forge hold).
 const EVIDENCE_REFUSED = /a pay run that was approved before is not deleted; cancel it instead/;
 
@@ -152,6 +147,36 @@ describe('W10: an employee\'s company is fixed', () => {
   });
 });
 
+describe('a header\'s company is fixed (so the Demo exemption reaches only rows born in the Demo)', () => {
+  it('a reopened client header cannot be moved into the Demo, by a Demo member or platform_admin; its delete stays refused', async () => {
+    const h = await header(A, 'approved', 'approved_at', 10);
+    await su.query("UPDATE payroll_run_headers SET status = 'calculated', approved_at = NULL WHERE id = $1", [h]);
+    const c = await su.connect();
+    try {
+      await c.query('BEGIN');
+      await c.query(`INSERT INTO companies (id, name, is_demo) VALUES ($1, 'ISAFlow Demo (Pty) Ltd', true) ON CONFLICT (id) DO NOTHING`, [DEMO]);
+      await c.query(`INSERT INTO company_users (company_id, user_id, role) VALUES ($1, $2, 'admin') ON CONFLICT DO NOTHING`, [DEMO, UA]);
+      await c.query('SET LOCAL ROLE app_user');
+      await c.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: UA, role: 'authenticated' })]);
+      await c.query("SELECT set_config('app.current_company_id', $1, true)", [A]);
+      await c.query('SAVEPOINT m');
+      await expect(c.query('UPDATE payroll_run_headers SET company_id = $2 WHERE id = $1', [h, DEMO])).rejects
+        .toMatchObject({ code: '23514', message: expect.stringMatching(/payroll_run_headers: a row's company is fixed/) });
+      await c.query('ROLLBACK TO SAVEPOINT m');
+      await c.query('RESET ROLE');
+      await c.query('SET LOCAL ROLE platform_admin');
+      await c.query('SAVEPOINT p');
+      await expect(c.query('UPDATE payroll_run_headers SET company_id = $2 WHERE id = $1', [h, DEMO])).rejects.toThrow(MOVE_REFUSED);
+      await c.query('ROLLBACK TO SAVEPOINT p');
+      await expect(c.query('DELETE FROM payroll_run_headers WHERE id = $1', [h])).rejects.toThrow(EVIDENCE_REFUSED);
+    } finally {
+      await c.query('ROLLBACK');
+      c.release();
+    }
+    expect((await one('SELECT company_id FROM payroll_run_headers WHERE id = $1', [h])).company_id).toBe(A);
+  });
+});
+
 describe('W35: a final header is not deleted', () => {
   it.each([
     ['approved', 'approved_at'], ['paid', 'approved_at'], ['approved', 'approval_grandfathered_at'],
@@ -220,56 +245,5 @@ describe('W35: a final header is not deleted', () => {
     await as(owner, async (c) => {
       expect(await n(c, 'DELETE FROM payroll_run_headers WHERE id = ANY($1)', [[d, unstamped]])).toBe(2);
     });
-  });
-});
-
-describe('teardown paths still work', () => {
-  it('the Demo reseed wipe: reopenFinalRuns, then the plan\'s DELETE steps, as a non-superuser', async () => {
-    const c = new pg.Client({ connectionString: process.env.DATABASE_URL });
-    await c.connect();
-    try {
-      await c.query('BEGIN');
-      await c.query(`INSERT INTO companies (id, name, is_demo) VALUES ($1, 'ISAFlow Demo (Pty) Ltd', true) ON CONFLICT (id) DO NOTHING`, [DEMO]);
-      const emp = (await c.query(`INSERT INTO payroll_employees (company_id, employee_number, first_name, last_name, start_date)
-        VALUES ($1, $2, 'Demo', 'Person', '2020-01-01') RETURNING id`, [DEMO, `RH-${YEAR}`])).rows[0].id as string;
-      const db = { query: c.query.bind(c) } as unknown as Pool;
-      const fin = await header(DEMO, 'calculated', null, 9, db);
-      await c.query('INSERT INTO payroll_run_lines (run_id, employee_id, gross_pay, net_pay) VALUES ($1, $2, 10000, 8000)', [fin, emp]);
-      await c.query(`UPDATE payroll_run_headers SET status = 'approved', approved_at = now() WHERE id = $1`, [fin]);
-      // A reopened run keeps approval_history (999x): it is not final, and the history guard exempts the Demo.
-      const reopened = await header(DEMO, 'calculated', null, 10, db);
-      await c.query(`UPDATE payroll_run_headers SET approval_history = tstzmultirange(tstzrange(now() - interval '2 days', now()))
-        WHERE id = $1`, [reopened]);
-      await c.query('SET LOCAL ROLE platform_admin'); // NOSUPERUSER, as production's reseed role is
-      const steps = WIPE_STEPS.filter((s) => ['payroll_run_lines', 'payroll_run_headers'].includes(s.table));
-      expect(steps.map((s) => s.table)).toEqual(['payroll_run_lines', 'payroll_run_headers']);
-      // Without the reopen the wipe is refused: the Demo has no exemption.
-      await c.query('SAVEPOINT w');
-      await expect((async () => { for (const s of steps) await c.query(deleteSql(s), [DEMO]); })()).rejects.toThrow(/final pay run/);
-      await c.query('ROLLBACK TO SAVEPOINT w');
-      expect(await reopenFinalRuns(txOver(c), DEMO)).toBeGreaterThanOrEqual(1);
-      for (const s of steps) await c.query(deleteSql(s), [DEMO]);
-      expect((await c.query('SELECT count(*)::int AS n FROM payroll_run_headers WHERE company_id = $1', [DEMO])).rows[0].n).toBe(0);
-    } finally {
-      await c.query('ROLLBACK');
-      await c.end();
-    }
-  });
-  it('a company delete still cascades its final run (coordinator ruling B), while a direct delete of it is refused', async () => {
-    const c = await su.connect();
-    try {
-      await c.query('BEGIN');
-      const co = (await c.query("INSERT INTO companies (name) VALUES ('RH cascade') RETURNING id")).rows[0].id as string;
-      const h = await header(co, 'approved', 'approved_at', 11, c as unknown as Pool);
-      await c.query('SET LOCAL ROLE platform_admin');
-      await c.query('SAVEPOINT d');
-      await expect(c.query('DELETE FROM payroll_run_headers WHERE id = $1', [h])).rejects.toThrow(FINAL_REFUSED);
-      await c.query('ROLLBACK TO SAVEPOINT d');
-      expect((await c.query('DELETE FROM companies WHERE id = $1 RETURNING id', [co])).rows).toEqual([{ id: co }]);
-      expect((await c.query('SELECT count(*)::int AS n FROM payroll_run_headers WHERE id = $1', [h])).rows[0].n).toBe(0);
-    } finally {
-      await c.query('ROLLBACK');
-      c.release();
-    }
   });
 });
