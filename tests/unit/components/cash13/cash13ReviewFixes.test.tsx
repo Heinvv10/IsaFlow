@@ -182,6 +182,13 @@ describe('pay-day form', () => {
     await waitFor(() => expect(save).toHaveBeenCalledWith({ kind: 'last_working_day' }));
   });
 
+  it('a reload that changes only the rule moves the choice', () => {
+    const save = vi.fn();
+    const { rerender } = render(<PayDayControl setting={setting(25)} canEdit onSave={save} />);
+    rerender(<PayDayControl setting={{ payDay: { kind: 'last_working_day' }, day: 25, isDefault: false }} canEdit onSave={save} />);
+    expect((screen.getByLabelText('The last working day of the month') as HTMLInputElement).checked).toBe(true);
+  });
+
   it('opens on the stored rule', () => {
     render(<PayDayControl setting={{ payDay: { kind: 'last_working_day' }, day: 31, isDefault: false }} canEdit onSave={vi.fn()} />);
     expect((screen.getByLabelText('The last working day of the month') as HTMLInputElement).checked).toBe(true);
