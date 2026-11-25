@@ -1,6 +1,5 @@
 /** runSageMigration guards itself: a pool or an environment that is not a local throwaway database stops it before it connects. */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { readFileSync } from 'node:fs';
 import { runSageMigration } from '@/modules/accounting/services/sage-migration/sageMigrationRunner';
 import { parseSageExport } from '@/modules/accounting/services/sage-migration/sageExportParser';
 
@@ -47,12 +46,8 @@ describe('runSageMigration refuses before it connects', () => {
 });
 
 describe('liveWithoutCounts is for tests and programmatic callers only', () => {
-  it('the CLI never sets it, and passes no field the person cannot see on its command line (a census of scripts/sage-migration/run.ts)', () => {
-    const cli = readFileSync('scripts/sage-migration/run.ts', 'utf8');
-    expect(cli).not.toContain('liveWithoutCounts');
-    // and the runner call takes the counts from the flags
-    expect(cli).toMatch(/items: count\(values\['expect-items'\]\), purchaseOrders: count\(values\['expect-pos'\]\)/);
-  });
+  // That the CLI never sets it is checked by what the CLI DOES (L7, round 10): tests/integration/sage-migration-cli.int.test.ts, "F4 / L7":
+  // --live without --expect-items / --expect-pos is exit 2 and writes nothing.
   it('without the opt-out a live run with no counts throws before it connects; with it, it goes ahead (the runner is the only place that decides)', async () => {
     vi.stubEnv('DATABASE_URL', LOCAL);
     const { p, connect } = pool(LOCAL);

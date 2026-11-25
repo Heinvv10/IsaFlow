@@ -238,12 +238,21 @@ describe('scripts/sage-migration/run.ts', () => {
     }
   }, 180_000);
 
-  it('F4: --live needs --expect-items and --expect-pos, so a file that lost a container cannot pass unnoticed', () => {
-    const live = [...base(), '--live'];
-    expect(cli(live).code).toBe(2);
-    expect(cli(live).err).toMatch(/--live needs --expect-items and --expect-pos/);
-    expect(cli([...live, '--expect-items', '20']).code).toBe(2);
-    expect(cli([...live, '--expect-pos', '10']).code).toBe(2);
+  it('F4 / L7 (round 10): --live without --expect-items and --expect-pos is exit 2 and writes nothing (the CLI never opts out of the counts)', async () => {
+    // A company with nothing booked, so a run that went live anyway would show in every count (the runner's liveWithoutCounts is never set).
+    const world = await sageWorld(pool);
+    try {
+      const live = ['--company', world.companyId, '--user', world.userId, '--file', 'tests/fixtures/sage-export/sage-export.json', '--live'];
+      for (const args of [live, [...live, '--expect-items', '20'], [...live, '--expect-pos', '10']]) {
+        const r = cli(args);
+        expect(r.code, args.join(' ')).toBe(2);
+        expect(r.err, args.join(' ')).toMatch(/--live needs --expect-items and --expect-pos/);
+        expect(await booked(pool, world.companyId), args.join(' ')).toMatchObject({ items: 0, categories: 0, pos: 0, movements: 0, toolCalls: 0 });
+      }
+    } finally {
+      await cleanupSageWorld(pool, world);
+      await cleanupWorld(pool, world.w);
+    }
   }, 180_000);
 
   it('F4: an export with a misspelt container or no container is refused (exit 2) before anything runs', () => {
