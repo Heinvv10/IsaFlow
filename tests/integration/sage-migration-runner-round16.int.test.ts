@@ -89,13 +89,12 @@ describe('L3 (round 13): a live batch the tool refused, whose COMMIT (of the ref
 });
 
 describe('L4 / B13-3 (round 13): a refused start of the CLI and the --report file of an earlier run', () => {
-  it('every refusal after the arguments are read (exit 2) replaces the file with a stop report', () => {
+  it('every refusal after the arguments are read (exit 2) leaves a stop report in the new --report it created (round 16: a new path each)', () => {
     const dir = mkdtempSync(join(tmpdir(), 'sage-refused-report-'));
     try {
-      const report = join(dir, 'report.json');
-      const base = ['--no-env-file', 'scripts/sage-migration/run.ts', '--company', s.companyId, '--user', s.userId, '--file', 'tests/fixtures/sage-export/sage-export.json', '--report', report];
       for (const [extra, why] of [[['--run-tag', 'bad tag!'], /--run-tag must be/], [['--live'], /--live needs --expect-items/], [['--live', '--expect-items', 'x', '--expect-pos', '1'], /not a count: x/]] as const) {
-        writeFileSync(report, JSON.stringify({ status: 'completed', note: 'an earlier run' }));
+        const report = join(dir, `report-${extra.length}-${String(why).length}.json`);
+        const base = ['--no-env-file', 'scripts/sage-migration/run.ts', '--company', s.companyId, '--user', s.userId, '--file', 'tests/fixtures/sage-export/sage-export.json', '--report', report];
         const r = spawnSync('bun', [...base, ...extra], { encoding: 'utf8', timeout: 170_000, env: { ...process.env, DATABASE_SSL: 'disable' } });
         expect(r.status, extra.join(' ')).toBe(2);
         const json = JSON.parse(readFileSync(report, 'utf8'));

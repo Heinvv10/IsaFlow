@@ -41,16 +41,22 @@ describe('B15-1: --report never overwrites the export', () => {
     ]) {
       const r = cli(args);
       expect(r.status, args.join(' ')).toBe(2);
-      // The hard link and the repeated --file are the export itself (dev + ino, every --file); the swap is a file that is not a report.
-      expect(r.stderr, args.join(' ')).toMatch(args.includes('--live') || args[3] === join(d, 'link.json') ? /is the export --file itself/ : /is not a report of this tool/);
+      // The hard link and the repeated --file are the export itself (dev + ino, every --file); the swap names a path that exists (round 16).
+      // (The dangling --file --live is refused by the strict parse itself since round 16, before --report is looked at: stderr only.)
+      expect(r.stderr, args.join(' ')).toMatch(args.includes('--live') ? /argument is ambiguous/ : args[3] === join(d, 'link.json') ? /is the export --file itself/ : /already exists/);
       expect(readFileSync(file, 'utf8'), args.join(' ')).toBe(bytes);
     }
   }, 180_000);
-  it('a report of an earlier run is still replaced (it is one of the tool\'s own)', () => {
+  it('round 16: a report of an earlier run is NOT replaced either (any existing path is refused); a new path is written', () => {
     const report = join(d, 'report.json');
     writeFileSync(report, JSON.stringify({ status: 'completed' }));
-    expect(cli(['--file', FIXTURE, '--report', report, ...who()]).status).toBe(0);
-    expect(JSON.parse(readFileSync(report, 'utf8'))).toMatchObject({ status: 'dry_run_ok' });
+    const r = cli(['--file', FIXTURE, '--report', report, ...who()]);
+    expect(r.status).toBe(2);
+    expect(r.stderr).toMatch(/already exists: .*pick a new path or delete the old file; nothing was written/);
+    expect(JSON.parse(readFileSync(report, 'utf8'))).toEqual({ status: 'completed' });
+    const fresh = join(d, 'fresh.json');
+    expect(cli(['--file', FIXTURE, '--report', fresh, ...who()]).status).toBe(0);
+    expect(JSON.parse(readFileSync(fresh, 'utf8'))).toMatchObject({ status: 'dry_run_ok' });
   }, 180_000);
 });
 
@@ -64,7 +70,7 @@ describe('B15-2: a run refused by the run lock', () => {
       await holder.query('SELECT pg_advisory_lock($1, $2)', [k1, k2]);
       const r = cli(['--file', FIXTURE, '--report', report, ...who(), '--live', '--expect-items', '20', '--expect-pos', '10']);
       expect(r.status).toBe(2);
-      expect(r.stderr).toMatch(/another Sage migration is running/);
+      expect(r.stderr).toMatch(/already exists/); // round 16: refused at the create, before the lock is even asked
       expect(JSON.parse(readFileSync(report, 'utf8'))).toEqual({ status: 'running', startedAt: 'run A' });
     } finally {
       await holder.query('SELECT pg_advisory_unlock_all()');
@@ -78,7 +84,7 @@ describe('B15-3: a --report that cannot be written', () => {
     for (const report of [d, join(d, 'no-such-dir', 'r.json')]) {
       const r = cli(['--file', FIXTURE, '--report', report, ...who(), '--live', '--expect-items', '20', '--expect-pos', '10']);
       expect(r.status, report).toBe(2);
-      expect(r.stderr, report).toMatch(/cannot be written: nothing was written|exists and is not a report of this tool/); // a directory is refused as not a report
+      expect(r.stderr, report).toMatch(/cannot be written .*nothing was written|already exists/); // a directory exists: refused at the create
     }
     expect(await booked(pool, s.companyId)).toMatchObject({ items: 0, categories: 0, pos: 0, toolCalls: 0 });
   }, 180_000);

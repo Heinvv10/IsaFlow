@@ -145,7 +145,8 @@ describe('scripts/sage-migration/run.ts', () => {
       expect(r.code).toBe(3);
       expect(r.out).toContain(`company ${world.companyId}: completed`);
       expect(r.out).toContain('all sent rows booked: true; nothing refused: true');
-      expect(r.err).toMatch(/the run finished \(exit 0 without this\) but the report could not be written to .*breaks-during-the-run.*EISDIR/);
+      // Round 16: the run writes only the file it created; a directory put at that path is never written.
+      expect(r.err).toMatch(/the run finished \(exit 0 without this\) but the report was not written: --report .*breaks-during-the-run.* is no longer the file this run created/);
       expect(await booked(pool, world.companyId)).toMatchObject({ items: 20, pos: 10 });
     } finally {
       await cleanupSageWorld(pool, world);

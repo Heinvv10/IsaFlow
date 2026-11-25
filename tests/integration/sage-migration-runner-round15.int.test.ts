@@ -114,8 +114,7 @@ describe('note (round 12): a stopped CLI run and the --report file of an earlier
   it('the file is replaced by a stop report (status stopped, the batches listed); the exit code is the stop\'s 4', () => {
     const dir = mkdtempSync(join(tmpdir(), 'sage-stop-report-'));
     try {
-      const report = join(dir, 'report.json');
-      writeFileSync(report, JSON.stringify({ status: 'completed', note: 'an earlier run' }));
+      const report = join(dir, 'report.json'); // round 16: a new path (an existing one is refused, never replaced)
       const r = spawnSync('bun', ['--no-env-file', '--preload', join(process.cwd(), 'tests/integration/helpers/sageFailCommitPreload.ts'), 'scripts/sage-migration/run.ts',
         '--company', s.companyId, '--user', s.userId, '--file', 'tests/fixtures/sage-export/sage-export.json', '--live', '--expect-items', '20', '--expect-pos', '10', '--report', report],
       { encoding: 'utf8', timeout: 170_000, env: { ...process.env, DATABASE_SSL: 'disable', SAGE_FAIL_COMMIT: '5' } }); // 4 categories, then the item batch

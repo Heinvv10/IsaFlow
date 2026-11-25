@@ -10,7 +10,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Pool } from 'pg';
@@ -87,14 +87,18 @@ describe('B14-3 / R14-L1 (round 14): the --report file', () => {
   const cli = (args: string[], env: Record<string, string> = {}, preload?: string) => spawnSync('bun', ['--no-env-file', ...(preload ? ['--preload', join(process.cwd(), preload)] : []),
     'scripts/sage-migration/run.ts', '--company', s.companyId, '--user', s.userId, ...args], { encoding: 'utf8', timeout: 170_000, env: { ...process.env, DATABASE_SSL: 'disable', ...env } });
   const FILE = 'tests/fixtures/sage-export/sage-export.json';
-  it('a mistyped option (the strict parse throws) still replaces an earlier run\'s report with a stop report', () => {
+  it('a mistyped option (the strict parse throws): exit 2, stderr only; an existing --report is left, a new one never created (round 16)', () => {
     const d = mkdtempSync(join(tmpdir(), 'sage-r17-'));
     try {
       const report = join(d, 'report.json');
       writeFileSync(report, JSON.stringify({ status: 'completed', note: 'an earlier run' }));
       const r = cli(['--file', FILE, '--live', '--expect-items', '20', '--expect-po', '10', '--report', report]);
       expect(r.status).toBe(2);
-      expect(JSON.parse(readFileSync(report, 'utf8'))).toMatchObject({ status: 'stopped', liveStarted: false, message: expect.stringMatching(/Unknown option '--expect-po'/) });
+      expect(r.stderr).toMatch(/Unknown option '--expect-po'/);
+      expect(JSON.parse(readFileSync(report, 'utf8'))).toEqual({ status: 'completed', note: 'an earlier run' });
+      const fresh = join(d, 'fresh.json');
+      expect(cli(['--file', FILE, '--expect-po', '10', '--report', fresh]).status).toBe(2);
+      expect(existsSync(fresh)).toBe(false);
     } finally { rmSync(d, { recursive: true, force: true }); }
   }, 180_000);
   it('--report naming the export itself is refused (exit 2) and the export is left as it was', () => {
@@ -111,11 +115,10 @@ describe('B14-3 / R14-L1 (round 14): the --report file', () => {
       expect(readFileSync(file, 'utf8')).toBe(before);
     } finally { rmSync(d, { recursive: true, force: true }); }
   }, 180_000);
-  it('a run killed mid-live (SIGKILL) leaves "running", never the earlier run\'s report', () => {
+  it('a run killed mid-live (SIGKILL) leaves "running" in the --report it created', () => {
     const d = mkdtempSync(join(tmpdir(), 'sage-r17-'));
     try {
       const report = join(d, 'report.json');
-      writeFileSync(report, JSON.stringify({ status: 'completed', note: 'an earlier run' }));
       const r = cli(['--file', FILE, '--live', '--expect-items', '20', '--expect-pos', '10', '--report', report], { SAGE_DIE_AT_COMMIT: '2' }, 'tests/integration/helpers/sageDieAtCommitPreload.ts');
       expect(r.signal).toBe('SIGKILL');
       expect(JSON.parse(readFileSync(report, 'utf8'))).toMatchObject({ status: 'running' });
