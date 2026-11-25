@@ -80,7 +80,7 @@ export function accumulateComponents(components: EmployeeComponent[]): Component
   const employeeMedical4005 = components.filter((c) => c.component.componentType === 'deduction' && normaliseSarsCode(c.component.sarsSourceCode) === '4005').reduce((n, c) => n + c.amount, 0);
   medicalSchemeFees += employerMedicalFees;
 
-  for (const { component, amount, isRecurring, isNonCash, directive, quantity, quantityUnit, rateMultiplier, reimbursiveTravel, medicalGrossUp, payeInclusionRate: given, percentOfRfi, rfiBase, employerFundAsCash, dbMemberCategoryFactor, dbEmployeeContribution, dbEmployerContribution, dbMemberRetired } of components) {
+  for (const { component, amount, isRecurring, isNonCash, directive, quantity, quantityUnit, rateMultiplier, reimbursiveTravel, medicalGrossUp, payeInclusionRate: given, percentOfRfi, rfiBase, employerFundAsCash, dbMemberCategoryFactor, dbEmployeeContribution, dbEmployerContribution, dbMemberRetired, share } of components) {
     // 3701 is 80% remuneration unless a record says business use is at least 80%; one default (fringeBenefits.ts, G21 p. 5).
     const payeInclusionRate = component.componentType === 'earning' && component.isTaxable ? effectiveInclusionRate(component.sarsSourceCode, given) : undefined;
     const included = payeInclusionRate === undefined ? amount : includedInPaye(amount, payeInclusionRate);
@@ -114,6 +114,8 @@ export function accumulateComponents(components: EmployeeComponent[]): Component
       // DBF: what the employer pays the fund (GL 2175, 4472 / 4473), apart from the fringe X in `amount`; 12D(6) rows say so.
       ...(dbEmployerContribution !== undefined ? { dbEmployerContribution } : {}),
       ...(dbMemberRetired === true && dbMemberCategoryFactor != null ? { dbMemberRetired: true as const, dbMemberCategoryFactor } : {}),
+      // W29: the share of the period the row paid (payrollRecurringShare); the payslip line prints it.
+      ...(share ? { share } : {}),
     });
 
     if (component.componentType === 'earning') {

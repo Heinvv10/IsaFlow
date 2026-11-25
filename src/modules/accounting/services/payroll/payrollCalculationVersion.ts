@@ -37,8 +37,11 @@
  *    equivalent, UIF is capped on the month to date and ETI recomputed for the month (the line carries the difference), SDL
  *    joins the month's catch-up; an off-cycle line takes no garnishee instalment (the month's is the regular run's) (OC, migration 999x).
  *    A once-off assignment's breakdown item carries onceOff, so a later off-cycle line's classification leaves it out.
+ * 21: a recurring earning (plain amount) that starts or ends strictly inside employment inside the period is paid its share:
+ *    monthly by working days (employedShareOfMonth), weekly / fortnightly by calendar days (periodShareOf); a starter's or
+ *    leaver's own rows keep full pay; the breakdown item carries `share`, the payslip prints it (W29, wave 7 PRA; rulings 7, 13, 19).
  */
-export const PAYROLL_CALCULATION_VERSION = 20;
+export const PAYROLL_CALCULATION_VERSION = 21;
 
 /** The version whose lines first carry the breakdown's onceOff marker (the 20 entry above); older lines do not. */
 export const ONCE_OFF_MARKER_VERSION = 20;

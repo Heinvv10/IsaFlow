@@ -1,6 +1,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { fmtDate } from '@/lib/fmtDate';
 import type { PayrollComponent, EmployeeComponent, QuantityUnit } from './payrollTypes';
 import { paidOutsidePayrollRefusal } from './retirementFund';
 
@@ -60,6 +61,7 @@ export async function getEmployeeComponents(
   const rows = (await sql`
     SELECT
       pec.id AS assignment_id, pec.amount, pec.is_recurring, pec.quantity, pec.quantity_unit, pec.rate_multiplier, pec.percent_of_rfi, pec.employer_fund_as_cash, pec.db_member_category_factor, pec.db_member_retired, pec.db_fund_member_contribution,
+      pec.effective_from, pec.effective_to,
       pc.id, pc.name, pc.sars_source_code, pc.component_type,
       pc.is_taxable, pc.is_uif_applicable, pc.is_sdl_applicable, pc.paid_outside_payroll, pc.counts_as_rfi
     FROM payroll_employee_components pec
@@ -109,7 +111,43 @@ export async function getEmployeeComponents(
     ORDER BY pc.component_type, pc.name
   `) as Row[];
 
-  return rows.map(r => ({
+  return rows.map(mapEmployeeComponent);
+}
+
+/**
+ * W29 (wave 7 PRA): the recurring earnings of the employee (in this company) with a plain amount that ended inside
+ * employment in [periodStart, asOf): not the last-day reader's (above), which reads one ending before `asOf` only on the
+ * employee's end date. The run apportions them (payrollRecurringShareRead).
+ */
+export async function recurringEarningsEndedInPeriod(
+  employeeId: string, companyId: string, periodStart: string, asOf: string,
+): Promise<EmployeeComponent[]> {
+  const rows = (await sql`
+    SELECT
+      pec.id AS assignment_id, pec.amount, pec.is_recurring, pec.quantity, pec.quantity_unit, pec.rate_multiplier, pec.percent_of_rfi, pec.employer_fund_as_cash, pec.db_member_category_factor, pec.db_member_retired, pec.db_fund_member_contribution,
+      pec.effective_from, pec.effective_to,
+      pc.id, pc.name, pc.sars_source_code, pc.component_type,
+      pc.is_taxable, pc.is_uif_applicable, pc.is_sdl_applicable, pc.paid_outside_payroll, pc.counts_as_rfi
+    FROM payroll_employee_components pec
+    JOIN payroll_components pc ON pc.id = pec.component_id AND pc.company_id = ${companyId}::uuid
+    JOIN payroll_employees pe ON pe.id = pec.employee_id AND pe.company_id = ${companyId}::uuid
+    WHERE pec.employee_id = ${employeeId}::uuid
+      AND pec.is_recurring = TRUE
+      AND pc.is_active = TRUE
+      AND pc.component_type = 'earning'
+      AND pec.quantity IS NULL AND pec.percent_of_rfi IS NULL AND pec.db_member_category_factor IS NULL
+      AND pec.effective_to >= pec.effective_from
+      AND pec.effective_to >= ${periodStart}::date
+      AND pec.effective_to < ${asOf}::date
+      AND (pe.end_date IS NULL OR pec.effective_to < pe.end_date)
+    ORDER BY pc.name, pec.effective_from
+  `) as Row[];
+  return rows.map(mapEmployeeComponent);
+}
+
+/** One payroll_employee_components row joined to its component, as the run reads it (getEmployeeComponents, W29's ending rows). */
+export function mapEmployeeComponent(r: Row): EmployeeComponent {
+  return {
     component: mapComponent(r),
     amount: Number(r.amount),
     isRecurring: r.is_recurring !== false,
@@ -125,7 +163,9 @@ export async function getEmployeeComponents(
     ...(r.db_fund_member_contribution === true ? { dbFundMemberContribution: true } : {}),
     // RF opt-out: an assignment migration 975 found keeps the cash treatment (employerContributions.ts).
     ...(r.employer_fund_as_cash === true ? { employerFundAsCash: true } : {}),
-  }));
+    // W29: the window, so the run can apportion a row starting or ending inside employment (payrollRecurringShare).
+    ...(r.effective_from == null ? {} : { effectiveFrom: fmtDate(r.effective_from), effectiveTo: r.effective_to == null ? null : fmtDate(r.effective_to) }),
+  };
 }
 
 /** `paid_outside_payroll` on a component that cannot carry it (the route answers 400 with the message). */

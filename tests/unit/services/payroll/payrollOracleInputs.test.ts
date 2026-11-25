@@ -4,6 +4,7 @@
  * the hours get there. Each input is either passed (checked per fixture below) or named with the PR that will take it:
  * a new fixture key that is neither is red.
  */
+import { isoOfDate } from '@/modules/accounting/services/payroll/payFrequencyPeriods';
 import { describe, expect, it } from 'vitest';
 import { buildCaseInput, loadCases, oracleTaxStatus } from '../../../fixtures/payroll-oracle/oracle';
 import { runHoursOf } from '@/modules/accounting/services/payroll/payrollRunHours';
@@ -72,5 +73,34 @@ describe('every fixture input reaches the calculator, or has a named owner', () 
     expect(inputs.filter(e => e.taxStatus === 'independent_contractor').length).toBeGreaterThanOrEqual(2);
     expect(inputs.filter(e => e.taxStatus === 'director').length).toBeGreaterThanOrEqual(1);
     expect(inputs.filter(e => e.dailyRate != null && e.hoursPerWeek != null).length).toBeGreaterThanOrEqual(4);
+  });
+
+  // W29 (wave 7 PRA, F4 rule 11): a component's window and the employee's end date reach the calculator, and the dated rows
+  // are apportioned there exactly as the run's reading does (payrollRecurringShare), so the oracle asserts the share.
+  it.each(cases.filter(c => c.input.employee.endDate !== undefined || c.input.components.some(x => x.effectiveFrom !== undefined)).map(c => [c.id, c] as const))(
+    '%s: the end date and each dated row reach the calculator, at their share', (_id, c) => {
+      const { employee, components } = buildCaseInput(c);
+      expect(employee.endDate ? isoOfDate(employee.endDate) : undefined).toBe(c.input.employee.endDate);
+      c.input.components.forEach((x, i) => {
+        const got = components[i]!;
+        if (x.effectiveFrom === undefined) { expect(got.share).toBeUndefined(); expect(got.amount).toBe(x.amount); return; }
+        expect(got).toMatchObject({ isRecurring: true, effectiveFrom: x.effectiveFrom, effectiveTo: x.effectiveTo ?? null });
+        if (got.share) expect(got.amount).toBe(Math.round(x.amount * got.share.share * 100) / 100);
+        else expect(got.amount).toBe(x.amount);
+      });
+    },
+  );
+
+  it('the W29 cases apportion where ruling 19 says and only there', () => {
+    const shareOf = (id: string) => {
+      const c = cases.find(k => k.id === id);
+      if (!c) throw new Error(`${id} missing`);
+      return buildCaseInput(c).components.map(x => x.share ? `${x.share.days}/${x.share.of}` : 'whole');
+    };
+    expect(shareOf('recurring-start-mid-month-monthly')).toEqual(['whole', '12/23']);
+    expect(shareOf('recurring-end-mid-month-monthly')).toEqual(['whole', '8/23']);
+    expect(shareOf('recurring-start-mid-week-weekly')).toEqual(['whole', '4/7']);
+    expect(shareOf('starter-mid-month-full-salary')).toEqual(['whole']);
+    expect(shareOf('leaver-mid-month-full-salary')).toEqual(['whole']);
   });
 });

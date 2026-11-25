@@ -11,13 +11,16 @@
  * calculation nor the gate looks at that leaver's rows. The fix is the profile's "Edit dates" (PATCH
  * /api/payroll/employees/:id/components?aid=…), then a recalculation.
  * Rows that start or end on other days keep the behaviour they always had (paid in full / not paid) and are not
- * flagged. Once-offs are not flagged: each is paid once in its own month. A voided row (ends before it starts) is
+ * flagged. W29 (wave 7 PRA, rulings 7, 13, 19): a recurring EARNING with a plain amount that starts or ends strictly inside
+ * employment is now paid its share of the period (payrollRecurringShare), so it is not flagged either; the guard still
+ * flags a starter's or leaver's own row in the band, a deduction, and an hours, percent-of-RFI or defined-benefit row. Once-offs are not flagged: each is paid once in its own month. A voided row (ends before it starts) is
  * never paid and is ignored.
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { payrollRunReadDate } from './payrollRunReadDate';
+import { insideEmploymentEdge, isApportionable } from './payrollRecurringShare';
 import { getEmployeeComponents } from './payrollComponentService';
 import { listPayrollRunEmployees } from './payrollEmployeeService';
 import { payFrequencyOf, runPeriodOf } from './payrollFrequency';
@@ -64,7 +67,8 @@ export async function recurringRowsNeedingProRata(
   const day27 = period.start ?? `${last.slice(0, 8)}27`;
   const rows = (await sql`
     SELECT pec.id, pec.employee_id, e.employee_number, pc.name, pec.effective_from, pec.effective_to, pec.superseded_at,
-           pec.effective_from > ${day27}::date AS starts
+           pec.effective_from > ${day27}::date AS starts,
+           pc.component_type, pec.quantity, pec.percent_of_rfi, pec.db_member_category_factor, e.start_date, e.end_date
     FROM payroll_employee_components pec
     JOIN payroll_employees e ON e.id = pec.employee_id AND e.company_id = ${companyId}::uuid
     JOIN payroll_components pc ON pc.id = pec.component_id AND pc.company_id = ${companyId}::uuid
@@ -84,6 +88,8 @@ export async function recurringRowsNeedingProRata(
   }
   const out: ProRataRow[] = [];
   for (const r of rows) {
+    // W29: a recurring earning starting or ending inside employment is paid its share (payrollRecurringShare): not flagged.
+    if (sharePays(period, r)) continue;
     const paid = paidIds.has(String(r.id));
     // Read in full and ending in the band: a leaver's last month (Hein), exempt. Starting in the band and read: paid in
     // full, flagged as starting. Not read: flagged as ending (also when it starts in the band too).
@@ -99,6 +105,16 @@ export async function recurringRowsNeedingProRata(
     });
   }
   return out;
+}
+
+/** The run apportions this row (W29): the same predicate the run's reading applies (payrollRecurringShareRead). */
+function sharePays(period: PayrollPeriod, r: DbRow): boolean {
+  const component = { componentType: String(r.component_type) };
+  if (!isApportionable({ component, isRecurring: true, quantity: r.quantity == null ? null : Number(r.quantity),
+    percentOfRfi: r.percent_of_rfi == null ? null : Number(r.percent_of_rfi),
+    dbMemberCategoryFactor: r.db_member_category_factor == null ? null : Number(r.db_member_category_factor) })) return false;
+  return insideEmploymentEdge(period, { effectiveFrom: fmtDate(r.effective_from), effectiveTo: r.effective_to ? fmtDate(r.effective_to) : null },
+    { startDate: new Date(`${fmtDate(r.start_date)}T00:00:00Z`), endDate: r.end_date ? new Date(`${fmtDate(r.end_date)}T00:00:00Z`) : null });
 }
 
 /** The line's flag for one such row. A row starting in the band and one ending there are fixed differently. */

@@ -120,6 +120,11 @@ export interface EmployeeComponent {
   dbFundMemberContribution?: boolean;
   /** Set by costDefinedBenefitFund: what the employer pays the fund (the row's stored amount); `amount` becomes the fringe X. */
   dbEmployerContribution?: number;
+  /** The assignment's window, 'YYYY-MM-DD' (getEmployeeComponents); W29 apportions a recurring earning by it (payrollRecurringShare). */
+  effectiveFrom?: string;
+  effectiveTo?: string | null;
+  /** Set by apportionRecurringRows: `amount` is this share of the row's full amount. */
+  share?: RecurringShare;
 }
 
 import type { MonthEarlierLines } from './payrollOffCycleMonth';
@@ -195,8 +200,8 @@ export interface PayrollLineInput {
   cadence?: LineCadence;
 }
 
-export type { ComponentBreakdownItem } from './payrollTypesBreakdown';
-import type { ComponentBreakdownItem } from './payrollTypesBreakdown';
+export type { ComponentBreakdownItem, RecurringShare } from './payrollTypesBreakdown';
+import type { ComponentBreakdownItem, RecurringShare } from './payrollTypesBreakdown';
 
 export type { PayeYearToDate } from './payrollTypesYtd';
 

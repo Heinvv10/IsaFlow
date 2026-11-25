@@ -71,6 +71,8 @@ vi.mock('@/modules/accounting/services/payroll/payRunApprovalAudit', () => ({
   recordPayRunApprovalAudit: vi.fn(),
 }));
 vi.mock('@/modules/accounting/services/payroll/payrollComponentService', () => ({
+  // W29: the rows that ended inside employment this period (none here).
+  recurringEarningsEndedInPeriod: vi.fn(async () => []),
   getEmployeeComponents: vi.fn(async () => []),
 }));
 // No recurring row needs a pro-rata (payroll-run-pro-rata-guard.int covers the guard).

@@ -172,3 +172,23 @@ describe('oracle list rules: unverified.json (O3)', () => {
     expect(gapListProblems([c('a')], [], [un('a', undefined, '')])).toContain('a: unverified wouldVerify missing');
   });
 });
+
+describe('oracle fixture guard: W29 dates (wave 7 PRA)', () => {
+  const component = (c: Record<string, unknown>) => (input(c).components as Array<Record<string, unknown>>)[0]!;
+  it('takes an end date and a component window', () => {
+    const c = base();
+    employee(c).endDate = '2026-03-31';
+    Object.assign(component(c), { effectiveFrom: '2026-03-16', effectiveTo: null });
+    expect(() => validateCase(c, FILE)).not.toThrow();
+  });
+  it.each([
+    ['an end date before the start', (c: Record<string, unknown>) => { employee(c).endDate = '2000-01-01'; }, /endDate/],
+    ['an end date that is no date', (c: Record<string, unknown>) => { employee(c).endDate = '2026-02-30'; }, /endDate/],
+    ['an effectiveTo with no effectiveFrom', (c: Record<string, unknown>) => { component(c).effectiveTo = '2026-03-10'; }, /effectiveTo needs effectiveFrom/],
+    ['a window out of order', (c: Record<string, unknown>) => { Object.assign(component(c), { effectiveFrom: '2026-03-16', effectiveTo: '2026-03-10' }); }, /in order/],
+  ])('refuses %s', (_l, mutate, re) => {
+    const c = base();
+    mutate(c);
+    expect(() => validateCase(c, FILE)).toThrow(re);
+  });
+});

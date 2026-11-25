@@ -48,12 +48,16 @@ const EXPECTED_CASE_IDS = [
   'g21-annual-bonus-statutory-table',
   'ga-emolument-attachment-capped-25pct',
   'ga-maintenance-outside-cap',
+  'leaver-mid-month-full-salary', // W29 (wave 7 PRA): ruling 19 pinned
   'monthly-raise-averaged-with-priors',
   'offcycle-bonus-after-regular-g21',
   'offcycle-termination-leave-after-regular',
   'psp-company-27pct',
   'psp-trust-45pct',
   'ra-annual-cap-binds-2027',
+  'recurring-end-mid-month-monthly', // W29 (wave 7 PRA)
+  'recurring-start-mid-month-monthly', // W29
+  'recurring-start-mid-week-weekly', // W29
   'rf-employer-contribution-15pct-rfi-cap-binds-on-total',
   'ri-eti-hourly-overtime-counted-once',
   'ri-overtime-10h-at-1-5x',
@@ -74,6 +78,7 @@ const EXPECTED_CASE_IDS = [
   'sage-2027-03-tabraiz',
   'sage-2027-03-temba',
   'sdl-after-para-2-4-deductions',
+  'starter-mid-month-full-salary', // W29: ruling 19 pinned
   'statutory-2027-bracket-31pct-35000',
   'statutory-2027-bracket-36pct-55000',
   'statutory-2027-bracket-39pct-60000',

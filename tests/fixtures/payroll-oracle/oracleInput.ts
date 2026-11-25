@@ -9,6 +9,7 @@ import type { GarnisheeKind } from '@/modules/accounting/services/payroll/payrol
 import { closesPayMonth, dayNumber, isoOfDay, PERIOD_DAYS, periodShareOf } from '@/modules/accounting/services/payroll/payFrequencyPeriods';
 import { addEtiMonthParts, NO_ETI_PARTS } from '@/modules/accounting/services/payroll/payrollLineEtiMonth';
 import { withFringeBenefits } from './fringeInput';
+import { apportionRecurringRows } from '@/modules/accounting/services/payroll/payrollRecurringShare';
 import type { OracleCase, OraclePriorPeriod } from './oracle';
 import type { MonthEarlierLines } from '@/modules/accounting/services/payroll/payrollOffCycleMonth';
 import { costRfi, withEmployerRetirement } from './rfiInput';
@@ -100,6 +101,7 @@ export function buildCaseInput(c: OracleCase): PayrollLineInput {
     lastName: 'Case',
     employmentType: input.employee.taxStatus === 'temporary_part_time' ? 'casual' : 'permanent',
     startDate: parseDate(input.employee.startDate),
+    ...(input.employee.endDate ? { endDate: parseDate(input.employee.endDate) } : {}),
     ...(input.employee.dateOfBirth ? { dateOfBirth: parseDate(input.employee.dateOfBirth) } : {}),
     // ETI Act s6(b): the oracle's employees hold an ID document (a valid SA ID number for their date of birth); the cases
     // test the incentive's amount, not the document.
@@ -123,9 +125,14 @@ export function buildCaseInput(c: OracleCase): PayrollLineInput {
     },
     amount: x.amount,
     ...(monthlyHours != null && x === basic[0] ? { quantity: monthlyHours, quantityUnit: 'hour' as const } : {}),
+    // W29: a dated row is a recurring assignment (getEmployeeComponents reads its window); undated rows are as before.
+    ...(x.effectiveFrom !== undefined ? { isRecurring: true, effectiveFrom: x.effectiveFrom, effectiveTo: x.effectiveTo ?? null } : {}),
   }));
+  // As a run reads them (payrollRecurringShareRead): a row starting or ending inside employment at its share, before fringe and RFI.
+  const period = { year: input.period.year, month: input.period.month, ...(input.period.periodStart && input.period.periodEnd ? { start: input.period.periodStart, end: input.period.periodEnd } : {}) };
+  const read = apportionRecurringRows(base, { ...employee, payFrequency: input.period.frequency ?? 'monthly' }, period);
   // As a run: fringe benefits applied and employer benefits marked non-cash, then the percent-of-RFI rows costed (RF).
-  const components = [...costRfi(withFringeBenefits(withEmployerRetirement(base, input.unmodelled), input.unmodelled, input.period), input.unmodelled),
+  const components = [...costRfi(withFringeBenefits(withEmployerRetirement(read, input.unmodelled), input.unmodelled, input.period), input.unmodelled),
     ...runInputUnitRows(c, employee, basic[0]?.amount ?? 0)];
   const cadence = caseCadence(c, employee);
   const monthEarlier = caseMonthEarlier(c);

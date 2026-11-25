@@ -1,4 +1,5 @@
-import { getEmployeeComponents } from './payrollComponentService';
+import { readRunComponents } from './payrollRecurringShareRead';
+import { shareBesideOnceOffWarnings } from './payrollRecurringShare';
 import { getTerminationDetails } from './payrollTerminationService';
 import { isoOfDate } from './payFrequencyPeriods';
 import { applyFringeBenefits, FringeBenefitConfigError, selectBenefit } from './fringeBenefits';
@@ -38,7 +39,9 @@ export async function prepareRunComponents(args: {
   const vehicleComponent = await loadVehicleBenefitComponent(companyId);
   for (const { employee, severanceOnly: onlySeverance } of population) {
     const terminationWarnings: ValidationResult[] = [];
-    const read = onlySeverance ? [] : await getEmployeeComponents(employee.id, companyId, readDate, period.start);
+    // W29: a recurring earning starting or ending inside employment is paid its share of the period (payrollRecurringShareRead).
+    const read = onlySeverance ? [] : await readRunComponents(employee, companyId, period, readDate);
+    terminationWarnings.push(...shareBesideOnceOffWarnings(read));
     const components = onlySeverance
       ? await severanceOnlyComponents(companyId, runId, employee, period, terminationWarnings)
       // A weekly or fortnightly run (it has its own dates, wave 6 FQc) costs no termination pay-outs: refused on the line.

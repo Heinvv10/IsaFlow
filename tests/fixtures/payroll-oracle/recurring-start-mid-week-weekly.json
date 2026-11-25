@@ -1,0 +1,55 @@
+{
+  "id": "recurring-start-mid-week-weekly",
+  "source": "sars-guide:SARS PAYE-GEN-01-G21 Guide for Employers iro Employees Tax 2027, Revision 1 p. 9-10 (annual equivalent of part-period pay; a part period as its share of days, 3 of 7 = 0.4285) and p. 13; apportionment basis: wave-7 ruling 13 (monthly working days, weekly calendar days), scope ruling 19",
+  "sourceRef": "https://www.sars.gov.za/wp-content/uploads/Ops/Guides/PAYE-GEN-01-G21-Guide-for-Employers-iro-Employees-Tax-for-2027-External-Guide.pdf",
+  "notes": "Weekly, Monday 6 - Sunday 12 July 2026, employed since 1 March 2020, age 40. Basic R1 000 a week and a recurring R700 allowance from Thursday 9 July: 4 of 7 calendar days, periodShareOf 4 / 7 truncated to four decimals = 0.5714 (as G21 p. 10 prints 3 of 7 = 0.4285; ruling 13: weekly = calendar days), 700 x 0.5714 = 399.98. Gross 1 399.98; annual equivalent x 52 about R72 800, under the threshold: PAYE R0. UIF 1% = 14.00 each side; SDL 14.00; net 1 385.98. Before W29 the allowance paid in full (gross 1 700, net 1 683).",
+  "input": {
+    "period": {
+      "year": 2026,
+      "month": 7,
+      "frequency": "weekly",
+      "periodStart": "2026-07-06",
+      "periodEnd": "2026-07-12",
+      "runKind": "regular"
+    },
+    "taxYear": 2027,
+    "employee": {
+      "dateOfBirth": "1986-01-01",
+      "startDate": "2020-03-01",
+      "taxStatus": "statutory",
+      "uifExcluded": false,
+      "medicalAidMainMember": false,
+      "medicalAidDependantsCount": 0,
+      "s18aReceiptHeld": false
+    },
+    "employerAnnualRemuneration": 10000000,
+    "components": [
+      {
+        "code": "3601",
+        "name": "Basic salary",
+        "type": "earning",
+        "amount": 1000,
+        "taxable": true,
+        "uif": true,
+        "sdl": true
+      },
+      {
+        "code": "3601",
+        "name": "Allowance",
+        "type": "earning",
+        "amount": 700,
+        "taxable": true,
+        "uif": true,
+        "sdl": true,
+        "effectiveFrom": "2026-07-09"
+      }
+    ]
+  },
+  "expected": {
+    "paye": 0,
+    "uifEmployee": 14,
+    "uifEmployer": 14,
+    "sdl": 14,
+    "net": 1385.98
+  }
+}

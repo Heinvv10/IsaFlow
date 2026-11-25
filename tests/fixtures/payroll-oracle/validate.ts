@@ -41,8 +41,9 @@ const SCHEMA: Record<string, readonly string[]> = {
   period: ['year', 'month', 'frequency', 'periodStart', 'periodEnd', 'runKind'],
   /** An earlier period of the tax year (wave-6 F1): its inputs and the line figures a run stored for it. */
   priorPeriod: ['periodStart', 'frequency', 'runKind', 'components', ...PRIOR_FIGURES],
-  employee: ['dateOfBirth', 'startDate', 'taxStatus', 'uifExcluded', 'medicalAidMainMember', 'medicalAidDependantsCount', 's18aReceiptHeld'],
-  component: ['code', 'name', 'type', 'amount', 'taxable', 'uif', 'sdl'],
+  employee: ['dateOfBirth', 'startDate', 'endDate', 'taxStatus', 'uifExcluded', 'medicalAidMainMember', 'medicalAidDependantsCount', 's18aReceiptHeld'],
+  /** W29 (wave 7 PRA): effectiveFrom / effectiveTo make the row a recurring assignment with that window (oracleInput). */
+  component: ['code', 'name', 'type', 'amount', 'taxable', 'uif', 'sdl', 'effectiveFrom', 'effectiveTo'],
   toleranceEntry: ['cents', 'reason', 'engineActual'],
 };
 
@@ -136,6 +137,7 @@ export function validateCase(raw: unknown, file: string): void {
   need(e.dateOfBirth === null || (typeof e.dateOfBirth === 'string' && /^\d{4}-01-01$/.test(e.dateOfBirth)), file,
     'input.employee.dateOfBirth must be null or YYYY-01-01 (year only: a real date of birth is personal data)');
   need(typeof e.startDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(e.startDate), file, 'input.employee.startDate must be YYYY-MM-DD');
+  need(e.endDate === undefined || (isDate(e.endDate) && e.endDate >= (e.startDate as string)), file, 'input.employee.endDate must be a real YYYY-MM-DD date, not before startDate');
   need(typeof e.taxStatus === 'string', file, 'input.employee.taxStatus must be a string');
   for (const b of ['uifExcluded', 'medicalAidMainMember', 's18aReceiptHeld']) need(typeof e[b] === 'boolean', file, `input.employee.${b} must be a boolean`);
   need(isInt(e.medicalAidDependantsCount), file, 'input.employee.medicalAidDependantsCount must be an integer');
@@ -170,6 +172,10 @@ function validateComponents(list: unknown[], where: string, file: string): void 
     need(typeof k.code === 'string' && typeof k.name === 'string' && (k.type === 'earning' || k.type === 'deduction') && isNum(k.amount)
       && typeof k.taxable === 'boolean' && typeof k.uif === 'boolean' && typeof k.sdl === 'boolean', file,
     `${where}[${i}] needs code, name, type (earning|deduction), amount and boolean taxable/uif/sdl`);
+    // W29: a window is a recurring row's; an end alone has no row to end, and an end before the start voids the row.
+    need(k.effectiveTo === undefined || k.effectiveFrom !== undefined, file, `${where}[${i}].effectiveTo needs effectiveFrom`);
+    need(k.effectiveFrom === undefined || (isDate(k.effectiveFrom) && (k.effectiveTo === undefined || k.effectiveTo === null
+      || (isDate(k.effectiveTo) && k.effectiveTo >= k.effectiveFrom))), file, `${where}[${i}].effectiveFrom / effectiveTo must be real dates in order`);
   });
 }
 
