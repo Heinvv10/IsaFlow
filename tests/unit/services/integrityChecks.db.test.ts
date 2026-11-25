@@ -149,9 +149,14 @@ async function seed(client: PoolClient): Promise<string> {
   ]);
   await client.query(
     `INSERT INTO customer_invoices (company_id, customer_id, invoice_number, invoice_date,
-       due_date, subtotal, total_amount, amount_paid, status, created_by, gl_journal_entry_id)
-     VALUES ($1,$2,'INV-NOREV','2026-05-01','2026-06-01',5000,5000,0,'sent',$3,$4)`,
-    [companyId, cust!.id, USER, noRevenueJe],
+       due_date, subtotal, total_amount, amount_paid, status, created_by)
+     VALUES ($1,$2,'INV-NOREV','2026-05-01','2026-06-01',5000,5000,0,'sent',$3)`,
+    [companyId, cust!.id, USER],
+  );
+  // Migration 1018's lifecycle: a document is created unlinked and its posted journal is linked afterwards, as approval does.
+  await client.query(
+    `UPDATE customer_invoices SET gl_journal_entry_id = $1 WHERE company_id = $2 AND invoice_number = 'INV-NOREV'`,
+    [noRevenueJe, companyId],
   );
 
   // Funding, so that the only asset account left in credit is the one the
