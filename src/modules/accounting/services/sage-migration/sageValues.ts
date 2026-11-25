@@ -24,11 +24,13 @@ export function readId(o: Raw, key: string, why: string[], required = true, mayM
     return required ? undefined : null;
   }
   if (blank) { why.push(`${key} is empty: ${SAGE_NONE_UNKNOWN}`); return undefined; }
-  if (typeof v === 'number' && Number.isSafeInteger(v) && v !== 0) return String(v);
-  if (typeof v === 'string' && /^-?[1-9]\d{0,17}$/.test(v.trim())) return v.trim();
+  if (typeof v === 'number' && Number.isSafeInteger(v) && v > 0) return String(v);
+  if (typeof v === 'string' && /^[1-9]\d{0,17}$/.test(v.trim())) return v.trim();
   const zero = v === 0 || (typeof v === 'string' && /^0+$/.test(v.trim()));
+  // A Sage id is positive: a negative one (a -1 SupplierId would fall to the by-name lookup) is refused (R14-L5).
+  const negative = (typeof v === 'number' && Number.isSafeInteger(v) && v < 0) || (typeof v === 'string' && /^-[1-9]\d{0,17}$/.test(v.trim()));
   if (zero && mayMeanNone) why.push(`${key} is 0: ${SAGE_NONE_UNKNOWN}`);
-  else why.push(`${key} must be a Sage numeric id${zero ? ' (0 is not one)' : ''}`);
+  else why.push(`${key} must be a Sage numeric id${zero ? ' (0 is not one)' : negative ? ' (negative)' : ''}`);
   return undefined;
 }
 

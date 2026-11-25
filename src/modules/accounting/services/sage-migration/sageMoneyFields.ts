@@ -4,7 +4,7 @@
  * not zero: most exports carry `Discount: 0`.
  *   - a discount: a key holding a discount word (disc, markdown, allowance, percentoff, rebate; compared by fieldKey, so any case,
  *     separator or accent): `po_discount_unsupported` on a PO or a line, `item_discount_unsupported` on an item;
- *   - any other key that looks like money (amount, price, total, surcharge, charge) on a PO or a line and is not a field the parser
+ *   - any other key that looks like money (amount, price, total, charge: surcharge and delivery charge included) on a PO or a line and is not a field the parser
  *     reads: `po_money_field_unsupported`. A field the real export turns out to carry is added, with its check, to the reviewed list
  *     (the parsers' PO_FIELDS / LINE_FIELDS and sageLineMoney), never dropped.
  * Each reason carries its mark, which picks the refusal code.
@@ -17,7 +17,8 @@ export const MONEY_FIELD_MARK = '(po_money_field_unsupported)';
 
 /** Words of a discount, inside a normalised key ('disc' covers discount). */
 const DISCOUNT_WORDS = ['disc', 'markdown', 'allowance', 'percentoff', 'rebate'];
-const MONEY_WORDS = ['amount', 'price', 'total', 'surcharge', 'charge'];
+/** 'charge' covers surcharge and delivery charge; each word here is held by a test. */
+const MONEY_WORDS = ['amount', 'price', 'total', 'charge'];
 const isDiscountKey = (key: string): boolean => DISCOUNT_WORDS.some((w) => key.includes(w));
 
 /** Absent, null, false, blank, or a number / numeric text that is zero: nothing to drop. */

@@ -12,10 +12,11 @@ import { VatRateDateError } from '@/lib/vat/standardRate';
 import { rateOf, standardRateOn, taxTypeFor } from './sageTaxTypes';
 import { discountReasons, MONEY_FIELD_MARK, PO_DISCOUNT_MARK, unreadMoneyReasons } from './sageMoneyFields';
 import { headerMoneyReasons, lineMoneyReasons } from './sageLineMoney';
+import { importStatusFor } from './sagePoStatus';
 
 const MAX_LINES = 200;
 /** The fields of a PO row and of a line this import reads (currency fields are matched in any case already): any other spelling of one is refused. */
-const PO_FIELDS = ['ID', 'DocumentNumber', 'Date', 'DeliveryDate', 'Status', 'Reference', 'Comments', 'SupplierId', 'SupplierName', 'Exclusive', 'Tax', 'Total', 'SubTotal', 'AmountDue', 'PdfFile', 'Lines'] as const;
+const PO_FIELDS = ['ID', 'DocumentNumber', 'Date', 'DeliveryDate', 'Status', 'Reference', 'Comments', 'SupplierId', 'SupplierName', 'Exclusive', 'Tax', 'Total', 'SubTotal', 'AmountDue', 'Inclusive', 'PdfFile', 'Lines'] as const;
 const LINE_FIELDS = ['Description', 'Quantity', 'UnitPriceExclusive', 'UnitPriceInclusive', 'Exclusive', 'Tax', 'Total', 'TaxPercentage', 'TaxTypeId', 'ItemId', 'SelectionId', 'LineType'] as const;
 const CURRENCY_KEY = /currenc|exchange/i;
 const RATE_KEY = /exchange.*rate|^rate$/i;
@@ -94,7 +95,7 @@ function lineTypeProblem(raw: Raw, at: string): string | null {
   return `${at}LineType ${JSON.stringify(v)} is not 0 (item) or 1 (account): a line of an unknown type is never linked to an item ${UNKNOWN_LINE_TYPE_MARK}`;
 }
 
-function parseLine(raw: unknown, i: number, why: string[], date: string): SagePoLine | undefined {
+function parseLine(raw: unknown, i: number, why: string[], date: string, inclusivePo: boolean): SagePoLine | undefined {
   const at = `Lines[${i}].`;
   if (!isRaw(raw)) { why.push(`Lines[${i}] must be an object`); return undefined; }
   const before = why.length;
@@ -110,12 +111,12 @@ function parseLine(raw: unknown, i: number, why: string[], date: string): SagePo
   // Read so it cannot carry a figure the tool would not book (sageLineMoney).
   const total = readNumber(raw, 'Total', sub, { cents: 'whole' });
   const rate = lineRate(raw, sub, date);
-  lineMoneyReasons(raw, { quantity, unit, exclusive, tax, total, vatPct: rate }, sub);
+  const wholeLine = lineMoneyReasons(raw, { quantity, unit, exclusive, tax, total, vatPct: rate, inclusivePo }, sub);
   const itemId = readId(raw, 'ItemId', sub, false, true);
   const selection = readId(raw, 'SelectionId', sub, false, true);
   if (typeof itemId === 'string' && typeof selection === 'string' && itemId !== selection) sub.push('ItemId and SelectionId name different items');
   sub.push(...recasedFieldReasons(raw, LINE_FIELDS), ...discountReasons(raw, PO_DISCOUNT_MARK), ...unreadMoneyReasons(raw, LINE_FIELDS));
-  why.push(...sub.map((s) => `${at}${s}`));
+  why.push(...sub.map((s) => `${at}${s}`), ...wholeLine.map((s) => `Lines[${i}] ${s}`));
   if (why.length > before) return undefined;
   return {
     description: description as string, quantity: quantity as number, unitPriceExclusive: unit as number, taxRate: rate as number,
@@ -140,18 +141,21 @@ export function parseSagePurchaseOrder(raw: unknown, index: number): RowResult<S
   const tax = readNumber(o, 'Tax', why, { required: true, cents: 'whole' });
   const total = readNumber(o, 'Total', why, { required: true, cents: 'whole' });
   const pdfFile = readText(o, 'PdfFile', 255, why, false);
+  // A VAT-inclusive PO (B14-1): read, so its lines can be held to Sage's own figures.
+  const inclusive = o.Inclusive === undefined || o.Inclusive === null ? false : typeof o.Inclusive === 'boolean' ? o.Inclusive : (why.push('Inclusive must be true or false'), false);
   const lines: SagePoLine[] = [];
   if (!Array.isArray(o.Lines) || o.Lines.length === 0) why.push('Lines must be a non-empty array');
   else if (o.Lines.length > MAX_LINES) why.push(`Lines has ${o.Lines.length} lines; the maximum is ${MAX_LINES}`);
   else {
     // A PO whose Date cannot be read is refused anyway; its lines are read at the current rate to report their other faults.
-    o.Lines.forEach((l, i) => { const line = parseLine(l, i, why, typeof date === 'string' ? date : '9999-01-01'); if (line) lines.push(line); });
+    o.Lines.forEach((l, i) => { const line = parseLine(l, i, why, typeof date === 'string' ? date : '9999-01-01', inclusive); if (line) lines.push(line); });
   }
   if (typeof exclusive === 'number' && typeof tax === 'number' && typeof total === 'number'
     && Math.round(exclusive * 100) + Math.round(tax * 100) !== Math.round(total * 100)) {
     why.push(`Exclusive ${exclusive} + Tax ${tax} is not Total ${total}`);
   }
-  headerMoneyReasons(o, exclusive, total, why);
+  const imported = typeof status === 'string' ? importStatusFor(status) : null;
+  headerMoneyReasons(o, exclusive, total, imported === 'open' || imported === 'draft', why);
   why.push(...recasedFieldReasons(o, PO_FIELDS), ...discountReasons(o, PO_DISCOUNT_MARK), ...unreadMoneyReasons(o, PO_FIELDS));
   const foreign = foreignCurrencyReasons(o);
   why.push(...foreign);
