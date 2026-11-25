@@ -48,7 +48,10 @@ describe('pay-run approval mutation census', () => {
     // freezes the stamps while a run stays approved/paid; payslip finality reads them), so it names no approved_at.
     // Exempt only while its UPDATE is predicated on status = 'approved' (it never finalises a run that was not final).
     const KEEPS_APPROVED_AT = 'src/modules/accounting/services/payroll/payrollRunMarkPaid.ts';
-    const markPaid = source(KEEPS_APPROVED_AT).match(/UPDATE\s+payroll_run_headers[^`]*/)?.[0] ?? '';
+    // Exactly ONE header UPDATE in that file, so a second status writer cannot hide behind this exemption (review LOW).
+    const markPaidUpdates = [...source(KEEPS_APPROVED_AT).matchAll(/UPDATE\s+(?:public\.)?payroll_run_headers[^`]*/g)].map((m) => m[0]);
+    expect(markPaidUpdates).toHaveLength(1);
+    const markPaid = markPaidUpdates[0] ?? '';
     expect(markPaid).toMatch(/SET status = 'paid'/);
     expect(markPaid).toMatch(/WHERE[^`]*AND status = 'approved'/);
     expect(markPaid).not.toMatch(/approved_at\s*=/);
