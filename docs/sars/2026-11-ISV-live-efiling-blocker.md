@@ -32,17 +32,19 @@ the channel already carries one deliberately-confined provisional format (sectio
 |---|---|---|
 | Submit/poll route | `pages/api/accounting/sars/efiling-submit.ts` (78) | POST `{submissionId, action: submit\|poll}`; `withAuth` + CSRF + write access; submit needs VAT/Tax Approve (`refuseWithoutApprove`); maps `EfilingNotConfigured/Blocked/AlreadyFiled/SendUncertain` errors |
 | Status route | `pages/api/accounting/sars/efiling-status.ts` (20) | returns redacted `{configured, baseUrlHost, channel}`, never the key |
-| Config gate | `reports/sarsEfilingConfig.ts` (87) | dark unless `SARS_EFILING_ENABLED=true` and `SARS_EFILING_BASE_URL`, `SARS_EFILING_ISV_LOGIN`, `SARS_EFILING_ISV_KEY` all set; https required in production. Process-wide env, not per company |
+| Config gate | `reports/sarsEfilingConfig.ts` (87) | dark unless `SARS_EFILING_ENABLED=true` and `SARS_EFILING_BASE_URL`, `SARS_EFILING_ISV_LOGIN`, `SARS_EFILING_ISV_KEY` all set; https required in production. Process-wide env, not per company. `pages/api/accounting/sars/.claude.md:30` (and `AGENTS.md:33`) mention `SARS_EFILING_ENV=sandbox`; no code reads it, so that doc line is stale |
 | Transport | `reports/sarsEfilingClient.ts` (147) | activation-key auth, submit, poll. **PROVISIONAL wire** (header `:9-18`), modelled on the documented mechanism; async submit -> correlationId -> poll |
-| Orchestration | `reports/sarsEfilingSubmissionService.ts` (293), `sarsEfilingService.ts` (297) | server-side exceptions gate (`evaluateEfilingGate`) refuses to file a dirty return; idempotency (already-filed, send-uncertain); audit rows |
+| Orchestration | `reports/sarsEfilingSubmissionService.ts` (293; `evaluateEfilingGate` at :57, idempotency and the refusals below in `submitVAT201ToSars`), `sarsEfilingDraftDrift.ts` (74), `sarsEfilingPayloadGuard.ts` (20), rate-variance check (`vat201RateCheck`); `sarsEfilingService.ts` (297) is the separate manual-submission service | server-side refusals before anything outbound: period already has a return version (use the return lifecycle); already filed / correlationId present; **payload-unmapped hard refusal** (next row); exceptions gate (dirty or degraded data); VAT number missing or not 10 digits starting with 4; draft drift; rate variance. Plus send-uncertain handling and audit rows (`sars_efiling_events`) |
+| **Hard refusal** | `sarsEfilingPayloadGuard.ts`, `sarsEfilingSubmissionService.ts:111-117` | `ISV_PAYLOAD_MAPPED_TO_SARS_FIELDS = false`: `submitVAT201ToSars` audits a `blocked` event and throws `EfilingPayloadUnmappedError` before the exceptions gate. So even with the env fully armed, **submit cannot succeed today**. The file says: flip to true ONLY in the change that sends `sarsFields` |
 | Persistence | `reports/sarsEfilingRepo.ts` (260); migrations `231_sars_efiling.sql`, `504_sars_efiling_audit.sql` (`sars_efiling_events` + `efiling_*` columns on `sars_submissions`), `517` (RLS), `518` (append-only for `app_user`) | audit log holds no secrets |
-| Tests | `tests/unit/sars/efiling-{client.contract,config,integration,submission,submission-poll,submission-send}.test.ts`, `tests/integration/k-031-efiling-vat201-source.int.test.ts` | run against an in-process mock ISV server, not SARS |
-| UI | `src/components/accounting/sars/EfilingStatus.tsx` | shows Submit only when configured and exceptions are clean |
+| Tests | `tests/unit/sars/efiling-{client.contract,config,integration,submission,submission-poll,submission-send}.test.ts`, `tests/integration/k-031-efiling-vat201-source.int.test.ts`, `tests/unit/components/sarsCalendarEfiling.test.tsx`, `tests/e2e/sprint7-sars-efiling.spec.ts` | unit/integration run against an in-process mock ISV server, not SARS. The e2e spec only issues GETs to compliance-calendar, irp6 and emp501 (no efiling route, no submit), so it cannot send SARS traffic |
+| UI | `src/components/accounting/sars/VAT201SarsSubmit.tsx` (the Submit surface; self-gates on `/efiling-status`); `EfilingStatus.tsx` is only the calendar filed-badge | Submit appears only when the channel is configured |
 
-Known gaps recorded in the dossier that the spec must close [dossier 2a]: `generateVAT201` emits a
-simplified `field1..field11` set and does not split 1A/2A/14A/15A or compute 16/17, whereas the real
-return carries Fields 1-20; the Diesel refund field numbers are UNVERIFIED. The client passes the fields
-map through verbatim today.
+Field-mapping gap (corrects the dossier's 2026-07 note, which predates the SARS-numbered form on master):
+master already computes the SARS Fields 1-20 as `sarsFields` (`vat201Return.ts`, used by the return
+lifecycle and CSV). The real gap is that the ISV submit payload still sends the legacy `field1..field11`
+storage keys, whose meanings differ from the form the reviewer approved; hence the hard refusal above. The
+Diesel refund field numbers remain UNVERIFIED [dossier 2a].
 
 Tier-2 (per-taxpayer login name + login key, from each client's eFiling *Organisations > ISV Activation*
 [dossier 1b]) has no storage at all. The env config above is a Tier-1 arming switch only [dossier 6].
@@ -87,9 +89,12 @@ One build PR, plus a staged rollout, each behind the rules in section 6.
 1. **Wire swap**, in `sarsEfilingClient.ts` only (the provisional format is confined there by design,
    header `:9-18`): real auth handshake, submit and poll per the spec (SOAP/XML if that is what SARS
    issues), real status-code mapping replacing the provisional `accepted|rejected|processing` set.
-2. **Fields 1-20 mapping**: extend the VAT201 generator to produce 1A/2A/14A/15A and 16/17 and the Diesel
-   section if applicable, with each mapping cited to the SARS guide (GEN-ELEC-04-G01). Reconcile against
-   the existing `tests/fixtures/efiling/vat201-capture.*` fixtures.
+2. **Send `sarsFields` and flip the guard**: map the existing `sarsFields` (Fields 1-20) into the wire
+   payload per the spec (Diesel section if applicable), cite each mapping to the SARS guide
+   (GEN-ELEC-04-G01), and set `ISV_PAYLOAD_MAPPED_TO_SARS_FIELDS = true` in that same change, with a test
+   that the refusal holds until then. `tests/fixtures/efiling/vat201-capture.*` are the manual
+   filing-file export fixtures (`filingFileContent.test.ts`), not an ISV wire capture; SARS's test
+   endpoint gives the first real one.
 3. **Tier-2 per-company credentials**: a new company-scoped table (`ENABLE` + `FORCE` RLS,
    `tenant_isolation`, `IF NOT EXISTS`, expand-only) holding the client's login name and key encrypted at
    rest; write path with VAT/Tax Approve; the key is never logged, returned, or placed in
@@ -122,7 +127,7 @@ Estimate is withheld until the spec shows the protocol: the dossier itself canno
 
 - ISV mailbox, INF001/NDA need, test-environment details, credential-storage clauses, wire format: all
   UNVERIFIED until SARS answers (dossier 7).
-- Dossier section 0/6 still describe P4.2 as "pending PR #214"; it is on master. Not edited here (dossier
+- Dossier section 0 still describes P4.2 as "pending PR #214"; it is on master. Not edited here (dossier
   is a dated record). The "~29 approved ISVs" figure is single-source.
 - Spec §8 question Q10 (confirm blocker-only): this PR assumes the recommended answer; no other §8
   question is hit.
