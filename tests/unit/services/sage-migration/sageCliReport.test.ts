@@ -1,96 +1,142 @@
 /**
- * What scripts/sage-migration/run.ts leaves at --report on its exit paths (round-16 rule, round-15 R15-M2), against a MOCKED runner
- * (nothing connects):
- *   - an existing --report (a running run's placeholder, B16-1; any other file) is never written: exit 2, before anything else, whatever
- *     the second run's mistake (a typo, a bad --file, another company);
- *   - every exit after the run created its --report leaves a report in it: a refusal after the create, a summary that fails after a dry
- *     run, a refusal by the run lock (its own new file);
- *   - a --report that cannot be created is exit 2 and the runner never runs.
+ * scripts/sage-migration/run.ts on its exit paths, against a MOCKED runner, summary and pg pool (nothing connects); the --report file is
+ * real. Round 17 (decision + R17-2): --report is created only after every check that needs no database, and written only through its
+ * descriptor. Held here:
+ *   - a refusal before the create writes nothing anywhere, and says --report was not created; an existing --report (B16-1) is never touched;
+ *   - after the create every exit leaves a report in it (a stop report, or the run's own);
+ *   - the success path: the summary to stdout (to stderr when the run is exit 4), the report written, a failed final write 0 -> 3 only
+ *     (a 1 stays) with a small fallback body, a pool that fails to close changing nothing.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-const h = vi.hoisted(() => ({ behave: 'bad-report' as 'bad-report' | 'locked-out', calls: 0 }));
+const h = vi.hoisted(() => ({
+  behave: 'ok' as 'ok' | 'locked-out' | 'live-summary-fails',
+  code: 0, calls: 0, failFinalWrite: false, poolEndThrows: false, poolEnded: 0,
+}));
 vi.mock('@/modules/accounting/services/sage-migration/sageMigrationRunner', () => ({
   runSageMigration: vi.fn(async () => {
     h.calls++;
-    // Imported at the call, from the same module registry run.ts was (re)loaded in, so instanceof holds.
     const { RunInProgressError } = await import('@/modules/accounting/services/sage-migration/sageRunLock');
     if (h.behave === 'locked-out') throw new RunInProgressError('another Sage migration is running for this company');
-    return { live: null }; // a dry run's report the summary cannot read: summarize throws after a dry run
+    return { live: h.behave === 'live-summary-fails' ? {} : null, marker: 'THE-FINAL-REPORT' };
   }),
 }));
+vi.mock('@/modules/accounting/services/sage-migration/sageReportSummary', () => ({
+  CONSOLE_ERROR_CHARS: 600,
+  summaryLines: () => { if (h.behave === 'live-summary-fails') throw new Error('summary bug'); return ['SUMMARY LINE']; },
+  exitCodeFor: () => h.code,
+}));
+vi.mock('pg', () => ({ default: { Pool: class { on() { return this; } async end() { h.poolEnded++; if (h.poolEndThrows) throw new Error('end failed'); } } } }));
+vi.mock('node:fs', async (orig) => {
+  const real = await orig<typeof import('node:fs')>();
+  const writeSync = ((fd: number, buf: unknown, ...rest: unknown[]) => {
+    if (h.failFinalWrite && String(buf).includes('THE-FINAL-REPORT')) throw new Error('EIO: injected');
+    return (real.writeSync as (...x: unknown[]) => number)(fd, buf, ...rest);
+  }) as typeof real.writeSync;
+  return { ...real, default: { ...real, writeSync }, writeSync };
+});
 
 let d: string;
+let out: string[];
+let err: string[];
 beforeEach(() => {
   d = mkdtempSync(join(tmpdir(), 'sage-cli-report-'));
-  h.calls = 0;
+  Object.assign(h, { behave: 'ok', code: 0, calls: 0, failFinalWrite: false, poolEndThrows: false, poolEnded: 0 });
+  out = []; err = [];
+  process.exitCode = undefined;
   vi.resetModules();
   vi.stubEnv('DATABASE_URL', 'postgresql://postgres@127.0.0.1:5433/isaflow_test');
   for (const name of ['SERVICE_DATABASE_URL', 'PLATFORM_ADMIN_DATABASE_URL', 'MIGRATION_ADMIN_DATABASE_URL']) vi.stubEnv(name, '');
 });
-afterEach(() => { vi.unstubAllEnvs(); vi.restoreAllMocks(); rmSync(d, { recursive: true, force: true }); });
+afterEach(() => { process.exitCode = undefined; vi.unstubAllEnvs(); vi.restoreAllMocks(); rmSync(d, { recursive: true, force: true }); });
 
 const COMPANY = '00000000-0000-4000-8000-000000000001';
-async function runCli(report: string, extra: string[] = [], company = COMPANY): Promise<ReturnType<typeof vi.fn>> {
+/** Runs run.ts; resolves with the exit code (process.exit, or process.exitCode once the pool closed). */
+async function runCli(report: string, extra: string[] = [], file = 'tests/fixtures/sage-export/sage-export.json'): Promise<number | undefined> {
   const exit = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never);
-  vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
-  vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+  vi.spyOn(process.stderr, 'write').mockImplementation((s) => { err.push(String(s)); return true; });
+  vi.spyOn(process.stdout, 'write').mockImplementation((s) => { out.push(String(s)); return true; });
   const argv = process.argv;
-  process.argv = [argv[0]!, 'scripts/sage-migration/run.ts', '--company', company, '--user', '00000000-0000-4000-8000-000000000002',
-    '--file', 'tests/fixtures/sage-export/sage-export.json', '--report', report, ...extra];
+  process.argv = [argv[0]!, 'scripts/sage-migration/run.ts', '--company', COMPANY, '--user', '00000000-0000-4000-8000-000000000002', '--file', file, '--report', report, ...extra];
   try {
     await import('../../../../scripts/sage-migration/run');
-    await vi.waitFor(() => expect(exit).toHaveBeenCalled());
+    await vi.waitFor(() => expect(exit.mock.calls.length + h.poolEnded).toBeGreaterThan(0));
+    await new Promise((r) => setTimeout(r, 20));
   } finally { process.argv = argv; }
-  return exit as never;
+  return exit.mock.calls.length > 0 ? Number(exit.mock.calls[0]![0]) : (process.exitCode as number | undefined);
 }
+const json = (p: string) => JSON.parse(readFileSync(p, 'utf8'));
 
-describe('B16-1 / R16-F1: an existing --report is never written', () => {
-  for (const [name, extra, company] of [
-    ['a typo in a count', ['--live', '--expect-items', '12x', '--expect-pos', '10'], COMPANY],
-    ['a mistyped option (the strict parse throws)', ['--expect-po', '10'], COMPANY],
-    ['another company', [], 'not-a-uuid'],
-  ] as const) {
-    it(`${name}: exit 2, the running run's placeholder left as it is, the runner never runs`, async () => {
-      h.behave = 'bad-report';
-      const report = join(d, 'run-a.json');
-      writeFileSync(report, JSON.stringify({ status: 'running', startedAt: 'run A' }));
-      const exit = await runCli(report, [...extra], company);
-      expect(exit).toHaveBeenCalledWith(2);
-      expect(JSON.parse(readFileSync(report, 'utf8'))).toEqual({ status: 'running', startedAt: 'run A' });
-      expect(h.calls).toBe(0);
-    });
-  }
+describe('a refusal before the create: nothing written anywhere', () => {
+  it('a bad --run-tag, a bad count, an export that does not parse: exit 2, --report not created, the runner never runs', async () => {
+    const bad = join(d, 'bad.json');
+    writeFileSync(bad, '{"status":"x"}');
+    for (const [extra, file] of [[['--run-tag', 'bad tag!'], undefined], [['--live', '--expect-items', '12x', '--expect-pos', '1'], undefined], [[], bad]] as const) {
+      vi.resetModules();
+      const report = join(d, `r-${extra.length}-${String(file).length}.json`);
+      expect(await runCli(report, [...extra], file), extra.join(' ')).toBe(2);
+      expect(existsSync(report), extra.join(' ')).toBe(false);
+      expect(err.join(''), extra.join(' ')).toMatch(/--report .* was not created/);
+    }
+    expect(h.calls).toBe(0);
+  });
+  it('B16-1: an existing --report (a running run\'s placeholder) is left as it is', async () => {
+    const report = join(d, 'run-a.json');
+    writeFileSync(report, JSON.stringify({ status: 'running', startedAt: 'run A' }));
+    expect(await runCli(report)).toBe(2);
+    expect(json(report)).toEqual({ status: 'running', startedAt: 'run A' });
+    expect(h.calls).toBe(0);
+  });
 });
 
-describe('every exit after the run created its --report leaves a report in it', () => {
-  it('a refusal after the create (a bad --run-tag): a stop report', async () => {
-    const report = join(d, 'report.json');
-    expect(await runCli(report, ['--run-tag', 'bad tag!'])).toHaveBeenCalledWith(2);
-    expect(JSON.parse(readFileSync(report, 'utf8'))).toMatchObject({ status: 'stopped', liveStarted: false, message: expect.stringMatching(/--run-tag must be/) });
-  });
-  it('R15-M2: a summary that fails after a dry run: a stop report, not the "running" placeholder', async () => {
-    h.behave = 'bad-report';
-    const report = join(d, 'report.json');
-    expect(await runCli(report)).toHaveBeenCalledWith(2);
-    expect(JSON.parse(readFileSync(report, 'utf8'))).toMatchObject({ status: 'stopped', liveStarted: false });
-  });
-  it('a refusal by the run lock: a stop report in the run\'s OWN new file (another run\'s report has another path)', async () => {
+describe('after the create: every exit leaves a report in it', () => {
+  it('a refusal by the run lock: a stop report (its own new file)', async () => {
     h.behave = 'locked-out';
     const report = join(d, 'report.json');
-    expect(await runCli(report)).toHaveBeenCalledWith(2);
-    expect(JSON.parse(readFileSync(report, 'utf8'))).toMatchObject({ status: 'stopped', message: expect.stringMatching(/another Sage migration is running/) });
+    expect(await runCli(report)).toBe(2);
+    expect(json(report)).toMatchObject({ status: 'stopped', message: expect.stringMatching(/another Sage migration is running/) });
   });
 });
 
-describe('B15-3: a --report that cannot be created', () => {
-  it('exit 2 before anything else: the runner never runs, nothing is written', async () => {
-    const report = join(d, 'no-such-dir', 'report.json');
-    expect(await runCli(report)).toHaveBeenCalledWith(2);
-    expect(existsSync(report)).toBe(false);
-    expect(h.calls).toBe(0);
+describe('R17-2: the success path', () => {
+  it('exit 0: the summary on stdout, the run\'s report in the file', async () => {
+    const report = join(d, 'report.json');
+    expect(await runCli(report)).toBe(0);
+    expect(out.join('')).toContain('SUMMARY LINE');
+    expect(err.join('')).toBe('');
+    expect(json(report)).toMatchObject({ marker: 'THE-FINAL-REPORT' });
+  });
+  it('a summary failing after a live run: exit 4, its line on STDERR (not stdout), the report still written', async () => {
+    h.behave = 'live-summary-fails';
+    const report = join(d, 'report.json');
+    expect(await runCli(report)).toBe(4);
+    expect(err.join('')).toMatch(/the live run committed; the summary failed \(summary bug\)/);
+    expect(out.join('')).toBe('');
+    expect(json(report)).toMatchObject({ marker: 'THE-FINAL-REPORT' });
+  });
+  it('a final write that fails on a run that is otherwise 0: exit 3, said so, the file holds report_not_written (R17-4)', async () => {
+    h.failFinalWrite = true;
+    const report = join(d, 'report.json');
+    expect(await runCli(report)).toBe(3);
+    expect(err.join('')).toMatch(/the run finished \(exit 0 without this\) but the report was not written: .*EIO: injected/);
+    expect(json(report)).toMatchObject({ status: 'report_not_written', exitCode: 3 });
+  });
+  it('a final write that fails on a run that is 1: the 1 stays (never hidden by a 3)', async () => {
+    h.failFinalWrite = true;
+    h.code = 1;
+    const report = join(d, 'report.json');
+    expect(await runCli(report)).toBe(1);
+    expect(err.join('')).toMatch(/the exit code stays 1/);
+    expect(json(report)).toMatchObject({ status: 'report_not_written', exitCode: 1 });
+  });
+  it('R17-7: a pool that fails to close changes neither the exit code nor the report', async () => {
+    h.poolEndThrows = true;
+    const report = join(d, 'report.json');
+    expect(await runCli(report)).toBe(0);
+    expect(err.join('')).toMatch(/closing the database pool failed: end failed/);
+    expect(json(report)).toMatchObject({ marker: 'THE-FINAL-REPORT' });
   });
 });

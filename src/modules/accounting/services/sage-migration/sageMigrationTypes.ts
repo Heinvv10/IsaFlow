@@ -125,4 +125,9 @@ export interface MigrationOptions {
   /** The explicit decision to go live WITHOUT expect.items and expect.purchaseOrders (the runner refuses otherwise). The CLI never sets it: it needs both flags. For tests and callers that check the counts another way. */
   liveWithoutCounts?: boolean;
   expect?: { items?: number; purchaseOrders?: number; purchaseOrderTotalCents?: number };
+  /**
+   * Asked wherever the run lock is checked (before the live phase, before every live batch, between the phases): a non-null answer stops
+   * the run there (before the live phase: nothing written; after: MigrationStopped, exit 4). The CLI answers once SIGINT / SIGTERM came.
+   */
+  shouldStop?: () => string | null;
 }

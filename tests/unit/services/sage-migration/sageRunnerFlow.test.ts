@@ -112,3 +112,22 @@ describe('the live run', () => {
     expect(r.reconciliation.allSentBooked).toBe(false);
   });
 });
+
+describe('B17-3 (round 17): a stop the caller asks for (shouldStop: the CLI\'s SIGINT / SIGTERM)', () => {
+  it('asked once the live phase started: the run stops before the next batch, MigrationStopped, what was committed listed', async () => {
+    const r = run({ shouldStop: () => (h.sent.includes('category live') ? 'stopped by SIGTERM: no further batch is sent' : null) });
+    const err = await r.then(() => null, (e: unknown) => e);
+    const { MigrationStopped } = await import('@/modules/accounting/services/sage-migration/sageMigrationStopped');
+    expect(err).toBeInstanceOf(MigrationStopped);
+    expect((err as InstanceType<typeof MigrationStopped>).message).toMatch(/stopped by SIGTERM/);
+    expect((err as InstanceType<typeof MigrationStopped>).committed.map((b) => b.entity)).toEqual(['category']);
+    expect(h.sent.filter((x) => x.endsWith('live'))).toEqual(['category live']);
+  });
+  it('asked before the live phase: refused, nothing live sent, not a MigrationStopped', async () => {
+    const { MigrationStopped } = await import('@/modules/accounting/services/sage-migration/sageMigrationStopped');
+    const err = await run({ shouldStop: () => 'stopped by SIGINT: no further batch is sent' }).then(() => null, (e: unknown) => e);
+    expect(err).not.toBeInstanceOf(MigrationStopped);
+    expect(String(err)).toMatch(/stopped by SIGINT/);
+    expect(h.sent.filter((x) => x.endsWith('live'))).toEqual([]);
+  });
+});

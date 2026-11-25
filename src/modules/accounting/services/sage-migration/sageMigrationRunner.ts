@@ -38,6 +38,9 @@ import { readSnapshot, type Snapshot } from './sageSnapshot';
 import { resolveSuppliers } from './sageSuppliers';
 import { withToolSession } from './sageToolSession';
 
+/** The caller asked the run to stop (a signal): thrown where the run lock is checked, so the usual stop path reports it. */
+export class StopRequested extends Error {}
+
 const emptyPhase = (): PhaseReport => ({ batches: [], failed: 0 });
 /** A phase that never started because an earlier one failed. */
 const skippedPhase = (): PhaseReport => ({ batches: [], failed: 0, skipped: true });
@@ -144,7 +147,14 @@ export async function runSageMigration(pool: Pool, parsed: ParsedExport, opts: M
 }
 
 async function runLocked(pool: Pool, parsed: ParsedExport, opts: MigrationOptions, lock: RunLock): Promise<MigrationReport> {
-  const lockHeld = lock.check;
+  // Wherever the lock is checked, a stop the caller asked for (opts.shouldStop: the CLI's SIGINT / SIGTERM) is checked too.
+  // Asked AFTER the lock's round trip: a signal is handled on an event-loop turn, and the round trip is one, so a signal that came while
+  // the previous batch committed is seen here, before the next batch.
+  const lockHeld = async (): Promise<void> => {
+    await lock.check();
+    const stop = opts.shouldStop?.();
+    if (stop) throw new StopRequested(stop);
+  };
   if (opts.runTag !== undefined && !RUN_TAG.test(opts.runTag)) throw new Error('runTag must be 1-32 letters, digits, - or _');
   const { before, plan } = await withToolSession(pool, opts.companyId, opts.userId, false, async (session) => {
     if (opts.poGlAccountId) await assertPoGlAccount(opts.companyId, opts.poGlAccountId);
@@ -179,14 +189,14 @@ async function runLocked(pool: Pool, parsed: ParsedExport, opts: MigrationOption
     const readAfter = () => withToolSession(pool, opts.companyId, opts.userId, false, () => readSnapshot(opts.companyId));
     // Every phase is checked against the books BETWEEN the phases (sageVerify), so the next phase does not start behind absent rows or rows
     // other than what was sent (an item batch with its rows gone would otherwise fail every PO naming those items, a misleading cascade).
-    const liveCategories = await livePhase(pool, opts, all.categories, before, sent, lock.check);
+    const liveCategories = await livePhase(pool, opts, all.categories, before, sent, lockHeld);
     // Every phase's batches are checked against the books, a failed sibling or not: a replay whose rows are gone must not read ok.
     const categoriesVerified = verifiedCategories(liveCategories, all.categories, await readAfter());
     await lockHeld();
-    const liveItems = categoriesVerified.failed === 0 ? await livePhase(pool, opts, all.items, before, sent, lock.check) : skippedPhase();
+    const liveItems = categoriesVerified.failed === 0 ? await livePhase(pool, opts, all.items, before, sent, lockHeld) : skippedPhase();
     const items = categoriesVerified.failed === 0 ? verifiedItems(liveItems, all.items, await readAfter()) : liveItems;
     await lockHeld();
-    const livePos = categoriesVerified.failed + items.failed === 0 ? await livePhase(pool, opts, all.purchaseOrders, before, sent, lock.check) : skippedPhase();
+    const livePos = categoriesVerified.failed + items.failed === 0 ? await livePhase(pool, opts, all.purchaseOrders, before, sent, lockHeld) : skippedPhase();
     await lockHeld();
     const after = await readAfter();
     const purchaseOrders = livePos.skipped ? livePos : verified(livePos, all.purchaseOrders, after);
