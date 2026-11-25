@@ -1,6 +1,6 @@
 /**
  * Sage tax type ids -> IsaFlow VAT types and rates. ASSUMED table (Sage SA, Business Cloud Accounting): 1 standard, 2 zero-rated
- * 0%, 3 exempt 0%. An id not in it is REFUSED (`unknown_tax_type`), never guessed: a wrong VAT type on an item or a wrong rate
+ * 0%, 3 exempt 0%. An id not in it REFUSES the row (`invalid_row`, the reason naming the id and the table), never guessed: a wrong VAT type on an item or a wrong rate
  * on a PO line is a real defect, a refused row is a fixed file.
  *
  * The standard rate is the one that applied on the document's date (`standardVatRatePctOn`: 14% before 2018-04-01, 15% from then
