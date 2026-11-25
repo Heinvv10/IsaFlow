@@ -60,6 +60,17 @@ async function coveredPct(page: Page): Promise<number> {
   });
 }
 
+/**
+ * The worst place to type from: the field only just above the bar, so everything under it starts behind the bar. The
+ * form is first pushed down a screen, because a field already higher than that cannot be scrolled down to it.
+ */
+async function putJustAboveBar(field: Locator, bar: Locator): Promise<void> {
+  await field.evaluate((el) => { el.closest('fieldset')!.style.marginTop = `${innerHeight}px`; el.scrollIntoView({ block: 'end' }); });
+  const gap = async () => (await bar.boundingBox())!.y - await field.boundingBox().then((b) => b!.y + b!.height);
+  await expect.poll(gap, { message: 'the field sits just above the bar' }).toBeGreaterThanOrEqual(0);
+  expect(await gap(), 'the field sits just above the bar').toBeLessThanOrEqual(24);
+}
+
 /** What lets the page show through the bar: a translucent or image background, or opacity on it or anything above it. */
 function seeThrough(bar: Element): string[] {
   const found: string[] = [];
@@ -90,9 +101,8 @@ for (const name of ['iPhone 14', 'Pixel 7'] as const) {
       await periods;
       const date = page.getByRole('textbox', { name: /Invoice date/ });
       await layoutStill(page, date);
-      // Where the field is only just clear of the bar, so everything under it starts behind the bar (the worst case a
-      // user scrolls to). Without this Chromium centres the iPhone field on typing and shows the warning by itself.
-      await date.evaluate((el) => el.scrollIntoView({ block: 'end' }));
+      const bar = page.getByRole('group', { name: 'Invoice actions' });
+      await putJustAboveBar(date, bar);
       await date.tap();
       await date.fill('');
       await date.pressSequentially('15', { delay: 60 }); // day of the current (locked) month
@@ -102,14 +112,16 @@ for (const name of ['iPhone 14', 'Pixel 7'] as const) {
       await expect.poll(() => coveredPct(page), { timeout: 2_000, message: 'right after typing' }).toBe(0);
       // Leaving the field keeps the draft on the device: the autosave line appears and can make the bar taller.
       await date.blur();
-      const bar = page.getByRole('group', { name: 'Invoice actions' });
       await expect(bar.getByText(/Saved on this device/)).toBeVisible({ timeout: 15_000 });
       // Not even the descenders of the last line: the warning is placed with room for the bar to grow.
       await expect.poll(() => coveredPct(page), { timeout: 2_000, message: 'after the autosave line appears' }).toBe(0);
+      const painted: string[] = [];
       for (const theme of ['light', 'dark'] as const) {
         await page.evaluate((dark) => document.documentElement.classList.toggle('dark', dark), theme === 'dark');
         await expect.poll(() => bar.evaluate(seeThrough), { timeout: 2_000, message: `${theme}: the bar is opaque` }).toEqual([]);
+        painted.push(await bar.evaluate((el) => getComputedStyle(el).backgroundColor));
       }
+      expect(painted[1], 'the dark pass really looked at the dark bar').not.toBe(painted[0]);
       await expect(date).toBeInViewport({ ratio: 1 });
       expect(await coveredPct(page), 'still clear at the end').toBe(0);
     });
