@@ -126,5 +126,15 @@ describe('every fixture input reaches the calculator, or has a named owner', () 
     // 4 800 / (40 x 52 / 12) = 27.69 an hour, x 1.5 x 10 hours = 415.35 (on the ended R4 000 row it would be 346.20).
     expect(ot.amount).toBe(415.35);
   });
+
+  // Review #1901 round 3 L: dated rows are one component only when code AND name match, so two components of one SARS code
+  // (a salary and an allowance on 3601) never share a remainder.
+  it('dated rows of one code but different names are different components; same code and name, one', () => {
+    const c = cases.find(k => k.id === 'leaver-raise-mid-month-sums-to-window')!;
+    const ids = buildCaseInput(c).components.map(x => x.component.id);
+    expect(new Set(ids).size).toBe(2);
+    const w = cases.find(k => k.id === 'weekly-split-same-amount-sums-to-whole')!;
+    expect(new Set(buildCaseInput(w).components.map(x => x.component.id)).size).toBe(1);
+  });
 });
 
