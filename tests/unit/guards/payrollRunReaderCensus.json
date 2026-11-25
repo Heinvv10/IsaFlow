@@ -1,6 +1,9 @@
 {
  "tables": ["payroll_run_headers","payroll_employee_components","uif_declarations","payroll_loan_payments","payroll_loan_payment_reversals","payroll_loan_schedule","payroll_run_directive_uses","payroll_batches","payroll_external_imports"],
  "orderKeys": {
+  "src/modules/accounting/services/payroll/employeePortalReads.ts": [
+   "ORDER BY ${runOrderKeySql('h')} DESC"
+  ],
   "src/modules/accounting/services/payroll/employeeReadinessRead.ts": [
    "ORDER BY ${runOrderKeySql('h')} DESC"
   ],
@@ -130,7 +133,7 @@
    {"line":35,"text":"FROM payroll_run_headers h","class":"S","owner":"FQb1","why":"FQb1 converted (R): the latest run in pay order (payrollRunOrder), not ORDER BY month LIMIT 1"}
   ],
   "src/modules/accounting/services/payroll/employeePortalReads.ts": [
-   {"line":34,"text":"JOIN payroll_run_headers h ON h.id = prl.run_id","class":"S","owner":"FQb1","why":"SS: a list of the signed-in employee's own final slips, one row per run (regular monthly only), ordered by month"}
+   {"line":44,"text":"JOIN payroll_run_headers h ON h.id = prl.run_id","class":"S","owner":"FQb1","why":"SS: a list of the signed-in employee's own final slips, one row per run (every final kind and frequency, wave 7 PP), in pay order (runOrderKeySql)"}
   ],
   "src/modules/accounting/services/payroll/etiBooking.ts": [
    {"line":64,"text":"SELECT id, period_year, period_month, journal_entry_id, total_paye, total_eti FROM payroll_run_headers","class":"S","owner":"FQb1","why":"FQb1 converted (R): the month's in-force run journals (inForceRunHeaders), summed per month; a run can leave itself out (etiForRun)"}
@@ -530,7 +533,7 @@
   ],
   "src/modules/accounting/services/payroll/payslipModel.ts": [
    {"line":113,"text":"JOIN payroll_run_headers prh ON prh.id = prl.run_id","class":"S","owner":"FQb1","why":"by run id"},
-   {"line":138,"text":"SELECT period_month, period_year, run_date FROM payroll_run_headers","class":"L","owner":"FQb1","why":"by run id; month and run_date are the payslip's labels"}
+   {"line":140,"text":"SELECT period_month, period_year, run_date, period_start, period_end, pay_frequency, run_kind, off_cycle_reason FROM payroll_run_headers","class":"L","owner":"FQb1","why":"by run id; the run's own period, frequency and kind are the payslip's labels (wave 7 PP)"}
   ],
   "src/modules/accounting/services/payroll/payslipSnapshot.ts": [
    {"line":51,"text":"FROM payroll_run_lines prl JOIN payroll_run_headers h ON h.id = prl.run_id","class":"S","owner":"FQb1","why":"by run id; the run's month feeds the payslip year to date (its month bound is payslipYearToDate.ts:67, FQc)"},

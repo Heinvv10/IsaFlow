@@ -98,8 +98,8 @@ async function portalPages(page: Page, theme: string): Promise<{ accepted: unkno
   await page.route('**/api/employee-portal/logout', (route) => route.fulfill(ok({ signedIn: false })));
   await page.route('**/api/employee-portal/me', (route) => route.fulfill(ok({ employeeName: 'Zola Portal', employeeNumber: 'Z25-1', employer: SANDBOX_NAME })));
   await page.route('**/api/employee-portal/payslips', (route) => route.fulfill(ok([
-    { runId: '00000000-0000-4000-8000-000000000025', periodYear: 2026, periodMonth: 10, runDate: '2026-10-25', netPay: 21456.78 },
-    { runId: '00000000-0000-4000-8000-000000000024', periodYear: 2026, periodMonth: 9, runDate: '2026-09-25', netPay: 21456.78 },
+    { runId: '00000000-0000-4000-8000-000000000025', periodYear: 2026, periodMonth: 10, periodLabel: 'October 2026', runDate: '2026-10-25', netPay: 21456.78 },
+    { runId: '00000000-0000-4000-8000-000000000024', periodYear: 2026, periodMonth: 9, periodLabel: 'September 2026', runDate: '2026-09-25', netPay: 21456.78 },
   ])));
   await page.route('**/api/employee-portal/leave', (route) => route.fulfill(ok([
     { leaveType: 'Annual', year: 2026, accrued: 15, taken: 3, pending: 0, balance: 12 },
