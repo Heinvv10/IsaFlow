@@ -26,11 +26,12 @@
 import { InvoiceLineVatRefusal, type DocumentLineVatType, type ResolvedLineVat } from './invoiceLineVatTypes';
 import { invoiceVatParties, resolveInvoiceVatFor } from './invoiceLineVatDefaults';
 import { priceInvoiceVat, type AmountsAre, type VatPricedHeader, type VatPricedLine } from './invoiceLineVatPricing';
-import { keptQuoteTypes, legacyLinesUnchanged, matchQuoteLines, unmatchedVatProblem, type StoredQuote, type StoredQuoteVatLine } from './quoteEditLines';
+import { keptQuoteTypes, legacyLinesUnchanged, matchQuoteLines, unmatchedVatProblem, type LineMatch, type StoredQuote, type StoredQuoteVatLine } from './quoteEditLines';
 import { typedLinesProblem } from './invoiceVatLegs';
 import { LineValidationError, quoteAmountsAre } from './quoteLineChecks';
 
 export interface QuoteVatLineIn {
+  accountId?: unknown;
   /** On an edit, the stored line's id (optional: quoteEditLines matches by position and content too). */
   id?: unknown;
   description: string;
@@ -43,8 +44,35 @@ export interface QuoteVatLineIn {
 
 export type { StoredQuoteVatLine };
 
+/** The item and account each line is WRITTEN with (lineRefs). */
+export interface QuoteLineRef { itemId: string | null; accountId: string | null }
+
 /** A legacy quote kept as stored has no mode (amounts_are NULL). */
-export interface PricedQuote { lines: VatPricedLine[]; header: Omit<VatPricedHeader, 'amountsAre'> & { amountsAre: AmountsAre | null } }
+export interface PricedQuote {
+  lines: VatPricedLine[];
+  header: Omit<VatPricedHeader, 'amountsAre'> & { amountsAre: AmountsAre | null };
+  refs: QuoteLineRef[];
+}
+
+const ref = (v: unknown): string | null => (typeof v === 'string' && v !== '' ? v : null);
+
+/**
+ * The item and account each line is written with. A line sent WITHOUT an itemId that matched a stored line (by id,
+ * place or content: quoteEditLines) takes that stored line's item, so the row written is the line the VAT match read
+ * (itemEditLines hands items out by the raw identical key in stored order, which a case-only description change or
+ * twins swapped by id would get wrong). On a legacy quote kept as stored, a line sent without an accountId keeps the
+ * stored account. Otherwise the resolved line's own (itemEditLines' inheritance for an unmatched line).
+ */
+function lineRefs(lines: readonly QuoteVatLineIn[], sent: readonly QuoteVatLineIn[], matches: readonly (LineMatch | null)[] | undefined, kept: boolean): QuoteLineRef[] {
+  return lines.map((l, i) => {
+    const m = matches?.[i];
+    const s = sent[i];
+    return {
+      itemId: m && s?.itemId === undefined ? m.stored.itemId ?? null : ref(l.itemId),
+      accountId: kept && m && s?.accountId === undefined ? m.stored.accountId ?? null : ref(l.accountId),
+    };
+  });
+}
 
 
 const given = (v: unknown): boolean => v !== undefined && v !== null;
@@ -96,6 +124,7 @@ export async function priceQuoteLines(companyId: string, args: {
     return {
       lines: matches.map((m) => ({ qty: m!.stored.quantity, price: m!.stored.unitPrice, amount: m!.stored.amount, taxAmount: null, vatType: null, taxRate: m!.stored.taxRate })),
       header: { subtotal, tax, total, taxRate, amountsAre: null },
+      refs: lineRefs(args.lines, sent, matches, true),
     };
   }
   const parties = await invoiceVatParties(companyId, args.clientId);
@@ -112,5 +141,5 @@ export async function priceQuoteLines(companyId: string, args: {
     { subtotal: priced.header.subtotal, taxAmount: priced.header.tax, totalAmount: priced.header.total, invoiceDate: args.quoteDate, amountsAre },
   );
   if (problem) throw new InvoiceLineVatRefusal(`This quote could not be invoiced as priced: ${problem}`);
-  return priced;
+  return { ...priced, refs: lineRefs(args.lines, sent, matches, false) };
 }

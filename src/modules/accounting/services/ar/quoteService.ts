@@ -184,10 +184,10 @@ export async function getQuote(companyId: string, id: string): Promise<Quote | n
 /** The priced lines, in order (migration 1024: vat_type and tax_amount both, or neither on an untyped line). */
 async function insertQuoteLines(quoteId: string, lines: QuoteInput['lines'], priced: PricedQuote): Promise<void> {
   for (const [i, l] of lines.entries()) {
-    const p = priced.lines[i]!;
+    const [p, r] = [priced.lines[i]!, priced.refs[i]!]; // r: the item and account the VAT match read (quoteLineTax.lineRefs)
     await sql`
       INSERT INTO customer_quote_lines (quote_id, sort_order, description, quantity, unit_price, tax_rate, amount, gl_account_id, item_id, tax_amount, vat_type)
-      VALUES (${quoteId}::UUID, ${i + 1}, ${l.description}, ${p.qty}, ${p.price}, ${p.taxRate}, ${p.amount}, ${l.accountId || null}, ${l.itemId || null}::UUID, ${p.taxAmount}, ${p.vatType})
+      VALUES (${quoteId}::UUID, ${i + 1}, ${l.description}, ${p.qty}, ${p.price}, ${p.taxRate}, ${p.amount}, ${r.accountId}, ${r.itemId}::UUID, ${p.taxAmount}, ${p.vatType})
     `;
   }
 }
