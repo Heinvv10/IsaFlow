@@ -6,6 +6,7 @@
  */
 import { readPoTies } from './purchaseOrderTies';
 import { sql } from '@/lib/neon';
+import { attachReceiverNames } from './grnReceiverNames';
 import type { DbRow } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { toCents } from '../budgets/grid/cents';
@@ -81,10 +82,11 @@ export async function readPurchaseOrderDetail(
   const ties = await readPoTies(companyId, poId, DETAIL_CAPS.bills);
   const billRows = ties.rows;
   const grnRows = (await sql`
-    SELECT g.id, g.grn_number, g.received_date, g.status, g.received_by, count(*) OVER ()::INT AS total_rows
+    SELECT g.id, g.grn_number, g.received_date, g.status, g.received_by, g.created_by, count(*) OVER ()::INT AS total_rows
       FROM goods_received_notes g WHERE g.company_id = ${companyId}::UUID AND g.purchase_order_id = ${poId}::UUID
      ORDER BY g.received_date, g.grn_number, g.id LIMIT ${DETAIL_CAPS.grns}
   `) as DbRow[];
+  const grnNamed = await attachReceiverNames(companyId, grnRows);
   const grnItems = (await sql`
     SELECT x.grn_id, x.po_item_id, x.quantity_received, x.quantity_rejected, x.n FROM (
       SELECT gi.grn_id, gi.po_item_id, gi.quantity_received, gi.quantity_rejected,
@@ -128,8 +130,8 @@ export async function readPurchaseOrderDetail(
       counts_as_billed: counted(r.status) && r.deleted !== true, source: r.source == null ? null : String(r.source), external_system: short(r.external_system), external_ref: short(r.external_ref),
     })),
     bills_total: ties.total,
-    goods_received_notes: grnRows.map((g) => ({
-      id: String(g.id), grn_number: String(g.grn_number), received_date: day(g.received_date), status: String(g.status), received_by: short(g.received_by),
+    goods_received_notes: grnNamed.map((g) => ({
+      id: String(g.id), grn_number: String(g.grn_number), received_date: day(g.received_date), status: String(g.status), received_by: short(g.received_by_name),
       items: grnItems.filter((i) => String(i.grn_id) === String(g.id)).map((i) => ({
         po_item_id: String(i.po_item_id), quantity_received: Number(i.quantity_received), quantity_rejected: Number(i.quantity_rejected ?? 0),
       })),
