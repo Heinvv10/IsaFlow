@@ -7,8 +7,8 @@
  *   ONLY STANDARD lines saved (the VAT type is not at risk; the item and account are), round 12's STRUCTURAL rule: a
  *     line with no id takes a stored line's item and account ONLY (a) at its OWN place, on the same description
  *     (trimmed, case-insensitive), or renamed there naming the place's own item; or (b) by a description UNIQUE among
- *     the stored lines and among the sent lines. Same-description stored twins all carrying the same item and account
- *     are interchangeable and pair freely. Any other line whose description has stored twins of different items or
+ *     the stored lines. Same-description stored twins all carrying the same item and account are interchangeable and
+ *     pair freely (so does a unique one: sent twins of it pair in order, the rest are new lines). Any other line whose description has stored twins of different items or
  *     accounts is AMBIGUOUS, and refused (unmatchedVatProblem: a 400 asking for the saved line's id, or an explicit
  *     itemId and accountId), as is a line at its place naming an item that ANOTHER same-description twin carries (moved
  *     or re-itemed: it cannot be told). A line with no stored line of its description is a new line.
@@ -162,13 +162,14 @@ function standardOnly(sent: readonly SentQuoteLine[], stored: readonly StoredQuo
       && twinsOf(here).some((j) => j !== i && normalItem(stored[j]!.itemId) === named)) { ambiguous.push(i); return; }
     if (sameDescription(l, here) || (named !== null && named === normalItem(here.itemId))) take(i, i);
   });
-  // (b) A description unique among the stored lines and the sent lines; interchangeable twins pair freely; else ambiguous.
+  // (b) By content: a description unique among the stored lines, or twins all of one item and account, pairs (the first
+  // free one, so sent twins of it pair in order and the rest are new lines); twins of different items or accounts: ambiguous.
   sent.forEach((l, i) => {
     if (out[i] || ambiguous.includes(i)) return;
     const js = twinsOf(l);
     if (js.length === 0) return; // a new line
-    const unique = js.length === 1 && sent.filter((o) => descOf(o.description) === descOf(l.description)).length === 1;
-    if (unique || new Set(js.map((j) => itemAccount(stored[j]!))).size === 1) {
+    // One stored line of the description (unique), or twins all of one item and account: nothing to tell apart.
+    if (new Set(js.map((j) => itemAccount(stored[j]!))).size === 1) {
       const j = js.find((k) => free(k) && compatible(l, stored[k]!));
       if (j !== undefined) take(i, j);
       return;

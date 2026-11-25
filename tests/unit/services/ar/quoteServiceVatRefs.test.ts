@@ -91,9 +91,17 @@ describe('round 12 structural rule: twins of different items pair only by place,
     const two = [{ description: 'Svc', quantity: 1, unitPrice: 120 }, { description: 'Svc', quantity: 1, unitPrice: 130 }];
     world.stored = [other, storedLine('s1', 2, X, GX, '100.00'), storedLine('s2', 3, Y, GY, '100.00')];
     await expect(put(two)).rejects.toThrow(AMBIGUOUS);
+    world.stored = [other, storedLine('s1', 2, X, GX, '100.00'), storedLine('s2', 3, X, GY, '100.00')];
+    await expect(put(two)).rejects.toThrow(AMBIGUOUS); // one item, different accounts: still told apart by nothing
     world.stored = [other, storedLine('s1', 2, X, GX, '100.00'), storedLine('s2', 3, X, GX, '100.00')];
     await put(two);
     expect(rows()).toEqual([[X, GX], [X, GX]]);
+  });
+
+  it('a line renamed at its place naming the item a twin of that place carries is a new line, not refused', async () => {
+    world.stored = [storedLine('s0', 1, X, GX, '100.00'), storedLine('s1', 2, Y, GY, '200.00')];
+    await put([{ description: 'Other', quantity: 1, unitPrice: 100, itemId: Y }, { description: 'Svc', quantity: 1, unitPrice: 210 }]);
+    expect(rows()).toEqual([[Y, null], [Y, GY]]);
   });
 
   it('a unique description pairs anywhere (moved); a line renamed at its place naming the place\'s own item keeps its account', async () => {
