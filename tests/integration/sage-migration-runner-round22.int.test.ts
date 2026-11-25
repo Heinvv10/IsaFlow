@@ -2,8 +2,8 @@
  * Round-19 breaker B19-1 through the CLI on a real database: the backend of a live batch is killed while the batch waits inside its request
  * (a test connection holds `items` in SHARE mode right after the first live category, so the item batch's inserts wait; then
  * pg_terminate_backend on the waiting backend). With the client's 'error' listened to in withToolSession, the run takes its designed
- * path: exit 4 through CommitUnconfirmedError (not "an uncaught error ended the run"), the committed categories checked against the books,
- * the item batch listed commit unconfirmed as a LOST CONNECTION, never "the tool refused this batch".
+ * path: exit 4 (not "an uncaught error ended the run"), the committed categories checked against the books, and (round-22 rule) the
+ * item batch FAILED, nothing written: its connection was lost before its COMMIT was sent, so no COMMIT was; never "the tool refused".
  * R20-2 / R20-1: the backend killed DURING the item batch's COMMIT (a deferred trigger of this company's FIB-0001 sleeps at COMMIT): the
  * FATAL rejects the COMMIT before any client error, still read as a lost connection, and the batch keeps its OK live answer.
  * B20-1: the backend of the DRY RUN killed while its item insert waits: a refused start (exit 2), "the connection ... was lost ...
@@ -36,7 +36,7 @@ const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const waitingOnItems = `SELECT l.pid FROM pg_locks l JOIN pg_class c ON c.oid = l.relation WHERE c.relname = 'items' AND NOT l.granted`;
 
 describe('B19-1: a live batch whose connection is killed while it waits in its request', () => {
-  it('exit 4 by the designed path: the categories committed, the item batch commit unconfirmed as a lost connection, nothing of it written', async () => {
+  it('exit 4 by the designed path: the categories committed, the item batch FAILED (lost before its COMMIT was sent), nothing of it written', async () => {
     const report = join(d, 'report.json');
     holder = await pool.connect();
     await holder.query('BEGIN');
@@ -58,11 +58,11 @@ describe('B19-1: a live batch whose connection is killed while it waits in its r
     expect(code, err).toBe(4);
     expect(err).not.toMatch(/an uncaught error ended the run/);
     const rep = JSON.parse(readFileSync(report, 'utf8'));
-    expect(rep).toMatchObject({ status: 'stopped', liveStarted: true, message: expect.stringMatching(/the COMMIT of item batch 1 .* did not answer \(the connection was lost; its COMMIT was not confirmed/) });
-    expect(rep.message).not.toMatch(/stopped at once|tool refused/);
+    expect(rep).toMatchObject({ status: 'stopped', liveStarted: true, message: expect.stringMatching(/^sage migration stopped: item batch 1 .* failed: the connection was lost before its COMMIT was sent \(.*\); nothing of it was written/) });
+    expect(rep.message).not.toMatch(/stopped at once|tool refused|may still land/);
     expect(rep.committed.map((b: { entity: string; n: number }) => `${b.entity} ${b.n}`)).toEqual(['category 1', 'category 2', 'category 3', 'category 4']);
-    expect(rep.commitUnconfirmed).toEqual([expect.objectContaining({ entity: 'item', n: 1, commitUnconfirmed: true, error: expect.stringMatching(/^the connection was lost; its COMMIT was not confirmed/) })]);
-    expect(rep.commitUnconfirmed[0].toolRefused).toBeUndefined();
+    expect(rep.commitUnconfirmed).toEqual([]);
+    expect(rep.failed).toEqual([expect.objectContaining({ entity: 'item', n: 1, status: 'failed', error: expect.stringMatching(/^the connection was lost before its COMMIT was sent/) })]);
     expect(await booked(pool, s.companyId)).toMatchObject({ categories: 4, items: 0 });
   }, 180_000);
 });
