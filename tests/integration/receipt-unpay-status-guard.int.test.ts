@@ -276,6 +276,39 @@ describe('supplier payments (the AP mirror)', () => {
     }
   }, 60_000);
 
+  // #1883 review L1: the bill read waits for its row lock under the void's ONE flow budget (underFlowLockBudget), so a
+  // bill held by another request answers 503 + Retry-After in seconds, not a wait as long as the holder's
+  it('a void whose bill row another request holds waits at the bill read, bounded: 503, nothing written', async () => {
+    const b = await seedBill(pool, fx, 1000);
+    const pay = await processedPayment(b, 1000);
+    const holder = await pool.connect();
+    let release: NodeJS.Timeout | undefined;
+    try {
+      await holder.query('BEGIN');
+      await holder.query('SELECT id FROM supplier_invoices WHERE id = $1 FOR NO KEY UPDATE', [b]);
+      release = setTimeout(() => { void holder.query('ROLLBACK').catch(() => undefined); }, 20_000); // an unbounded wait ends here
+      const started = Date.now();
+      const voiding = paymentAction('void', pay);
+      let waitingAt = '';
+      for (let i = 0; i < 40 && !waitingAt; i += 1) {
+        const { rows } = await pool.query(`SELECT query FROM pg_stat_activity WHERE wait_event_type = 'Lock'
+          AND query ILIKE '%supplier_invoices%' AND pid <> pg_backend_pid()`);
+        waitingAt = rows.map((r) => String(r.query)).join(' | ');
+        if (!waitingAt) await new Promise((r) => setTimeout(r, 100));
+      }
+      expect(waitingAt).toMatch(/SELECT amount_paid FROM supplier_invoices/);
+      const out = await voiding;
+      expect(Date.now() - started).toBeLessThan(15_000);
+      expect(out.status, JSON.stringify(out.body)).toBe(503);
+      expect((await pool.query('SELECT status FROM supplier_payments WHERE id = $1', [pay])).rows[0].status).toBe('processed');
+    } finally {
+      clearTimeout(release);
+      await holder.query('ROLLBACK').catch(() => undefined);
+      holder.release();
+    }
+    expect(await bill(b)).toEqual({ status: 'paid', paid: 1000 });
+  }, 60_000);
+
   it('a void that the bill fully covers does not warn', async () => {
     const b = await seedBill(pool, fx, 1000);
     const pay = await processedPayment(b, 400);

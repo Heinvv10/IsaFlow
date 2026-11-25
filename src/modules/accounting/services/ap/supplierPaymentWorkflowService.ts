@@ -251,11 +251,13 @@ async function voidSupplierPaymentInner(
       // the REMAINING paid amount, so a bill still fully covered by OTHER payments stays 'paid' (PR #203 review MEDIUM)
       // and a disputed or pending bill keeps all four as the money comes off. A bill holding LESS than this allocation
       // (a rewrite outside the writers; dev Demo has 42) is clamped at 0 as MCP void_payment's unwind clamps it, and
-      // warned: refusing would strand the payment with no repair path. Row-locked as the UPDATE locks it, in its order.
+      // warned: refusing would strand the payment with no repair path. Row-locked as the UPDATE locks it, in its order,
+      // and bounded by the flow's ONE lock budget above (underFlowLockBudget: 503 + Retry-After, #1883 review L1).
       const [bill] = (await sql`SELECT amount_paid FROM supplier_invoices WHERE id = ${alloc.invoiceId}::UUID
         AND company_id = ${companyId}::UUID FOR NO KEY UPDATE`) as Row[];
+      if (!bill) throw new Error(`voidSupplierPayment: bill ${alloc.invoiceId} not found`); // before any clamp warning
       const allocatedCents = Math.round(alloc.amountAllocated * 100);
-      const heldCents = Math.max(0, Math.round(Number(bill?.amount_paid ?? 0) * 100));
+      const heldCents = Math.max(0, Math.round(Number(bill.amount_paid ?? 0) * 100));
       const offCents = Math.min(allocatedCents, heldCents);
       if (offCents < allocatedCents) {
         log.warn('Supplier payment void: the bill holds less than this allocation; clamped at 0', {
@@ -263,9 +265,7 @@ async function voidSupplierPaymentInner(
           held: heldCents / 100, shortfall: (allocatedCents - offCents) / 100,
         }, 'accounting');
       }
-      if (!(await moveSupplierBillPaid(companyId, alloc.invoiceId, -offCents / 100))) {
-        throw new Error(`voidSupplierPayment: bill ${alloc.invoiceId} not found`);
-      }
+      if (!(await moveSupplierBillPaid(companyId, alloc.invoiceId, -offCents / 100))) throw new Error(`voidSupplierPayment: bill ${alloc.invoiceId} not moved`);
     }
 
     // (4) Free the bank line, then reverse the payment journal — its chain head
