@@ -6,7 +6,7 @@
 import { log } from '@/lib/logger';
 import { loadInvoicePdfModel, type InvoicePdfLine, type InvoicePdfModel } from './invoicePdfModel';
 import { allocateVatToLines } from './vatLineAllocation';
-import { typedInvoicePdfTable } from './invoicePdfTypedLines';
+import { TYPED_PDF_COLUMNS, typedInvoicePdfTable } from './invoicePdfTypedLines';
 import { PREVIEW_WATERMARK, renderPreviewNotes, renderPreviewWatermark, type InvoicePdfPreviewOptions } from './invoicePdfPreviewMarks';
 import {
   fmtZAR, fmtDate, COLORS,
@@ -16,16 +16,6 @@ import {
   renderTotalsBlock, renderPaymentDetails, renderNotesBlock,
   type TotalLine,
 } from '../core/pdfShared';
-
-/** The typed table's columns: the legacy five with the VAT type before the VAT. */
-const TYPED_COLUMNS = {
-  0: { cellWidth: 'auto' },
-  1: { halign: 'right', cellWidth: 18 },
-  2: { halign: 'right', cellWidth: 26 },
-  3: { cellWidth: 30 },
-  4: { halign: 'right', cellWidth: 24 },
-  5: { halign: 'right', cellWidth: 28, fontStyle: 'bold' },
-} as const;
 
 /**
  * `given`: a model already loaded (the approval's, loaded once under its row lock and compared): rendered as it is,
@@ -192,7 +182,7 @@ export async function generateInvoicePdf(companyId: string, invoiceId: string, g
       cellPadding: { top: 5, bottom: 5, left: 4, right: 4 },
     },
     alternateRowStyles: { fillColor: COLORS.SURFACE },
-    columnStyles: typed ? TYPED_COLUMNS : {
+    columnStyles: typed ? TYPED_PDF_COLUMNS : {
       0: { cellWidth: 'auto' },
       1: { halign: 'right', cellWidth: 16 },
       2: { halign: 'right', cellWidth: 30 },
