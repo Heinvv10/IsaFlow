@@ -5,6 +5,7 @@
  *    FIRST_ENTRY_REQUIRES_ADMIN, nothing written; the trigger refuses it as app_user too, on both arms); the
  *    "deducted by an approved run" fact (creditor_entry_admin_only) is set at approval and survives a reopen, a
  *    recalculation that takes nil and the deletion of the deduction (team review #1895 B0, B1; breaker R1, R2);
+ *  - 1051's backfill flags every order that exists when it runs, deducted or not (review round 2: fail-closed);
  *  - the table refuses an order inserted with creditor details, stamps or the flag prefilled, whoever writes it, and a
  *    stamp written alone keeps the old stamp (B2; breaker R5); another employee's id with the order's id is 404 (R3);
  *  - a change by a manager is 403 CHANGE_REQUIRES_ADMIN and writes nothing; an owner /
@@ -19,6 +20,8 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import orders from '../../pages/api/payroll/employees/[id]/garnishee-orders/index';
 import orderRoute from '../../pages/api/payroll/employees/[id]/garnishee-orders/[orderId]';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { rig, type Res, type Route } from './brkr.helpers';
 
 type R = Awaited<ReturnType<typeof rig>>;
@@ -196,7 +199,6 @@ describe('garnishee creditor bank details', () => {
     expect(await stored(a, orderA)).toMatchObject({ creditor_account_number: '10098765432' });
   });
 
-
   /** One employee, one order of its own (so no other order eats the s65J 25% limit), deducted by an approved run of
    *  `month` 2026 (tax year 2027: the newest tables loaded; orderA starts in 2027, so it is not in these runs). */
   async function deductedOrder(month: number, ref: string): Promise<{ employee: string; order: string; run: string }> {
@@ -299,5 +301,26 @@ describe('garnishee creditor bank details', () => {
       "UPDATE payroll_garnishee_orders SET creditor_bank_set_by = 'forged', creditor_bank_set_at = '2020-01-01' WHERE id = $1 RETURNING creditor_bank_set_by",
       [orderA]);
     expect(forged.rows[0]!.creditor_bank_set_by).toBe(before.creditor_bank_set_by);
+  });
+
+  it('round 2: 1051\'s backfill flags every order that exists when it runs, even one never deducted', async () => {
+    const made = await a.call(orders as Route, 'POST', `/api/payroll/employees/${emp}/garnishee-orders`, emp,
+      { body: { ...ORDER, reference: 'EAO backfill', startDate: '2028-06-01' } });
+    const order = String(made.body.data!.id);
+    expect(await flag(order)).toBe(false);
+    expect((await a.pool.query('SELECT 1 FROM payroll_garnishee_deductions WHERE order_id = $1', [order])).rows).toEqual([]);
+    // The migration re-applied as written (it is idempotent), in a transaction rolled back so no other order keeps the flag.
+    const migration = readFileSync(resolve(__dirname, '../../scripts/migrations/sql/1051_payroll_garnishee_creditor_bank.sql'), 'utf8');
+    const c = await a.pool.connect();
+    try {
+      await c.query('BEGIN');
+      await c.query(migration);
+      const after = await c.query('SELECT creditor_entry_admin_only AS f FROM payroll_garnishee_orders WHERE id = $1', [order]);
+      expect(after.rows[0]!.f).toBe(true);
+    } finally {
+      await c.query('ROLLBACK').catch(() => undefined);
+      c.release();
+    }
+    expect(await flag(order)).toBe(false);
   });
 });

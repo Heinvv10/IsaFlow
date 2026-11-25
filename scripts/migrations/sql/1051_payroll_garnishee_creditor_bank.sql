@@ -8,8 +8,10 @@
 --   creditor_entry_admin_only (boolean, default false): the durable fact "a pay run's approval has applied a
 --   deduction of this order". Set true at that approval (the deferred trigger on payroll_garnishee_deductions below)
 --   and never cleared, so a later reopen, recalculation or deletion of the deduction does not forget it (team review
---   #1895 B1). Backfilled here, failing closed: true for every order with a deduction applied or on a run that is or
---   ever was approved (approved / paid, approved_at, a journal, a reopen or an approval history).
+--   #1895 B1). Backfilled here, failing closed: true for EVERY order that exists when 1051 runs (review round 2). The
+--   history cannot be read back: an order approved before 1051 and then recalculated to nil, or whose deduction was
+--   deleted after a reopen, has no row left to show it, so no predicate over the deductions is safe. Wave-6 order
+--   counts are small; an owner / admin still enters those details, a manager may not.
 --   GC2 (W12 part 2) pays these accounts from the salary bank file; nothing here touches the bank file or the ledger.
 --
 -- WHO (payroll_garnishee_creditor_bank_guard, INVOKER, ENABLE ALWAYS):
@@ -81,16 +83,9 @@ BEGIN
 END $$;
 ALTER TABLE public.payroll_garnishee_orders VALIDATE CONSTRAINT payroll_garnishee_orders_creditor_bank;
 
--- Backfill (before the guard exists; 999z's guard passes a flag-only UPDATE): every company's orders, each by its own
--- deductions, no literal company_id. Deterministic and fail-closed.
-UPDATE public.payroll_garnishee_orders o SET creditor_entry_admin_only = true
- WHERE NOT o.creditor_entry_admin_only
-   AND EXISTS (SELECT 1 FROM public.payroll_garnishee_deductions d
-                 JOIN public.payroll_run_headers h ON h.id = d.run_id AND h.company_id = d.company_id
-                WHERE d.order_id = o.id AND d.company_id = o.company_id
-                  AND (d.balance_applied OR h.status IN ('approved', 'paid') OR h.approved_at IS NOT NULL
-                       OR h.journal_entry_id IS NOT NULL OR h.reopened_at IS NOT NULL
-                       OR NOT isempty(COALESCE(h.approval_history, '{}'))));
+-- Backfill (before the guard exists; 999z's guard passes a flag-only UPDATE): every order of every company, no literal
+-- company_id. Fail-closed by design (header): any order that exists now is admin-only for its first creditor entry.
+UPDATE public.payroll_garnishee_orders SET creditor_entry_admin_only = true WHERE NOT creditor_entry_admin_only;
 
 CREATE OR REPLACE FUNCTION public.payroll_garnishee_creditor_bank_guard() RETURNS trigger
 LANGUAGE plpgsql SECURITY INVOKER SET search_path = pg_catalog, public, pg_temp AS $$
