@@ -52,6 +52,8 @@
 --   All bounded by lock_timeout.
 --
 -- Rollback (down SQL; roll the code back first: no older code writes or reads these columns):
+--   DROP TRIGGER IF EXISTS trg_payroll_run_headers_paid_company_fixed ON public.payroll_run_headers;
+--   DROP FUNCTION IF EXISTS public.payroll_run_headers_paid_company_fixed();
 --   DROP TRIGGER IF EXISTS trg_payroll_run_headers_paid_evidence ON public.payroll_run_headers;
 --   DROP FUNCTION IF EXISTS public.payroll_run_headers_paid_evidence();
 --   ALTER TABLE public.payroll_run_headers DROP CONSTRAINT IF EXISTS payroll_run_headers_paid_at_set,
@@ -276,3 +278,32 @@ BEGIN
   RETURN NEW;
 END
 $$;
+
+-- Review #1911 (automated security review, MEDIUM): a pay run's company is fixed. Without this, a dual-member app_user
+-- could move a calculated client run into the Demo company (exempt from B5 there), mark it paid, and move it back: a
+-- client run paid with no journal and no date. Refused for every role but a trusted identity (payroll_run_trusted_restore,
+-- as the rest of this file), on EVERY UPDATE (not UPDATE OF company_id: that column list is the statement's SET list and
+-- misses a value another BEFORE trigger changed), ENABLE ALWAYS, as 1018's trg_doc_company_frozen does for documents.
+-- Wave 7 RH (1054) adds payroll_row_company_fixed / payroll_run_headers_company_fixed for the same rule (superuser-only
+-- exemption, also fixing id): if both land they agree for every runtime role, and this one is named apart so neither
+-- replaces the other. A company DELETE cascade is a DELETE, not an UPDATE: unaffected. Nothing in src/ or scripts/
+-- moves a run between companies (census: no UPDATE of payroll_run_headers.company_id).
+CREATE OR REPLACE FUNCTION public.payroll_run_headers_paid_company_fixed()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+BEGIN
+  IF NEW.company_id IS DISTINCT FROM OLD.company_id AND NOT public.payroll_run_trusted_restore(TG_RELID) THEN
+    RAISE EXCEPTION 'payroll_run_headers: a pay run''s company is fixed (create the run in the other company instead)'
+      USING ERRCODE = '23514';
+  END IF;
+  RETURN NEW;
+END
+$$;
+
+CREATE OR REPLACE TRIGGER trg_payroll_run_headers_paid_company_fixed
+  BEFORE UPDATE ON public.payroll_run_headers
+  FOR EACH ROW EXECUTE FUNCTION public.payroll_run_headers_paid_company_fixed();
+ALTER TABLE public.payroll_run_headers ENABLE ALWAYS TRIGGER trg_payroll_run_headers_paid_company_fixed;

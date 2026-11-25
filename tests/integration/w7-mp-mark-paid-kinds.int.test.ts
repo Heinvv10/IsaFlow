@@ -41,6 +41,12 @@ const snapshot = async (id: string) => (await c.pool.query(
   `SELECT status, approved_at, off_cycle_paid_gross, off_cycle_payday_at, approval_history::text AS history
      FROM payroll_run_headers WHERE id = $1`, [id])).rows[0]!;
 
+/** A calculated client header (no lines, no journal): what a bounce through Demo starts from. A fixed past period, nothing costed. */
+const calculatedHeader = async (month: number) => String((await c.pool.query(
+  `INSERT INTO payroll_run_headers (company_id, period_year, period_month, status, pay_frequency, period_start, period_end)
+   VALUES ($1, 2025, $2, 'calculated', 'monthly', make_date(2025, $2, 1), (make_date(2025, $2, 1) + interval '1 month - 1 day')::date)
+   RETURNING id`, [c.company, month])).rows[0]!.id);
+
 /** As app_user under the tenant's RLS with a session user, as withAuth sets it; rolled back on error. */
 async function asAppUser(r: R, text: string, values: unknown[]): Promise<void> {
   const cl = new Client({ connectionString: process.env.DATABASE_URL });
@@ -164,10 +170,10 @@ describe('B5 below the service, and the Demo reseed as a NOSUPERUSER owner', () 
 
   it('D3: a dual-member app_user cannot bounce a client run through Demo to mark it paid (move in + paid, then back)', async () => {
     const DEMO = '00000000-0000-0000-0000-000000000001';
+    const run = await calculatedHeader(6);
     const made = (await c.pool.query("INSERT INTO companies (id, name) VALUES ($1, 'ISAFlow Demo (fixture)') ON CONFLICT (id) DO NOTHING RETURNING id", [DEMO])).rowCount === 1;
     await c.pool.query("INSERT INTO company_users (company_id, user_id, role) VALUES ($1, $2, 'owner') ON CONFLICT DO NOTHING", [DEMO, c.admin]);
     try {
-      const run = await c.calculatedRun(M2 === 12 ? 1 : M2 + 1, M2 === 12 ? Y2 + 1 : Y2);
       const cl = new Client({ connectionString: process.env.DATABASE_URL });
       await cl.connect();
       const attempt = async () => {
@@ -181,7 +187,9 @@ describe('B5 below the service, and the Demo reseed as a NOSUPERUSER owner', () 
         await cl.query('COMMIT');
       };
       try {
-        await expect(attempt()).rejects.toThrow(/only with its payroll journal in force/);
+        // The company-fixed trigger (review #1911 MEDIUM) now refuses the move first; the D3 rule refused the paid step
+        // before it existed (mutation proof at 821e81a88a). Either way nothing is written.
+        await expect(attempt()).rejects.toThrow(/company is fixed|only with its payroll journal in force/);
       } finally {
         await cl.query('ROLLBACK').catch(() => undefined);
         await cl.end();
@@ -192,6 +200,37 @@ describe('B5 below the service, and the Demo reseed as a NOSUPERUSER owner', () 
       await c.pool.query('DELETE FROM company_users WHERE company_id = $1 AND user_id = $2', [DEMO, c.admin]);
       if (made) await c.pool.query('DELETE FROM companies WHERE id = $1', [DEMO]);
     }
+  }, 120_000);
+
+  it('three-step bounce: move a calculated client run into Demo, mark it paid there, move it back: step 1 is refused', async () => {
+    const DEMO = '00000000-0000-0000-0000-000000000001';
+    const run = await calculatedHeader(7);
+    const made = (await c.pool.query("INSERT INTO companies (id, name) VALUES ($1, 'ISAFlow Demo (fixture)') ON CONFLICT (id) DO NOTHING RETURNING id", [DEMO])).rowCount === 1;
+    await c.pool.query("INSERT INTO company_users (company_id, user_id, role) VALUES ($1, $2, 'owner') ON CONFLICT DO NOTHING", [DEMO, c.admin]);
+    const cl = new Client({ connectionString: process.env.DATABASE_URL });
+    await cl.connect();
+    const as = (co: string) => cl.query("SELECT set_config('app.current_company_id', $1, true)", [co]);
+    try {
+      const bounce = async () => {
+        await cl.query('BEGIN');
+        await cl.query('SET LOCAL ROLE app_user');
+        await cl.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: c.admin, role: 'authenticated' })]);
+        await as(DEMO);
+        await cl.query('UPDATE payroll_run_headers SET company_id = $2 WHERE id = $1', [run, DEMO]); // 1: into Demo
+        await cl.query("UPDATE payroll_run_headers SET status = 'paid' WHERE id = $1", [run]); // 2: paid, as Demo's
+        await as(c.company);
+        await cl.query('UPDATE payroll_run_headers SET company_id = $2 WHERE id = $1', [run, c.company]); // 3: back
+        await cl.query('COMMIT');
+      };
+      await expect(bounce()).rejects.toThrow(/a pay run's company is fixed/);
+    } finally {
+      await cl.query('ROLLBACK').catch(() => undefined);
+      await cl.end();
+      await c.pool.query('DELETE FROM company_users WHERE company_id = $1 AND user_id = $2', [DEMO, c.admin]);
+      if (made) await c.pool.query('DELETE FROM companies WHERE id = $1', [DEMO]).catch(() => undefined);
+    }
+    expect((await c.pool.query('SELECT company_id, status FROM payroll_run_headers WHERE id = $1', [run])).rows[0])
+      .toEqual({ company_id: c.company, status: 'calculated' });
   }, 120_000);
 
   it('the reseed reopens and re-finalises a paid run as a NOSUPERUSER owner of payroll_run_headers (rolled back)', async () => {
