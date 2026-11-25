@@ -248,6 +248,12 @@ describe('a standard-only quote: a match needs a compatible rate and a free stor
     expect(run([line({ description: 'B', itemId: A }), line({ description: 'B', itemId: B })], [a0, b1]).ids).toEqual(['a', 'b']);
   });
 
+  it('a line of a description FREE stored twins hold is never a rename, even where only its own place fits the rate', () => {
+    const lg = (id: string, description: string, rate: number) => stored(id, { description, itemId: A, accountId: 'x', vatType: null, taxAmount: null, taxRate: rate });
+    // Legacy E at 14% in place 0; D twins at 15%: sent "D" at 14% naming E's item fits only place 0, by rate.
+    expect(run([line({ description: 'D', taxRate: 14, itemId: A })], [lg('e', 'E', 14), lg('d1', 'D', 15), lg('d2', 'D', 15)]).ids).toEqual([null]);
+  });
+
   it('M4 (round 14): legacy [A p, A q, B] resent [B, A, A] with no itemIds is accepted and unchanged (never re-priced)', () => {
     const lg = (id: string, description: string, itemId: string | null, accountId: string, unitPrice: number) =>
       stored(id, { description, unitPrice, amount: unitPrice, itemId, accountId, vatType: null, taxAmount: null });
