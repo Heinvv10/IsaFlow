@@ -93,7 +93,7 @@ const HOSTED_IF = "${{ runner.environment == 'github-hosted' }}";
 type HostedStep = { uses: string; with: Record<string, unknown> } | { run: string; id?: string };
 /**
  * The hosted-only steps before install, in order, exactly; setup-bun pinned to a commit (third-party). Then the
- * group's apt steps: what velo has and the group spawns (static: gs; velo: PostgreSQL 16 + pgvector, LibreOffice, poppler). Each install
+ * group's apt steps: what velo has and the group spawns (static: gs, qpdf; velo: PostgreSQL 16 + pgvector, LibreOffice, poppler, qpdf). Each install
  * is bounded with retries (apt: update 90 s + install 240 s per attempt, 3 attempts; playwright 15 min, one retry): a slow-but-alive mirror
  * stalled Browser & integration 37-46 min three times on 6 Nov, and a 600 s x 2 bound still failed 7+ jobs on 18 Nov, which the Acquire
  * timeouts (dead connections only) do not catch. The apt steps: the week (cache rotation), actions/cache of the downloaded .debs
@@ -114,8 +114,8 @@ const HOSTED_TOOLS: HostedStep[] = [
 ];
 /** Required packages (a failed install fails the job) and best-effort ones (a failed install warns; their suites skip without them). */
 const APT_PACKAGES: Record<string, { required: string; optional?: string }> = {
-  static: { required: 'ghostscript' },
-  velo: { required: 'postgresql-16 postgresql-16-pgvector poppler-utils', optional: 'libreoffice-calc-nogui' },
+  static: { required: 'ghostscript qpdf' },
+  velo: { required: 'postgresql-16 postgresql-16-pgvector poppler-utils qpdf', optional: 'libreoffice-calc-nogui' },
 };
 /** A retry must not hit the mirror that stalled: attempt 2 uses archive.ubuntu.com alone, attempt 3 the Azure mirror, then archive.ubuntu.com. */
 const APT_MIRROR_FN = [
