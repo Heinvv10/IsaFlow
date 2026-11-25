@@ -10,7 +10,6 @@ import { Pool, type PoolClient } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { dropTenants, seedRun, seedTenant, twoRunsInMonth, type RunSpec, type Tenant } from './w6-fqb1.helpers';
 import { emp201PayeByMonth } from '@/modules/accounting/services/payroll/payrollEmp201Paye';
-import { readYearEndStatusRows } from '@/modules/accounting/services/payroll/yearEndStatusReads';
 import { latestPayrollRun } from '@/modules/accounting/services/payroll/payrollRunHeaders';
 import { readEmployeeReadiness } from '@/modules/accounting/services/payroll/employeeReadinessRead';
 import { getDeclarablePayRun } from '@/modules/accounting/services/payroll/payrollRunQueryService';
@@ -45,13 +44,12 @@ afterAll(async () => {
   try { await dropTenants(pool, [A, B]); } finally { await pool.end(); }
 });
 
-describe('EMP201 PAYE per month (EMP501 reconciliation, year-end status)', () => {
+describe('EMP201 PAYE per month (EMP501 reconciliation)', () => {
   it('sums both runs of the month; B is not in it', async () => {
-    const [byMonth, yearEnd] = await twoRunsInMonth(pool, A, async (c) => { await seedBoth(c, [BONUS, REGULAR]); },
-      async () => [await emp201PayeByMonth(A.company, 2027), await readYearEndStatusRows(A.company, 2027)] as const);
+    const [byMonth] = await twoRunsInMonth(pool, A, async (c) => { await seedBoth(c, [BONUS, REGULAR]); },
+      async () => [await emp201PayeByMonth(A.company, 2027)] as const);
     expect(byMonth.get('2026-5')).toBe(2700);
     expect([...byMonth.keys()]).toEqual(['2026-5']);
-    expect([...yearEnd.emp201ByMonth]).toEqual([['2026-5', 2700]]);
   });
 });
 

@@ -20,7 +20,6 @@ export interface SarsCodeAdminRow {
   applicability_note: string | null;
   source_document: string | null;
   source_url: string | null;
-  official_excerpt: string | null;
   brs_version: string | null;
   imported_at: Date | string;
   used_by_companies: number;
@@ -71,7 +70,7 @@ export async function listCodes(taxYear: number, opts: {
   const rows = (await sql`
     SELECT c.code, c.effective_year, c.category, c.description, c.status,
            c.foreign_code, c.code_pair, c.applicability_note,
-           c.source_document, c.source_url, c.official_excerpt,
+           c.source_document, c.source_url,
            c.brs_version, c.imported_at,
            (SELECT COUNT(DISTINCT pc.company_id)::int
               FROM payroll_components pc

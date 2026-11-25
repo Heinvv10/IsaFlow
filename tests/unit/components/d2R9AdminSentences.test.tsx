@@ -94,7 +94,7 @@ describe('users delete', () => {
 describe('sars codes writes', () => {
   const REL = { effective_year: 2026, brs_version: '1', released_at: '2026-01-01T00:00:00Z', is_current: false, notes: null, code_count: 1 };
   const CODE = { code: '3601', effective_year: 2026, category: 'income', description: 'D2 income code', status: 'active', foreign_code: null, code_pair: null,
-    applicability_note: null, source_document: null, source_url: null, official_excerpt: null, brs_version: '1', imported_at: '2026-01-01T00:00:00Z', used_by_companies: 0 };
+    applicability_note: null, source_document: null, source_url: null, brs_version: '1', imported_at: '2026-01-01T00:00:00Z', used_by_companies: 0 };
   const list = on('GET', '/api/admin/payroll/sars-codes', () => ok({ releases: [REL], codes: [CODE], taxYear: 2026 }));
   beforeEach(() => { vi.stubGlobal('confirm', () => true); });
 
