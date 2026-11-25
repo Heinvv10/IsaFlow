@@ -246,15 +246,12 @@ describe('actor ids on the payroll, SARS and tax tables are bound as text (HYa c
   });
 });
 
-describe('payroll_employees.tax_directive_number is dead (HYa; migration 999b marks it deprecated, wave 7 drops it)', () => {
-  it('nothing outside the change-log masking list (and its test) names it', () => {
+describe('payroll_employees.tax_directive_number is gone (HYa marked it deprecated in 999b; migration 1055 drops it)', () => {
+  it('nothing outside the migrations and this file names it', () => {
     const named = execFileSync('git', ['ls-files', '--', 'src', 'pages', 'scripts', 'tests'], { cwd: ROOT, encoding: 'utf8' })
       .split('\n').filter((f) => /\.(tsx?|mjs|js|sql)$/.test(f) && !f.startsWith('scripts/migrations/')
-        && f !== 'tests/unit/guards/actorIdTextCensus.test.ts')
+        && f !== 'tests/unit/guards/actorIdTextCensus.test.ts' && f !== 'tests/integration/w7-mh-employee-column-drop.int.test.ts')
       .flatMap((f) => lines(f).flatMap((l, i) => (/\btax_directive_number\b/.test(l) ? [`${f}:${i + 1}`] : [])));
-    expect(named).toEqual([
-      `${S}core/entityChanges/entityChangeMasking.ts:18`,
-      'tests/unit/services/core/entityChangeTypes.test.ts:117',
-    ]);
+    expect(named).toEqual([]);
   });
 });
