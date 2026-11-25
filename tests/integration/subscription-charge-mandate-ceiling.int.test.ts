@@ -33,7 +33,7 @@ const otherSubscriptionId = crypto.randomUUID();
 const mandateId = crypto.randomUUID();
 const otherMandateId = crypto.randomUUID();
 const userId = crypto.randomUUID();
-/** Paying (annual, 10% off) with no mandate yet: a new mandate's ceiling must cover its charge. */
+/** Paying (annual, 10% off; plus a dearer one set to cancel) with no mandate yet: a new mandate's ceiling must cover the charge that will be billed. */
 const unmandatedCompanyId = crypto.randomUUID();
 const CEILING = 59900;
 
@@ -64,6 +64,12 @@ beforeAll(async () => {
     `INSERT INTO subscriptions(company_id,plan_id,status,billing_cycle,
        current_period_start,current_period_end,cancel_at_period_end,discount_percent)
      VALUES($1,$2,'active','annual',now() - interval '1 month',now() + interval '11 months',false,10)`,
+    [unmandatedCompanyId, planId]);
+  // A dearer subscription already set to cancel is never billed again, so it sets no floor.
+  await pool.query(
+    `INSERT INTO subscriptions(company_id,plan_id,status,billing_cycle,
+       current_period_start,current_period_end,cancel_at_period_end,discount_percent)
+     VALUES($1,$2,'active','annual',now() - interval '1 month',now() + interval '11 months',true,0)`,
     [unmandatedCompanyId, planId]);
 }, 60000);
 

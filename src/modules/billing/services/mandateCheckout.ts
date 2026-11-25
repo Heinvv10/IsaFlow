@@ -63,8 +63,9 @@ export async function startMandateCheckout(input: MandateCheckoutInput): Promise
     FROM subscriptions s
     JOIN plans p ON p.id = s.plan_id
     WHERE s.company_id = ${companyId}
+      -- The planner's own eligibility (planDueCharges): what the charge run will bill.
       AND s.status IN ('active', 'past_due')
-      AND p.code <> 'trial'
+      AND COALESCE(s.cancel_at_period_end, false) = false
   `;
   const currentChargeCents = Number(live[0]?.charge_cents ?? 0);
   if (maxAmountCents < currentChargeCents) return { kind: 'below_current_charge', currentChargeCents };
