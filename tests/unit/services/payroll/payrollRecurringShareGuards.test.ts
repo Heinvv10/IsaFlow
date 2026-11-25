@@ -66,3 +66,37 @@ describe('the explanation step (M6)', () => {
     expect(step.children?.map((c) => [c.label, c.amount])).toEqual([['The amount for a whole period', 2100], ['The share of the period it ran', 12 / 23]]);
   });
 });
+
+// Review #1901 round 2 (breaker round-2 unit repros ported).
+describe('paidPeriodChanged judges the change in what the paid run paid (R2-H1)', () => {
+  it('cutting an open row to the paid month\'s last day is allowed (a package from the 1st of the next month)', () => {
+    expect(paidPeriodChanged(july(21), w('2020-01-01', null), w('2020-01-01', '2026-07-31'))).toBeNull();
+  });
+  it('cutting it to the 20th is refused; so is moving an inside start (16th -> 20th) on a reopened v21 run', () => {
+    expect(paidPeriodChanged(july(21), w('2020-01-01', null), w('2020-01-01', '2026-07-20'))).not.toBeNull();
+    const reopened = [{ year: 2026, month: 7, calculatedAt: 1, version: 21, reopened: true }];
+    expect(paidPeriodChanged(reopened, w('2026-07-16', null), w('2026-07-20', null))).not.toBeNull();
+  });
+  it('a leaver\'s window: moving the end after their last day changes nothing the run paid by its dates', () => {
+    const lw = (to: string | null) => ({ from: '2020-01-01', to, recurring: true, employeeEnd: '2026-07-15' });
+    expect(paidPeriodChanged(july(21), lw('2026-07-25'), lw('2026-07-28'))).toBeNull();
+  });
+  it('R2-L2: a weekly run crossing a month end (27 Jul - 2 Aug, EMP201 August) is judged on its own dates', () => {
+    const week = [{ year: 2026, month: 8, calculatedAt: 1, version: 21, runStart: '2026-07-27', runEnd: '2026-08-02', frequency: 'weekly' }];
+    expect(paidPeriodChanged(week, w('2020-01-01', '2026-07-29'), w('2020-01-01', '2026-07-31'))).not.toBeNull();
+    expect(paidPeriodChanged(week, w('2020-01-01', '2026-07-20'), w('2020-01-01', '2026-07-24'))).toBeNull();
+  });
+});
+
+describe('the explanation of a fringe earning that ran for part of the period (R2-L4)', () => {
+  it('a 3701 at its 80% share also shows the days it ran', () => {
+    const step = earningStep('t', {
+      name: 'Travel allowance', code: '3701', amount: 1000, included: 800, rate: 0.8, isNonCash: false, taxable: true, uif: true, sdl: true,
+      treatment: 'periodic', share: { share: 10 / 23, days: 10, of: 23, basis: 'working_days', fullAmount: 2300 },
+    } as Parameters<typeof earningStep>[1]);
+    expect(step.amount).toBe(800);
+    expect(step.children?.[0]).toMatchObject({ key: 't.period', amount: 1000 });
+    expect(step.children?.[0]?.formula).toMatch(/^10 of 23 working days of R/);
+  });
+});
+

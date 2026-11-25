@@ -23,7 +23,9 @@ export async function readRunComponents(
 ): Promise<EmployeeComponent[]> {
   const read = await getEmployeeComponents(employee.id, companyId, readDate, period.start);
   const ended = await recurringEarningsEndedInPeriod(employee.id, companyId, periodBoundsOf(period).start, readDate);
-  return apportionRecurringRows([...read, ...ended], employee, period);
+  // One reading of each row: a leaver row in the band is the last-day reader's and the ended-rows reader's (R2-M1).
+  const seen = new Set(read.map((c) => c.assignmentId));
+  return apportionRecurringRows([...read, ...ended.filter((c) => !seen.has(c.assignmentId))], employee, period);
 }
 
 /**

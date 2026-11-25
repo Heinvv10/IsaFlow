@@ -50,6 +50,7 @@ const EXPECTED_CASE_IDS = [
   'ga-maintenance-outside-cap',
   'leaver-mid-month-full-salary', // W29 (wave 7 PRA): ruling 19 pinned
   'leaver-raise-mid-month-sums-to-window', // W29 review #1901 H1
+  'leaver-row-ends-on-end-date-mid-month-full', // W29 review R2-M1
   'monthly-raise-averaged-with-priors',
   'offcycle-bonus-after-regular-g21',
   'offcycle-termination-leave-after-regular',
@@ -82,6 +83,7 @@ const EXPECTED_CASE_IDS = [
   'starter-mid-month-full-salary', // W29: ruling 19 pinned
   'starter-raise-mid-month-sums-to-window', // W29 review H1
   'statutory-2027-bracket-31pct-35000',
+  'three-rows-one-amount-sums-to-month', // W29 review R2-L1
   'statutory-2027-bracket-36pct-55000',
   'statutory-2027-bracket-39pct-60000',
   'statutory-2027-bracket-41pct-100000',

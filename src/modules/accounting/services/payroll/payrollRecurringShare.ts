@@ -76,11 +76,13 @@ export function recurringShareOf(
   if (!w || !insideEmploymentEdge(period, row, employee)) return null;
   const from = later(w.start, row.effectiveFrom);
   const to = earlier(w.end, row.effectiveTo ?? w.end);
-  const calendar = (frequency === 'weekly' || frequency === 'fortnightly') && period.start != null && period.end != null;
-  const count = calendar ? (a: string, b: string) => dayNumber(b) - dayNumber(a) + 1 : workingDays;
+  const calendarDays = (a: string, b: string) => dayNumber(b) - dayNumber(a) + 1;
+  // An employed window with no working day (a starter on the month's last Saturday) splits by calendar days instead, so
+  // the rows of a pair still sum to the whole (review #1901 R2-L3), never both whole.
+  const calendar = ((frequency === 'weekly' || frequency === 'fortnightly') && period.start != null && period.end != null)
+    || workingDays(w.start, w.end) === 0;
+  const count = calendar ? calendarDays : workingDays;
   const of = count(w.start, w.end);
-  // An employed window with no working day (a starter on the month's last Saturday) has no basis to split: whole.
-  if (of === 0) return null;
   const days = to < from ? 0 : count(from, to);
   return { share: days / of, days, of, basis: calendar ? 'calendar_days' : 'working_days' };
 }
@@ -92,19 +94,50 @@ export function isApportionable(c: Pick<EmployeeComponent, 'isRecurring' | 'quan
     && c.quantity == null && c.percentOfRfi == null && c.dbMemberCategoryFactor == null;
 }
 
-/** Each apportionable row read with its dates at its share (others unchanged); a row with no day in the window is dropped. */
+/**
+ * Each apportionable row read with its dates at its share (others unchanged); a row with no day in the window is dropped.
+ * When rows of one component at one amount tile the employed window (their days add up to it: a row re-dated with the
+ * same amount, twice or more), the last pays the full amount less the earlier rows, so they foot to the cent (review
+ * #1901 R2-L1); rows at different amounts (a raise) are each rounded to the cent.
+ */
 export function apportionRecurringRows(
   components: EmployeeComponent[], employee: ShareEmployee & { payFrequency: PayFrequency | UnsupportedValue }, period: PayrollPeriod,
 ): EmployeeComponent[] {
   const out: EmployeeComponent[] = [];
+  const tiles = new Map<string, { full: number; days: number; of: number; rounded: number; last: number; same: boolean }>();
   for (const c of components) {
     const share = isApportionable(c) && c.effectiveFrom !== undefined
       ? recurringShareOf(employee.payFrequency, period, { effectiveFrom: c.effectiveFrom, effectiveTo: c.effectiveTo ?? null }, employee)
       : null;
-    if (!share) out.push(c);
-    else if (share.days > 0) out.push({ ...c, amount: round2((c.amount * share.days) / share.of), share: { ...share, fullAmount: c.amount } });
+    if (!share) { out.push(c); continue; }
+    if (share.days === 0) continue;
+    const amount = round2((c.amount * share.days) / share.of);
+    const t = tiles.get(c.component.id);
+    tiles.set(c.component.id, {
+      full: c.amount, days: (t?.days ?? 0) + share.days, of: share.of, rounded: (t?.rounded ?? 0) + amount, last: out.length,
+      same: (t?.same ?? true) && (t == null || t.full === c.amount),
+    });
+    out.push({ ...c, amount, share: { ...share, fullAmount: c.amount } });
+  }
+  for (const t of tiles.values()) {
+    const diff = round2(t.full - t.rounded);
+    if (t.same && t.days === t.of && diff !== 0) out[t.last] = { ...out[t.last]!, amount: round2(out[t.last]!.amount + diff) };
   }
   return out;
+}
+
+/**
+ * The share of a period's employed window a recurring row is paid, as a comparable key ('0', '1' whole, or 'days/of'):
+ * the paid-run guard compares it before and after a date change (payrollComponentPaidMonths, review #1901 R2-H1).
+ */
+export function paidShareOf(
+  frequency: PayFrequency | UnsupportedValue, period: PayrollPeriod, row: ShareRow, employee: ShareEmployee,
+): string {
+  const w = employedWindowOf(period, employee);
+  if (!w || (row.effectiveTo != null && row.effectiveTo < row.effectiveFrom)) return '0';
+  if (row.effectiveFrom > w.end || (row.effectiveTo != null && row.effectiveTo < w.start)) return '0';
+  const share = recurringShareOf(frequency, period, row, employee);
+  return share ? `${share.days}/${share.of}` : '1';
 }
 
 /** "9 of 22 working days (0.4090)": the share as the payslip line prints it (truncated to four decimals, as G21 p. 10). */

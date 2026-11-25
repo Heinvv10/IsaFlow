@@ -21,6 +21,7 @@ const earn = (id: string, amount: number, effectiveFrom: string, effectiveTo: st
   component: { id, name: id, sarsSourceCode: '3601', componentType: 'earning', isTaxable: true, isUifApplicable: true, isSdlApplicable: true },
   amount, isRecurring, effectiveFrom, effectiveTo,
 });
+const r2 = (n: number) => Math.round(n * 100) / 100;
 const gross = (cs: EmployeeComponent[]) => Math.round(cs.reduce((n, c) => n + c.amount, 0) * 100) / 100;
 
 describe('recurringShareOf: monthly, working days (ruling 13)', () => {
@@ -183,3 +184,30 @@ describe('shareBesideOnceOffResults (review M2): a share beside any once-off EAR
     expect(shareBesideOnceOffResults([...apportionRecurringRows([earn('a', 2100, '2026-07-16')], employee, july), ded])).toEqual([]);
   });
 });
+
+describe('review #1901 round 2', () => {
+  const employee = { ...longServing, payFrequency: 'monthly' as const };
+  // Breaker R2 repro: three rows of one amount, split anywhere in July, foot to the cent (R2-L1).
+  it('three rows of one amount tile the month and foot to the cent, every split', () => {
+    const bad: string[] = [];
+    const d = (n: number) => `2026-07-${String(n).padStart(2, '0')}`;
+    for (const amt of [10000.01, 33333.33, 12345.67]) for (let a = 2; a <= 29; a++) for (let b = a + 1; b <= 30; b++) {
+      const g = gross(apportionRecurringRows([earn('s', amt, '2020-01-01', d(a - 1)), earn('s', amt, d(a), d(b - 1)), earn('s', amt, d(b))], employee, july));
+      if (g !== amt) bad.push(`${amt} split ${a}/${b} -> ${g}`);
+    }
+    expect(bad.slice(0, 3)).toEqual([]);
+  });
+  it('rows of different amounts (a raise) are each rounded to the cent', () => {
+    const rows = apportionRecurringRows([earn('s', 10000, '2020-01-01', '2026-07-09'), earn('s', 12000, '2026-07-10')], employee, july);
+    expect(rows.map((r) => r.amount)).toEqual([r2(10000 * 7 / 23), r2(12000 * 16 / 23)]);
+  });
+  it('an employed window with no working day splits by calendar days, so a pair sums to the whole (R2-L3)', () => {
+    // Employed Saturday 28 to Sunday 29 March 2026 only: no working day. Re-dated on the Sunday, each row pays one of two days.
+    const mar = { year: 2026, month: 3 };
+    const starter = { startDate: local('2026-03-28'), endDate: local('2026-03-29'), payFrequency: 'monthly' as const };
+    const rows = apportionRecurringRows([earn('s', 9000, '2026-03-28', '2026-03-28'), earn('s', 9000, '2026-03-29')], starter, mar);
+    expect(rows.map((r) => r.share && `${r.share.days}/${r.share.of} ${r.share.basis}`)).toEqual(['1/2 calendar_days', '1/2 calendar_days']);
+    expect(gross(rows)).toBe(9000);
+  });
+});
+

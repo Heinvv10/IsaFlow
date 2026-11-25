@@ -20,11 +20,13 @@ export function earningStep(key: string, p: EarningPart): ExplainStep {
   if (p.db) return definedBenefitStep(key, label, { ...p, db: p.db });
   if (p.share && p.rate === undefined) return recurringShareStep(key, label, p.included, p.share); // W29 (PRA)
   if (p.rate === undefined) return { key, label, amount: p.included };
-  return {
+  const fringe: ExplainStep = {
     key, label, amount: p.included, formula: `${pct(p.rate)} of ${formatMoney(p.amount)}, to the cent`, source: FRINGE_SOURCE,
     children: [
       { key: `${key}.amount`, label: 'The full amount', amount: p.amount },
       { key: `${key}.share`, label: 'The share that is remuneration', amount: p.rate, unit: 'percent' },
     ],
   };
+  // W29 (review #1901 R2-L4): a 3701 / 3802 that ran for part of the period also shows how its amount was apportioned.
+  return p.share ? { ...fringe, children: [recurringShareStep(`${key}.period`, 'The amount for the days it ran', p.amount, p.share), ...fringe.children!] } : fringe;
 }

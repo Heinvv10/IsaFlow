@@ -3,7 +3,7 @@
  *  - H1: a leaver or starter whose salary changes mid-month is measured against their employed window, so the split
  *    rows sum to their full pay (a raise never pays less than none);
  *  - a row starting and ending inside the month: its working days;
- *  - M4: a row a package cut and replaced with a once-off of the same component is not paid its share beside it;
+ *  - M4 / R2-M2: a row a package cut is paid its share beside the package once-off, and the pair is recorded;
  *  - M7: a row that ended before the employee started is not read (no "0 of 18 days" item);
  *  - M5: the pay-run grid's recurring cell is what the line pays;
  *  - L2: a weekly run apportions by calendar days through the SQL readers, and a split week foots to the whole.
@@ -85,10 +85,15 @@ describe('H1: the employed window', () => {
 });
 
 describe('the readers', () => {
-  it('M4: a package-cut row replaced by a once-off of the same component is not paid its share beside it', async () => {
+  // Review R2-M2 (decision: drop the M4 skip): the cut row's 1-15 July is paid its share (11 of 23 working days), and the
+  // package once-off beside it is a share beside a once-off, which approval refuses until acknowledged (w7-pra-share-ack).
+  it('M4/R2-M2: a package-cut row is paid its share beside the package once-off, and the pair is recorded', async () => {
     const l = (await lineOf(jul, 'PKG-ONCE'))!;
-    expect(l.g).toBe(10000 + 1200);
-    expect(l.b.filter((i) => i.share)).toEqual([]);
+    expect(l.g).toBe(10000 + r2(2300 * 11 / 23) + 1200);
+    expect(l.b.filter((i) => i.share).map((i) => `${i.share!.days}/${i.share!.of}`)).toEqual(['11/23']);
+    const codes = (await pool.query('SELECT validation_results v FROM payroll_run_lines WHERE run_id=$1 AND employee_id=$2', [jul, ids['PKG-ONCE']])).rows[0].v
+      .map((x: { code: string }) => x.code);
+    expect(codes).toContain('RECURRING_SHARE_BESIDE_ONCE_OFF');
   });
   it('M7: a row that ended before the starter started is not read', async () => {
     const l = (await lineOf(jul, 'ST-BEFORE'))!;
