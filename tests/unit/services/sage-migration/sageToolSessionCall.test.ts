@@ -135,6 +135,7 @@ const notLost = () => [
   Object.assign(new Error('could not serialize access due to concurrent update'), { code: '40001' }),
   new Error('connect ECONNREFUSED 127.0.0.1:5432: connection refused'),
   Object.assign(new Error('sorry, too many clients already'), { code: '53300' }),
+  Object.assign(new Error('feature not supported'), { code: '0A000' }), // class 0A, not 08
 ];
 
 describe('R21-1: the classifier\'s negative side', () => {
@@ -184,12 +185,14 @@ describe('R21-2: a loss first seen during the dry request\'s own ROLLBACK', () =
     expect(err).toBeInstanceOf(ConnectionLostError);
     expect(client.release).toHaveBeenCalledWith(true);
   });
-  it('a dry ROLLBACK that fails with no client error (the connection unusable) is a lost connection too', async () => {
-    const client = Object.assign(new EventEmitter(), { query: async (text: string) => { if (text === 'ROLLBACK') throw new Error('Client was closed'); return { rows: [] }; }, release: vi.fn() });
+  it('a dry ROLLBACK that fails with no client error (the connection unusable) is a lost connection too; ROLLBACK sent once', async () => {
+    const rollbacks: string[] = [];
+    const client = Object.assign(new EventEmitter(), { query: async (text: string) => { if (text === 'ROLLBACK') { rollbacks.push(text); throw new Error('Client was closed'); } return { rows: [] }; }, release: vi.fn() });
     registry.call.mockResolvedValueOnce(ok('{"created":1}'));
     const err = await withToolSession({ connect: async () => client } as never, 'c1', 'u1', false, (x) => x.call('w', { idempotency_key: 'k' })).then(() => null, (r: unknown) => r);
     expect(err).toBeInstanceOf(ConnectionLostError);
     expect((err as Error).message).toMatch(/its ROLLBACK failed/);
+    expect(rollbacks).toHaveLength(1); // the catch does not roll back a second time
   });
 });
 

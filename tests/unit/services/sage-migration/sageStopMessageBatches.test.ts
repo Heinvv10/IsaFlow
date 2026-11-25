@@ -95,8 +95,7 @@ describe('R21-6: a replayed answer whose COMMIT was lost', () => {
   });
   it('a replayed answer whose COMMIT was confirmed keeps its plain line', () => {
     const m = stopMessage(new MigrationStopped(new Error('boom'), true, [base('item', 1, { replayed: true })]));
-    expect(m).toContain('answered from a stored answer, nothing written: item batch 1 (key-item-1)');
-    expect(m).not.toContain('connection was lost');
+    expect(m.endsWith('answered from a stored answer, nothing written: item batch 1 (key-item-1)')).toBe(true); // nothing under it
   });
 });
 
