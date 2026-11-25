@@ -43,9 +43,9 @@ vi.mock('@/lib/neon', () => {
   };
 });
 
-vi.mock('@/lib/logger', () => ({
-  log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
-}));
+// Intercompany P2: the cancel tells the mirror (its own definer call, tested in mirrorHooks.test / mirror-elimination); not counted here.
+vi.mock('@/modules/accounting/services/intercompany/mirrorHooks', () => ({ syncGroupRowFor: vi.fn(async () => null), withdrawForCancelledDocument: vi.fn(async () => 0) }));
+vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() } }));
 
 vi.mock('@/modules/accounting/services/gl/journalEntryService', () => ({
   createJournalEntry: vi.fn(),
@@ -95,6 +95,11 @@ vi.mock('@/modules/accounting/services/ap/supplierInvoiceLock', () => ({
 // helper finds and locks — proven against a real ledger, chains included, in
 // tests/integration/d8-r2-chain-head-cancel-void. Here it answers "the journal
 // itself stands" unless a case says otherwise.
+// 1018 round 15 L1: the journal's accounts before the document row (proven on a real ledger in
+// tests/integration/ledger-freeze-round15); the positional sql queue must not see its reads.
+vi.mock('@/modules/accounting/services/shared/documentJournalAccountsLock', () => ({
+  lockDocumentJournalAccounts: vi.fn(async () => undefined),
+}));
 vi.mock('@/modules/accounting/services/shared/journalChainHead', () => ({
   lockStandingChainHead: vi.fn(async (_companyId: string, id: string) => id),
 }));

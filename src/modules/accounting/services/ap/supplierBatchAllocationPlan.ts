@@ -34,6 +34,7 @@ import {
 import { assertAllocationShape } from './supplierAllocationShape';
 import { SupplierPaymentRefusal } from './supplierPaymentRefusal';
 import { lockSupplierIfLive, SUPPLIER_NOT_LIVE_REFUSAL } from '../core/supplierLiveLock';
+import { refuseLoanAccountBatch } from '../intercompany/loanAccountPaymentGuard';
 
 export interface BatchPaymentLines {
   supplierId: string;
@@ -153,4 +154,6 @@ export async function assertBatchMembersStillAllocatable(companyId: string, batc
   await assertAllocationsStillAllocatable(companyId, stored.map((r) => ({
     invoiceId: String(r.invoice_id), amount: Number(r.amount_allocated), supplierId: String(r.supplier_id),
   })));
+  // P4-E (j).3: a batch paid from the payer's loan account does not settle a linked bill (the intercompany loan clearing does).
+  await refuseLoanAccountBatch(companyId, batchId);
 }

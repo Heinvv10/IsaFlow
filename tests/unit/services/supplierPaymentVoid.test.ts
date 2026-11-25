@@ -23,6 +23,10 @@ const { mockTx } = vi.hoisted(() => ({
     client: { query: (t: string) => { mockTx.queries.push(t); return Promise.resolve(undefined); } },
   },
 }));
+// intercompany P4-E (j).4: the payer undo gate asks its own queries (tested in the intercompany suites); off here
+vi.mock('@/modules/accounting/services/intercompany/allocationUndoGate', () => ({
+  PARTNER_CLEARED_SENTENCE: 'refused', partnerClearedRefusal: vi.fn(async () => null), partnerClearedJournalRefusal: vi.fn(async () => null),
+}));
 vi.mock('@/lib/als', async () => {
   const actual = await vi.importActual<typeof import('@/lib/als')>('@/lib/als');
   return { ...actual, als: { ...actual.als, getStore: () => ({ client: mockTx.client }) } };
@@ -131,7 +135,9 @@ describe('voidSupplierPayment (P2.1 / audit W4)', () => {
     expect(mockReverse).toHaveBeenCalledWith(COMPANY_ID, JOURNAL_ID, USER_ID);
     const allocUpdate = calls.find((c) => /UPDATE supplier_invoices/i.test(c.text));
     expect(allocUpdate, 'allocations must be un-applied').toBeTruthy();
-    expect(allocUpdate!.text).toMatch(/amount_paid - /);
+    // moveSupplierBillPaid (#1728 review L1): the allocation comes off as a negative delta, floored at itself
+    expect(allocUpdate!.text).toMatch(/amount_paid = COALESCE\(amount_paid, 0\) \+ /);
+    expect(allocUpdate!.values[0]).toBeLessThan(0);
     const payUpdate = calls.find((c) => /UPDATE supplier_payments/i.test(c.text));
     expect(payUpdate!.text).toMatch(/'cancelled'/);
     expect(payUpdate!.text).toMatch(/status IN \('processed', 'reconciled'\)/); // guarded flip
@@ -238,7 +244,7 @@ describe('voidSupplierPayment (P2.1 / audit W4)', () => {
     const seen: string[] = [];
     mockSql.mockImplementation((strings: TemplateStringsArray, ...values: unknown[]) => {
       const text = (strings as unknown as string[]).join('?');
-      if (/UPDATE supplier_invoices/i.test(text)) seen.push(String(values[values.length - 2]));
+      if (/UPDATE supplier_invoices/i.test(text)) seen.push(String(values.find((v) => v === LOW || v === HIGH)));
       if (/SELECT status, reversed_at/i.test(text)) {
         return Promise.resolve([{ status: 'posted', reversed_at: null }]);
       }

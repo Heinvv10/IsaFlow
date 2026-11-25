@@ -111,6 +111,11 @@ export async function createCustomerPayment(companyId: string,
     // R-067: client_id has no (id, company_id) constraint, and the payment is
     // read back with the customer's name joined on it.
     await assertCustomerInCompany(companyId, input.clientId);
+    // Intercompany F (k) H-3: `IC:<message>` binds a draft to an intercompany payment message; only the intercompany accept stamps it
+    // (paymentAcceptService.ts, after this create), never a caller.
+    if (/^\s*ic:/i.test(input.bankReference ?? '')) {
+      throw new ReceiptRefusal('A bank reference starting "IC:" is reserved for receipts drafted from an intercompany payment message.');
+    }
 
     // Validate allocations against invoice balances. W3 (P2.1): amount_paid
     // only reflects CONFIRMED payments — without counting other DRAFT

@@ -68,7 +68,7 @@ export function LoanEventsTab({ loanId, events, onRefresh }: Props) {
         </h3>
         <button
           onClick={() => setShowForm(s => !s)}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-brand-600 text-white rounded-lg hover:bg-brand-700 text-xs font-medium"
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-brand-600 text-white rounded-lg hover:bg-brand-700 text-xs font-medium max-lg:min-h-11"
         >
           <Plus className="h-3.5 w-3.5" /> Add Event
         </button>
@@ -85,7 +85,7 @@ export function LoanEventsTab({ loanId, events, onRefresh }: Props) {
             <select
               value={form.kind}
               onChange={e => setForm(f => ({ ...f, kind: e.target.value }))}
-              className="ff-select text-sm"
+              className="ff-select text-sm max-lg:min-h-11"
             >
               {KIND_OPTIONS.map(k => <option key={k} value={k}>{k}</option>)}
             </select>
@@ -98,7 +98,7 @@ export function LoanEventsTab({ loanId, events, onRefresh }: Props) {
                 placeholder="Amount (ZAR)"
                 value={form.amount}
                 onChange={e => setForm(f => ({ ...f, amount: e.target.value }))}
-                className="ff-input text-sm"
+                className="ff-input text-sm max-lg:min-h-11"
                 required
               />
             )}
@@ -107,21 +107,21 @@ export function LoanEventsTab({ loanId, events, onRefresh }: Props) {
               placeholder="Note (optional)"
               value={form.note}
               onChange={e => setForm(f => ({ ...f, note: e.target.value }))}
-              className="ff-input text-sm col-span-2"
+              className="ff-input text-sm col-span-2 max-lg:min-h-11"
             />
           </div>
           <div className="flex justify-end gap-2">
             <button
               type="button"
               onClick={() => { setShowForm(false); setForm(EMPTY_FORM); setDateMissing(false); }}
-              className="px-3 py-1.5 text-sm text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]"
+              className="px-3 py-1.5 text-sm text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] max-lg:min-h-11"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={busy || dateGate.blocked}
-              className="inline-flex items-center gap-1.5 px-4 py-1.5 bg-brand-600 text-white rounded-lg text-sm font-medium disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 px-4 py-1.5 bg-brand-600 text-white rounded-lg text-sm font-medium disabled:opacity-50 max-lg:min-h-11"
             >
               {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Save Event'}
             </button>
@@ -130,7 +130,7 @@ export function LoanEventsTab({ loanId, events, onRefresh }: Props) {
       )}
 
       <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-hidden">
-        <table className="w-full text-sm">
+        <table className="table-cards w-full text-sm">
           <thead>
             <tr className="border-b border-[var(--ff-border-light)] text-left text-[var(--ff-text-secondary)]">
               <th className="px-4 py-3">Date</th>
@@ -142,15 +142,15 @@ export function LoanEventsTab({ loanId, events, onRefresh }: Props) {
           <tbody>
             {events.length === 0 && (
               <tr>
-                <td colSpan={4} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)]">
+                <td colSpan={4} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)] max-lg:!py-8 max-lg:!text-center">
                   No events recorded.
                 </td>
               </tr>
             )}
             {events.map(ev => (
               <tr key={ev.id} className="border-b border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-primary)]/50">
-                <td className="px-4 py-3 text-[var(--ff-text-primary)]">{fmtDate(ev.date)}</td>
-                <td className="px-4 py-3">
+                <td data-label="Date" className="px-4 py-3 text-[var(--ff-text-primary)]">{fmtDate(ev.date)}</td>
+                <td data-label="Kind" className="px-4 py-3">
                   <span className={`px-2 py-0.5 rounded text-xs font-medium ${
                     ev.kind === 'LUMP' ? 'bg-blue-500/10 text-blue-400' :
                     ev.kind === 'SKIP' ? 'bg-amber-500/10 text-amber-400' :
@@ -159,10 +159,10 @@ export function LoanEventsTab({ loanId, events, onRefresh }: Props) {
                     {ev.kind}
                   </span>
                 </td>
-                <td className="px-4 py-3 text-right text-[var(--ff-text-primary)]">
+                <td data-label="Amount" className="px-4 py-3 text-right text-[var(--ff-text-primary)]">
                   {ev.amount != null ? fmt(ev.amount) : '—'}
                 </td>
-                <td className="px-4 py-3 text-[var(--ff-text-secondary)] truncate max-w-[240px]">
+                <td data-label="Note" className="px-4 py-3 text-[var(--ff-text-secondary)] truncate max-w-[240px] max-lg:max-w-none max-lg:whitespace-normal">
                   {ev.note || '—'}
                 </td>
               </tr>

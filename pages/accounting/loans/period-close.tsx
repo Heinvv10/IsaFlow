@@ -142,7 +142,7 @@ export default function LoanPeriodClosePage() {
         <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-6 py-4">
           <div className="flex items-center justify-between flex-wrap gap-3">
             <div className="flex items-center gap-3">
-              <Link href="/accounting/loans" className="p-1.5 rounded hover:bg-[var(--ff-bg-primary)] text-[var(--ff-text-secondary)]">
+              <Link href="/accounting/loans" className="p-1.5 rounded hover:bg-[var(--ff-bg-primary)] text-[var(--ff-text-secondary)] max-lg:min-h-11 max-lg:min-w-11 max-lg:inline-flex max-lg:items-center max-lg:justify-center">
                 <ChevronLeft className="h-5 w-5" />
               </Link>
               <div className="p-2 rounded-lg bg-teal-500/10">
@@ -155,11 +155,11 @@ export default function LoanPeriodClosePage() {
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-2">
-              <select value={month} onChange={e => setMonth(Number(e.target.value))} className="ff-select text-sm">
+            <div className="flex items-center gap-2 max-lg:flex-wrap">
+              <select value={month} onChange={e => setMonth(Number(e.target.value))} className="ff-select text-sm max-lg:min-h-11">
                 {MONTHS.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
               </select>
-              <select value={year} onChange={e => setYear(Number(e.target.value))} className="ff-select text-sm">
+              <select value={year} onChange={e => setYear(Number(e.target.value))} className="ff-select text-sm max-lg:min-h-11">
                 {years.map(y => <option key={y} value={y}>{y}</option>)}
               </select>
             </div>
@@ -201,7 +201,7 @@ export default function LoanPeriodClosePage() {
               <button
                 onClick={handlePostAll}
                 disabled={postingAll || openCount === 0 || loading}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed max-lg:min-h-11"
               >
                 {postingAll
                   ? <><Loader2 className="h-4 w-4 animate-spin" /> Posting…</>
@@ -211,7 +211,7 @@ export default function LoanPeriodClosePage() {
           </div>
 
           <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-hidden">
-            <table className="w-full text-sm">
+            <table className="w-full text-sm table-cards">
               <thead>
                 <tr className="border-b border-[var(--ff-border-light)] text-left text-[var(--ff-text-secondary)] text-xs uppercase tracking-wide">
                   <th className="px-4 py-3">Loan / Borrower</th>
@@ -226,7 +226,7 @@ export default function LoanPeriodClosePage() {
               <tbody>
                 {loading && (
                   <tr>
-                    <td colSpan={7} className="px-4 py-10 text-center text-[var(--ff-text-tertiary)]">
+                    <td colSpan={7} className="px-4 py-10 text-center text-[var(--ff-text-tertiary)] max-lg:!py-8 max-lg:!text-center">
                       <Loader2 className="h-5 w-5 animate-spin inline mr-2" />
                       Loading period data…
                     </td>
@@ -234,9 +234,9 @@ export default function LoanPeriodClosePage() {
                 )}
                 {!loading && loans.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="px-4 py-10 text-center text-[var(--ff-text-tertiary)]">
+                    <td colSpan={7} className="px-4 py-10 text-center text-[var(--ff-text-tertiary)] max-lg:!py-8 max-lg:!text-center">
                       No active loans found.{' '}
-                      <Link href="/accounting/loans/new" className="text-teal-400 hover:underline">
+                      <Link href="/accounting/loans/new" className="text-teal-400 hover:underline max-lg:inline-flex max-lg:items-center max-lg:min-h-11">
                         Create a loan
                       </Link>
                     </td>

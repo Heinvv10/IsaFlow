@@ -5,7 +5,8 @@
  */
 import { McpRegistry } from './registry';
 import { companyProfileTool, listCompaniesTool } from './tools/company';
-import { tokenInfoTool } from './tools/tokenInfo';
+import type { McpTool } from './types';
+import { makeTokenInfoTool } from './tools/tokenInfo';
 import { findByExternalRefTool } from './tools/externalRef';
 import { listGlAccountsTool, searchGlTool } from './tools/reports';
 import { trialBalanceTool } from './tools/reportsTrialBalance';
@@ -32,6 +33,8 @@ import { listSupplierPaymentsTool } from './tools/listSupplierPayments';
 import { listPurchaseOrdersTool } from './tools/listPurchaseOrders';
 import { getPurchaseOrderTool } from './tools/getPurchaseOrder';
 import { listGoodsReceivedTool, getGoodsReceivedTool } from './tools/goodsReceivedReadTools';
+import { poStatusReportTool } from './tools/poStatusReportTool';
+import { committedSpendTool } from './tools/committedSpendTool';
 import { findDoubleSettlementsTool } from './tools/findDoubleSettlements';
 import { applyReceiptToInvoiceTool } from './tools/writeApplyReceipt';
 import { applyPaymentToSupplierInvoiceTool } from './tools/writeApplySupplierPayment';
@@ -187,6 +190,11 @@ import { performBankReconciliationTool } from './tools/writeBankReconciliation';
 import { logTimeEntryTool, submitTimeEntriesTool } from './tools/writePracticeTime';
 import { DIMENSION_READ_TOOLS, DIMENSION_WRITE_TOOLS } from './tools/dimensionToolSet';
 
+// token_info lists the tools each granted scope opens, from this very list: a function (hoisted, annotated) breaks the cycle a
+// closure over MCP_TOOLS would make in its own initializer.
+function registeredTools(): readonly McpTool[] { return MCP_TOOLS; }
+const tokenInfoTool = makeTokenInfoTool(registeredTools);
+
 export const MCP_TOOLS = [
   // read (64)
   companyProfileTool,
@@ -256,6 +264,9 @@ export const MCP_TOOLS = [
   getPurchaseOrderTool,
   listGoodsReceivedTool,
   getGoodsReceivedTool,
+  poStatusReportTool,
+  // Section 5 (docs/design/mcp-po-reports.md): the two PO reports; committed_spend is budget_remaining's committed read by group.
+  committedSpendTool,
   findDoubleSettlementsTool,
   // Period control and bank completeness (W3). The five reads that let a caller
   // see the posting lock and prove a bank account's history.

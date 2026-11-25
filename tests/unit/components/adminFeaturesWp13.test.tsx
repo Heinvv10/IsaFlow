@@ -35,7 +35,9 @@ const patches = () => vi.mocked(apiFetch).mock.calls.filter(([, i]) => i?.method
 describe('feature flags', () => {
   it('bulk Enable waits for a confirm, then names the flag that failed', async () => {
     render(<FeaturesPage />);
-    fireEvent.click(await screen.findByLabelText('Select all feature flags'));
+    // The select-all box is in the table head from the first render; clicked before the rows arrive it selects nothing and no bulk bar appears.
+    await screen.findByText('budgets', { selector: 'code' });
+    fireEvent.click(screen.getByLabelText('Select all feature flags'));
     fireEvent.click(screen.getByRole('button', { name: /enable selected/i }));
     const dialog = await screen.findByRole('dialog');
     expect(patches()).toHaveLength(0);
@@ -61,7 +63,8 @@ describe('feature flags', () => {
     vi.mocked(apiFetch).mockImplementation(async (_url, init) => (init?.method === 'PATCH' ? ok({ ...FLAGS[0], is_global: true }) : ok(FLAGS)));
     render(<FeaturesPage />);
     const enableAll = async () => {
-      fireEvent.click(await screen.findByLabelText('Select all feature flags'));
+      await screen.findByText('budgets', { selector: 'code' }); // rows first: see the note on the first test
+      fireEvent.click(screen.getByLabelText('Select all feature flags'));
       fireEvent.click(screen.getByRole('button', { name: /enable selected/i }));
       fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: /enable globally/i }));
       return screen.findByRole('status');

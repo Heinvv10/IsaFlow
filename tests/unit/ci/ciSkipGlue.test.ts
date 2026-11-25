@@ -127,6 +127,8 @@ describe('ci.yml golden-chunks: the merge-check step', () => {
       expect([
         "steps.mq.outputs.skip != 'true'",
         "${{ runner.environment == 'github-hosted' && steps.mq.outputs.skip != 'true' }}",
+        // The red-chunk evidence upload: hosted, not skipped, and only when the run failed.
+        "${{ failure() && runner.environment == 'github-hosted' && steps.mq.outputs.skip != 'true' }}",
       ]).toContain(s.if);
     }
   });

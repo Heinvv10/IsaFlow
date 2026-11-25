@@ -88,7 +88,7 @@ export default function BelowThresholdPage() {
           )}
 
           <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-hidden">
-            <table className="w-full text-sm">
+            <table className="w-full text-sm table-cards">
               <thead>
                 <tr className="border-b border-[var(--ff-border-light)] text-left text-[var(--ff-text-secondary)] bg-[var(--ff-bg-primary)]/40">
                   <th className="px-4 py-3">Asset #</th>
@@ -104,14 +104,14 @@ export default function BelowThresholdPage() {
               <tbody>
                 {loading && (
                   <tr>
-                    <td colSpan={8} className="px-4 py-10 text-center text-[var(--ff-text-tertiary)]">
+                    <td colSpan={8} className="px-4 py-10 text-center text-[var(--ff-text-tertiary)] max-lg:!py-8 max-lg:!text-center">
                       <Loader2 className="h-5 w-5 animate-spin inline mr-2" />Loading…
                     </td>
                   </tr>
                 )}
                 {!loading && !error && assets.length === 0 && (
                   <tr>
-                    <td colSpan={8} className="px-4 py-10 text-center text-[var(--ff-text-tertiary)]">
+                    <td colSpan={8} className="px-4 py-10 text-center text-[var(--ff-text-tertiary)] max-lg:!py-8 max-lg:!text-center">
                       <CheckCircle2 className="h-6 w-6 inline mr-2 text-teal-400" />
                       No assets below the capitalization threshold.
                     </td>
@@ -122,24 +122,24 @@ export default function BelowThresholdPage() {
                   const isDone = done.has(a.id) || a.expensed === true;
                   return (
                     <tr key={a.id} className={`border-b border-[var(--ff-border-light)] ${i % 2 === 0 ? '' : 'bg-[var(--ff-bg-primary)]/10'} ${isDone ? 'opacity-50' : ''}`}>
-                      <td className="px-4 py-3 font-mono text-xs font-semibold text-amber-400">{a.asset_number}</td>
-                      <td className="px-4 py-3 text-[var(--ff-text-primary)]">{a.name}</td>
-                      <td className="px-4 py-3 text-[var(--ff-text-secondary)] text-xs">{a.category_name ?? '—'}</td>
-                      <td className="px-4 py-3 text-right tabular-nums text-xs text-[var(--ff-text-primary)]">{fmt(a.cost)}</td>
-                      <td className="px-4 py-3 text-right tabular-nums text-xs text-[var(--ff-text-secondary)]">{fmt(a.threshold)}</td>
-                      <td className="px-4 py-3 text-right tabular-nums text-xs text-amber-400">{fmt(a.threshold - a.cost)}</td>
-                      <td className="px-4 py-3">
+                      <td data-label="Asset #" className="px-4 py-3 font-mono text-xs font-semibold text-amber-400">{a.asset_number}</td>
+                      <td data-label="Name" className="px-4 py-3 text-[var(--ff-text-primary)]">{a.name}</td>
+                      <td data-label="Category" className="px-4 py-3 text-[var(--ff-text-secondary)] text-xs">{a.category_name ?? '—'}</td>
+                      <td data-label="Cost" className="px-4 py-3 text-right tabular-nums text-xs text-[var(--ff-text-primary)]">{fmt(a.cost)}</td>
+                      <td data-label="Threshold" className="px-4 py-3 text-right tabular-nums text-xs text-[var(--ff-text-secondary)]">{fmt(a.threshold)}</td>
+                      <td data-label="Gap" className="px-4 py-3 text-right tabular-nums text-xs text-amber-400">{fmt(a.threshold - a.cost)}</td>
+                      <td data-label="Status" className="px-4 py-3">
                         {isDone
                           ? <span className="text-xs text-teal-400 flex items-center gap-1"><CheckCircle2 className="h-3 w-3" />Expensed</span>
                           : <span className="text-xs px-2 py-0.5 rounded bg-amber-500/10 text-amber-400">Pending</span>
                         }
                       </td>
-                      <td className="px-4 py-3">
+                      <td data-label="Action" className={`px-4 py-3${isDone ? ' max-lg:!hidden' : ''}`}>
                         {!isDone && (
                           <button
                             onClick={() => void handleExpense(a.id)}
                             disabled={posting === a.id}
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-amber-600 hover:bg-amber-700 text-white transition-colors disabled:opacity-50"
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-amber-600 hover:bg-amber-700 text-white transition-colors disabled:opacity-50 max-lg:min-h-11"
                           >
                             {posting === a.id ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
                             Post to GL

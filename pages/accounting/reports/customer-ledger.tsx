@@ -117,11 +117,11 @@ export default function CustomerLedgerPage() {
         <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-6 py-4">
           <Link
             href="/accounting/reports"
-            className="inline-flex items-center gap-1 text-sm text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] mb-2"
+            className="inline-flex items-center gap-1 text-sm text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] mb-2 max-lg:min-h-11"
           >
             <ArrowLeft className="h-4 w-4" /> Back to Reports
           </Link>
-          <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center justify-between gap-3 max-lg:flex-wrap">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-blue-500/10">
                 <BookOpen className="h-6 w-6 text-blue-600 dark:text-blue-400" />
@@ -133,7 +133,7 @@ export default function CustomerLedgerPage() {
             <button
               onClick={() => ledger && exportCsv(ledger, ranOn.dateFrom, ranOn.dateTo)}
               disabled={!ledger || ledger.transactions.length === 0 || dates.blocked}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium disabled:opacity-50"
+              className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium disabled:opacity-50 max-lg:min-h-11"
             >
               <Download className="h-4 w-4" /> Export CSV
             </button>
@@ -149,7 +149,7 @@ export default function CustomerLedgerPage() {
                 value={customerId}
                 onChange={(e) => setCustomerId(e.target.value)}
                 onFocus={loadCustomers}
-                className="ff-input text-sm w-full"
+                className="ff-input text-sm w-full max-lg:min-h-11"
               >
                 <option value="">-- Select customer --</option>
                 {customers.map((c) => (
@@ -168,7 +168,7 @@ export default function CustomerLedgerPage() {
             <button
               onClick={runReport}
               disabled={loading || !customerId || dates.blocked}
-              className="inline-flex items-center gap-2 px-5 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium disabled:opacity-50"
+              className="inline-flex items-center gap-2 px-5 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium disabled:opacity-50 max-lg:min-h-11"
             >
               {loading && <Loader2 className="h-4 w-4 animate-spin" />}
               Run Report

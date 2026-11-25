@@ -7,7 +7,8 @@
  *   - every date control is a labelled text field, not a native date input.
  * EVIDENCE_DIR=<dir> also saves a screenshot of each screen; THEME=light|dark picks the theme it is taken in.
  */
-import { expect, request as pwRequest, test, type Page, type Request } from '@playwright/test';
+import { expect, test, type Page, type Request } from '@playwright/test';
+import { LIST_FILTER_ROUTES, warmDevRoutes } from './helpers/warmDevRoutes';
 
 const EVIDENCE_DIR = process.env.EVIDENCE_DIR;
 const THEME = process.env.THEME === 'light' ? 'light' : 'dark';
@@ -23,21 +24,7 @@ const VAT201: Screen = { path: '/accounting/sars/vat201', heading: 'VAT201 Retur
  * to perform a full reload"). That reload raced the next page.goto in CI (net::ERR_ABORTED at /accounting/ar-aging).
  * Requesting each route once before any page is open makes the compile happen with no page to reload.
  */
-test.beforeAll(async () => {
-  test.setTimeout(240_000); // three cold compiles: longer than the config's 90 s test timeout
-  const { baseURL, storageState } = test.info().project.use;
-  if (!storageState) throw new Error('u-list-filter-dates warm-up needs the golden session (use.storageState); refusing to warm up unauthenticated');
-  const ctx = await pwRequest.newContext({ baseURL, storageState });
-  try {
-    for (const s of [BANK, AGING, VAT201]) {
-      // GET only (read-only: this spec also runs in prod verify). No redirects: a stale session would 302 to /login and must fail here.
-      const res = await ctx.get(s.path, { timeout: 120_000, maxRedirects: 0 });
-      expect(res.status(), `warm-up ${s.path} (a 3xx means the session is not valid)`).toBe(200);
-    }
-  } finally {
-    await ctx.dispose();
-  }
-});
+test.beforeAll(async () => { await warmDevRoutes(LIST_FILTER_ROUTES); }); // the three pages and the list APIs a filter change calls
 
 async function openScreen(page: Page, s: Screen): Promise<void> {
   await page.goto(s.path);
@@ -87,7 +74,14 @@ test('no native date input is left on the three screens', async ({ page }) => {
 });
 
 test('bank transactions: typed From date filters by ISO; unreadable text sends nothing', async ({ page }) => {
+  // On a cold, loaded dev server the page is still on its own startup fetches (about twenty at hydration) when the date is
+  // typed: the date is committed, but the filtered list request had not been sent inside expect.poll's 5 s window (hosted run
+  // 45318062778: filter applied, list still skeletons, no list request in the trace). Locally, cold server + 4 cores + spinners,
+  // that failed 4 of 20. So wait for the page's own first list response (the URL is restored, an account is chosen, the first list has landed) before typing: no timeout raised.
+  const firstList = page.waitForResponse((r) => /\/api\/accounting\/bank-transactions\?/.test(r.url()) && r.ok(), { timeout: 60_000 });
+  firstList.catch(() => {}); // if openScreen throws first, this promise must not also surface as an unhandled rejection
   await openScreen(page, BANK);
+  await firstList;
   const calls = watch(page, /\/api\/accounting\/bank-transactions\?/);
   await typeDate(page, 'From date', '1 Sep 2026');
   await expect.poll(() => calls.some((r) => new URL(r.url()).searchParams.get('from_date') === '2026-09-01')).toBe(true);

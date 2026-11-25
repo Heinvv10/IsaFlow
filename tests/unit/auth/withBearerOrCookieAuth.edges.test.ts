@@ -211,7 +211,7 @@ describe('handler failure', () => {
 });
 
 describe('commit-before-flush (Gate A P1)', () => {
-  it('a 200 handler response becomes an honest 500 when COMMIT fails (no lying success)', async () => {
+  it('a 200 handler response becomes an honest failure when COMMIT fails (no lying success; a deadlock is a 503)', async () => {
     // Handler "succeeds" (sets a 200 body), but COMMIT then fails.
     const handler = vi.fn(async (_req: unknown, res: FakeRes) => {
       res.status(200).json({ success: true, data: { id: 'new-invoice-1' } } as never);
@@ -226,8 +226,9 @@ describe('commit-before-flush (Gate A P1)', () => {
     await withBearerOrCookieAuth(handler)(makeReq('/api/mcp') as never, res);
 
     expect(handler).toHaveBeenCalledTimes(1);
-    expect(res.statusCode).toBe(500);
-    expect(String(res.body)).toContain('COMMIT_FAILED');
+    // A deadlock at COMMIT rolled back whole: a retryable 503, not a 500 (1018 round 13).
+    expect(res.statusCode).toBe(503);
+    expect(String(res.body)).toContain('COMMIT_RETRY');
     // the client must NOT be told the write succeeded
     expect(String(res.body)).not.toContain('new-invoice-1');
     expect(issuedStatements()).toContain('ROLLBACK');

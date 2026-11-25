@@ -119,14 +119,14 @@ export default function RateCurvesPage() {
     <AppLayout>
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
         <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-6 py-4">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between max-lg:flex-wrap max-lg:gap-3">
             <div>
               <h1 className="text-lg font-semibold text-[var(--ff-text-primary)]">Rate Curves</h1>
               <p className="text-xs text-[var(--ff-text-tertiary)] mt-0.5">Manage prime rate and custom interest rate curves</p>
             </div>
             <button
               onClick={() => setShowNewForm(v => !v)}
-              className="flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 transition-colors"
+              className="flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 transition-colors max-lg:min-h-11"
             >
               <Plus className="h-4 w-4" />
               New Curve
@@ -134,24 +134,24 @@ export default function RateCurvesPage() {
           </div>
 
           {showNewForm && (
-            <div className="mt-4 flex items-center gap-3">
+            <div className="mt-4 flex items-center gap-3 max-lg:flex-wrap">
               <input
                 type="text"
                 placeholder="Curve name (e.g. SA Prime)"
                 value={newName}
                 onChange={e => setNewName(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && handleCreate()}
-                className="rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-primary)] px-3 py-2 text-sm text-[var(--ff-text-primary)] focus:outline-none focus:ring-2 focus:ring-teal-500 w-72"
+                className="rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-primary)] px-3 py-2 text-sm text-[var(--ff-text-primary)] focus:outline-none focus:ring-2 focus:ring-teal-500 w-72 max-lg:min-h-11 max-lg:flex-1 max-lg:min-w-[10rem] max-lg:w-auto"
                 autoFocus
               />
               <button
                 onClick={handleCreate}
                 disabled={creating || !newName.trim()}
-                className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50 transition-colors"
+                className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50 transition-colors max-lg:inline-flex max-lg:items-center max-lg:min-h-11"
               >
                 {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Create'}
               </button>
-              <button onClick={() => setShowNewForm(false)} className="text-sm text-[var(--ff-text-tertiary)] hover:text-[var(--ff-text-primary)]">Cancel</button>
+              <button onClick={() => setShowNewForm(false)} className="text-sm text-[var(--ff-text-tertiary)] hover:text-[var(--ff-text-primary)] max-lg:inline-flex max-lg:items-center max-lg:min-h-11 max-lg:px-2">Cancel</button>
             </div>
           )}
         </div>
@@ -194,8 +194,8 @@ export default function RateCurvesPage() {
 
               {expandedId === curve.id && (
                 <div className="border-t border-[var(--ff-border-light)] p-5 space-y-4">
-                  <div className="flex items-center gap-3">
-                    <label className="flex items-center gap-2 cursor-pointer rounded-lg border border-dashed border-[var(--ff-border-light)] px-4 py-2 text-sm text-[var(--ff-text-secondary)] hover:border-teal-500 hover:text-teal-400 transition-colors">
+                  <div className="flex items-center gap-3 max-lg:flex-wrap">
+                    <label className="flex items-center gap-2 cursor-pointer rounded-lg border border-dashed border-[var(--ff-border-light)] px-4 py-2 text-sm text-[var(--ff-text-secondary)] hover:border-teal-500 hover:text-teal-400 transition-colors max-lg:min-h-11">
                       <Upload className="h-4 w-4" />
                       Upload CSV
                       <input

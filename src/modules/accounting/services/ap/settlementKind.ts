@@ -26,6 +26,9 @@
  * payment settled a bank line.
  *
  * Credit notes are a fifth kind (`credit_note`) and are classified by their table, not here.
+ *
+ * Migration 1031's `intercompany_payment_cash_word` (intercompany F: did a payment move cash) mirrors these rules in SQL;
+ * tests/integration/intercompany/payment-r2-kind.int.test.ts pins the two equal on a table of cases. Change both.
  */
 import { sql } from '@/lib/neon';
 import { CASH_SUBTYPES } from '../gl/accountSubtypes';

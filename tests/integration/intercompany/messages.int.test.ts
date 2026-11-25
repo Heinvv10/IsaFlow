@@ -32,30 +32,30 @@ const handle = (user: string, company: string, m: string, set: string) =>
 
 describe('inserting', () => {
   it('one message per (from company, source type, source id, kind); another kind or document is fine', async () => {
-    await plantMessage(pool, id, co.A, co.B, { doc: DOC, kind: 'payment' });
+    await plantMessage(pool, id, co.A, co.B, { doc: DOC, kind: 'reject' });
     await asAppUser(pool, U.a, co.A, async (q) => {
-      expect(await outcome(q, MSG, [id, co.A, co.B, 'payment', DOC]))
+      expect(await outcome(q, MSG, [id, co.A, co.B, 'reject', DOC]))
         .toBe('23505: duplicate key value violates unique constraint "intercompany_messages_once"');
-      expect(await outcome(q, MSG, [id, co.A, co.B, 'allocation', DOC])).toBe('ok');
-      expect(await outcome(q, MSG, [id, co.A, co.B, 'payment', crypto.randomUUID()])).toBe('ok');
+      expect(await outcome(q, MSG, [id, co.A, co.B, 'credit_request', DOC])).toBe('ok');
+      expect(await outcome(q, MSG, [id, co.A, co.B, 'reject', crypto.randomUUID()])).toBe('ok');
     });
   });
 
   it('the sender writes only as itself, between the two companies of an ACTIVE connection', async () => {
     // a user who writes in B only cannot send as A (the guard); a user who writes in BOTH, acting as B, is stopped by the policy
     await asAppUser(pool, U.b, co.B, async (q) => {
-      expect(await outcome(q, MSG, [id, co.A, co.B, 'payment', DOC])).toBe(R.msgSendRole);
+      expect(await outcome(q, MSG, [id, co.A, co.B, 'reject', DOC])).toBe(R.msgSendRole);
     });
     await asAppUser(pool, U.ab, co.B, async (q) => {
-      expect(await outcome(q, MSG, [id, co.A, co.B, 'payment', DOC])).toBe('42501: new row violates row-level security policy for table "intercompany_messages"');
+      expect(await outcome(q, MSG, [id, co.A, co.B, 'reject', DOC])).toBe('42501: new row violates row-level security policy for table "intercompany_messages"');
     });
     await asAppUser(pool, U.ac, co.A, async (q) => {
-      expect(await outcome(q, MSG, [id, co.A, co.C, 'payment', DOC])).toBe(R.msgParties);
-      expect(await outcome(q, MSG, [id, co.A, co.A, 'payment', DOC])).toBe(R.msgParties);
+      expect(await outcome(q, MSG, [id, co.A, co.C, 'reject', DOC])).toBe(R.msgParties);
+      expect(await outcome(q, MSG, [id, co.A, co.A, 'reject', DOC])).toBe(R.msgParties);
     });
     await asAppUser(pool, U.a, co.A, async (q) => {
       await q.query("UPDATE intercompany_connections SET status = 'revoked' WHERE id = $1", [id]);
-      expect(await outcome(q, MSG, [id, co.A, co.B, 'payment', crypto.randomUUID()])).toBe(R.msgNotActive);
+      expect(await outcome(q, MSG, [id, co.A, co.B, 'reject', crypto.randomUUID()])).toBe(R.msgNotActive);
     });
   });
 
@@ -64,7 +64,7 @@ describe('inserting', () => {
       const big = JSON.stringify({ blob: 'x'.repeat(262144) });
       const ok = JSON.stringify({ blob: 'x'.repeat(1000) });
       const insert = `INSERT INTO intercompany_messages(connection_id, from_company_id, to_company_id, kind, source_doc_type, source_doc_id, payload)
-                      VALUES ($1, $2, $3, 'payment', 'payment', gen_random_uuid(), $4::jsonb)`;
+                      VALUES ($1, $2, $3, 'reject', 'payment', gen_random_uuid(), $4::jsonb)`;
       expect(await outcome(q, insert, [id, co.A, co.B, big]))
         .toBe('23514: new row for relation "intercompany_messages" violates check constraint "intercompany_messages_payload_size"');
       expect(await outcome(q, insert, [id, co.A, co.B, ok])).toBe('ok');
@@ -74,13 +74,13 @@ describe('inserting', () => {
   it('a sender cannot choose the status or the handling through the grant, and the trigger resets them when the grant is there (owner)', async () => {
     await asAppUser(pool, U.a, co.A, async (q) => {
       expect(await outcome(q, `INSERT INTO intercompany_messages(connection_id, from_company_id, to_company_id, kind, source_doc_type, source_doc_id, payload, status)
-        VALUES ($1, $2, $3, 'payment', 'payment', gen_random_uuid(), '{}', 'accepted')`, [id, co.A, co.B])).toBe('42501: permission denied for table intercompany_messages');
+        VALUES ($1, $2, $3, 'reject', 'payment', gen_random_uuid(), '{}', 'accepted')`, [id, co.A, co.B])).toBe('42501: permission denied for table intercompany_messages');
     });
     const doc = crypto.randomUUID();
     await asOwner(pool, U.a, co.A, async (q) => {
       await q.query(`INSERT INTO intercompany_messages(connection_id, from_company_id, to_company_id, kind, source_doc_type, source_doc_id, payload,
           status, target_doc_type, target_doc_id, reason, error, handled_by, handled_at, handled_via, created_at)
-        VALUES ($1, $2, $3, 'payment', 'payment', $4, '{}', 'accepted', 'supplier_invoice', gen_random_uuid(), 'r', 'e', 'someone', now(), 'auto', '2001-01-01')`,
+        VALUES ($1, $2, $3, 'reject', 'payment', $4, '{}', 'accepted', 'supplier_invoice', gen_random_uuid(), 'r', 'e', 'someone', now(), 'auto', '2001-01-01')`,
       [id, co.A, co.B, doc]);
     }, true);
     const r = (await pool.query('SELECT * FROM intercompany_messages WHERE source_doc_id = $1', [doc])).rows[0];
@@ -93,7 +93,7 @@ describe('inserting', () => {
     try {
       await pool.query('UPDATE company_group_members SET left_date = CURRENT_DATE WHERE group_id = $1 AND company_id = $2', [co.G, co.B]);
       await asAppUser(pool, U.a, co.A, async (q) => {
-        expect(await outcome(q, MSG, [id, co.A, co.B, 'payment', DOC])).toBe(R.msgOneGroup);
+        expect(await outcome(q, MSG, [id, co.A, co.B, 'reject', DOC])).toBe(R.msgOneGroup);
       });
     } finally {
       await pool.query('ALTER TABLE company_group_members ENABLE ALWAYS TRIGGER trg_intercompany_group_membership');
@@ -117,7 +117,7 @@ describe('handling', () => {
 
   it("handled_via is 'auto' only when the session says so AND the receiver's side has auto-accept on an active group connection", async () => {
     const via = async (setting: string | null) => {
-      const m = await plantMessage(pool, id, co.A, co.B, { kind: 'payment' });
+      const m = await plantMessage(pool, id, co.A, co.B, { kind: 'reject' });
       await asAppUser(pool, U.b, co.B, async (q) => {
         if (setting) await q.query("SELECT set_config('app.intercompany_handled_via', $1, true)", [setting]);
         await q.query("UPDATE intercompany_messages SET status = 'accepted' WHERE id = $1", [m]);
@@ -137,7 +137,7 @@ describe('handling', () => {
     expect(await via('auto')).toBe('user');
     // a dismissal on a REVOKED connection is allowed, and is a person's act even with auto-accept on
     await asAppUser(pool, U.b, co.B, (q) => q.query('UPDATE intercompany_connection_sides SET auto_accept = true WHERE connection_id = $1', [id]), true);
-    const m = await plantMessage(pool, id, co.A, co.B, { kind: 'payment' });
+    const m = await plantMessage(pool, id, co.A, co.B, { kind: 'reject' });
     await asOwner(pool, U.ab, co.A, (q) => q.query("UPDATE intercompany_connections SET status = 'revoked' WHERE id = $1", [id]), true);
     await asAppUser(pool, U.b, co.B, async (q) => {
       await q.query("SELECT set_config('app.intercompany_handled_via', 'auto', true)");

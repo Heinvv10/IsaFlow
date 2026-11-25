@@ -19,6 +19,8 @@ vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (h: unknown) => h }));
 vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (h: unknown) => h }));
 vi.mock('@/modules/accounting/services/core/companyAccessService', () => ({ userBelongsToGroup: vi.fn(async () => true), userCanWriteGroup: vi.fn(async () => true) }));
 vi.mock('@/modules/accounting/services/reports/consolidatedReportingService', () => svc);
+const dupes = vi.hoisted(() => ({ cutoverRequiringReason: vi.fn(async (): Promise<string | null> => null) }));
+vi.mock('@/modules/accounting/services/reports/eliminationDuplicates', () => dupes);
 vi.mock('@/modules/accounting/services/reports/groupCompanyService', () => ({
   getGroupAccounts: vi.fn(async () => [{ id: '81000000-0000-4000-8000-000000000001' }]),
 }));

@@ -76,7 +76,7 @@ export default function FlowsReturnPage() {
       <AppLayout>
         <div className="p-8 max-w-md">
           <h1 className="text-lg font-semibold mb-2">Payment reference missing</h1>
-          <p className="text-sm text-gray-500">
+          <p className="text-sm text-[var(--ff-text-secondary)]">
             Return URL was opened without a purchase reference.{' '}
             <Link href="/accounting/settings/billing/flows" className="underline">Back to Flows</Link>.
           </p>
@@ -92,7 +92,7 @@ export default function FlowsReturnPage() {
           <div className="text-center">
             <Loader2 className="w-10 h-10 animate-spin mx-auto text-teal-500 mb-4" />
             <h1 className="text-lg font-semibold mb-1">Confirming your payment…</h1>
-            <p className="text-sm text-gray-500">
+            <p className="text-sm text-[var(--ff-text-secondary)]">
               Paystack is finalising the payment. We&apos;ll credit your wallet
               as soon as we hear back — usually within a few seconds.
             </p>
@@ -103,7 +103,7 @@ export default function FlowsReturnPage() {
           <div className="text-center">
             <CheckCircle2 className="w-12 h-12 mx-auto text-teal-500 mb-4" />
             <h1 className="text-lg font-semibold mb-1">Payment confirmed</h1>
-            <p className="text-sm text-gray-500 mb-6">
+            <p className="text-sm text-[var(--ff-text-secondary)] mb-6">
               {flows !== null ? `${flows} Flows have been added to your wallet.` : 'Your wallet has been credited.'}
             </p>
             <Link
@@ -119,7 +119,7 @@ export default function FlowsReturnPage() {
           <div className="text-center">
             <AlertTriangle className="w-12 h-12 mx-auto text-red-500 mb-4" />
             <h1 className="text-lg font-semibold mb-1">Payment not completed</h1>
-            <p className="text-sm text-gray-500 mb-6">
+            <p className="text-sm text-[var(--ff-text-secondary)] mb-6">
               The payment was cancelled or declined. No Flows were charged — feel free to try again.
             </p>
             <Link
@@ -135,7 +135,7 @@ export default function FlowsReturnPage() {
           <div className="text-center">
             <AlertTriangle className="w-12 h-12 mx-auto text-amber-500 mb-4" />
             <h1 className="text-lg font-semibold mb-1">Still confirming…</h1>
-            <p className="text-sm text-gray-500 mb-6">
+            <p className="text-sm text-[var(--ff-text-secondary)] mb-6">
               We haven&apos;t heard back from Paystack yet. Your wallet will
               update automatically once we do — refresh the Flows page in a
               minute or two.
@@ -153,7 +153,7 @@ export default function FlowsReturnPage() {
           <div className="text-center">
             <AlertTriangle className="w-12 h-12 mx-auto text-red-500 mb-4" />
             <h1 className="text-lg font-semibold mb-1">Couldn&apos;t check status</h1>
-            <p className="text-sm text-gray-500 mb-6">{error}</p>
+            <p className="text-sm text-[var(--ff-text-secondary)] mb-6">{error}</p>
             <Link
               href="/accounting/settings/billing/flows"
               className="inline-flex items-center gap-1 px-4 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg"

@@ -69,7 +69,7 @@ export function ReturnLifecycleBar({ form, periodStart, periodEnd, role }: Props
           </p>
         </div>
         {versions.length > 0 && (
-          <Button ref={versionsButton} variant="secondary" size="sm" leftIcon={History} onClick={() => setDrawer(true)}>
+          <Button ref={versionsButton} variant="secondary" size="sm" leftIcon={History} className="max-lg:min-h-11" onClick={() => setDrawer(true)}>
             Versions ({versions.length})
           </Button>
         )}
@@ -116,9 +116,9 @@ export function ReturnLifecycleBar({ form, periodStart, periodEnd, role }: Props
       {settled && live && acts.amend && <FilingFileActions form={form} version={live} nameOf={nameOf} onStamped={() => void reload()} />}
       {settled && (acts.finalise || acts.file || acts.amend) && (
         <div className="flex flex-wrap gap-2">
-          {acts.finalise && <Button size="sm" onClick={open('finalise')}>Finalise v{nextNo}</Button>}
-          {acts.file && <Button size="sm" onClick={open('file')}>Mark filed</Button>}
-          {acts.amend && <Button size="sm" variant="secondary" onClick={open('amend')}>Amend</Button>}
+          {acts.finalise && <Button size="sm" className="max-lg:min-h-11" onClick={open('finalise')}>Finalise v{nextNo}</Button>}
+          {acts.file && <Button size="sm" className="max-lg:min-h-11" onClick={open('file')}>Mark filed</Button>}
+          {acts.amend && <Button size="sm" variant="secondary" className="max-lg:min-h-11" onClick={open('amend')}>Amend</Button>}
         </div>
       )}
       {settled && acts.note && <p className="text-xs text-[var(--ff-text-secondary)]" data-testid="return-lifecycle-note">{acts.note}</p>}

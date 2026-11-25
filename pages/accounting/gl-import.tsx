@@ -46,7 +46,7 @@ const AUTO_MAP: Record<string, string> = {
 function StepIndicator({ current }: { current: Step }) {
   const steps = ['Upload', 'Map Columns', 'Validate', 'Import'];
   return (
-    <div className="flex items-center gap-0">
+    <div className="flex items-center gap-0 max-lg:flex-wrap max-lg:gap-y-1">
       {steps.map((label, idx) => {
         const num = (idx + 1) as Step;
         const done = current > num;
@@ -66,7 +66,7 @@ function StepIndicator({ current }: { current: Step }) {
               {label}
             </div>
             {idx < steps.length - 1 && (
-              <ArrowRight className="h-4 w-4 text-[var(--ff-border-light)]" />
+              <ArrowRight className="h-4 w-4 text-[var(--ff-border-light)] max-lg:hidden" />
             )}
           </div>
         );
@@ -235,7 +235,7 @@ export default function GlImportPage() {
 
         {/* Page header */}
         <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)]">
-          <div className="px-6 py-4 flex items-center justify-between">
+          <div className="px-6 py-4 flex items-center justify-between max-lg:flex-wrap max-lg:gap-3">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-teal-500/10">
                 <FileSpreadsheet className="h-6 w-6 text-teal-500" />
@@ -247,7 +247,7 @@ export default function GlImportPage() {
             </div>
             <a
               href="/api/accounting/gl-import-template"
-              className="inline-flex items-center gap-2 px-4 py-2 border border-[var(--ff-border-light)] text-[var(--ff-text-secondary)] rounded-lg hover:bg-[var(--ff-bg-primary)] transition-colors text-sm"
+              className="inline-flex items-center gap-2 px-4 py-2 border border-[var(--ff-border-light)] text-[var(--ff-text-secondary)] rounded-lg hover:bg-[var(--ff-bg-primary)] transition-colors text-sm max-lg:min-h-11"
             >
               <Download className="h-4 w-4" />
               Download Template
@@ -305,7 +305,7 @@ export default function GlImportPage() {
                   Map each column to an IsaFlow field. Required fields are marked below.
                 </p>
                 <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
+                  <table className="table-cards w-full text-sm">
                     <thead>
                       <tr className="border-b border-[var(--ff-border-light)]">
                         <th className="text-left pb-2 pr-4 text-[var(--ff-text-secondary)] font-medium">Source Column</th>
@@ -319,11 +319,11 @@ export default function GlImportPage() {
                       {rawHeaders.map((header, colIdx) => (
                         <tr key={colIdx} className="border-b border-[var(--ff-border-light)]/50">
                           <td className="py-2 pr-4 font-medium text-[var(--ff-text-primary)]">{header}</td>
-                          <td className="py-2 pr-4">
+                          <td data-label="Maps To" className="py-2 pr-4 max-lg:items-center">
                             <select
                               value={mapping[colIdx] ?? '__skip__'}
                               onChange={e => setMapping(prev => ({ ...prev, [colIdx]: e.target.value }))}
-                              className="px-2 py-1 text-sm bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] rounded text-[var(--ff-text-primary)] focus:outline-none focus:ring-2 focus:ring-teal-500/30"
+                              className="px-2 py-1 text-sm bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] rounded text-[var(--ff-text-primary)] focus:outline-none focus:ring-2 focus:ring-teal-500/30 max-lg:min-h-11"
                             >
                               {ALL_FIELDS.map(f => (
                                 <option key={f.value} value={f.value}>{f.label}</option>
@@ -331,7 +331,7 @@ export default function GlImportPage() {
                             </select>
                           </td>
                           {rawRows.slice(0, 3).map((row, ri) => (
-                            <td key={ri} className="py-2 pr-2 text-[var(--ff-text-secondary)] truncate max-w-[120px]">
+                            <td key={ri} data-label={`Row ${ri + 1}`} className="py-2 pr-2 text-[var(--ff-text-secondary)] truncate max-w-[120px] max-lg:max-w-none max-lg:whitespace-normal">
                               {row[colIdx] ?? ''}
                             </td>
                           ))}
@@ -352,13 +352,13 @@ export default function GlImportPage() {
                 </div>
               )}
               <div className="flex items-center justify-between">
-                <button onClick={() => setStep(1)} className="inline-flex items-center gap-2 px-4 py-2 border border-[var(--ff-border-light)] text-[var(--ff-text-secondary)] rounded-lg hover:bg-[var(--ff-bg-secondary)] transition-colors text-sm">
+                <button onClick={() => setStep(1)} className="inline-flex items-center gap-2 px-4 py-2 border border-[var(--ff-border-light)] text-[var(--ff-text-secondary)] rounded-lg hover:bg-[var(--ff-bg-secondary)] transition-colors text-sm max-lg:min-h-11">
                   <ArrowLeft className="h-4 w-4" />Back
                 </button>
                 <button
                   onClick={() => void handleValidate()}
                   disabled={!isMappingComplete || validating}
-                  className="inline-flex items-center gap-2 px-5 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium"
+                  className="inline-flex items-center gap-2 px-5 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium max-lg:min-h-11"
                 >
                   {validating ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
                   {validating ? 'Validating...' : 'Validate'}

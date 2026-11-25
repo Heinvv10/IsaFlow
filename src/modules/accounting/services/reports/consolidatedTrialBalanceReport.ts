@@ -17,8 +17,17 @@
  *     is not merged into a posted equity account — see BROUGHT_FORWARD_CODE.
  *
  * Eliminations follow the same split: cumulative for balance-sheet group
- * accounts (as getConsolidatedBalanceSheet already does), range-bound for
- * income-statement ones.
+ * accounts (as getConsolidatedBalanceSheet already does), and for
+ * income-statement ones the SAME window as the members' P&L columns: from the
+ * fiscal year start to periodEnd (stored adjustments whose period lies inside
+ * it, derived events dated in it). Cutting them at periodStart left a sale
+ * booked earlier in the year in the members' YTD columns uneliminated, so the
+ * TB disagreed with the income statement for fyStart..periodEnd. Members whose
+ * years start on different dates (coterminous = false) are eliminated from
+ * the EARLIEST of their starts; their columns are not additive anyway. A
+ * per-member window is not defined: a stored adjustment's lines carry group
+ * accounts only (no company), and a derived event's revenue and expense lines
+ * would fall in different windows (an unbalanced elimination).
  *
  * P2-5: accounts with no group-CoA mapping are excluded from the rows AND from
  * the brought-forward sum, and the count and value of what was dropped is
@@ -41,10 +50,11 @@ import {
 import {
   getGroupMembers,
   getCoaMappingsForCompanies,
-  getPostedEliminations,
+  getPostedEliminationsSplit,
   type EntityBalance,
   type MappingEntry,
 } from './consolidatedTrialBalanceService';
+import type { DroppedMirroredElimination } from './mirrorEliminations';
 
 /** The earliest date the ledger can hold — "since inception" for a range query. */
 const INCEPTION = '1900-01-01';
@@ -103,6 +113,10 @@ export interface ConsolidatedTrialBalance {
    * cover different windows and are not additive without adjustment.
    */
   coterminous: boolean;
+  /** When members' years start on different dates: what the income-statement eliminations cover (from the earliest start), else null. */
+  eliminationsNote: string | null;
+  /** Mirrored eliminations in the period that could not be applied (an account with no group account mapped): the figures keep them. */
+  droppedMirrored: DroppedMirroredElimination[];
 }
 
 function blankRow(
@@ -135,14 +149,12 @@ function addEntityNet(row: ConsolidatedTrialBalanceRow, companyId: string, net: 
   row.entities[companyId]!.credit = round2(row.entities[companyId]!.credit + credit);
 }
 
+/** plStart: where the members' income-statement columns start (their fiscal year start), so P&L eliminations cover the same window. */
 async function applyEliminations(
   accountMap: Map<string, ConsolidatedTrialBalanceRow>,
-  groupId: string, periodStart: string, periodEnd: string,
+  groupId: string, plStart: string, periodEnd: string, dropped: DroppedMirroredElimination[],
 ): Promise<void> {
-  const [cumulative, inRange] = await Promise.all([
-    getPostedEliminations(groupId, INCEPTION, periodEnd),
-    getPostedEliminations(groupId, periodStart, periodEnd),
-  ]);
+  const { cumulative, inRange } = await getPostedEliminationsSplit(groupId, plStart, periodEnd, INCEPTION, dropped);
   const applicable = [
     ...cumulative.filter(e => BALANCE_SHEET_TYPES.has(e.groupAccountType)),
     ...inRange.filter(e => !BALANCE_SHEET_TYPES.has(e.groupAccountType)),
@@ -220,7 +232,10 @@ export async function getConsolidatedTrialBalance(
       addEntityNet(entry, member.companyId, -broughtForward);
     }
 
-    await applyEliminations(accountMap, groupId, periodStart, periodEnd);
+    const starts = Object.values(fiscalYearStarts).sort();
+    const droppedMirrored: DroppedMirroredElimination[] = [];
+    const eliminationsFrom = starts[0] ?? periodStart;
+    await applyEliminations(accountMap, groupId, eliminationsFrom, periodEnd, droppedMirrored);
 
     const groupAccounts: ConsolidatedTrialBalanceRow[] = [];
     const totals: ConsolidatedTrialBalanceTotals = {
@@ -254,6 +269,7 @@ export async function getConsolidatedTrialBalance(
     // single-company report does. No consumer may derive its own.
     const difference = round2(totals.consolidatedDebit - totals.consolidatedCredit);
     const years = Object.values(fiscalYearStarts);
+    const coterminous = years.length <= 1 || years.every(y => y.slice(5) === years[0]!.slice(5));
 
     return {
       groupId, periodStart, periodEnd, groupAccounts, totals,
@@ -269,7 +285,10 @@ export async function getConsolidatedTrialBalance(
       },
       entityNames,
       fiscalYearStarts,
-      coterminous: years.length <= 1 || years.every(y => y.slice(5) === years[0]!.slice(5)),
+      coterminous,
+      eliminationsNote: coterminous ? null : `The members' years start on different dates: the income-statement eliminations run from ${eliminationsFrom} (the earliest year start) to ${periodEnd}. `
+        + 'A member whose year started later has no income-statement amount before its own year start, so an elimination dated between those dates has no matching amount in its column.',
+      droppedMirrored,
     };
   } catch (err) {
     log.error('Failed to generate consolidated trial balance', { groupId, error: err }, 'accounting');

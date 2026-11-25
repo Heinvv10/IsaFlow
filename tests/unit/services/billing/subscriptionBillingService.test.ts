@@ -26,7 +26,9 @@ vi.mock('@/modules/billing/services/paystackClient', () => ({
 import { sql } from '@/lib/neon';
 import * as adminPool from '@/lib/auth/migrationAdminPool';
 import { chargeAuthorization } from '@/modules/billing/services/paystackClient';
+import { log } from '@/lib/logger';
 import {
+  UNBILLED_LIST_CAP,
   generateDueCharges,
   runQueuedCharges,
 } from '@/modules/billing/services/subscriptionBillingService';
@@ -67,7 +69,7 @@ describe('generateDueCharges', () => {
 
     const result = await generateDueCharges(now);
 
-    expect(result).toEqual({ created: 1, skipped: 0, cancelled: 0, voided: 0 });
+    expect(result).toEqual({ created: 1, skipped: 0, unbilledNoMandate: 0, unbilled: [], resetLapsedCount: 0, resetLapsed: [], cancelled: 0, voided: 0 });
     expect(mockSql).toHaveBeenCalledTimes(3);
     expect(adminLabels()).toEqual(['subscription_queue_charge', 'subscription_void_charges', 'subscription_close_out']);
   });
@@ -95,7 +97,7 @@ describe('generateDueCharges', () => {
     expect(params).toContain(8000); // 10000 * 0.8
   });
 
-  it('skips when no active Paystack mandate exists', async () => {
+  it('reports a paid subscription with no active Paystack mandate as unbilled, not skipped, and raises no charge', async () => {
     const now = new Date('2026-05-01T00:00:00Z');
     mockSql
       .mockResolvedValueOnce([{
@@ -111,8 +113,74 @@ describe('generateDueCharges', () => {
       .mockResolvedValueOnce([] as never);          // close out — none
 
     const result = await generateDueCharges(now);
-    expect(result).toEqual({ created: 0, skipped: 1, cancelled: 0, voided: 0 });
+    expect(result).toEqual({
+      created: 0, skipped: 0, unbilledNoMandate: 1,
+      unbilled: [{ companyId: 'co-1', subscriptionId: 'sub-1', currentPeriodEnd: '2026-05-01T00:00:00.000Z', daysOverdue: 0 }],
+      resetLapsedCount: 0, resetLapsed: [],
+      cancelled: 0, voided: 0,
+    });
+    // Alert only: the only writes are the void and close-out passes, so the
+    // subscription's status and period are untouched.
     expect(adminLabels()).toEqual(['subscription_void_charges', 'subscription_close_out']);
+    expect(log.warn).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ reason: 'unbilled_no_mandate', companyId: 'co-1', subscriptionId: 'sub-1' }),
+      'BillingCron',
+    );
+  });
+
+  it('resets a lapsed subscription: one charge for a period starting today, no catch-up, logged and listed', async () => {
+    const now = new Date('2026-05-11T09:00:00Z');
+    mockSql
+      .mockResolvedValueOnce([{
+        company_id: 'co-1', subscription_id: 'sub-1', plan_id: 'p',
+        billing_cycle: 'monthly', current_period_start: '2025-10-01T00:00:00Z',
+        current_period_end: '2025-11-01T00:00:00Z',
+        discount_percent: 0, monthly_price_cents: 10000, annual_price_cents: 0,
+      }] as never)
+      .mockResolvedValueOnce([] as never)           // no charge since the lapse
+      .mockResolvedValueOnce([{ id: 'm-1' }] as never);
+    mockAdmin
+      .mockResolvedValueOnce([] as never)           // insert
+      .mockResolvedValueOnce([] as never)           // void
+      .mockResolvedValueOnce([] as never);          // close out
+
+    const result = await generateDueCharges(now);
+
+    expect(result.created).toBe(1);
+    expect(result.resetLapsedCount).toBe(1);
+    expect(result.resetLapsed).toEqual([{
+      companyId: 'co-1', subscriptionId: 'sub-1', cyclesSkipped: 6,
+      previousPeriodEnd: '2025-11-01T00:00:00.000Z', periodStart: '2026-05-11', periodEnd: '2026-06-11',
+    }]);
+    expect(adminLabels()).toEqual(['subscription_queue_charge', 'subscription_void_charges', 'subscription_close_out']);
+    const insertParams = mockAdmin.mock.calls[0]!.slice(1);
+    expect(insertParams).toEqual(expect.arrayContaining(['2026-05-11', '2026-06-11', 10000]));
+    expect(log.info).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ reason: 'reset_lapsed', subscriptionId: 'sub-1', cyclesSkipped: 6 }),
+      'BillingCron',
+    );
+  });
+
+  it('counts every unbilled subscription but lists at most UNBILLED_LIST_CAP', async () => {
+    const now = new Date('2026-05-01T00:00:00Z');
+    const n = UNBILLED_LIST_CAP + 2;
+    mockSql.mockResolvedValueOnce(Array.from({ length: n }, (_, i) => ({
+      company_id: `co-${i}`, subscription_id: `sub-${i}`, plan_id: 'p',
+      billing_cycle: 'monthly', current_period_start: '2026-04-01T00:00:00Z',
+      current_period_end: '2026-05-01T00:00:00Z',
+      discount_percent: 0, monthly_price_cents: 10000, annual_price_cents: 0,
+    })) as never);
+    for (let i = 0; i < n; i++) {
+      mockSql.mockResolvedValueOnce([] as never).mockResolvedValueOnce([] as never); // no charge, no mandate
+    }
+    mockAdmin.mockResolvedValueOnce([] as never).mockResolvedValueOnce([] as never);
+
+    const result = await generateDueCharges(now);
+    expect(result.unbilledNoMandate).toBe(n);
+    expect(result.unbilled).toHaveLength(UNBILLED_LIST_CAP);
+    expect(result.skipped).toBe(0);
   });
 
   it('skips when a charge already exists for the period', async () => {
@@ -130,7 +198,7 @@ describe('generateDueCharges', () => {
       .mockResolvedValueOnce([] as never);          // close out — none
 
     const result = await generateDueCharges(now);
-    expect(result).toEqual({ created: 0, skipped: 1, cancelled: 0, voided: 0 });
+    expect(result).toEqual({ created: 0, skipped: 1, unbilledNoMandate: 0, unbilled: [], resetLapsedCount: 0, resetLapsed: [], cancelled: 0, voided: 0 });
   });
 
   it('reports voided debits and closed-out subscriptions separately from skips', async () => {
@@ -141,7 +209,7 @@ describe('generateDueCharges', () => {
       .mockResolvedValueOnce([{ id: 'sub-cancelled' }] as never);  // close out
 
     const result = await generateDueCharges(now);
-    expect(result).toEqual({ created: 0, skipped: 0, cancelled: 1, voided: 1 });
+    expect(result).toEqual({ created: 0, skipped: 0, unbilledNoMandate: 0, unbilled: [], resetLapsedCount: 0, resetLapsed: [], cancelled: 1, voided: 1 });
   });
 });
 

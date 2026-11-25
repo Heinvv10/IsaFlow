@@ -17,6 +17,7 @@ import { mkdirSync } from 'fs';
 import { join } from 'path';
 import { countPuts, CUSTOMER, draft, openEdit, sandbox } from './_invoiceAutosaveFixture';
 import { expectNoSeriousA11yViolations } from './helpers/axe';
+import { INVOICE_FORM_ROUTES, warmDevRoutes } from './helpers/warmDevRoutes';
 import { seedTheme, settle, THEMES } from '../helpers/themeSpec';
 
 const NEW = '/accounting/customer-invoices/new';
@@ -37,6 +38,9 @@ const shot = async (page: Page, name: string) => {
   mkdirSync(EVIDENCE, { recursive: true });
   await page.screenshot({ path: join(EVIDENCE, `${name}.png`), fullPage: true });
 };
+
+// Compile the invoice routes before the first request, with no page open (helpers/warmDevRoutes.ts).
+test.beforeAll(async () => { await warmDevRoutes(INVOICE_FORM_ROUTES); });
 
 test('editing a draft autosaves after a change, never on load, and the change survives a reload', async ({ page, context, baseURL }) => {
   const { api, customerId } = await sandbox(context, baseURL!);

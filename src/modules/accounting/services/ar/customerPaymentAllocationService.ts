@@ -17,11 +17,13 @@ import { assertSameJournal, lockJournalAndUnmatch, voidViaBankAllocation } from 
 import { lockReceiptBankLeg } from './receiptBankLeg';
 import { ReceiptRefusal } from './receiptRefusal';
 import { assertReceiptVoidKeepsCredit } from './customerVoidCredit';
-import { assertWithinOutstanding, cents, lockInvoicesOfReceipts, lockReceiptInvoices } from './receiptInvoiceLock';
+import { assertInvoiceTakesReceipts, assertWithinOutstanding, cents, lockInvoicesOfReceipts, lockReceiptInvoices } from './receiptInvoiceLock';
 import { getCustomerPaymentById } from './customerPaymentService';
 import type { CustomerPayment } from '../../types/ar.types';
 import type { JournalLineInput } from '../../types/gl.types';
 import { underFlowLockBudget } from '../core/rowLockBudget';
+import { BALANCE_DERIVED } from './invoiceStatusRecompute';
+import { icDraftConfirmGate } from '../intercompany/icDraftConfirmGate';
 
 type Row = DbRow;
 
@@ -69,9 +71,12 @@ async function confirmCustomerPaymentInner(
     // both reach the same payment and the same invoice. The journal this posts
     // below is CREATED here, so no other transaction can contend for it and it
     // does not belong to the ordering.
+    // Intercompany F (k) H-3: an F draft (IC:<payment message>) locks its message FIRST and confirms only while that message targets it, `target_ok`
+    const icRecheck = await icDraftConfirmGate(companyId, id);
     if (!(await lockCustomerPaymentForUpdate(companyId, id))) {
       throw new Error(`Payment ${id} not found`);
     }
+    await icRecheck?.();
     const payment = await getCustomerPaymentById(companyId, id);
     if (!payment) throw new Error(`Payment ${id} not found`);
     if (payment.status !== 'draft') throw new Error(`Cannot confirm payment with status: ${payment.status}`);
@@ -79,14 +84,14 @@ async function confirmCustomerPaymentInner(
     // AR audit B1: the draft's allocations were stored when it was created; the invoices have moved since
     // (a bank-line match, an unapplied receipt or FIFO all ignore drafts). Lock them (ascending id, payment
     // already held: payment-then-invoice) and refuse the WHOLE confirm if any allocation no longer fits what
-    // is outstanding NOW — before the journal or any balance is written. A cancelled or deleted invoice takes nothing.
+    // is outstanding NOW — before the journal or any balance is written. An invoice the ledger does not carry (deleted,
+    // cancelled, or draft / pending approval: no AR posted) takes nothing — the create path's rule, re-checked here
+    // because a draft receipt stored before that rule, or one whose invoice has since gone back, skips it (#1728 review M1).
     const locked = await lockReceiptInvoices(companyId, payment.allocations.map((a) => a.invoiceId));
     for (const alloc of payment.allocations) {
       const invoice = locked.get(alloc.invoiceId);
       if (!invoice) throw new ReceiptRefusal(`Invoice ${alloc.invoiceId} not found`);
-      if (invoice.deleted || invoice.status === 'cancelled') {
-        throw new ReceiptRefusal(`Invoice ${invoice.invoiceNumber} is ${invoice.deleted ? 'deleted' : 'cancelled'} and cannot take this receipt`);
-      }
+      assertInvoiceTakesReceipts(invoice);
       assertWithinOutstanding(invoice, cents(alloc.amountAllocated), 0,
         '. The invoice was paid or changed since this receipt was drafted — cancel the draft and re-apply the receipt.');
     }
@@ -124,6 +129,7 @@ async function confirmCustomerPaymentInner(
         UPDATE customer_invoices
         SET amount_paid = COALESCE(amount_paid, 0) + ${newPaid},
             status = CASE
+              WHEN (status = ANY(${BALANCE_DERIVED})) IS NOT TRUE THEN status -- second line behind the refusal above
               WHEN (total_amount - (COALESCE(amount_paid, 0) + ${newPaid})) <= 0 THEN 'paid'
               WHEN (COALESCE(amount_paid, 0) + ${newPaid}) > 0 THEN 'partially_paid'
               ELSE status
@@ -203,13 +209,17 @@ async function cancelCustomerPaymentInner(
     // outer withAuth transaction provides atomicity, and BY INVOICE ID so two
     // cancels touching the same two invoices cannot deadlock on each other. Whole cents, like confirm: a cent still
     // paid is 'partially_paid', and any invoice no longer settled loses its paid_at with the 'paid' status.
+    // The status follows recomputeInvoiceStatus's rule, in this one write (#1720 review): only a balance-derived status moves
+    // (a pending_approval invoice is never set to 'approved' here), and 'sent' / 'overdue' stay when nothing is paid any more.
     for (const alloc of delegated ? [] : byInvoiceId(payment.allocations)) {
       await sql`
         UPDATE customer_invoices
         SET amount_paid = GREATEST(0, amount_paid - ${alloc.amountAllocated}),
             status = CASE
-              WHEN GREATEST(0, amount_paid - ${alloc.amountAllocated}) <= 0 THEN 'approved'
-              WHEN GREATEST(0, amount_paid - ${alloc.amountAllocated}) < total_amount THEN 'partially_paid'
+              WHEN (status = ANY(${BALANCE_DERIVED})) IS NOT TRUE THEN status
+              WHEN GREATEST(0, amount_paid - ${alloc.amountAllocated}) >= total_amount THEN 'paid'
+              WHEN GREATEST(0, amount_paid - ${alloc.amountAllocated}) > 0 THEN 'partially_paid'
+              WHEN status IN ('partially_paid', 'paid') THEN 'approved'
               ELSE status
             END,
             paid_at = CASE WHEN GREATEST(0, amount_paid - ${alloc.amountAllocated}) < total_amount THEN NULL ELSE paid_at END
@@ -220,7 +230,7 @@ async function cancelCustomerPaymentInner(
     // (4) The journal LAST: head locked and re-checked, matched line unmatched, head reversed (none when out, D8).
     if (!delegated && journalId && leg) {
       await lockJournalAndUnmatch(companyId, journalId, leg, label);
-      if (!leg.alreadyReversed) await reverseJournalEntry(companyId, leg.reverseId, userId);
+      if (!leg.alreadyReversed) await reverseJournalEntry(companyId, leg.reverseId, userId, { voidingReceiptId: payment.id }); // the id as read, not the caller's spelling
     }
     await auditLeg?.();
 

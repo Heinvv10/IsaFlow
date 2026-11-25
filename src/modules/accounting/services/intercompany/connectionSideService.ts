@@ -9,6 +9,7 @@ import { isHeaderSql } from '@/modules/accounting/services/budgets/headerSql';
 import { listConnections } from './connectionRead';
 import { autoAcceptRefusal } from './connectionValidation';
 import { ConnectionRefusal, type ConnectionView, type SideInput } from './connectionTypes';
+import { lockConnectionAndRefuseWhileHeld } from './connectionMessageHold';
 
 type Row = Record<string, unknown>;
 
@@ -25,8 +26,16 @@ async function postableAccountOf(companyId: string, accountId: string): Promise<
   return rows.length > 0;
 }
 
-/** Throws the refusal for the first reference that is not this company's. Nothing is written before it. */
-async function refuseForeignRefs(companyId: string, input: SideInput): Promise<void> {
+/** The account is a loan class: the database's one rule (`intercompany_is_loan_class`, 1027: type, subtype, never a system account, never one
+ *  holding bank-statement lines), the same the clearing, its guard and the side form's picker ask. */
+async function loanClassAccountOf(companyId: string, accountId: string): Promise<boolean> {
+  const rows = (await sql`SELECT public.intercompany_is_loan_class(${accountId}::UUID, ${companyId}::UUID) AS ok`) as Row[];
+  return rows[0]?.ok === true;
+}
+
+/** Throws the refusal for the first reference that is not this company's. Nothing is written before it. `storedLoanAccountId`: the side's loan
+ *  account now; the loan class is asked only of a loan account that CHANGES (a legacy side keeps saving its other fields). */
+async function refuseForeignRefs(companyId: string, input: SideInput, storedLoanAccountId: string | null): Promise<void> {
   if (input.customerId && !(await customerBelongsToCompany(companyId, input.customerId))) {
     throw new ConnectionRefusal(400, 'That customer was not found for this company.');
   }
@@ -35,6 +44,13 @@ async function refuseForeignRefs(companyId: string, input: SideInput): Promise<v
   }
   if (input.loanAccountId && !(await postableAccountOf(companyId, input.loanAccountId))) {
     throw new ConnectionRefusal(400, 'The loan account must be an active, postable account of this company.');
+  }
+  // P4-D (F1, A1): the loan account is what an intercompany clearing posts to and what the partner's clearing trusts as "paid through the
+  // loan": a loan or intercompany balance-sheet account only (never a bank, control, VAT, equity, P&L or system account, nor one holding
+  // bank-statement lines), asked when it changes
+  if (input.loanAccountId && input.loanAccountId.toLowerCase() !== storedLoanAccountId?.toLowerCase()
+      && !(await loanClassAccountOf(companyId, input.loanAccountId))) {
+    throw new ConnectionRefusal(400, 'The loan account must be a loan or intercompany balance-sheet account (an asset or liability of subtype other current asset, current / other current / long-term liability or other; not a bank, control, VAT or system account, nor one holding bank-statement lines).');
   }
   if (input.defaultExpenseAccountId && !(await postableAccountOf(companyId, input.defaultExpenseAccountId))) {
     throw new ConnectionRefusal(400, 'The default expense account must be an active, postable account of this company.');
@@ -68,9 +84,11 @@ export async function updateOwnSide(companyId: string, connectionId: string, inp
   if (conn.status === 'revoked') throw new ConnectionRefusal(409, 'This connection is revoked; its settings can no longer change.');
   const refusal = autoAcceptRefusal(conn.kind, input.autoAccept);
   if (refusal) throw new ConnectionRefusal(400, refusal);
-  await refuseForeignRefs(companyId, input);
+  await refuseForeignRefs(companyId, input, conn.side?.loanAccountId ?? null);
 
   const next = merged(conn.side, input);
+  // P4-E (j).8: either side's loan account is not re-pointed under an open or accepted allocation message (the connection locked first)
+  if ((next.loanAccountId ?? null) !== (conn.side?.loanAccountId ?? null)) await lockConnectionAndRefuseWhileHeld(companyId, connectionId, 'loan_account');
   try {
     // A savepoint: a refused write must not poison the request's transaction.
     await withSavepoint(`ic_side_${++sideSeq}`, async () => sql`

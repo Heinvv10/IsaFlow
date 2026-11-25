@@ -7,7 +7,7 @@
  *   bun scripts/ci/golden-hosted/run-chunk.ts <k> <n> [<piece> <pieces>]
  */
 import { spawnSync } from 'node:child_process';
-import { chunkSeconds, planChunk } from './goldenChunkPlan';
+import { chunkSeconds, invocationArgs, planChunk } from './goldenChunkPlan';
 
 const [k, n, piece = 1, pieces = 1] = process.argv.slice(2).map(Number);
 if (k === undefined || n === undefined || [k, n, piece, pieces].some(Number.isNaN)) {
@@ -21,9 +21,8 @@ if (invocations.length === 0) {
   process.exit(1);
 }
 let rc = 0;
-for (const inv of invocations) {
-  const args = ['run', 'test:e2e:golden', ...inv.files, ...(inv.grep === undefined ? [] : ['--grep', inv.grep])];
-  const r = spawnSync('bun', args, { stdio: 'inherit' });
+for (const [index, inv] of invocations.entries()) {
+  const r = spawnSync('bun', invocationArgs(inv, piece, index), { stdio: 'inherit' });
   if (rc === 0 && r.status !== 0) rc = r.status ?? 1;
 }
 process.exit(rc);

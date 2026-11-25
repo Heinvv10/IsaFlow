@@ -19,6 +19,7 @@ const TOOL = 'set_purchase_order_status';
 
 export const setPurchaseOrderStatusTool: McpTool = {
   name: TOOL,
+  admits: canCancelApprovedPo,
   description:
     'Set the status of a purchase order that was IMPORTED from another system (it carries an external_ref; see bulk_create_purchase_orders) when the source moved it: '
     + `status = ${SETTABLE_PO_STATUSES.join(' | ')} (approved is what the import calls open; closed is what it calls billed). Owner or admin only; a reason is required and audited (old -> new). Posts nothing. `

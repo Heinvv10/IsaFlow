@@ -44,6 +44,19 @@ import { isBankSubtype } from '../gl/accountSubtypes';
 
 export type Subledger = 'ar' | 'ap';
 
+/**
+ * What every guard here throws. Typed so the posting service can tell a guard's
+ * refusal from a driver failure (40P01, a lost connection) by identity, not by the
+ * absence of a code; its message is shown to the caller (REFUSAL_CODES).
+ */
+export class ContraGuardRefusal extends Error {
+  readonly code = 'CONTRA_SETTLEMENT_REFUSED';
+  constructor(message: string) {
+    super(message);
+    this.name = 'ContraGuardRefusal';
+  }
+}
+
 export interface ContraAccountCheck {
   accountId: string;
   accountCode: string;
@@ -73,7 +86,7 @@ export async function assertContraAccountUsable(
   `) as DbRow[];
   // Same wording as a genuine miss: an account in another tenant must not be
   // distinguishable from one that does not exist.
-  if (rows.length === 0) throw new Error(`Account ${contraAccountId} not found`);
+  if (rows.length === 0) throw new ContraGuardRefusal(`Account ${contraAccountId} not found`);
   const account = rows[0]!;
   const code = String(account.account_code);
   const name = String(account.account_name);
@@ -81,7 +94,7 @@ export async function assertContraAccountUsable(
   assertBalanceSheetAccount(account, code, name);
 
   if (isBankSubtype(account.account_subtype == null ? null : String(account.account_subtype))) {
-    throw new Error(
+    throw new ContraGuardRefusal(
       `${code} ${name} is a BANK account. A contra settlement exists precisely because no cash `
       + 'moved — settling against a bank account records a payment that never happened, which is '
       + 'the defect this operation avoids. Use apply_receipt_to_invoice or '
@@ -89,7 +102,7 @@ export async function assertContraAccountUsable(
     );
   }
   if (account.is_parent === true) {
-    throw new Error(
+    throw new ContraGuardRefusal(
       `${code} ${name} is a parent header account with child accounts beneath it. The balance `
       + 'sheet excludes headers, so a posting to one is invisible in the statements. Post to a '
       + 'leaf account.',
@@ -102,7 +115,7 @@ export async function assertContraAccountUsable(
   // accounts in these books hold R137,317.39 between them, and a report that
   // filtered on this flag would simply lose them.
   if (account.is_active === false) {
-    throw new Error(
+    throw new ContraGuardRefusal(
       `${code} ${name} is deactivated. Reactivate it with update_gl_account, or choose another.`,
     );
   }
@@ -113,7 +126,7 @@ export async function assertContraAccountUsable(
   // programme exists to detect.
   const control = await getSystemAccount(subledger === 'ar' ? 'receivable' : 'payable', companyId);
   if (control.id === String(account.id)) {
-    throw new Error(
+    throw new ContraGuardRefusal(
       `${code} ${name} is the ${subledger === 'ar' ? 'Accounts Receivable' : 'Accounts Payable'} `
       + 'control account itself. Settling a document against its own control account nets to '
       + 'nothing and leaves the subledger and the GL disagreeing by the amount settled.',
@@ -164,7 +177,7 @@ function assertBalanceSheetAccount(account: DbRow, code: string, name: string): 
 
   const legalSubtypes = (GL_ACCOUNT_SUBTYPES_BY_TYPE as Record<string, readonly string[]>)[type];
   if (!legalSubtypes || !subtype || !legalSubtypes.includes(subtype)) {
-    throw new Error(
+    throw new ContraGuardRefusal(
       `${code} ${name} carries account_type "${type || '(none)'}" and account_subtype `
       + `"${subtype ?? '(none)'}", which is not a valid pairing — so it cannot be classified as a `
       + 'balance-sheet or an income-statement account, and a contra settlement must not guess. '
@@ -173,7 +186,7 @@ function assertBalanceSheetAccount(account: DbRow, code: string, name: string): 
   }
 
   if (INCOME_STATEMENT_TYPES.has(type)) {
-    throw new Error(
+    throw new ContraGuardRefusal(
       `${code} ${name} is an income-statement account (${type} / ${subtype}). A contra settles a `
       + 'balance against another BALANCE-SHEET position — a loan, an intercompany or a '
       + "director's account. Netting a debt against income or expense is a WRITE-OFF, not a "
@@ -182,7 +195,7 @@ function assertBalanceSheetAccount(account: DbRow, code: string, name: string): 
   }
 
   if (!BALANCE_SHEET_TYPES.has(type)) {
-    throw new Error(
+    throw new ContraGuardRefusal(
       `${code} ${name} has an unrecognised account_type "${type}". Fix it with update_gl_account.`,
     );
   }
@@ -229,16 +242,16 @@ export async function loadContraDocument(
         WHERE si.id = ${documentId}::UUID AND si.company_id = ${companyId}::UUID
       `) as DbRow[]);
 
-  if (rows.length === 0) throw new Error(`Invoice ${documentId} not found`);
+  if (rows.length === 0) throw new ContraGuardRefusal(`Invoice ${documentId} not found`);
   const row = rows[0]!;
   const status = String(row.status);
   const number = String(row.invoice_number);
   if (UNSETTLEABLE.has(status)) {
-    throw new Error(`Invoice ${number} is ${status} and cannot be settled.`);
+    throw new ContraGuardRefusal(`Invoice ${number} is ${status} and cannot be settled.`);
   }
   const counterpartyId = row.counterparty_id ? String(row.counterparty_id) : null;
   if (!counterpartyId) {
-    throw new Error(
+    throw new ContraGuardRefusal(
       `Invoice ${number} names no ${subledger === 'ar' ? 'customer' : 'supplier'}, so a `
       + 'settlement cannot be attributed to one.',
     );
@@ -253,7 +266,7 @@ export async function loadContraDocument(
   // Whole cents, no tolerance (899): a cent through here is a 23514 on
   // customer_invoices_amount_paid_within_total once the receipt is confirmed.
   if (round2(amount) > outstanding) {
-    throw new Error(
+    throw new ContraGuardRefusal(
       `R${amount.toFixed(2)} exceeds the R${outstanding.toFixed(2)} outstanding on invoice `
       + `${number}.`,
     );

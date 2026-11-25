@@ -71,7 +71,7 @@ export function LoanOverviewTab({ loan, onRefresh }: Props) {
         <div className="p-3 rounded-lg bg-red-500/10 text-red-400 text-sm">{error}</div>
       )}
 
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-4 max-lg:flex-wrap">
         <div className="flex items-center gap-2">
           <span className="text-sm text-[var(--ff-text-secondary)]">Status:</span>
           <LoanStatusBadge status={status} />
@@ -81,7 +81,7 @@ export function LoanOverviewTab({ loan, onRefresh }: Props) {
             value={status}
             onChange={e => handleStatusChange(e.target.value as LoanStatus)}
             disabled={busy}
-            className="ff-select text-sm"
+            className="ff-select text-sm max-lg:min-h-11"
           >
             <option value="active">Active</option>
             <option value="closed">Closed</option>

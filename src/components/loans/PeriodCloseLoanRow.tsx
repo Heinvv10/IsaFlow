@@ -27,7 +27,7 @@ export function PeriodCloseLoanRow({ loan, isPosting, isLocked, isBulkPosting, o
       <td className="px-4 py-3">
         <Link
           href={`/accounting/loans/${loan.loanId}`}
-          className="font-medium text-[var(--ff-text-primary)] hover:text-teal-400"
+          className="font-medium text-[var(--ff-text-primary)] hover:text-teal-400 max-lg:inline-flex max-lg:items-center max-lg:min-h-11"
         >
           {loan.reference || loan.loanId.slice(0, 8)}
         </Link>
@@ -37,34 +37,34 @@ export function PeriodCloseLoanRow({ loan, isPosting, isLocked, isBulkPosting, o
           </div>
         )}
         {loan.description && (
-          <div className="text-xs text-[var(--ff-text-tertiary)] truncate max-w-[180px]">
+          <div className="text-xs text-[var(--ff-text-tertiary)] truncate max-w-[180px] max-lg:max-w-none max-lg:whitespace-normal">
             {loan.description}
           </div>
         )}
       </td>
-      <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">
+      <td data-label="Principal Balance" className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">
         {fmt(loan.principalBalance)}
       </td>
-      <td className="px-4 py-3 text-[var(--ff-text-secondary)]">
+      <td data-label="Rate" className="px-4 py-3 text-[var(--ff-text-secondary)]">
         {rateLabel(loan)}
       </td>
-      <td className="px-4 py-3 text-[var(--ff-text-secondary)]">
+      <td data-label="Next Payment" className="px-4 py-3 text-[var(--ff-text-secondary)]">
         {loan.nextPaymentDate ? fmtDate(loan.nextPaymentDate) : '—'}
       </td>
-      <td className="px-4 py-3 text-right tabular-nums">
+      <td data-label="Accrued Interest" className="px-4 py-3 text-right tabular-nums">
         <span className={loan.accruedInterest > 0 ? 'text-amber-400' : 'text-[var(--ff-text-tertiary)]'}>
           {fmt(loan.accruedInterest)}
         </span>
       </td>
-      <td className="px-4 py-3">
+      <td data-label="Status" className="px-4 py-3">
         <StatusBadge status={loan.periodStatus} />
       </td>
-      <td className="px-4 py-3 text-right">
+      <td className={`px-4 py-3 text-right${(loan.periodStatus === 'open' && !isLocked) || loan.periodStatus === 'posted' ? '' : ' max-lg:!hidden'}`}>
         {loan.periodStatus === 'open' && !isLocked && (
           <button
             onClick={() => onPost(loan.loanId)}
             disabled={isPosting || isBulkPosting}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-teal-600/20 text-teal-400 hover:bg-teal-600/30 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-teal-600/20 text-teal-400 hover:bg-teal-600/30 disabled:opacity-50 disabled:cursor-not-allowed max-lg:min-h-11"
           >
             {isPosting
               ? <><Loader2 className="h-3 w-3 animate-spin" /> Posting…</>

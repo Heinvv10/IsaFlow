@@ -174,7 +174,7 @@ export default function NewLoanPage() {
             <div>
               <label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Employee</label>
               <select value={employeeId} onChange={e => setEmployeeId(e.target.value)}
-                className="w-full rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] text-sm px-3 py-2 text-[var(--ff-text-primary)]">
+                className="w-full rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] text-sm px-3 py-2 text-[var(--ff-text-primary)] max-lg:min-h-11">
                 <option value="">Select employee</option>
                 {employees.map(emp => (
                   <option key={emp.id} value={emp.id}>{emp.employeeNumber} — {emp.firstName} {emp.lastName}</option>
@@ -182,12 +182,12 @@ export default function NewLoanPage() {
               </select>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 gap-3 max-lg:grid-cols-1">
               <div>
                 <label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Loan #</label>
                 <input value={loanNumber} onChange={e => setLoanNumber(e.target.value)}
                   placeholder="L-0001"
-                  className="w-full rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] text-sm px-3 py-2 text-[var(--ff-text-primary)]" />
+                  className="w-full rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] text-sm px-3 py-2 text-[var(--ff-text-primary)] max-lg:min-h-11" />
               </div>
               <div>
                 <GatedDateField gate={dateGate} gateKey="start-date" label="Start date" value={startDate || null} onValue={iso => setStartDate(iso)} />
@@ -198,50 +198,50 @@ export default function NewLoanPage() {
               <label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Description</label>
               <input value={description} onChange={e => setDescription(e.target.value)}
                 placeholder="Bridging loan"
-                className="w-full rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] text-sm px-3 py-2 text-[var(--ff-text-primary)]" />
+                className="w-full rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] text-sm px-3 py-2 text-[var(--ff-text-primary)] max-lg:min-h-11" />
             </div>
 
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-3 gap-3 max-lg:grid-cols-1">
               <div>
                 <label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Principal</label>
                 <input type="number" step="0.01" value={principal || ''} onChange={e => setPrincipal(Number(e.target.value))}
-                  className="w-full rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] text-sm px-3 py-2 text-[var(--ff-text-primary)] tabular-nums" />
+                  className="w-full rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] text-sm px-3 py-2 text-[var(--ff-text-primary)] tabular-nums max-lg:min-h-11" />
               </div>
               <div>
                 <label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Annual rate</label>
                 <input type="number" step="0.0001" value={annualInterestRate || ''} onChange={e => setAnnualInterestRate(Number(e.target.value))}
                   placeholder="0.075 = 7.5%"
-                  className="w-full rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] text-sm px-3 py-2 text-[var(--ff-text-primary)] tabular-nums" />
+                  className="w-full rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] text-sm px-3 py-2 text-[var(--ff-text-primary)] tabular-nums max-lg:min-h-11" />
               </div>
               <div>
                 <label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Term (months)</label>
                 <input type="number" value={termMonths || ''} onChange={e => setTermMonths(Number(e.target.value))}
-                  className="w-full rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] text-sm px-3 py-2 text-[var(--ff-text-primary)] tabular-nums" />
+                  className="w-full rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] text-sm px-3 py-2 text-[var(--ff-text-primary)] tabular-nums max-lg:min-h-11" />
               </div>
             </div>
 
             <div>
               <label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Method</label>
               <select value={method} onChange={e => setMethod(e.target.value as typeof method)}
-                className="w-full rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] text-sm px-3 py-2 text-[var(--ff-text-primary)]">
+                className="w-full rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] text-sm px-3 py-2 text-[var(--ff-text-primary)] max-lg:min-h-11">
                 <option value="declining_balance">Declining balance (equal installment)</option>
                 <option value="straight_line">Straight line (equal principal)</option>
                 <option value="interest_free">Interest free (principal only)</option>
               </select>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 gap-3 max-lg:grid-cols-1">
               <div>
                 <label className="block text-sm text-[var(--ff-text-secondary)] mb-1">First deduction month</label>
                 <select value={firstPeriodMonth} onChange={e => setFirstPeriodMonth(Number(e.target.value))}
-                  className="w-full rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] text-sm px-3 py-2 text-[var(--ff-text-primary)]">
+                  className="w-full rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] text-sm px-3 py-2 text-[var(--ff-text-primary)] max-lg:min-h-11">
                   {MONTHS.map((mn, i) => <option key={mn} value={i + 1}>{mn}</option>)}
                 </select>
               </div>
               <div>
                 <label className="block text-sm text-[var(--ff-text-secondary)] mb-1">First deduction year</label>
                 <input type="number" value={firstPeriodYear} onChange={e => setFirstPeriodYear(Number(e.target.value))}
-                  className="w-full rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] text-sm px-3 py-2 text-[var(--ff-text-primary)] tabular-nums" />
+                  className="w-full rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] text-sm px-3 py-2 text-[var(--ff-text-primary)] tabular-nums max-lg:min-h-11" />
               </div>
             </div>
 
@@ -249,9 +249,9 @@ export default function NewLoanPage() {
 
             <div className="flex justify-end gap-3 pt-2">
               <button type="button" onClick={() => router.back()}
-                className="px-4 py-2 rounded-lg text-sm font-medium text-[var(--ff-text-secondary)] hover:bg-[var(--ff-bg-tertiary)]">Cancel</button>
+                className="px-4 py-2 rounded-lg text-sm font-medium text-[var(--ff-text-secondary)] hover:bg-[var(--ff-bg-tertiary)] max-lg:min-h-11">Cancel</button>
               <button type="submit" disabled={saving || dateGate.blocked}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-success-700 hover:bg-success-800 text-white text-sm font-medium disabled:opacity-50">
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-success-700 hover:bg-success-800 text-white text-sm font-medium disabled:opacity-50 max-lg:min-h-11">
                 {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Create
               </button>
             </div>
@@ -264,8 +264,8 @@ export default function NewLoanPage() {
             {schedule.length === 0 ? (
               <div className="p-6 text-center text-sm text-[var(--ff-text-secondary)]">Fill principal + term to preview.</div>
             ) : (
-              <div className="max-h-[28rem] overflow-auto">
-                <table className="w-full text-sm">
+              <div className="max-h-[28rem] overflow-auto max-lg:max-h-none">
+                <table className="w-full text-sm table-cards">
                   <thead>
                     <tr className="border-b border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)] text-left sticky top-0">
                       <th className="py-2 px-3 font-medium text-[var(--ff-text-secondary)]">#</th>
@@ -279,12 +279,12 @@ export default function NewLoanPage() {
                   <tbody>
                     {schedule.map(r => (
                       <tr key={r.sequence} className="border-b border-[var(--ff-border-primary)] last:border-0">
-                        <td className="py-1.5 px-3 tabular-nums text-[var(--ff-text-secondary)]">{r.sequence}</td>
-                        <td className="py-1.5 px-3 text-[var(--ff-text-secondary)]">{MONTHS[r.duePeriodMonth - 1]} {r.duePeriodYear}</td>
-                        <td className="py-1.5 px-3 text-right tabular-nums">{formatCurrency(r.interest)}</td>
-                        <td className="py-1.5 px-3 text-right tabular-nums">{formatCurrency(r.principal)}</td>
-                        <td className="py-1.5 px-3 text-right tabular-nums font-medium">{formatCurrency(r.installment)}</td>
-                        <td className="py-1.5 px-3 text-right tabular-nums text-[var(--ff-text-secondary)]">{formatCurrency(r.closingBalance)}</td>
+                        <td data-label="#" className="py-1.5 px-3 tabular-nums text-[var(--ff-text-secondary)]">{r.sequence}</td>
+                        <td data-label="Period" className="py-1.5 px-3 text-[var(--ff-text-secondary)]">{MONTHS[r.duePeriodMonth - 1]} {r.duePeriodYear}</td>
+                        <td data-label="Interest" className="py-1.5 px-3 text-right tabular-nums">{formatCurrency(r.interest)}</td>
+                        <td data-label="Principal" className="py-1.5 px-3 text-right tabular-nums">{formatCurrency(r.principal)}</td>
+                        <td data-label="Installment" className="py-1.5 px-3 text-right tabular-nums font-medium">{formatCurrency(r.installment)}</td>
+                        <td data-label="Closing" className="py-1.5 px-3 text-right tabular-nums text-[var(--ff-text-secondary)]">{formatCurrency(r.closingBalance)}</td>
                       </tr>
                     ))}
                   </tbody>

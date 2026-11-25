@@ -91,7 +91,7 @@ export default function OpeningBalancesPage() {
       <div ref={guard.ref} className="min-h-screen bg-[var(--ff-bg-primary)]">
         <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)]">
           <div className="px-6 py-4">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between max-lg:flex-wrap max-lg:gap-3">
               <div className="flex items-center gap-3">
                 <div className="p-2 rounded-lg bg-teal-500/10">
                   <BookMarked className="h-6 w-6 text-teal-500" />
@@ -103,12 +103,12 @@ export default function OpeningBalancesPage() {
                   </p>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 max-lg:flex-wrap">
                 <ExportCSVButton endpoint="/api/accounting/opening-balances-export" filenamePrefix="opening-balances" label="Export CSV" />
                 <button
                   onClick={handleSave}
                   disabled={isSaving || !isBalanced}
-                  className="px-4 py-2 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white rounded-lg flex items-center gap-2 text-sm"
+                  className="px-4 py-2 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white rounded-lg flex items-center gap-2 text-sm max-lg:min-h-11"
                 >
                   {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                   Save Opening Balances
@@ -121,7 +121,7 @@ export default function OpeningBalancesPage() {
         <div className="p-6">
           {/* Balance indicator */}
           <div className={`flex items-center gap-4 p-4 rounded-lg mb-6 ${isBalanced ? 'bg-teal-500/10' : 'bg-red-500/10'}`}>
-            <div className="flex-1 grid grid-cols-3 gap-4 text-sm">
+            <div className="flex-1 grid grid-cols-3 gap-4 text-sm max-lg:grid-cols-1">
               <div>
                 <span className="text-[var(--ff-text-secondary)]">Total Debits:</span>
                 <span className="ml-2 tabular-nums font-bold text-[var(--ff-text-primary)]">{formatCurrency(totalDebits)}</span>
@@ -154,7 +154,7 @@ export default function OpeningBalancesPage() {
                 </div>
               )}
 
-              <table className="w-full text-sm">
+              <table className="table-cards w-full text-sm">
                 <thead>
                   <tr className="border-b border-[var(--ff-border-light)]">
                     <th className="text-left py-3 px-4 text-[var(--ff-text-secondary)] font-medium">Code</th>
@@ -167,22 +167,22 @@ export default function OpeningBalancesPage() {
                 <tbody>
                   {accounts.map((acct) => (
                     <tr key={acct.id} className="border-b border-[var(--ff-border-light)]">
-                      <td className="py-2 px-4 font-mono text-[var(--ff-text-tertiary)]">{acct.account_code}</td>
-                      <td className="py-2 px-4 text-[var(--ff-text-primary)]">{acct.account_name}</td>
-                      <td className="py-2 px-4 text-[var(--ff-text-secondary)] capitalize">{acct.account_type}</td>
-                      <td className="py-2 px-4 text-right">
+                      <td data-label="Code" className="py-2 px-4 font-mono text-[var(--ff-text-tertiary)]">{acct.account_code}</td>
+                      <td data-label="Account Name" className="py-2 px-4 text-[var(--ff-text-primary)]">{acct.account_name}</td>
+                      <td data-label="Type" className="py-2 px-4 text-[var(--ff-text-secondary)] capitalize">{acct.account_type}</td>
+                      <td data-label="Debit" className="py-2 px-4 text-right max-lg:items-center">
                         <AmountInput min={0}
                           value={acct.opening_debit || ''}
                           onValueChange={(_n, t) => updateBalance(acct.id, 'opening_debit', t)}
-                          className="w-32 px-2 py-1 text-right rounded bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm"
+                          className="w-32 px-2 py-1 text-right rounded bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm max-lg:min-h-11 max-lg:w-auto max-lg:min-w-0 max-lg:flex-1"
                           placeholder="0.00"
                         />
                       </td>
-                      <td className="py-2 px-4 text-right">
+                      <td data-label="Credit" className="py-2 px-4 text-right max-lg:items-center">
                         <AmountInput min={0}
                           value={acct.opening_credit || ''}
                           onValueChange={(_n, t) => updateBalance(acct.id, 'opening_credit', t)}
-                          className="w-32 px-2 py-1 text-right rounded bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm"
+                          className="w-32 px-2 py-1 text-right rounded bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm max-lg:min-h-11 max-lg:w-auto max-lg:min-w-0 max-lg:flex-1"
                           placeholder="0.00"
                         />
                       </td>

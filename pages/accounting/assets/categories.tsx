@@ -67,7 +67,7 @@ export default function AssetCategoriesPage() {
     <AppLayout>
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
         <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-6 py-4">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between max-lg:flex-wrap max-lg:gap-3">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-purple-500/10">
                 <Tags className="h-6 w-6 text-purple-500" />
@@ -84,7 +84,7 @@ export default function AssetCategoriesPage() {
               placeholder="Filter by name, code or group…"
               value={filter}
               onChange={e => setFilter(e.target.value)}
-              className="ff-input text-sm w-60"
+              className="ff-input text-sm w-60 max-lg:min-h-11 max-lg:w-full"
             />
           </div>
         </div>
@@ -93,7 +93,7 @@ export default function AssetCategoriesPage() {
           {error && <div className="mb-4 p-3 rounded-lg bg-red-500/10 text-red-400 text-sm">{error}</div>}
           <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-hidden">
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+              <table className="w-full text-sm table-cards">
                 <thead>
                   <tr className="border-b border-[var(--ff-border-light)] text-left text-[var(--ff-text-secondary)] bg-[var(--ff-bg-primary)]/50">
                     <th className="px-4 py-3">Code</th>
@@ -110,14 +110,14 @@ export default function AssetCategoriesPage() {
                 <tbody>
                   {loading && (
                     <tr>
-                      <td colSpan={9} className="px-4 py-10 text-center text-[var(--ff-text-tertiary)]">
+                      <td colSpan={9} className="px-4 py-10 text-center text-[var(--ff-text-tertiary)] max-lg:!py-8 max-lg:!text-center">
                         <Loader2 className="h-5 w-5 animate-spin inline mr-2" />Loading categories…
                       </td>
                     </tr>
                   )}
                   {!loading && !error && visible.length === 0 && (
                     <tr>
-                      <td colSpan={9} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)] text-sm">
+                      <td colSpan={9} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)] text-sm max-lg:!py-8 max-lg:!text-center">
                         No categories match your filter.
                       </td>
                     </tr>
@@ -127,21 +127,21 @@ export default function AssetCategoriesPage() {
                       key={c.id}
                       className={`border-b border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-primary)]/40 transition-colors ${i % 2 === 0 ? '' : 'bg-[var(--ff-bg-primary)]/20'}`}
                     >
-                      <td className="px-4 py-3 font-mono text-xs font-semibold text-[var(--ff-text-primary)]">{c.code}</td>
-                      <td className="px-4 py-3 text-[var(--ff-text-primary)] font-medium">{c.name}</td>
-                      <td className="px-4 py-3">
+                      <td data-label="Code" className="px-4 py-3 font-mono text-xs font-semibold text-[var(--ff-text-primary)]">{c.code}</td>
+                      <td data-label="Category" className="px-4 py-3 text-[var(--ff-text-primary)] font-medium">{c.name}</td>
+                      <td data-label="IAS 16" className="px-4 py-3">
                         {c.ias16_group ? (
                           <span className={`text-xs px-2 py-0.5 rounded font-medium ${ias16Colors[c.ias16_group] ?? 'bg-gray-500/10 text-gray-400'}`}>
                             {c.ias16_group}
                           </span>
                         ) : <span className="text-[var(--ff-text-tertiary)]">—</span>}
                       </td>
-                      <td className="px-4 py-3 text-right text-[var(--ff-text-primary)] tabular-nums text-xs">{fmtYrs(c.useful_life_years)}</td>
-                      <td className="px-4 py-3 text-right text-teal-400 tabular-nums text-xs">{fmtPct(c.residual_pct)}</td>
-                      <td className="px-4 py-3 text-right text-amber-400 tabular-nums text-xs font-semibold">{fmtYrs(c.tax_life_years)}</td>
-                      <td className="px-4 py-3 text-right text-purple-400 font-medium">{c.sars_rate}%</td>
-                      <td className="px-4 py-3 text-right text-[var(--ff-text-secondary)] tabular-nums text-xs">{fmtThresh(c.capitalization_threshold)}</td>
-                      <td className="px-4 py-3 text-[var(--ff-text-secondary)] text-xs capitalize">{(c.depreciation_method ?? 'straight_line').replace(/_/g, ' ')}</td>
+                      <td data-label="Policy Life" className="px-4 py-3 text-right text-[var(--ff-text-primary)] tabular-nums text-xs">{fmtYrs(c.useful_life_years)}</td>
+                      <td data-label="Residual %" className="px-4 py-3 text-right text-teal-400 tabular-nums text-xs">{fmtPct(c.residual_pct)}</td>
+                      <td data-label="Tax Life (SARS)" className="px-4 py-3 text-right text-amber-400 tabular-nums text-xs font-semibold">{fmtYrs(c.tax_life_years)}</td>
+                      <td data-label="SARS Rate" className="px-4 py-3 text-right text-purple-400 font-medium">{c.sars_rate}%</td>
+                      <td data-label="Cap Threshold" className="px-4 py-3 text-right text-[var(--ff-text-secondary)] tabular-nums text-xs">{fmtThresh(c.capitalization_threshold)}</td>
+                      <td data-label="Method" className="px-4 py-3 text-[var(--ff-text-secondary)] text-xs capitalize">{(c.depreciation_method ?? 'straight_line').replace(/_/g, ' ')}</td>
                     </tr>
                   ))}
                 </tbody>

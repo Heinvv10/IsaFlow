@@ -77,7 +77,7 @@ export function Drawer({
       >
         {/* Header */}
         <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4 dark:border-white/[0.08]">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 max-lg:min-w-0 max-lg:break-words">
             {title}
           </h2>
           <button
@@ -88,7 +88,8 @@ export function Drawer({
               'rounded-md p-1 text-gray-400 transition-colors',
               'hover:bg-gray-100 hover:text-gray-600',
               'dark:hover:bg-gray-800 dark:hover:text-gray-300',
-              'ff-focus-ring'
+              'ff-focus-ring',
+              'max-lg:inline-flex max-lg:min-h-11 max-lg:min-w-11 max-lg:shrink-0 max-lg:items-center max-lg:justify-center'
             )}
           >
             <X size={20} aria-hidden="true" />
