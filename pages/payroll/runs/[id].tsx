@@ -30,6 +30,7 @@ import { SalaryBankFileCard } from '@/components/payroll/SalaryBankFileCard';
 import { runPeriodTitle } from '@/components/payroll/RunCards';
 import { emptyLinesMessage } from '@/components/payroll/runEmptyLines';
 import { FrequencyChangeCard } from '@/components/payroll/FrequencyChangeCard';
+import { RecurringShareCard } from '@/components/payroll/RecurringShareCard';
 
 
 export default function PayrollRunDetailPage() {
@@ -114,6 +115,9 @@ export default function PayrollRunDetailPage() {
           <SelfApprovedNote decision={run.approvalDecision} />
           {(run.status === 'draft' || run.status === 'calculated') && canWrite(companyRole) && (
             <FrequencyChangeCard runId={runId} canAcknowledge={companyRole === 'owner' || companyRole === 'admin'} />
+          )}
+          {(run.status === 'draft' || run.status === 'calculated') && canWrite(companyRole) && (
+            <RecurringShareCard runId={runId} canAcknowledge={companyRole === 'owner' || companyRole === 'admin'} />
           )}
           {error && (
             <div className="px-4 py-2 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm">{error}</div>
