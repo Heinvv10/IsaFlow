@@ -46,11 +46,12 @@ export function setCommitBoundForTests(ms: number): () => void {
 /**
  * The COMMIT of a request transaction did not answer (or failed): whether it landed is unknown. Any other failure rolled the batch back.
  * `result` is what the request's work returned before the COMMIT (a live batch: the tool's own answer), so a caller can say what the batch
- * did if the COMMIT landed, never falling back on the dry run's answer. `connectionLost`: the client reported its connection lost during
- * the request (round 19, B19-1), so a failure the tool answered was the lost connection, not a refusal.
+ * did if the COMMIT landed, never falling back on the dry run's answer. `connectionLost`: the connection was lost (B19-1, R20-2).
+ * `lostDuringRequest`: it was lost BEFORE the COMMIT was sent, so a failure the tool answered was that loss, not a refusal; lost at the
+ * COMMIT itself, the tool's answer stands, a refusal among them (B21-1).
  */
 export class CommitUnconfirmedError extends Error {
-  constructor(message: string, readonly result: unknown, readonly connectionLost = false) { super(message); }
+  constructor(message: string, readonly result: unknown, readonly connectionLost = false, readonly lostDuringRequest = false) { super(message); }
 }
 
 /**
@@ -66,13 +67,15 @@ export class ConnectionLostError extends Error {
 }
 
 /**
- * The error of a connection that ended: the server terminated the backend (57P01-03), a connection exception (08xxx), or pg's own
- * message. Nothing else: a cancel or timeout (57014), a constraint, a serialization failure or a refused connect is not a loss (R21-1).
+ * The error of a connection that ended: the server terminated the backend (57P01-03), or pg's own client error (no code) for a
+ * connection that ended. Nothing else (R21-1, B21-2): not a cancel or timeout (57014), a constraint, a serialization failure, a refused
+ * connect, nor a code or a message that only looks like a loss (an 08006 or "terminating connection" raised by the books' own SQL on a
+ * live connection). A connection that really ended also emits the client's 'error', which is listened to.
  */
 const connectionEnded = (err: unknown): boolean => {
   const code = typeof err === 'object' && err !== null ? (err as { code?: unknown }).code : undefined; // a thrown null / undefined (R21-4)
-  return (typeof code === 'string' && (/^57P0[123]$/.test(code) || code.startsWith('08')))
-    || /Connection terminated|terminating connection/i.test(err instanceof Error ? err.message : String(err));
+  if (typeof code === 'string') return /^57P0[123]$/.test(code);
+  return code === undefined && err instanceof Error && /^Connection terminated/.test(err.message);
 };
 
 const WRITE_TOOLS = new Set(mcpRegistry.listTools().filter((t) => t.write).map((t) => t.name));
@@ -150,6 +153,7 @@ export async function withToolSession<T>(
     }
     if (txCtx.rollbackOnly) throw new Error(`the request transaction was marked rollback-only: ${txCtx.rollbackOnly}`);
     let commitTimer: ReturnType<typeof setTimeout> | undefined;
+    const lostBeforeCommit = lost !== null; // B21-1: lost during the request (the tool's failure was the loss), or at the COMMIT itself
     try {
       // Bounded like the ROLLBACK: a connection that never answers must not hang the run. A timeout is "unconfirmed", never "failed".
       await Promise.race([
@@ -159,7 +163,7 @@ export async function withToolSession<T>(
     } catch (err) {
       // A backend killed DURING the COMMIT rejects it with a FATAL (57P01-03) before the client emits 'error' (R20-2): lost too.
       if (lost === null && connectionEnded(err)) lost = err as Error;
-      throw new CommitUnconfirmedError(err instanceof Error ? err.message : String(err), result, lost !== null);
+      throw new CommitUnconfirmedError(err instanceof Error ? err.message : String(err), result, lost !== null, lostBeforeCommit);
     } finally {
       clearTimeout(commitTimer);
     }

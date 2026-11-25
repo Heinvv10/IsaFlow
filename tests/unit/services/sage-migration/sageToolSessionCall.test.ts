@@ -71,12 +71,13 @@ describe('(c) B19-1: a connection lost while the client is checked out', () => {
     const err = await withToolSession(lossPool, 'c1', 'u1', true, (s) => s.call('w', { idempotency_key: 'k' })).then(() => null, (e: unknown) => e);
     expect(err).toBeInstanceOf(CommitUnconfirmedError);
     expect((err as CommitUnconfirmedError).connectionLost).toBe(true);
+    expect((err as CommitUnconfirmedError).lostDuringRequest).toBe(true); // B21-1: the tool's failed answer was the loss
     expect(client.listenerCount('error')).toBe(0);
     expect(client.release).toHaveBeenCalledWith(true);
   });
-  it('R20-2: a backend killed DURING the COMMIT (FATAL 57P01 rejects it before any client error): connectionLost', async () => {
+  it('R20-2: a backend killed DURING the COMMIT (FATAL 57P01 rejects it before any client error): connectionLost, not during the request', async () => {
     for (const fatal of [Object.assign(new Error('terminating connection due to administrator command'), { code: '57P01' }), Object.assign(new Error('the database system is shutting down'), { code: '57P03' }),
-      Object.assign(new Error('server closed the connection'), { code: '08006' }), new Error('Connection terminated unexpectedly')]) {
+      new Error('Connection terminated unexpectedly')]) {
       const client = Object.assign(new EventEmitter(), {
         query: async (text: string) => { if (text === 'COMMIT') throw fatal; return { rows: [] }; },
         release: vi.fn(),
@@ -84,6 +85,7 @@ describe('(c) B19-1: a connection lost while the client is checked out', () => {
       registry.call.mockResolvedValueOnce(ok('{"created":1}'));
       const err = await withToolSession({ connect: async () => client } as never, 'c1', 'u1', true, (s) => s.call('w', { idempotency_key: 'k' })).then(() => null, (e: unknown) => e);
       expect((err as CommitUnconfirmedError).connectionLost, fatal.message).toBe(true);
+      expect((err as CommitUnconfirmedError).lostDuringRequest, fatal.message).toBe(false); // B21-1: the tool's answer stands
       expect(client.release, fatal.message).toHaveBeenCalledWith(true);
     }
   });
@@ -135,7 +137,10 @@ const notLost = () => [
   Object.assign(new Error('could not serialize access due to concurrent update'), { code: '40001' }),
   new Error('connect ECONNREFUSED 127.0.0.1:5432: connection refused'),
   Object.assign(new Error('sorry, too many clients already'), { code: '53300' }),
-  Object.assign(new Error('feature not supported'), { code: '0A000' }), // class 0A, not 08
+  Object.assign(new Error('feature not supported'), { code: '0A000' }),
+  // B21-2: raised by the books' own SQL on a live connection (a trigger): a code or a message that only LOOKS like a loss
+  Object.assign(new Error('b21 fake connection failure'), { code: '08006' }),
+  Object.assign(new Error('terminating connection due to administrator command (b21 fake)'), { code: 'P0001' }),
 ];
 
 describe('R21-1: the classifier\'s negative side', () => {

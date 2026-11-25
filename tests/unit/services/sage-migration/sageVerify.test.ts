@@ -86,9 +86,9 @@ describe('unconfirmedBatch (B12-1, L3 round 13)', () => {
   it('no result at all: no answer', () => {
     expect(unconfirmedBatch(failed, undefined)).toMatchObject({ commitUnconfirmed: true, toolReported: null });
   });
-  it('B19-1: the connection was lost: never "the tool refused", no toolRefused, no live answer', () => {
+  it('B19-1: the connection was lost DURING the request: its failed answer was the loss: never "the tool refused", no live answer', () => {
     const refusedByLoss = batch('item', 2, { status: 'failed', toolReported: { error: 'The operation failed.' }, error: 'The operation failed. Please try again or contact support.' });
-    const b = unconfirmedBatch(failed, refusedByLoss, true);
+    const b = unconfirmedBatch(failed, refusedByLoss, true, true);
     expect(b).toMatchObject({ commitUnconfirmed: true, toolReported: null, error: 'the connection was lost; its COMMIT was not confirmed (COMMIT did not answer)' });
     expect(b.toolRefused).toBeUndefined();
   });
@@ -98,6 +98,13 @@ describe('unconfirmedBatch (B12-1, L3 round 13)', () => {
       error: 'the connection was lost; its COMMIT was not confirmed (COMMIT did not answer)' });
     expect(unconfirmedBatch(failed, { ...live, replayed: true }, true).replayed).toBe(true);
     expect(unconfirmedBatch(failed, live, true).toolRefused).toBeUndefined();
+  });
+  it('B21-1: a REFUSAL whose COMMIT then lost its connection (not during the request): the refusal is kept, and the loss said', () => {
+    const refused = batch('item', 2, { status: 'failed', toolReported: null, error: 'b21: the books refuse this item' });
+    const failedAtCommit = batch('item', 2, { status: 'failed', toolReported: null, error: 'terminating connection due to administrator command' });
+    const b = unconfirmedBatch(failedAtCommit, refused, true, false);
+    expect(b).toMatchObject({ commitUnconfirmed: true, toolRefused: true, toolReported: null,
+      error: 'the tool refused this batch (b21: the books refuse this item); its COMMIT was not confirmed: the connection was lost (terminating connection due to administrator command)' });
   });
 });
 
