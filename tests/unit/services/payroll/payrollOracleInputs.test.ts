@@ -106,4 +106,18 @@ describe('every fixture input reaches the calculator, or has a named owner', () 
     expect(shareOf('starter-raise-mid-month-sums-to-window')).toEqual(['8/18', '10/18']);
     expect(shareOf('weekly-split-same-amount-sums-to-whole')).toEqual(['3/7', '4/7']);
   });
+
+  // Review #1901 L3: overtime is priced on the basic in force on the period's last day, as production's monthlyBasicOf reads it.
+  it('overtime after a mid-month raise is priced on the raised basic, not the row that ended', () => {
+    const c = JSON.parse(JSON.stringify(cases.find(k => k.id === 'recurring-start-mid-month-monthly'))) as typeof cases[number];
+    c.input.components = [
+      { code: '3601', name: 'Basic salary', type: 'earning', amount: 4000, taxable: true, uif: true, sdl: true, effectiveFrom: '2020-03-01', effectiveTo: '2026-07-15' },
+      { code: '3601', name: 'Basic salary (raised)', type: 'earning', amount: 4800, taxable: true, uif: true, sdl: true, effectiveFrom: '2026-07-16' },
+    ];
+    c.input.unmodelled = { ordinaryHoursPerWeek: 40, overtimeHours: 10, overtimeMultiplier: 1.5 };
+    const ot = buildCaseInput(c).components.find(x => x.component.sarsSourceCode === '3607')!;
+    // 4 800 / (40 x 52 / 12) = 27.69 an hour, x 1.5 x 10 hours = 415.35 (on the ended R4 000 row it would be 346.20).
+    expect(ot.amount).toBe(415.35);
+  });
 });
+

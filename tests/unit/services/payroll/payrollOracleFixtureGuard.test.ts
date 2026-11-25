@@ -192,3 +192,14 @@ describe('oracle fixture guard: W29 dates (wave 7 PRA)', () => {
     expect(() => validateCase(c, FILE)).toThrow(re);
   });
 });
+
+describe('oracle fixture guard: no window on a prior period (review #1901 L4)', () => {
+  it('refuses effectiveFrom / effectiveTo on a prior period component, which nothing reads', () => {
+    const c = JSON.parse(readFileSync(join(ORACLE_DIR, 'monthly-raise-averaged-with-priors.json'), 'utf8')) as Record<string, unknown>;
+    const prior = ((c.input as Record<string, unknown>).priorPeriods as Array<{ components: Array<Record<string, unknown>> }>)[0]!;
+    expect(() => validateCase(c, 'monthly-raise-averaged-with-priors.json')).not.toThrow();
+    prior.components[0]!.effectiveFrom = '2026-03-16';
+    expect(() => validateCase(c, 'monthly-raise-averaged-with-priors.json')).toThrow(/not read on a prior period/);
+  });
+});
+
