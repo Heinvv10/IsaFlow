@@ -3,7 +3,7 @@
  *
  * Focus stays on the trigger of a non-searchable select (a press in the panel does not take it), so the trigger
  * handler owns every key there. Enter and Space choose the active option; Tab closes without choosing; Home and End
- * jump; arrows skip disabled options. Escape closes an open list and goes no further (a Modal or Drawer around it
+ * jump; arrows skip disabled options. Escape closes an open list and goes no further (a Modal or other key handler around it
  * closes on Escape, and would take the user's input with it); on a closed trigger it reaches them as before. Printable keys type ahead: they move the ACTIVE option (opening the list when
  * it is closed) and never the value, which changes only on Enter, Space or a click. While a type-ahead prefix is
  * live, Space is part of it instead of a choice. A searchable select seeds its search box with a first key typed on
