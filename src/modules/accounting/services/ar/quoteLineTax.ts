@@ -27,7 +27,7 @@ import { InvoiceLineVatRefusal, type DocumentLineVatType, type ResolvedLineVat }
 import { invoiceVatParties, resolveInvoiceVatFor } from './invoiceLineVatDefaults';
 import { priceInvoiceVat, type AmountsAre, type VatPricedHeader, type VatPricedLine } from './invoiceLineVatPricing';
 import {
-  keptQuoteTypes, legacyLinesUnchanged, matchQuoteLines, normalItem, unmatchedItemProblem, unmatchedVatProblem, type LineMatch, type StoredQuote,
+  keptQuoteTypes, legacyLinesUnchanged, matchQuoteLines, normalItem, unknownIdProblem, unmatchedItemProblem, unmatchedVatProblem, type LineMatch, type StoredQuote,
   type StoredQuoteVatLine,
 } from './quoteEditLines';
 import { typedLinesProblem } from './invoiceVatLegs';
@@ -88,25 +88,26 @@ function lineRefs(lines: readonly QuoteVatLineIn[], sent: readonly QuoteVatLineI
 
 
 /**
- * An edit's lines through itemEditLines (inheritance by the identical line, `null` / '' clearing), with every NAMED item
- * judged here instead, against the line's OWN matched stored line (quoteEditLines, by id, place or content): an item
- * that line already carries is not re-checked (deactivated since must not refuse the save of the line that carries it);
- * any other named item, a twin carrying it or not, is NEW and checked (this company's, active, its default account
- * active) by applyItemLineDefaults, which also gives it its default account when the line names none. A standard-only
- * line whose item and account cannot be read is refused first (unmatchedItemProblem). lineRefs then writes the items
- * and accounts.
+ * An edit's lines, items judged against the line's OWN matched stored line (quoteEditLines, by id, place or content).
+ * Refused first: an id this quote does not hold (unknownIdProblem), and a standard-only line whose item and account
+ * cannot be read (unmatchedItemProblem). A line with no itemId inherits nothing here (no identical-line pool: an
+ * unmatched line is a new line, with no item unless it names one); a matched one keeps its stored item in lineRefs. A
+ * NAMED item that line already carries is not re-checked (deactivated since must not refuse the save of the line that
+ * carries it); any other, a twin carrying it or not, is NEW and checked (this company's, active, its default account
+ * active) by applyItemLineDefaults, which also gives it its default account when the line names none.
  */
 export async function quoteEditItemLines<L extends { description: string; quantity: number; unitPrice: number; itemId?: string | null; accountId?: string; taxRate?: number | null }>(
   companyId: string, sent: readonly L[], storedQuote: StoredQuote, quoteDate: string,
 ): Promise<L[]> {
   const matched = matchQuoteLines(sent, storedQuote.lines, quoteDate);
-  const ambiguous = unmatchedItemProblem(sent, matched);
-  if (ambiguous) throw new ItemLineRefusal(ambiguous);
+  const problem = unknownIdProblem(sent, matched) ?? unmatchedItemProblem(sent, matched);
+  if (problem) throw new ItemLineRefusal(problem);
   const named = sent.map((l) => normalItem(l.itemId));
   const isNew = named.map((n, i) => n !== null && n !== normalItem(matched.matches[i]?.stored.itemId));
+  // No identical-line pool: a line takes an item only from its match (lineRefs) or by naming one; this pass refuses a
+  // non-string itemId and reads '' as no item.
   const resolved = await resolveEditLineItemsAccountId(companyId, 'sales', sent.map((l, i) => (named[i] !== null ? { ...l, itemId: undefined } : l)),
-    storedQuote.lines.map((l) => ({ itemId: l.itemId ?? null, description: l.description, quantity: l.quantity, unitPrice: l.unitPrice })),
-    (i) => `items[${i}]`);
+    [], (i) => `items[${i}]`);
   const wanted = isNew.flatMap((n, i) => (n ? [i] : []));
   const checked = wanted.length === 0 ? [] : await applyItemLineDefaults(
     companyId, wanted.map((i) => ({ itemId: named[i]!, glAccountId: sent[i]!.accountId })), 'sales', (k) => `items[${wanted[k]}]`,
