@@ -101,3 +101,19 @@ export async function isSupplierLive(companyId: string, supplierId: string): Pro
   `) as DbRow[];
   return rows.length > 0;
 }
+
+/**
+ * The refusal for a match whose purchase order's supplier was merged away between the read and the lock (#1882 fix-verify L3): it
+ * names the survivor, which the merge moved the order to, and says to retry the match. A plain delete says so instead.
+ */
+export async function mergedPoSupplierRefusal(companyId: string, supplierId: string): Promise<string> {
+  const [row] = (await sql`
+    SELECT s.name, sv.name AS survivor FROM suppliers s
+      LEFT JOIN suppliers sv ON sv.id = s.merged_into_id AND sv.company_id = s.company_id
+     WHERE s.id = ${supplierId}::UUID AND s.company_id = ${companyId}::UUID
+  `) as DbRow[];
+  const name = String(row?.name ?? 'This supplier');
+  return row?.survivor != null
+    ? `${name} was merged into ${String(row.survivor)} while this line was being matched, and the purchase order moved with it. Match the line again.`
+    : `${name} was deleted while this line was being matched. Match the line to a live supplier's purchase order or invoice instead.`;
+}

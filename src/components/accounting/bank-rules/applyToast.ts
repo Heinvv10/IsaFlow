@@ -24,6 +24,18 @@ export interface ApplyResultParts {
   autoPostSkippedOwnBankContra?: number;
   autoPostSkippedDuplicateTransfer?: number;
   autoPostSkippedApprovalRequired?: number;
+  autoPostSkippedSupplierMerged?: number;
+  autoPostSupplierMergedRules?: Array<{ ruleName: string; supplierName: string; survivorName: string | null; lines: number }>;
+}
+
+/** One sentence per supplier rule that names a merged-away supplier: which rule, which supplier, where to re-point it (#1882 M1). */
+export function mergedRuleSentences(rules: ApplyResultParts['autoPostSupplierMergedRules']): string[] {
+  return (rules ?? []).map((r) => {
+    const lines = `${r.lines} skipped`;
+    return r.survivorName
+      ? `${lines} (rule "${r.ruleName}" names ${r.supplierName}, which was merged into ${r.survivorName} — edit the rule to name ${r.survivorName})`
+      : `${lines} (rule "${r.ruleName}" names ${r.supplierName}, which was deleted — edit the rule to name a live supplier)`;
+  });
 }
 
 export interface ApplyToast {
@@ -57,6 +69,7 @@ export function buildApplyToast(parts: ApplyResultParts): ApplyToast {
   const ownBank = parts.autoPostSkippedOwnBankContra ?? 0;
   const duplicate = parts.autoPostSkippedDuplicateTransfer ?? 0;
   const approval = parts.autoPostSkippedApprovalRequired ?? 0;
+  const supplierMerged = parts.autoPostSkippedSupplierMerged ?? 0;
   const bits: string[] = [`${applied} categorised`];
   if (skippedClosed > 0) bits.push(`${skippedClosed} skipped (closed period)`);
   if (skippedNoPeriod > 0) bits.push(`${skippedNoPeriod} skipped (no fiscal period)`);
@@ -72,6 +85,7 @@ export function buildApplyToast(parts: ApplyResultParts): ApplyToast {
   if (ownBank > 0) bits.push(`${ownBank} skipped (the rule's account is this bank account itself — point it at the other bank)`);
   if (duplicate > 0) bits.push(`${duplicate} skipped (the transfer is already in the ledger — match the line to it)`);
   if (approval > 0) bits.push(`${approval} skipped (an approval rule holds it, or you imported the statement — allocate it by hand or have another member run the rules)`);
+  if (supplierMerged > 0) bits.push(...mergedRuleSentences(parts.autoPostSupplierMergedRules));
   if (truncated > 0) bits.push(`${truncated} rule${truncated > 1 ? 's' : ''} hit the 500-transaction cap — run again`);
   const message = bits.join(' · ');
   // Warn when something silently dropped: bank-not-GL-linked is always silent;
@@ -81,9 +95,9 @@ export function buildApplyToast(parts: ApplyResultParts): ApplyToast {
   // which simply means someone else got to the transaction first.
   const hasCollateral = skippedClosed > 0 || skippedNoPeriod > 0 || skippedVatLocked > 0 || skippedHeader > 0 || skippedRefund > 0 || skippedControl > 0 || skippedVatCode > 0
     || noBankGl > 0 || foreign > 0
-    || raced > 0 || locked > 0 || truncated > 0 || ownBank > 0 || duplicate > 0 || approval > 0;
+    || raced > 0 || locked > 0 || truncated > 0 || ownBank > 0 || duplicate > 0 || approval > 0 || supplierMerged > 0;
   // A header, control-account, VAT-code, own-bank, foreign-contact or approval-held skip recurs on every run until it is dealt with: never a quiet success.
-  const kind = noBankGl > 0 || skippedHeader > 0 || skippedControl > 0 || skippedVatCode > 0 || foreign > 0 || ownBank > 0 || approval > 0
+  const kind = noBankGl > 0 || skippedHeader > 0 || skippedControl > 0 || skippedVatCode > 0 || foreign > 0 || ownBank > 0 || approval > 0 || supplierMerged > 0
     || (applied === 0 && hasCollateral) ? 'warn' : 'success';
   return { kind, message };
 }
@@ -128,9 +142,11 @@ export function reportCreated(headline: string, data: Record<string, unknown> | 
     autoPostSkippedOwnBankContra: n('autoPostSkippedOwnBankContra'),
     autoPostSkippedDuplicateTransfer: n('autoPostSkippedDuplicateTransfer'),
     autoPostSkippedApprovalRequired: n('autoPostSkippedApprovalRequired'),
+    autoPostSkippedSupplierMerged: n('autoPostSkippedSupplierMerged'),
   };
   const anythingToReport = Object.values(parts).reduce((sum, v) => sum + v, 0);
-  if (anythingToReport > 0) emitApplyToast(headline, parts);
+  const mergedRules = data?.autoPostSupplierMergedRules as ApplyResultParts['autoPostSupplierMergedRules'];
+  if (anythingToReport > 0) emitApplyToast(headline, { ...parts, autoPostSupplierMergedRules: mergedRules });
   else notify.success(headline);
-  return parts.applied > 0 ? { ...parts, skipped: 0 } : null;
+  return parts.applied > 0 ? { ...parts, autoPostSupplierMergedRules: mergedRules, skipped: 0 } : null;
 }

@@ -27,6 +27,7 @@ import { refreshAppBillLinks } from './billPurchaseOrderLinks';
 import { applyDraftGrn, planDraftGrn, type DraftGrnPlan } from './supplierInvoiceDraftGrn';
 import { asBillSupplierDeleted, BillSupplierDeletedError } from './billSupplierLive';
 import { lockSupplierIfLive } from '../core/supplierLiveLock';
+import { lockSuppliersBeforeBill } from './draftBillSupplierLocks';
 import { asBillGrnRefused, lockNotePo } from './billGoodsReceivedLink';
 import type { DueDateSource } from '../shared/dueDateSource';
 import {
@@ -100,7 +101,11 @@ export async function lockAndPlanSupplierInvoiceDraftUpdate(
   // caught error does not un-abort it — the registry's RELEASE would then 25P02
   // and the agent would get GENERIC_FAILURE instead of the "retry" wording.
   // The row lock itself survives the RELEASE; the parent inherits it.
+  // A supplier change takes BOTH suppliers, old and new, FOR KEY SHARE in id order BEFORE the bill (lockSuppliersBeforeBill): a merge
+  // holds both suppliers and then waits on the bill, so a bill lock first was a 40P01 when the new supplier is the merge's survivor.
+  const lockedSuppliers = await withSavepoint('usi_supplier_lock', () => lockSuppliersBeforeBill(companyId, invoiceId, patch.supplierId));
   const row = await withSavepoint('usi_bill_lock', () => lockSupplierInvoiceForUpdate(companyId, invoiceId));
+  if (row && lockedSuppliers && !lockedSuppliers.includes(String(row.supplier_id))) throw new BillSupplierDeletedError();
   // One reply for absent, foreign and soft-deleted: no existence oracle.
   if (!row || row.deleted_at) throw new SupplierInvoiceDraftUpdateRefusal('Not found');
   const number = String(row.invoice_number);

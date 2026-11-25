@@ -151,3 +151,21 @@ describe('buildApplyToast — WP2 row 5 transfer and approval skips', () => {
     expect(r.kind).toBe('warn');
   });
 });
+
+describe('supplier rules on a merged-away supplier (#1882 fix-verify M1)', () => {
+  it('names each rule, its supplier and the survivor to re-point it to, and warns', async () => {
+    const { buildApplyToast, mergedRuleSentences } = await import('@/components/accounting/bank-rules/applyToast');
+    const rules = [
+      { ruleName: 'Telkom debit', supplierName: 'Telkom SA', survivorName: 'Telkom SA (merged)', lines: 2 },
+      { ruleName: 'Old vendor', supplierName: 'Gone CC', survivorName: null, lines: 1 },
+    ];
+    expect(mergedRuleSentences(rules)).toEqual([
+      '2 skipped (rule "Telkom debit" names Telkom SA, which was merged into Telkom SA (merged) — edit the rule to name Telkom SA (merged))',
+      '1 skipped (rule "Old vendor" names Gone CC, which was deleted — edit the rule to name a live supplier)',
+    ]);
+    const t = buildApplyToast({ applied: 5, autoPostSkippedSupplierMerged: 3, autoPostSupplierMergedRules: rules });
+    expect(t.kind).toBe('warn');
+    expect(t.message).toContain('edit the rule to name Telkom SA (merged)');
+    expect(t.message).not.toContain('allocated by another request');
+  });
+});

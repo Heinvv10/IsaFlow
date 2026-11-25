@@ -15,6 +15,7 @@ import { useBankRuleRefData } from '@/components/accounting/bank-rules/useBankRu
 import { BankRulesHeader } from '@/components/accounting/bank-rules/BankRulesHeader';
 import { BankRulesTable } from '@/components/accounting/bank-rules/BankRulesTable';
 import { useBankRules, type BankRule } from '@/components/accounting/bank-rules/useBankRules';
+import { mergedRuleSentences } from '@/components/accounting/bank-rules/applyToast';
 import { useBankRuleChanges } from '@/components/accounting/bank-rules/useBankRuleChanges';
 import { PendingRuleChangesPanel } from '@/components/accounting/bank-rules/PendingRuleChangesPanel';
 
@@ -134,6 +135,18 @@ export default function BankRulesPage() {
                 left them alone rather than posting a second journal on top. Nothing was lost —
                 re-run rules if you want to check what is still uncategorised.
               </p>
+            </div>
+          ) : null}
+          {rules.applyResult?.autoPostSkippedSupplierMerged ? (
+            <div className="p-3 rounded-lg bg-amber-500/10 text-amber-300 text-sm" data-testid="rules-supplier-merged">
+              <p className="font-medium">
+                {rules.applyResult.autoPostSkippedSupplierMerged} transaction
+                {rules.applyResult.autoPostSkippedSupplierMerged > 1 ? 's were' : ' was'} skipped
+                — the rule names a supplier that was merged into another.
+              </p>
+              <ul className="text-xs mt-1 list-disc pl-4">
+                {mergedRuleSentences(rules.applyResult.autoPostSupplierMergedRules).map((line) => <li key={line}>{line}</li>)}
+              </ul>
             </div>
           ) : null}
           {rules.applyResult?.autoPostRulesSkippedNoBankGl ? (

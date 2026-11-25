@@ -21,7 +21,7 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { formatCents } from '@/lib/money/formatMoney';
 import { withRowLockBudget, RowLockTimeoutError } from '../core/rowLockBudget';
-import { lockSupplierIfLive, SUPPLIER_NOT_LIVE_REFUSAL } from '../core/supplierLiveLock';
+import { lockSupplierIfLive, mergedPoSupplierRefusal } from '../core/supplierLiveLock';
 import { toCents } from '../ap/billAllocatable';
 import { allocateTransaction } from './bankAllocationService';
 import { lockBankTransactionForUpdate } from './bankTxLock';
@@ -60,7 +60,9 @@ export async function confirmPurchaseOrderMatch(
     SELECT supplier_id::TEXT AS supplier_id FROM purchase_orders
     WHERE id = ${purchaseOrderId}::UUID AND company_id = ${companyId}::UUID`) as Record<string, unknown>[];
   if (!peek) return { ok: false, kind: 'not_found', resource: 'Purchase order' };
-  if (!(await lockSupplierIfLive(companyId, String(peek.supplier_id)))) return { ok: false, kind: 'refused', message: SUPPLIER_NOT_LIVE_REFUSAL };
+  if (!(await lockSupplierIfLive(companyId, String(peek.supplier_id)))) {
+    return { ok: false, kind: 'refused', message: await mergedPoSupplierRefusal(companyId, String(peek.supplier_id)) };
+  }
   const [po] = await withRowLockBudget(async () => (await sql`
     SELECT id, supplier_id, status, total FROM purchase_orders
     WHERE id = ${purchaseOrderId}::UUID AND company_id = ${companyId}::UUID

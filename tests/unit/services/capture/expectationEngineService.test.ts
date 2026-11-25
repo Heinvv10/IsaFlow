@@ -33,6 +33,7 @@ vi.mock('@/modules/accounting/services/core/contactDirectoryService', () => ({
   assertSupplierInCompany: vi.fn(async () => undefined),
 }));
 
+import { RowLockTimeoutError } from '@/modules/accounting/services/core/rowLockBudget';
 import {
   recomputeAllForCompany,
   recomputeForSupplier,
@@ -268,12 +269,12 @@ describe('recomputeForSupplier', () => {
 });
 
 describe('recomputeAllForCompany (#1882 L3)', () => {
-  it('recomputes each supplier in its own savepoint, so one failure leaves the request usable for the next', async () => {
+  it('recomputes each supplier in its own savepoint, so a held supplier leaves the request usable for the next', async () => {
     vi.mocked(sqlMock).mockReset();
     savepointSpy.mockClear();
     vi.mocked(sqlMock)
       .mockResolvedValueOnce([{ supplier_id: 'sup-a' }, { supplier_id: 'sup-b' }] as never) // suppliers with bills
-      .mockRejectedValueOnce(new Error('first supplier fails')) // sup-a: its invoice read
+      .mockRejectedValueOnce(new RowLockTimeoutError('A supplier being merged')) // sup-a: held past the budget
       .mockResolvedValueOnce([] as never) // sup-b: invoices
       .mockResolvedValueOnce([] as never) // sup-b: existing expectation
       .mockResolvedValueOnce([{ id: 'sup-b' }] as never) // sup-b: live, FOR KEY SHARE
@@ -283,6 +284,15 @@ describe('recomputeAllForCompany (#1882 L3)', () => {
 
     expect(savepointSpy.mock.calls.map((c) => c[0])).toEqual(['recompute_expectation', 'recompute_expectation']);
     expect(result.processed).toBe(1);
+  });
+
+  it('a real failure (not a held or merged-away supplier) fails the run instead of being logged and skipped (#1882 L2)', async () => {
+    vi.mocked(sqlMock).mockReset();
+    vi.mocked(sqlMock)
+      .mockResolvedValueOnce([{ supplier_id: 'sup-a' }, { supplier_id: 'sup-b' }] as never)
+      .mockRejectedValueOnce(new Error('relation "supplier_invoices" does not exist'));
+
+    await expect(recomputeAllForCompany(COMPANY_ID)).rejects.toThrow('does not exist');
   });
 });
 

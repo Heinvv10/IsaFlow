@@ -84,7 +84,10 @@ export async function seedBankLine(pool: Pool, fx: BillFixture, amount: number):
                     VALUES ($1, $2, '2026-06-20', $3, 'EFT', 'imported') RETURNING id`, [fx.co, bank, amount])).rows[0].id);
 }
 
-/** The cluster's deadlock count (pg_stat_database): a race test asserts it did not move. */
-export const deadlocks = async (pool: Pool): Promise<number> =>
-  Number((await pool.query('SELECT deadlocks FROM pg_stat_database WHERE datname = current_database()')).rows[0].deadlocks);
+/**
+ * Whether a settled side died as a deadlock victim (SQLSTATE 40P01, or a typed lock error wrapping one). Asserted on the OUTCOME of
+ * both sides, never on pg_stat_database.deadlocks, which the stats collector reports up to about a second late (#1882 L4).
+ */
+export const isDeadlockVictim = (e: unknown): boolean =>
+  (e as { code?: unknown } | null)?.code === '40P01' || /deadlock detected/i.test(e instanceof Error ? e.message : String(e ?? ''));
 

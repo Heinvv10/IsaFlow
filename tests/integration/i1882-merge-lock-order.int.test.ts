@@ -18,7 +18,7 @@ import { dropBillFixture, makeBill, openRequest, seedBillFixture, type BillFixtu
 import { seedSupplier } from './helpers/poBillLinkHarness';
 import { callTool, dropGrnExtras, dropMaintExtras, grnArgs, seedQtyPo } from './helpers/grnHarness';
 import {
-  deadlocks, dropMergeRaceExtras, holdRow, pausedMerge, seedBankLine, startRequest, waitsOnLock,
+  isDeadlockVictim, dropMergeRaceExtras, holdRow, pausedMerge, seedBankLine, startRequest, waitsOnLock,
 } from './helpers/mergeRace';
 import { mergeEntities } from '@/modules/accounting/services/core/duplicateMergeService';
 import { autoPostApprovalGuard } from '@/modules/accounting/services/bank/bankRuleAutoPostApproval';
@@ -27,6 +27,7 @@ import { allocateTransaction } from '@/modules/accounting/services/bank/bankAllo
 import { splitAllocateTransaction } from '@/modules/accounting/services/bank/bankSplitAllocate';
 import { planSupplierRefund } from '@/modules/accounting/services/ap/supplierRefundDocument';
 import { autoPostRuleLine } from '@/modules/accounting/services/bank/bankRuleAutoPostLine';
+import { applyRules } from '@/modules/accounting/services/bank/bankRulesMatchingService';
 import {
   applySupplierInvoiceDraftUpdate, lockAndPlanSupplierInvoiceDraftUpdate,
 } from '@/modules/accounting/services/ap/supplierInvoiceDraftUpdate';
@@ -57,7 +58,6 @@ const journals = async (fx: BillFixture) =>
  */
 async function queuedBehindMerge<T>(fx: BillFixture, target: string, write: () => Promise<T>) {
   const hold = await holdRow(pool, 'SELECT id FROM suppliers WHERE id = $1 FOR UPDATE', [fx.supplier]);
-  const before = await deadlocks(pool);
   let merge: Awaited<ReturnType<typeof startRequest>> | undefined;
   let writer: Awaited<ReturnType<typeof startRequest<T>>> | undefined;
   try {
@@ -66,7 +66,9 @@ async function queuedBehindMerge<T>(fx: BillFixture, target: string, write: () =
     writer = await startRequest(pool, fx, write);
     expect(await waitsOnLock(pool, writer.pid)).toBe(true);
   } finally { await hold.release(); }
-  return { merged: await merge!.done, written: await writer!.done, deadlocked: (await deadlocks(pool)) - before };
+  const merged = await merge!.done;
+  const written = await writer!.done;
+  return { merged, written, deadlocked: isDeadlockVictim(merged.e) || isDeadlockVictim(written.e) };
 }
 
 describe('M1: a bank line matched to a purchase order of the supplier being merged', () => {
@@ -75,10 +77,10 @@ describe('M1: a bank line matched to a purchase order of the supplier being merg
       const po = await seedQtyPo(pool, fx, { lines: [{ qty: 1, price: 100 }] });
       const line = await seedBankLine(pool, fx, -100);
       const out = await queuedBehindMerge(fx, target, () => confirmPurchaseOrderMatch(fx.co, line, po.po, fx.owner, 100));
-      expect(out.deadlocked).toBe(0);
+      expect(out.deadlocked).toBe(false);
       expect(out.merged.e).toBeUndefined();
       expect(out.written.e).toBeUndefined();
-      expect(out.written.v).toMatchObject({ ok: false, kind: 'refused', message: expect.stringContaining(SUPPLIER_NOT_LIVE_REFUSAL) });
+      expect(out.written.v).toMatchObject({ ok: false, kind: 'refused', message: expect.stringContaining('was merged into i1882-m1 target') });
       expect(await journals(fx)).toBe(0);
       expect((await pool.query('SELECT status FROM bank_transactions WHERE id = $1', [line])).rows[0].status).toBe('imported');
     });
@@ -97,11 +99,31 @@ describe('M2: a draft bill moved to the supplier being merged, with a note on it
         const plan = await lockAndPlanSupplierInvoiceDraftUpdate(fx.co, bill, { supplierId: fx.supplier, grnId: note });
         await applySupplierInvoiceDraftUpdate(fx.co, plan, fx.owner);
       });
-      expect(out.deadlocked).toBe(0);
+      expect(out.deadlocked).toBe(false);
       expect(out.merged.e).toBeUndefined();
       expect(out.written.e).toBeInstanceOf(BillSupplierDeletedError);
       expect((await pool.query('SELECT supplier_id::text AS s, grn_id FROM supplier_invoices WHERE id = $1', [bill])).rows)
         .toEqual([{ s: other, grn_id: null }]);
+    });
+  }, 30_000);
+});
+
+describe('M2: a draft bill moved to the supplier its own supplier is being merged into (fix-verify M2)', () => {
+  it('locks both suppliers before the bill, so the merge wins and the edit then finds the bill on the survivor; no 40P01', async () => {
+    await withFixture('i1882-m2-survivor', async (fx) => {
+      // The survivor sorts first: the merge holds it, then waits on the held source row.
+      const survivor = `00000000-0000-4000-8000-${crypto.randomUUID().slice(-12)}`;
+      await pool.query("INSERT INTO suppliers (id, company_id, name, is_active) VALUES ($1, $2, 'i1882 survivor', true)", [survivor, fx.co]);
+      const bill = await makeBill(pool, fx, [{ acct: fx.acc.opex, amount: 20 }]);
+      const out = await queuedBehindMerge(fx, survivor, async () => {
+        const plan = await lockAndPlanSupplierInvoiceDraftUpdate(fx.co, bill, { supplierId: survivor, notes: 'moved' });
+        await applySupplierInvoiceDraftUpdate(fx.co, plan, fx.owner);
+      });
+      expect(out.deadlocked).toBe(false);
+      expect(out.merged.e).toBeUndefined();
+      expect(out.written.e).toBeUndefined();
+      expect((await pool.query('SELECT supplier_id::text AS s, notes FROM supplier_invoices WHERE id = $1', [bill])).rows)
+        .toEqual([{ s: survivor, notes: 'moved' }]);
     });
   }, 30_000);
 });
@@ -139,7 +161,7 @@ describe('L1: a bank-line allocation to a supplier merged away meanwhile is refu
     });
   }, 30_000);
 
-  it('a supplier bank rule (autoPostRuleLine): skipped like a raced line, no journal', async () => {
+  it('a supplier bank rule (autoPostRuleLine): the supplier_merged skip, no journal', async () => {
     await withFixture('i1882-l1-rule', async (fx, target) => {
       const line = await seedBankLine(pool, fx, -70);
       const row = (await pool.query('SELECT * FROM bank_transactions WHERE id = $1', [line])).rows[0];
@@ -149,7 +171,7 @@ describe('L1: a bank-line allocation to a supplier merged away meanwhile is refu
         arAccountId: null, supplierName: 'P5-2 Supplies', supplierId: fx.supplier, customerName: null,
       }));
       expect(out.e).toBeUndefined();
-      expect(out.v).toEqual({ kind: 'raced' });
+      expect(out.v).toEqual({ kind: 'supplier_merged' });
       expect(await journals(fx)).toBe(0);
     });
   }, 30_000);
@@ -162,6 +184,33 @@ describe('L1: a bank-line allocation to a supplier merged away meanwhile is refu
         const err = await r.run(() => planSupplierRefund(fx.co, fx.supplier, 10, '2026-06-20')).then(() => null, (e: unknown) => e);
         expect((err as Error | null)?.message).toBe(SUPPLIER_NOT_LIVE_REFUSAL);
       } finally { await r.rollback(); }
+    });
+  }, 30_000);
+});
+
+describe('fix-verify M1: supplier rules left on a merged-away supplier', () => {
+  it('are a supplier_merged skip in both directions, naming the survivor; never raced or a refund over the ceiling', async () => {
+    await withFixture('i1882-rules-merged', async (fx, target) => {
+      const out = await seedBankLine(pool, fx, -40);
+      const bank = String((await pool.query('SELECT bank_account_id FROM bank_transactions WHERE id = $1', [out])).rows[0].bank_account_id);
+      await pool.query("UPDATE bank_transactions SET description = 'MERGEDPAY 1' WHERE id = $1", [out]);
+      await pool.query(`INSERT INTO bank_transactions (company_id, bank_account_id, transaction_date, amount, description, status)
+                        VALUES ($1, $2, '2026-06-21', 30, 'MERGEDREF 1', 'imported')`, [fx.co, bank]);
+      await pool.query(`INSERT INTO bank_categorisation_rules (company_id, rule_name, match_field, match_type, match_pattern, supplier_id, priority, auto_create_entry, vat_code)
+                        VALUES ($1, 'i1882 pay rule', 'description', 'contains', 'MERGEDPAY', $2, 1, true, 'none'),
+                               ($1, 'i1882 refund rule', 'description', 'contains', 'MERGEDREF', $2, 2, true, 'none')`, [fx.co, fx.supplier]);
+      await pool.query('UPDATE suppliers SET deleted_at = now(), merged_into_id = $2 WHERE id = $1', [fx.supplier, target]);
+      const r = await startRequest(pool, fx, () => applyRules(fx.co, bank, fx.owner));
+      const res = await r.done;
+      try {
+        expect(res.e).toBeUndefined();
+        expect(res.v).toMatchObject({ applied: 0, autoPostSkippedSupplierMerged: 2, autoPostSkippedRaced: 0, autoPostSkippedRefundCeiling: 0 });
+        expect((res.v as { autoPostSupplierMergedRules: unknown[] }).autoPostSupplierMergedRules).toEqual(expect.arrayContaining([
+          { ruleName: 'i1882 pay rule', supplierName: 'P5-2 Supplies', survivorName: 'i1882-rules-merged target', lines: 1 },
+          { ruleName: 'i1882 refund rule', supplierName: 'P5-2 Supplies', survivorName: 'i1882-rules-merged target', lines: 1 },
+        ]));
+        expect(await journals(fx)).toBe(0);
+      } finally { await pool.query('DELETE FROM bank_categorisation_rules WHERE company_id = $1', [fx.co]); }
     });
   }, 30_000);
 });

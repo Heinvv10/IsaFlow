@@ -276,7 +276,10 @@ export async function recomputeAllForCompany(
       processed++;
       if (exp.status === 'locked') locked++;
     } catch (err) {
-      log.warn('recomputeAllForCompany: failed for supplier', {
+      // Only the two expected per-supplier outcomes are skipped: a supplier held past the lock budget (a merge in flight) and one
+      // merged away. Anything else is a real failure and fails the run (#1882 fix-verify L2); the savepoint has rolled it back.
+      if (!(err instanceof RowLockTimeoutError) && !(err instanceof ExpectationSupplierNotLiveError)) throw err;
+      log.warn('recomputeAllForCompany: skipped supplier', {
         supplierId: row.supplier_id, error: err,
       }, 'expectationEngine');
     }

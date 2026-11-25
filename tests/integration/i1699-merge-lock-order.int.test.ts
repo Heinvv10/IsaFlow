@@ -14,7 +14,7 @@ import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { dropBillFixture, makeBill, openRequest, seedBillFixture, type BillFixture } from './helpers/budgetBillFixture';
 import { seedSupplier } from './helpers/poBillLinkHarness';
 import { dropGrnExtras, dropMaintExtras, seedQtyPo } from './helpers/grnHarness';
-import { dropMergeRaceExtras, holdRow, pausedMerge, startRequest, waitsOnLock } from './helpers/mergeRace';
+import { dropMergeRaceExtras, holdRow, isDeadlockVictim, pausedMerge, startRequest, waitsOnLock } from './helpers/mergeRace';
 import { mergeEntities } from '@/modules/accounting/services/core/duplicateMergeService';
 import { autoPostApprovalGuard } from '@/modules/accounting/services/bank/bankRuleAutoPostApproval';
 import { createSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceService';
@@ -36,7 +36,6 @@ async function withFixture(tag: string, fn: (fx: BillFixture, target: string) =>
     await dropMergeRaceExtras(pool, fx); await dropGrnExtras(pool, fx); await dropMaintExtras(pool, fx); await dropBillFixture(pool, fx);
   }
 }
-const deadlocks = async () => Number((await pool.query('SELECT deadlocks FROM pg_stat_database WHERE datname = current_database()')).rows[0].deadlocks);
 const liveOn = async (table: string, supplier: string) =>
   Number((await pool.query(`SELECT count(*) AS n FROM ${table} WHERE supplier_id = $1`, [supplier])).rows[0].n);
 
@@ -44,7 +43,6 @@ describe('M1: a bill create naming a PO of the source, against a merge (no 40P01
   it('the merge queued first on the supplier wins; the bill then finds its supplier merged away (typed refusal); no deadlock', async () => {
     await withFixture('i1699-m1', async (fx, target) => {
       const po = await seedQtyPo(pool, fx, { lines: [{ qty: 2, price: 10 }] });
-      const before = await deadlocks();
       // Both writers queue behind a held supplier row: the merge first (FOR UPDATE), then the bill.
       const hold = await holdRow(pool, 'SELECT id FROM suppliers WHERE id = $1 FOR UPDATE', [fx.supplier]);
       let merge: Awaited<ReturnType<typeof startRequest>> | undefined;
@@ -64,7 +62,7 @@ describe('M1: a bill create naming a PO of the source, against a merge (no 40P01
       const created = await bill!.done;
       expect(merged.e).toBeUndefined();
       expect(created.e).toBeInstanceOf(BillSupplierDeletedError);
-      expect(await deadlocks()).toBe(before);
+      expect(isDeadlockVictim(merged.e) || isDeadlockVictim(created.e)).toBe(false);
       expect((await pool.query('SELECT supplier_id::text AS s FROM purchase_orders WHERE id = $1', [po.po])).rows).toEqual([{ s: target }]);
       expect(await liveOn('supplier_invoices', fx.supplier)).toBe(0);
     });
