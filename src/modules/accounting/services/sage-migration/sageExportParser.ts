@@ -11,7 +11,7 @@
  *     readable code is the PLAN's business: the line goes unlinked (sageMigrationPlan).
  */
 import type { ParsedExport, RowRefusal, SageCategory, SageItem, SagePurchaseOrder } from './sageExportTypes';
-import { invalidTextProblem, isRaw } from './sageValues';
+import { fieldKey, invalidTextProblem, isRaw } from './sageValues';
 import { parseSageItem } from './sageItemParser';
 import { parseSagePurchaseOrder } from './sagePurchaseOrderParser';
 import { importStatusFor } from './sagePoStatus';
@@ -196,8 +196,9 @@ export function parseSageExport(file: unknown): ParsedExport {
   const items: SageItem[] = [];
   itemRows.forEach((raw, i) => {
     const r = parseSageItem(raw, i);
-    // Every row carrying a QuantityOnHand is counted, a refused one and a text quantity included (R15-L5): none is ever imported.
-    if (isRaw(raw) && raw.QuantityOnHand !== undefined && raw.QuantityOnHand !== null) itemsWithQuantityOnHand++;
+    // Every row carrying a QuantityOnHand is counted, in any spelling (a respelled one refuses the row: counted too), a refused row and a
+    // text quantity included (R15-L5, R16-F4): none is ever imported.
+    if (isRaw(raw) && Object.keys(raw).some((k) => fieldKey(k) === 'quantityonhand' && raw[k] !== undefined && raw[k] !== null)) itemsWithQuantityOnHand++;
     if (r.ok) { items.push(r.value); knownIds.add(r.value.id); itemCodes[r.value.id] ??= r.value.code; }
     else {
       refusals.push(r.refusal);

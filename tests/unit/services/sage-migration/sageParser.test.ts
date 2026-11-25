@@ -39,7 +39,7 @@ describe('the synthetic fixture', () => {
 
   it('a typed item has no quantity field at all (QuantityOnHand cannot reach a mapping)', () => {
     const p = parseSageExport(fixture());
-    for (const i of p.items) expect(Object.keys(i).filter((k) => /quant|stock|opening/i.test(k))).toEqual(['hadQuantityOnHand']);
+    for (const i of p.items) expect(Object.keys(i).filter((k) => /quant|stock|opening/i.test(k))).toEqual([]); // not even a flag (R16-F5)
     expect(JSON.stringify(p.items)).not.toMatch(/"quantity/i);
   });
 });
@@ -155,13 +155,12 @@ describe('item rows', () => {
     for (const v of ['12', 'lots', true, { n: 1 }, [3]]) {
       const r = parseSageItem(item({ QuantityOnHand: v }), 0);
       expect(r.ok, JSON.stringify(v)).toBe(true);
-      expect(r.ok && r.value.hadQuantityOnHand).toBe(true);
       expect(JSON.stringify(r)).not.toContain('lots');
     }
   });
   it('a numeric QuantityOnHand is only counted, its value never kept', () => {
     const r = parseSageItem(item({ QuantityOnHand: 99 }), 0);
-    expect(r.ok && r.value.hadQuantityOnHand).toBe(true);
+    expect(r.ok).toBe(true);
     expect(JSON.stringify(r)).not.toContain('99');
   });
   it('refuses EVERY row that shares an ID or a Code, whichever comes first', () => {

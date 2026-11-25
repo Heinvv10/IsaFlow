@@ -15,4 +15,9 @@ describe('itemsWithQuantityOnHand', () => {
     expect(p.refusals.map((r) => r.sageId)).toEqual(['3']);
     expect(p.itemsWithQuantityOnHand).toBe(3);
   });
+  it('R16-F4: a respelled key counts too (the row is refused for the spelling)', () => {
+    const p = parseSageExport({ Items: [item(1, { quantityOnHand: 3 }), item(2, { 'Quantity_On_Hand': 4 }), item(3)] });
+    expect(p.refusals.map((r) => r.sageId)).toEqual(['1', '2']);
+    expect(p.itemsWithQuantityOnHand).toBe(2);
+  });
 });

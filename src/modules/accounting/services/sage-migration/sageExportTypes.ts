@@ -36,8 +36,6 @@ export interface SageItem {
   taxSales: SageTaxType | null;
   taxPurchases: SageTaxType | null;
   category: SageCategory | null;
-  /** The export carried a QuantityOnHand. Counted for the report, never used. */
-  hadQuantityOnHand: boolean;
 }
 
 export type SageTaxType = 'standard' | 'zero' | 'exempt';

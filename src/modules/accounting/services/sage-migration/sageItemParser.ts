@@ -1,9 +1,8 @@
 /**
  * One Sage item row -> a typed SageItem, or a refusal naming every fault. PURE.
  *
- * HARD RULE (Hein): `QuantityOnHand` is read for one thing only, to know the row had a numeric one (the report counts them; any other
- * value is ignored like the field itself, not a reason to refuse the item). Its value
- * is not stored on SageItem, so nothing downstream can import it as opening stock.
+ * HARD RULE (Hein): `QuantityOnHand` is never read here: nothing of it is on SageItem, so nothing downstream can import it as opening
+ * stock. sageExportParser only COUNTS the item rows carrying it (any value, any spelling, a refused row too) for the report.
  */
 import type { RowResult, SageItem } from './sageExportTypes';
 import { isRaw, readBool, readId, readNumber, readText, recasedFieldReasons, SAGE_NONE_UNKNOWN, type Raw } from './sageValues';
@@ -79,7 +78,6 @@ export function parseSageItem(raw: unknown, index: number): RowResult<SageItem> 
       id: id as string, code: code as string, description: description as string, active: active as boolean,
       physical: physical as boolean, priceExclusive: priceExclusive ?? null, lastCost: lastCost ?? null,
       averageCost: averageCost ?? null, taxSales: taxSales ?? null, taxPurchases: taxPurchases ?? null, category: cat ?? null,
-      hadQuantityOnHand: o.QuantityOnHand !== undefined && o.QuantityOnHand !== null,
     },
   };
 }
