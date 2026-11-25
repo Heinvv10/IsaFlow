@@ -129,6 +129,7 @@ const CLASSIFICATION: Readonly<Record<string, string>> = {
   'src/modules/accounting/services/bank/bankImportService.ts': 'exempt: writer (Task 3) — import-time auto-post sweep candidate selection',
   'src/modules/accounting/services/bank/bankProvisionalHeldJournals.ts': "exempt: reads only provisional_je_id (which a non-posted row cannot carry, trigger 675) to find the journals a provisional holds; no total or queue scope",
   'src/modules/accounting/services/bank/bankReconcilableGlLines.ts': "exempt: the read only excludes GL lines already matched (matched_journal_line_id), which a non-posted row cannot carry (trigger 675); no total or queue scope",
+  'src/modules/accounting/services/intercompany/paymentSuggestions.ts': 'filtered',
   'src/modules/accounting/services/bank/bankMatchDbQueries.ts': "exempt: writer (Task 3) plan-phase reads; matched_journal_line_id exclusion cannot carry it on a non-posted row (trigger 675)",
   'src/modules/accounting/services/bank/bankReconciliationCancelService.ts': "exempt: non-posted rows cannot carry reconciliation_id (trigger 675)",
   'src/modules/accounting/services/bank/bankReconciliationClaim.ts': 'filtered',

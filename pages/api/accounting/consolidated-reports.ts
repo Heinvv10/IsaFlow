@@ -12,7 +12,9 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { userBelongsToGroup, userCanWriteGroup } from '@/modules/accounting/services/core/companyAccessService';
 import { isUuidParam } from '@/lib/validation';
 import { getGroupAccounts } from '@/modules/accounting/services/reports/groupCompanyService';
-import { EliminationStateError, EliminationUnbalancedError } from '@/modules/accounting/services/reports/eliminationErrors';
+import {
+  EliminationMirroredRowUnsupportedError, EliminationPossibleDuplicateError, EliminationStateError, EliminationUnbalancedError, MIRRORED_ROW_MANUAL_ELIMINATION_DOC,
+} from '@/modules/accounting/services/reports/eliminationErrors';
 import {
   getConsolidatedTrialBalance,
   getConsolidatedIncomeStatement,
@@ -25,6 +27,10 @@ import {
   autoGenerateEliminations,
 } from '@/modules/accounting/services/reports/consolidatedReportingService';
 import { isLedgerDate, LEDGER_DATE_MESSAGE } from '@/modules/accounting/services/gl/ledgerDateRange';
+import type { FlaggedEliminationRow, SkippedEliminationRow } from '@/modules/accounting/services/reports/eliminationGenerator';
+import { cutoverRequiringReason } from '@/modules/accounting/services/reports/eliminationDuplicates';
+import { manualReasonMissing, manualReasonTooLong } from '@/modules/accounting/services/reports/manualReason';
+import type { DroppedMirroredElimination } from '@/modules/accounting/services/reports/mirrorEliminations';
 import { refuseWithoutGroupApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 
 /**
@@ -46,6 +52,7 @@ function rangeError(
 function eliminationBodyError(body: Record<string, unknown>): string | null {
   if (typeof body.adjustmentType !== 'string' || !body.adjustmentType) return 'adjustmentType is required (a string)';
   if (body.description !== undefined && typeof body.description !== 'string') return 'description must be a string';
+  if (body.manualReason !== undefined && typeof body.manualReason !== 'string') return 'manualReason must be a string';
   if (!Array.isArray(body.lines) || body.lines.length === 0) return 'lines must be a non-empty array';
   for (const line of body.lines as unknown[]) {
     const l = (line ?? {}) as Record<string, unknown>;
@@ -59,6 +66,11 @@ function eliminationBodyError(body: Record<string, unknown>): string | null {
   return null;
 }
 
+/** Manual elimination of a mirrored row is not supported yet (400): the body names a row, or the service found the row mirrored. */
+function mirroredRowRefusal(res: NextApiResponse, err: EliminationMirroredRowUnsupportedError): unknown {
+  return apiResponse.badRequest(res, err.message, { reason: 'mirrored_row_manual_elimination_unsupported', doc: MIRRORED_ROW_MANUAL_ELIMINATION_DOC });
+}
+
 /** The elimination journal's expected refusals → 400 / 409 with their message; anything else rethrows (500). */
 async function answerRefusals(res: NextApiResponse, write: () => Promise<unknown>): Promise<unknown> {
   try {
@@ -66,6 +78,10 @@ async function answerRefusals(res: NextApiResponse, write: () => Promise<unknown
   } catch (err) {
     if (err instanceof EliminationUnbalancedError) return apiResponse.badRequest(res, err.message);
     if (err instanceof EliminationStateError) return apiResponse.conflict(res, err.message);
+    if (err instanceof EliminationMirroredRowUnsupportedError) return mirroredRowRefusal(res, err);
+    if (err instanceof EliminationPossibleDuplicateError) {
+      return apiResponse.conflict(res, err.message, { reason: 'possible_duplicate', mirroredRef: err.mirroredRef, mirrorFacts: err.facts, pairCutover: err.pairCutover });
+    }
     throw err;
   }
 }
@@ -123,8 +139,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       const periodEnd = req.query.period_end as string | undefined;
       const bad = rangeError(req.query.period_start, req.query.period_end, { optional: true });
       if (bad) return apiResponse.badRequest(res, bad);
-      const adjustments = await getEliminationAdjustments(groupId, periodStart, periodEnd);
-      return apiResponse.success(res, { items: adjustments });
+      const droppedMirrored: DroppedMirroredElimination[] = [];
+      const adjustments = await getEliminationAdjustments(groupId, periodStart, periodEnd, droppedMirrored);
+      // reasonRequiredFrom: the earliest mirroring cutover of the group (a hand-made elimination dated on or after it needs a reason)
+      return apiResponse.success(res, { items: adjustments, droppedMirrored, reasonRequiredFrom: await cutoverRequiringReason(groupId, null) });
     }
 
     return apiResponse.badRequest(res, 'action required: trial-balance, income-statement, balance-sheet, dashboard, eliminations');
@@ -146,6 +164,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
 
     if (action === 'create-elimination') {
+      // A manual elimination never carries an intercompany row: the rows a person could name are the mirrored ones, which are not supported yet.
+      if (body.sourceIntercompanyId !== undefined && body.sourceIntercompanyId !== null) return mirroredRowRefusal(res, new EliminationMirroredRowUnsupportedError());
       const shape = eliminationBodyError(body);
       if (shape) return apiResponse.badRequest(res, shape);
       // lines is JSONB (no FK): an id from another group, or none at all, would be stored and
@@ -157,15 +177,23 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       const { adjustmentType, description, periodStart, periodEnd, lines } = req.body;
       const bad = rangeError(periodStart, periodEnd, { optional: true, names: ['periodStart', 'periodEnd'] });
       if (bad) return apiResponse.badRequest(res, bad);
+      // RULING 2026-11-21: on or after a mirroring pair's cutover the pair's documents are eliminated by mirroring, so a hand-made elimination
+      // dated then needs a typed reason (stored). It names no companies, so any cutover of the group on or before its date counts.
+      const reason = typeof body.manualReason === 'string' ? body.manualReason.trim() : '';
+      const cutover = await cutoverRequiringReason(gId, typeof periodEnd === 'string' && periodEnd ? periodEnd : null);
+      const tooLong = manualReasonTooLong(reason);
+      if (tooLong) return apiResponse.badRequest(res, tooLong, { reason: 'manual_reason_too_long' });
+      const missing = cutover ? manualReasonMissing(reason, cutover) : null;
+      if (missing) return apiResponse.badRequest(res, missing, { reason: 'manual_reason_required', cutover });
       return answerRefusals(res, async () => apiResponse.success(res, await createEliminationAdjustment(gId, {
-        adjustmentType, description, periodStart, periodEnd, lines,
+        adjustmentType, description, periodStart, periodEnd, lines, ...(reason ? { manualReason: reason } : {}),
       })));
     }
 
     if (action === 'post-elimination') {
       if (await refuseWithoutGroupApprove(res, gId, userId, 'group', 'group eliminations')) return; // #1656 (Hein: gate everything), before any write; asked in the group's companies, not the session company
       return answerRefusals(res, async () => {
-        await postEliminationAdjustment(body.adjustmentId as string, gId);
+        await postEliminationAdjustment(body.adjustmentId as string, gId, body.confirmDuplicate === true);   // (a possible duplicate needs the person's confirm)
         return apiResponse.success(res, { posted: true });
       });
     }
@@ -182,8 +210,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       const { periodStart, periodEnd } = req.body;
       const bad = rangeError(periodStart, periodEnd, { names: ['periodStart', 'periodEnd'] });
       if (bad) return apiResponse.badRequest(res, bad);
-      const adjustments = await autoGenerateEliminations(gId, periodStart, periodEnd);
-      return apiResponse.success(res, { items: adjustments, count: adjustments.length });
+      const flagged: FlaggedEliminationRow[] = [];
+      const skipped: SkippedEliminationRow[] = [];   // (a mirroring pair's rows on or after its cutover: eliminated by mirroring)
+      const adjustments = await autoGenerateEliminations(gId, periodStart, periodEnd, flagged, skipped);
+      return apiResponse.success(res, { items: adjustments, count: adjustments.length, flagged, skipped });
     }
 
     return apiResponse.badRequest(res, 'action required');

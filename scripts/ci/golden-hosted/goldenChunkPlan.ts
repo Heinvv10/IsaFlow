@@ -4,7 +4,8 @@
  * Plain `playwright --shard` splits by test COUNT, which made shard 1 (holding the 12-screen o-theme-contrast
  * sweep, ~10 of the suite's 44 test minutes) run 14-19 min against 3-6 min for the others. This plans by measured
  * seconds instead. The pieces are CONTIGUOUS in Playwright's own file order (a chunk is a run of the old single
- * run, not a scatter of specs), and o-theme-contrast is cut per screen with --grep.
+ * run, not a scatter of specs), and o-theme-contrast is cut per screen with --grep. A file in SPLIT_BY_THEME is cut per
+ * theme the same way, and its themes are kept in different pieces (see splitItems).
  *
  * Every spec file on disk and every contrast screen in the spec source lands in exactly one chunk, whatever the
  * weight table says: a file or screen it does not list takes DEFAULT_SECONDS, so a new spec runs (and the unit
@@ -40,10 +41,21 @@ export const FILE_SECONDS: Readonly<Record<string, number>> = {
   'z7-undo-drawers.spec.ts': 116, 'z9-employee-readiness.spec.ts': 99,
   'z22-admin-console.spec.ts': 70, // hosted: 62 s (run 43605704335, without System Health) plus a margin
   // hosted, one run (44416397016, chunk 5): these took the 30 s default, so piece 1 of chunk 5 held ~7.4 min of tests,
-  // not the planned ~200 s, and its dev server hit the memory restart (z19 alone is 222 s).
-  'z19-native-selects.spec.ts': 222, 'z20-budgets-three-way.spec.ts': 34, 'z20-comments.spec.ts': 97, 'z21-ask.spec.ts': 58,
+  // not the planned ~200 s, and its dev server hit the memory restart (z19 is now planned per theme: SPLIT_BY_THEME).
+  'z20-budgets-three-way.spec.ts': 34, 'z20-comments.spec.ts': 97, 'z21-ask.spec.ts': 58,
   'z24-payslip-email.spec.ts': 46, 'z26-salary-bank-file.spec.ts': 21, 'z28-late-claims.spec.ts': 23, 'z29-pre-validation.spec.ts': 42,
   'z30-bank-bulk-accept.spec.ts': 37, // hosted: 34.5 s and 40.3 s with its warm-up (runs 44261035241, 44249027688)
+};
+/**
+ * Files cut per theme, each theme its own item with its own --grep, kept in different pieces so each gets a fresh dev
+ * server. z19-native-selects alone, in one piece, took the dev server from 1.2 GB to 7.8 GB RSS (its two 96 s "screens
+ * at 1568 and 390px" tests add ~3.5 GB and ~1.5 GB) and crossed next's memory threshold mid-run (#1847, run 45310932416:
+ * "approaching the used memory threshold, restarting", the in-flight page.goto lost). Each theme alone peaked at ~5.8 GB.
+ * Seconds are that run's per-theme test time (145 s light, 143 s dark). The file's describe titles are `${theme} theme`;
+ * goldenChunkPlan.test.ts pins them against the spec and against Playwright's own --list.
+ */
+export const SPLIT_BY_THEME: Readonly<Record<string, Readonly<Record<string, number>>>> = {
+  'z19-native-selects.spec.ts': { light: 145, dark: 143 },
 };
 /** Mean seconds per o-theme-contrast screen, same runs. */
 export const CONTRAST_SECONDS: Readonly<Record<string, number>> = {
@@ -51,7 +63,11 @@ export const CONTRAST_SECONDS: Readonly<Record<string, number>> = {
   'income-statement': 60, vat201: 44, 'balance-sheet': 54, 'trial-balance': 48, 'general-ledger': 45, 'receipt-match': 76, disputes: 45,
 };
 
-export type Item = { kind: 'file'; name: string; seconds: number } | { kind: 'screen'; name: string; seconds: number };
+export type Item =
+  | { kind: 'file'; name: string; seconds: number }
+  | { kind: 'screen'; name: string; seconds: number }
+  /** One theme's tests of a SPLIT_BY_THEME file; `name` is the theme, `file` the spec. */
+  | { kind: 'theme'; name: string; file: string; seconds: number };
 /** One `playwright test` invocation: file paths, plus a --grep when only some of a file's tests belong here. */
 export type Invocation = { files: string[]; grep?: string };
 
@@ -76,6 +92,8 @@ export function planItems(files: string[], contrastSource: string): Item[] {
   for (const name of [...files].filter((f) => f.endsWith('.spec.ts')).sort()) {
     if (name === CONTRAST_FILE) {
       for (const slug of contrastSlugs(contrastSource)) items.push({ kind: 'screen', name: slug, seconds: CONTRAST_SECONDS[slug] ?? DEFAULT_SECONDS });
+    } else if (SPLIT_BY_THEME[name]) {
+      for (const [theme, seconds] of Object.entries(SPLIT_BY_THEME[name]!)) items.push({ kind: 'theme', name: safe(theme), file: safe(name), seconds });
     } else items.push({ kind: 'file', name: safe(name), seconds: FILE_SECONDS[name] ?? DEFAULT_SECONDS });
   }
   return items;
@@ -86,14 +104,25 @@ export function planItems(files: string[], contrastSource: string): Item[] {
  * equal maxima, the most even by sum of squares). The old midpoint rule (an item went to the chunk its cumulative
  * midpoint fell in) let one added spec shift a boundary and leave the chunks 1.34x apart (z30 + z32, 18 Nov). While there
  * are at least as many items as chunks every chunk gets one; with fewer, the trailing chunks are empty. A negative or
- * non-finite weight is refused (it would make the optimum meaningless).
+ * non-finite weight is refused (it would make the optimum meaningless). With keepThemesApart (the cut into pieces) two
+ * neighbouring themes of one file never share a piece: each piece is a dev server, and a file's themes together are what
+ * overran its memory threshold. That is a constraint on the optimum, so it costs balance only when it has to.
  */
-export function splitItems(items: Item[], chunks: number): Item[][] {
+export function splitItems(items: Item[], chunks: number, opts: { keepThemesApart?: boolean } = {}): Item[][] {
   if (!Number.isInteger(chunks) || chunks < 1) throw new Error(`golden chunk plan: chunks must be a positive integer, got ${chunks}`);
   const bad = items.find((i) => !Number.isFinite(i.seconds) || i.seconds < 0);
   if (bad) throw new Error(`golden chunk plan: ${bad.name} has an impossible weight ${bad.seconds}`);
   const out: Item[][] = Array.from({ length: chunks }, () => []);
   const n = items.length;
+  // A forced cut at b: items b-1 and b are two themes of one file, so no piece may span it.
+  const apart = new Set<number>();
+  if (opts.keepThemesApart) {
+    for (let b = 1; b < n; b++) {
+      const a = items[b - 1]!, c = items[b]!;
+      if (a.kind === 'theme' && c.kind === 'theme' && a.file === c.file) apart.add(b);
+    }
+  }
+  const spans = (i: number, j: number): boolean => { for (const b of apart) if (i < b && b < j) return true; return false; };
   const parts = Math.min(chunks, n);
   if (parts === 0) return out;
   const pre = [0];
@@ -106,7 +135,7 @@ export function splitItems(items: Item[], chunks: number): Item[][] {
     for (let j = k; j <= n - (parts - k); j++) {
       for (let i = k - 1; i < j; i++) {
         const prev = best[k - 1]![i];
-        if (!prev) continue;
+        if (!prev || spans(i, j)) continue;
         const s = pre[j]! - pre[i]!;
         const c: Cost = { max: Math.max(prev.max, s), sq: prev.sq + s * s, cut: i };
         const cur = best[k]![j];
@@ -114,6 +143,7 @@ export function splitItems(items: Item[], chunks: number): Item[][] {
       }
     }
   }
+  if (!best[parts]![n]) throw new Error(`golden chunk plan: ${n} items cannot be cut into ${parts} pieces with every file's themes kept apart`);
   for (let k = parts, j = n; k >= 1; k--) {
     const i = best[k]![j]!.cut;
     out[k - 1] = items.slice(i, j);
@@ -137,11 +167,26 @@ export function toInvocations(items: Item[]): Invocation[] {
     files = [];
   };
   for (const item of items) {
-    if (item.kind === 'screen') { flushFiles(); screens.push(item.name); } else { flush(); files.push(`${SPEC_DIR}/${item.name}`); }
+    if (item.kind === 'screen') { flushFiles(); screens.push(item.name); }
+    else if (item.kind === 'theme') { flush(); flushFiles(); out.push({ files: [`${SPEC_DIR}/${item.file}`], grep: `\\s${item.name} theme\\s` }); }
+    else { flush(); files.push(`${SPEC_DIR}/${item.name}`); }
   }
   flush();
   flushFiles();
   return out;
+}
+
+/**
+ * The `playwright test` arguments for one invocation of a piece. Playwright empties its output directory at the start of
+ * every run, and a piece is several runs, so with GOLDEN_EVIDENCE=1 each gets a directory of its own under test-results/:
+ * otherwise the last run's failures would delete the traces and screenshots of every earlier one.
+ */
+export function invocationArgs(inv: Invocation, piece: number, index: number, env: NodeJS.ProcessEnv = process.env): string[] {
+  return [
+    'run', 'test:e2e:golden', ...inv.files,
+    ...(inv.grep === undefined ? [] : ['--grep', inv.grep]),
+    ...(env.GOLDEN_EVIDENCE === '1' ? ['--output', `test-results/p${piece}-i${index}`] : []),
+  ];
 }
 
 export function chunkSeconds(chunk: Item[]): number {
@@ -159,6 +204,6 @@ export function planChunk(root: string, k: number, n: number, piece = 1, pieces 
   const dir = path.join(root, SPEC_DIR);
   const files = readdirSync(dir, { withFileTypes: true }).filter((e) => e.isFile()).map((e) => e.name);
   const chunk = splitItems(planItems(files, readFileSync(path.join(dir, CONTRAST_FILE), 'utf8')), n)[k - 1]!;
-  const items = splitItems(chunk, pieces)[piece - 1]!;
+  const items = splitItems(chunk, pieces, { keepThemesApart: pieces > 1 })[piece - 1]!;
   return { items, invocations: toInvocations(items) };
 }

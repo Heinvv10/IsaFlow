@@ -30,6 +30,66 @@ Last updated: 2026-04-19 · 643 commits on `master` · 144 migrations (000 → 3
 
 ---
 
+## 2026-11-24 — Mobile Card-Layout Wave (AR/AP/Inventory/Reports), UI Dark-Mode Fixes, CI Hardening
+
+**Mobile — Card Layout (wave continued)**
+
+- Capture inbox detail panel full-width, close and action controls 44 px below `lg` (#1839)
+- Expense claims and delivery notes as labelled cards below `lg`; delivery note tabs 44 px; items list Active dot fixed (#1840)
+- Customer statements and batch payments as cards below `lg`; icon buttons named; hidden-action test extended (#1845, #1846)
+- Bank statement imports and paired extensions as cards below `lg`; Upload PDF and Revoke 44 px (#1847)
+- Disputes queue as cards below `lg`; controls 44 px (#1848)
+- DRC VAT invoices as cards below `lg`; tab strip full-width on phones; Apply DRC 44 px (#1849)
+- Goods received list as cards below `lg`; New GRN and search 44 px (#1850)
+- Business units as cards below `lg`; form and row controls 44 px; customer categories inline-add row stacks, named icon buttons (#1853)
+- Shared `ConfirmDialog` buttons 44 px, viewport-capped, long message scrolls, long unbroken tokens wrap, no chained scroll (#1857)
+- `BulkConfirmModal`, `ConfirmSendModal` and year-end typed field 44 px, viewport-capped (#1859)
+- Stock levels as labelled cards below `lg`; filter and wrapping header 44 px (#1865)
+- Unallocated payments/receipts and item listing as labelled cards on mobile (#1866)
+- Item movement/valuation and purchases/sales report tables as labelled cards on mobile (#1867)
+- Item quantities report as labelled cards on mobile; 44 px action buttons (#1868)
+
+**UI — Dark-Mode & Style Fixes**
+
+- `ff-input` and `ff-select` CSS layer definitions added (used in ~75 files but never defined); caseware-export code column widened (#1860)
+- Dunning templates heading, subtitle, empty hint; My Reports heading, subtitle and empty-state title; Paystack return page status text: all now use theme tokens (were invisible or low-contrast in dark mode) (#1860, #1861)
+
+**CI / Golden Paths**
+
+- Golden-path observability: dev-server heap limit raised to 10 240 MB with guard; z19-native-selects split per theme; planChunk arithmetic corrected; `muted-text-stops` baseline lowered for fixed pages (#1836)
+- Golden warmup: server warmup fixes and flake elimination (#1838)
+- `u-list` bank test waits for the page's first list response before typing the date; no unhandled rejection if `openScreen` throws (#1858)
+
+---
+
+## 2026-11-23 — Intercompany P4a Contra-Settlement Service, Mobile Payroll Wave
+
+**Intercompany — P4a**
+
+- Contra-settlement posting extracted into `contraSettlementPosting.ts` (284-line service); `writeSettleByContra` MCP tool slimmed by ~125 lines; `boundRequestTx` test helper added; 659 new test lines across three suites (#1776)
+- Two new MCP refusal codes registered for contra-settlement path
+
+**Mobile — Payroll**
+
+- Payroll loans: loan list, detail (schedule + payments), new-loan form and compliance history as cards below `lg`; 44 px touch targets (#1778, #1784, #1785)
+- Payroll leave, pay scales, components, tax directives, training events, UIF declarations, IRP5 readiness and EMP501 reconciliation as cards below `lg`; header, filter and row-action controls phone-sized (#1792–#1800)
+- Payroll batch detail lines and batches list as cards below `lg` (#1809, batch in #1791 queue merge)
+- Payroll parallel-run imports, action group and report drill-down tables as cards below `lg` (#1806, #1810)
+- Payroll cost centres list, add form, row actions and GL mapping select phone-sized (#1802)
+- SARS return lifecycle bar, filing-file download buttons and Mark-filed dialog 44 px below `lg` (#1801)
+- Shared `Drawer` close X is a 44 px square below `lg`; title can shrink/wrap so it is never pushed off a phone (#1807)
+
+**Accounting**
+
+- `ChartRefusal` on account create logged at `warn` instead of `error` (#1811)
+
+**CI / Tests**
+
+- Admin bulk Suspend/Enable golden-path flake fixed: list ticks only after page settles (#1792)
+- Eliminations-notes test flake fixed: waits for Auto-Generate to be enabled before clicking (#1786)
+
+---
+
 ## 2026-11-20 — Payroll Wave 6 (FQd/RI/DBF/PSP-H/EZF), VAT201 Nil Pair, Mobile Cards
 
 **Payroll — Wave 6**

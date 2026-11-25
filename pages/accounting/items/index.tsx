@@ -96,7 +96,7 @@ export default function ItemsListPage() {
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
         {/* Header */}
         <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-6 py-4">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between max-lg:flex-wrap max-lg:gap-3">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-blue-500/10">
                 <Package className="h-6 w-6 text-blue-600 dark:text-blue-400" />
@@ -111,7 +111,7 @@ export default function ItemsListPage() {
             </div>
             <Link
               href="/accounting/items/new"
-              className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 text-sm font-medium"
+              className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 text-sm font-medium max-lg:min-h-11"
             >
               <Plus className="h-4 w-4" /> Add Item
             </Link>
@@ -130,21 +130,21 @@ export default function ItemsListPage() {
 
           {/* Filters */}
           <div className="flex items-center gap-3 flex-wrap">
-            <div className="relative">
+            <div className="relative max-lg:w-full">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--ff-text-tertiary)]" />
               <input
                 type="text"
                 placeholder="Search items..."
                 value={search}
                 onChange={e => setSearch(e.target.value)}
-                className="ff-input pl-9 text-sm w-64"
+                className="ff-input pl-9 text-sm w-64 max-lg:w-full max-lg:min-h-11"
               />
             </div>
             <select
               aria-label="Item type"
               value={typeFilter}
               onChange={e => setTypeFilter(e.target.value)}
-              className="ff-select text-sm"
+              className="ff-select text-sm max-lg:min-h-11"
             >
               <option value="">All Types</option>
               <option value="physical">Physical</option>
@@ -155,7 +155,7 @@ export default function ItemsListPage() {
                 aria-label="Category"
                 value={categoryFilter}
                 onChange={e => setCategoryFilter(e.target.value)}
-                className="ff-select text-sm"
+                className="ff-select text-sm max-lg:min-h-11"
               >
                 <option value="">All Categories</option>
                 {categories.map(c => (
@@ -167,7 +167,7 @@ export default function ItemsListPage() {
 
           {/* Table */}
           <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-hidden">
-            <table className="w-full text-sm">
+            <table className="w-full text-sm table-cards">
               <thead>
                 <tr className="border-b border-[var(--ff-border-light)] text-left text-[var(--ff-text-secondary)]">
                   <th className="px-4 py-3">Code</th>
@@ -183,16 +183,16 @@ export default function ItemsListPage() {
               <tbody>
                 {loading && (
                   <tr>
-                    <td colSpan={8} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)]">
+                    <td colSpan={8} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)] max-lg:!py-8 max-lg:!text-center">
                       <Loader2 className="h-5 w-5 animate-spin inline mr-2" />Loading...
                     </td>
                   </tr>
                 )}
                 {!loading && items.length === 0 && (
                   <tr>
-                    <td colSpan={8} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)]">
+                    <td colSpan={8} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)] max-lg:!py-8 max-lg:!text-center">
                       No items found.{' '}
-                      <Link href="/accounting/items/new" className="text-teal-400 hover:underline">
+                      <Link href="/accounting/items/new" className="text-teal-400 hover:underline max-lg:inline-flex max-lg:items-center max-lg:min-h-11">
                         Add your first item
                       </Link>
                     </td>
@@ -206,15 +206,15 @@ export default function ItemsListPage() {
                     <td className="px-4 py-3 font-medium text-[var(--ff-text-primary)]">
                       <Link
                         href={`/accounting/items/${item.id}`}
-                        className="hover:text-teal-400"
+                        className="hover:text-teal-400 max-lg:inline-flex max-lg:items-center max-lg:min-h-11"
                       >
                         {item.code}
                       </Link>
                     </td>
-                    <td className="px-4 py-3 text-[var(--ff-text-secondary)]">
+                    <td data-label="Description" className="px-4 py-3 text-[var(--ff-text-secondary)]">
                       {item.description}
                     </td>
-                    <td className="px-4 py-3">
+                    <td data-label="Type" className="px-4 py-3">
                       {item.item_type === 'physical' ? (
                         <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-500/10 text-blue-400">
                           Physical
@@ -225,25 +225,25 @@ export default function ItemsListPage() {
                         </span>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-[var(--ff-text-secondary)]">
+                    <td data-label="Category" className="px-4 py-3 text-[var(--ff-text-secondary)]">
                       {item.category_name || '-'}
                     </td>
-                    <td className="px-4 py-3 text-right text-[var(--ff-text-primary)]">
+                    <td data-label="Selling Price" className="px-4 py-3 text-right text-[var(--ff-text-primary)]">
                       {fmt(Number(item.selling_price_excl))}
                     </td>
-                    <td className="px-4 py-3 text-right text-[var(--ff-text-primary)]">
+                    <td data-label="Cost Price" className="px-4 py-3 text-right text-[var(--ff-text-primary)]">
                       {fmt(Number(item.cost_price))}
                     </td>
-                    <td className="px-4 py-3 text-right text-[var(--ff-text-primary)]">
+                    <td data-label="Qty on Hand" className="px-4 py-3 text-right text-[var(--ff-text-primary)]">
                       {item.item_type === 'physical'
                         ? `${Number(item.current_qty)} ${item.unit || ''}`
                         : '-'}
                     </td>
-                    <td className="px-4 py-3 text-center">
+                    <td data-label="Active" className="px-4 py-3 text-center">
                       {item.is_active ? (
-                        <span className="inline-block h-2 w-2 rounded-full bg-green-500" title="Active" />
+                        <span className="inline-block h-2 w-2 rounded-full bg-green-500 max-lg:self-center" title="Active" />
                       ) : (
-                        <span className="inline-block h-2 w-2 rounded-full bg-gray-500" title="Inactive" />
+                        <span className="inline-block h-2 w-2 rounded-full bg-gray-500 max-lg:self-center" title="Inactive" />
                       )}
                     </td>
                   </tr>

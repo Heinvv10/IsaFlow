@@ -112,6 +112,9 @@ export const entries: Array<[string, Category, string?]> = [
   ['gl/transactionLedgerService.ts', 'RAW'],
   ['gl/vatLateClaimSplit.ts', 'VAT'],
   ['gl/yearEndJournalBuilder.ts', 'WRITE'],
+  ['intercompany/paymentSuggestions.ts', 'SUBLEDGER', 'AS on_linked'], // F: receipt candidates (their totals, allocations, consumption); the journal is only asked whether it is posted and never reversed
+  ['intercompany/paymentUnsent.ts', 'SUBLEDGER', 'AS partner_name'], // F round 1: the payer's unsent read; its payment journal is only asked whether it is posted, never reversed, and which accounts it credits (money / loan)
+  ['intercompany/payerLoanClearReads.ts', 'SUBLEDGER', 'COALESCE(l.debit, 0) AS debit'], // P4-E: the lines of the ONE clearing journal just posted, checked DR AP / CR loan before the request commits
   ['items/fixedAssetReconciliationQueries.ts', 'SUBLEDGER'],
   ['payroll/etiBooking.ts', 'SUBLEDGER'], // the ETI booked on 2140 / the refund receivable by payroll journals (wave 5 ET)
   ['payroll/payrollApprovalGate.ts', 'SUBLEDGER'],
@@ -168,6 +171,7 @@ export const STRINGS: Array<[string, Category]> = [
   ['core/nlQueryValidationService.ts', 'TABLE_NAME'],
   ['gl/accountMergeReferences.ts', 'TABLE_NAME'],
   ['gl/closeRun/closeRunProposalBuilder.ts', 'PROSE'],
+  ['gl/journalReinstateRefusal.ts', 'TABLE_NAME'], // matches 1018's error-message prefix, not SQL
 ];
 
 export const key = (f: string) => (f.startsWith('pages/') ? f : f.startsWith('lib/') ? `src/${f}` : `${SVC}${f}`);

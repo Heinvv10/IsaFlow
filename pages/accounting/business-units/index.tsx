@@ -124,7 +124,7 @@ export default function BusinessUnitsPage() {
     <AppLayout>
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
         <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-6 py-4">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between max-lg:flex-wrap max-lg:gap-3">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-blue-500/10"><Building2 className="h-6 w-6 text-blue-600 dark:text-blue-400" /></div>
               <div>
@@ -134,7 +134,7 @@ export default function BusinessUnitsPage() {
             </div>
             <button
               onClick={() => { setEditId(null); setForm(EMPTY_FORM); setShowForm(!showForm); }}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium">
+              className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium max-lg:min-h-11">
               <Plus className="h-4 w-4" /> New Business Unit
             </button>
           </div>
@@ -144,13 +144,13 @@ export default function BusinessUnitsPage() {
           {error && <div className="p-3 rounded-lg bg-red-500/10 text-red-400 text-sm">{error}</div>}
           {success && <div className="p-3 rounded-lg bg-teal-500/10 text-teal-400 text-sm">{success}</div>}
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 max-lg:flex-wrap">
             <input
               type="text"
               value={search}
               onChange={e => setSearch(e.target.value)}
               placeholder="Search name or code..."
-              className="px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm w-72"
+              className="px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm w-72 max-lg:w-full max-lg:min-h-11"
             />
             <span className="text-sm text-[var(--ff-text-secondary)]">{filteredItems.length} business units</span>
           </div>
@@ -159,14 +159,14 @@ export default function BusinessUnitsPage() {
             <form onSubmit={handleSubmit} className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-6 space-y-4">
               <h2 className="text-lg font-semibold text-[var(--ff-text-primary)]">{editId ? 'Edit' : 'New'} Business Unit</h2>
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} className="ff-input" placeholder="Name *" required />
-                <input value={form.code} onChange={e => setForm(f => ({ ...f, code: e.target.value }))} className="ff-input" placeholder="Code (e.g. FIN) *" required />
-                <input value={form.division} onChange={e => setForm(f => ({ ...f, division: e.target.value }))} className="ff-input" placeholder="Division (e.g. Build & Delivery)" />
-                <input value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} className="ff-input" placeholder="Description (optional)" />
+                <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} className="ff-input max-lg:min-h-11" placeholder="Name *" required />
+                <input value={form.code} onChange={e => setForm(f => ({ ...f, code: e.target.value }))} className="ff-input max-lg:min-h-11" placeholder="Code (e.g. FIN) *" required />
+                <input value={form.division} onChange={e => setForm(f => ({ ...f, division: e.target.value }))} className="ff-input max-lg:min-h-11" placeholder="Division (e.g. Build & Delivery)" />
+                <input value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} className="ff-input max-lg:min-h-11" placeholder="Description (optional)" />
               </div>
               <div className="flex justify-end gap-2">
-                <button type="button" onClick={() => { setShowForm(false); setEditId(null); }} className="px-4 py-2 text-sm text-[var(--ff-text-secondary)]">Cancel</button>
-                <button type="submit" disabled={busy === 'save'} className="px-6 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium disabled:opacity-50">
+                <button type="button" onClick={() => { setShowForm(false); setEditId(null); }} className="px-4 py-2 text-sm text-[var(--ff-text-secondary)] max-lg:min-h-11">Cancel</button>
+                <button type="submit" disabled={busy === 'save'} className="px-6 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium disabled:opacity-50 max-lg:min-h-11">
                   {busy === 'save' ? <Loader2 className="h-4 w-4 animate-spin" /> : editId ? 'Update' : 'Create'}
                 </button>
               </div>
@@ -174,7 +174,7 @@ export default function BusinessUnitsPage() {
           )}
 
           <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-hidden">
-            <table className="w-full text-sm">
+            <table className="w-full text-sm table-cards">
               <thead><tr className="border-b border-[var(--ff-border-light)] text-left text-[var(--ff-text-secondary)]">
                 <th className="px-4 py-3">Code</th>
                 <th className="px-4 py-3">Name</th>
@@ -185,30 +185,30 @@ export default function BusinessUnitsPage() {
                 <th className="px-4 py-3">Actions</th>
               </tr></thead>
               <tbody>
-                {loading && <tr><td colSpan={7} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)]">Loading...</td></tr>}
+                {loading && <tr><td colSpan={7} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)] max-lg:!py-8 max-lg:!text-center">Loading...</td></tr>}
                 {!loading && filteredItems.length === 0 && (
-                  <tr><td colSpan={7} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)]">
+                  <tr><td colSpan={7} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)] max-lg:!py-8 max-lg:!text-center">
                     {search ? 'No matching business units' : 'No business units yet.'}
                   </td></tr>
                 )}
                 {filteredItems.map(bu => (
                   <tr key={bu.id} className="border-b border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-primary)]/50">
                     <td className="px-4 py-3 font-mono text-blue-400 font-medium">{bu.code}</td>
-                    <td className="px-4 py-3 text-[var(--ff-text-primary)]">{bu.name}</td>
-                    <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{bu.division || '—'}</td>
-                    <td className="px-4 py-3 text-[var(--ff-text-secondary)] text-xs">{bu.description || '—'}</td>
-                    <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{bu.staffCount ?? '—'}</td>
-                    <td className="px-4 py-3">
+                    <td data-label="Name" className="px-4 py-3 text-[var(--ff-text-primary)]">{bu.name}</td>
+                    <td data-label="Division" className="px-4 py-3 text-[var(--ff-text-secondary)]">{bu.division || '—'}</td>
+                    <td data-label="Description" className="px-4 py-3 text-[var(--ff-text-secondary)] text-xs">{bu.description || '—'}</td>
+                    <td data-label="Staff" className="px-4 py-3 text-[var(--ff-text-secondary)]">{bu.staffCount ?? '—'}</td>
+                    <td data-label="Status" className="px-4 py-3">
                       <span className={`px-2 py-0.5 rounded text-xs font-medium ${bu.isActive ? 'bg-teal-500/10 text-teal-400' : 'bg-gray-500/10 text-gray-400'}`}>
                         {bu.isActive ? 'Active' : 'Inactive'}
                       </span>
                     </td>
                     <td className="px-4 py-3">
-                      <div className="flex items-center gap-1">
-                        <button onClick={() => startEdit(bu)} className="p-1 text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]" title="Edit">
+                      <div className="flex items-center gap-1 max-lg:gap-2">
+                        <button onClick={() => startEdit(bu)} className="p-1 text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] max-lg:min-h-11 max-lg:min-w-11 max-lg:inline-flex max-lg:items-center max-lg:justify-center" title="Edit">
                           <Pencil className="h-4 w-4" />
                         </button>
-                        <button onClick={() => doAction(bu, 'toggle')} disabled={busy === bu.id} className="p-1 text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]" title={bu.isActive ? 'Disable' : 'Enable'}>
+                        <button onClick={() => doAction(bu, 'toggle')} disabled={busy === bu.id} className="p-1 text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] max-lg:min-h-11 max-lg:min-w-11 max-lg:inline-flex max-lg:items-center max-lg:justify-center" title={bu.isActive ? 'Disable' : 'Enable'}>
                           {busy === bu.id
                             ? <Loader2 className="h-4 w-4 animate-spin" />
                             : bu.isActive
@@ -216,7 +216,7 @@ export default function BusinessUnitsPage() {
                               : <ToggleLeft className="h-4 w-4" />
                           }
                         </button>
-                        <button onClick={() => setConfirmDelete(bu)} disabled={busy === bu.id} className="p-1 text-red-400 hover:text-red-300" title="Delete">
+                        <button onClick={() => setConfirmDelete(bu)} disabled={busy === bu.id} className="p-1 text-red-400 hover:text-red-300 max-lg:min-h-11 max-lg:min-w-11 max-lg:inline-flex max-lg:items-center max-lg:justify-center" title="Delete">
                           <Trash2 className="h-4 w-4" />
                         </button>
                       </div>

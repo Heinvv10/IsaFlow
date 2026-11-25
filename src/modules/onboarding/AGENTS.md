@@ -20,6 +20,7 @@ src/modules/onboarding/
     ├── addressNormaliser.ts         — SA address field rescue + province inference
     ├── registrationNumberNormaliser.ts — CIPC reg number whitespace normaliser
     ├── tenantProvisioningService.ts — signup / waitlist tenant creation (admin pool)
+    ├── welcomeEmail.ts              — new owner's welcome email (verify-email, fire and forget)
     ├── waitlistPromotionService.ts  — admin waitlist promote
     └── paygEligibilityService.ts    — PAYG eligibility
 ```
@@ -49,6 +50,14 @@ Pure functions over `@/lib/entityTypes` (the one list of the 8 SA entity codes; 
 - `/api/onboarding/complete` (withCsrf) only re-issues the cookie: flag true, or NULL with a `company_users` row (set to true). Refused 409 while the flag is false, with no users row, or NULL with no membership; the wizard's submit is the only way to finish. The old `/api/onboarding/documents` route is deleted.
 - Request-body logs (`src/lib/sanitizeRequestBody.ts`, used by api-error-handler) replace `file_data`, `fileData`, `idDocument`, `logoData`, `idNumber`, `id_number` and the other identity, health and pay keys in `PAYLOAD_KEYS` (any depth) with a size marker, and `data` when it is a data: URL, over 1 KB, or an array holding such a string. Migration 895 adds the column (and widens the `company_documents.document_type` CHECK with `ck_certificate`, `letters_of_authority`).
 - Tests: `tests/unit/onboarding/entityOnboardingRules.test.ts`, `tests/integration/onboarding-complete-setup-{rules,atomic}.int.test.ts`.
+
+## Welcome email (`welcomeEmail.ts`)
+
+- verify-email calls `sendWelcomeEmail` only after its own transaction created the company and the GoTrue confirmation succeeded (never on a replay, the consumed-token recovery, or "already owns a tenant"). Fire and forget: `sendWelcomeEmailOnce` never throws, a failure is logged.
+- Once per company: skipped when `email_log` holds a `sent` row with `email_type = 'welcome'` for the company (check-then-send, not an atomic claim), for a demo company (`is_demo`), or when the company row is missing. A failed guard query does not send.
+- Logged against the new tenant's `company_id` (that row is the guard), so the Customer Communication report excludes `email_type = 'welcome'`.
+- Copy: `signupType === 'accountant'` gets the practice variant, anything else the SME variant (`welcomeEmailHtml` / `welcomeEmailSubject` in `src/lib/email-templates-auth.ts`). The trial length is `TRIAL_DAYS`, never a literal. Name and company name are escaped.
+- Tests: `tests/unit/onboarding/welcomeEmail.test.ts`, `tests/unit/auth/verifyEmailWelcome.test.ts`.
 
 ## Services
 

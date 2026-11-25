@@ -83,7 +83,7 @@ export function ARFilterBar({ state, total }: Props) {
           onClear={state.clearCustomer}
           inputClassName={INPUT}
         />
-        <PeriodControl from={filters.from} to={filters.to} onChange={state.setRange} inputClassName={INPUT} />
+        <PeriodControl from={filters.from} to={filters.to} onChange={state.setRange} />
         {total !== null && (
           <span className="text-sm text-[var(--ff-text-secondary)]">{total} invoice{total !== 1 ? 's' : ''}</span>
         )}

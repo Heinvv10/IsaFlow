@@ -172,7 +172,7 @@ describe('FZ: a posted journal refuses amount changes', () => {
     await expect(asAppUser(async (c) => {
       const je = await born(c, 'reversed');
       await c.query('INSERT INTO gl_journal_lines (journal_entry_id, company_id, gl_account_id, debit, credit) VALUES ($1, $2, $3, 10, 0)', [je, a.company, expense]);
-    })).rejects.toThrow(UNBALANCED);
+    })).rejects.toThrow(/does not balance|never marked status reversed/); // 1018 round 11 refuses the insert itself first
   }, 60_000);
 
   it('replica skips none of the GL triggers: a draft posted in replica is still balanced at COMMIT (rule 5 is ENABLE ALWAYS)', async () => {

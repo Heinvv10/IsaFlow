@@ -34,6 +34,26 @@ export async function insertRows(tx: Tx, table: string, rows: Row[]): Promise<nu
   return rows.length;
 }
 
+export interface DocumentLink { table: 'customer_invoices' | 'supplier_invoices'; id: string; journalId: string }
+
+/**
+ * Link each seeded document to its (already inserted, posted) journal, after the insert (migration 1018: a document is
+ * never created already linked). Table names come from the type above, ids from the generator.
+ */
+export async function linkDocumentJournals(tx: Tx, links: DocumentLink[]): Promise<void> {
+  for (const table of ['customer_invoices', 'supplier_invoices'] as const) {
+    const mine = links.filter((l) => l.table === table);
+    for (let i = 0; i < mine.length; i += BATCH) {
+      const chunk = mine.slice(i, i + BATCH);
+      const values: unknown[] = [];
+      const tuples = chunk.map((l) => { values.push(l.id, l.journalId); return `($${values.length - 1}::uuid, $${values.length}::uuid)`; });
+      const done = await tx.query(
+        `UPDATE ${table} d SET gl_journal_entry_id = v.je FROM (VALUES ${tuples.join(', ')}) AS v(id, je) WHERE d.id = v.id RETURNING d.id`, values);
+      if (done.length !== chunk.length) throw new Error(`linked ${done.length} of ${chunk.length} ${table} to their journals`);
+    }
+  }
+}
+
 async function one(tx: Tx, label: string, text: string, values: unknown[]): Promise<string> {
   const rows = await tx.query<{ id: string }>(text, values);
   if (rows.length !== 1) throw new Error(`expected exactly one ${label} account, found ${rows.length}`);

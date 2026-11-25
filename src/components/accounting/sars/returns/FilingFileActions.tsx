@@ -68,7 +68,7 @@ export function FilingFileActions({ form, version, nameOf, onStamped }: Props) {
       {layoutNote && <p role="note" className="text-xs text-amber-700 dark:text-amber-400" data-testid="filing-file-layout-note">{layoutNote}</p>}
       <div className="flex flex-wrap gap-2">
         {FORMATS[form].map(([format, label]) => (
-          <Button key={format} size="sm" variant="secondary" leftIcon={Download} disabled={busy} onClick={() => void download(format)}>
+          <Button key={format} size="sm" variant="secondary" leftIcon={Download} disabled={busy} className="max-lg:min-h-11" onClick={() => void download(format)}>
             Filing file ({label})
           </Button>
         ))}

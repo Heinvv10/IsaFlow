@@ -76,6 +76,7 @@ import { ClosedFiscalPeriodError } from '@/modules/accounting/services/gl/journa
 import handler from '../../../pages/api/accounting/customer-invoices-detail';
 import { assertApprovalCleared, ApprovalRequiredError } from '@/modules/accounting/services/gl/approvalGate';
 import { apiResponse } from '@/lib/apiResponse';
+import { InvoicePeriodClosedError } from '@/modules/accounting/services/ar/customerInvoiceGlPosting';
 import { InvoiceLineCodingRefusal } from '@/modules/accounting/services/ar/invoiceLineCoding';
 import { ArPostingAfterWriteError } from '@/modules/accounting/services/ar/arErrors';
 
@@ -157,6 +158,18 @@ describe('customer-invoices-detail POST action guards', () => {
     const result = await call({ id: INV_ID, action: 'approve' });
     expect(result.kind).toBe('notFound');
     expect(postGlMock).not.toHaveBeenCalled();
+  });
+
+  it('approve into a period that is not open is a 400 naming it, not a masked 500 (the draft-only date field only warns)', async () => {
+    sqlMock
+      .mockResolvedValueOnce([{ status: 'draft', total_amount: '115.00' }]) // the row lock (R-035)
+      .mockResolvedValueOnce([{ id: INV_ID }]); // guarded UPDATE matched a draft row
+    postGlMock.mockRejectedValueOnce(new InvoicePeriodClosedError('Cannot post invoice INV-1 to GL — its fiscal period is closed. Reopen the period, or date the invoice in an open one.'));
+
+    const result = await call({ id: INV_ID, action: 'approve' });
+
+    expect(result.kind).toBe('badRequest');
+    expect(result.error).toMatch(/fiscal period is closed/);
   });
 
   it('approves a draft invoice and posts GL', async () => {

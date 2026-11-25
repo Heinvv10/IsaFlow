@@ -25,8 +25,8 @@ import { SEED_TABLES } from './types';
 import { countWipe, keptReport, runWipe } from './wipe';
 import { finaliseRuns, reopenFinalRuns, splitFinalHeaders } from './payrollFinal';
 import {
-  basicSalaryComponent, ensureFiscalCalendar, genericBankMetadata, insertRows, leaveTypes, readDocFamilies, rebuildBalances,
-  renameCompany, resolveAccounts, resolveActor, setDocCounters,
+  basicSalaryComponent, ensureFiscalCalendar, genericBankMetadata, insertRows, leaveTypes, linkDocumentJournals, readDocFamilies, rebuildBalances,
+  renameCompany, resolveAccounts, resolveActor, setDocCounters, type DocumentLink,
 } from './write';
 
 export interface RunOptions {
@@ -139,17 +139,26 @@ async function steps(tx: Tx, companyId: string, opts: RunOptions, readOnly: bool
   await genericBankMetadata(tx, companyId, accounts.bank, win);
   await ensureFiscalCalendar(tx, companyId, win);
   const runs = splitFinalHeaders(data.rows.payroll_run_headers);
+  const links: DocumentLink[] = [];
   for (const t of SEED_TABLES) {
     // Invoices and bills are history the books already hold: they go in through the app's import exemption
     // (withApprovalGateExempt, with its rank check), as every importer's do, never by setting the gate off by hand.
+    // Migration 1018: a document is inserted unlinked and gets its journal afterwards (the journals are inserted
+    // before the documents: SEED_TABLES order), which is how every approve and import writes it.
     const documentType = t === 'customer_invoices' ? 'customer_invoice' : t === 'supplier_invoices' ? 'supplier_invoice' : null;
     if (documentType) {
+      const unlinked = data.rows[t].map((r) => {
+        const { gl_journal_entry_id: journal, ...rest } = r;
+        if (journal) links.push({ table: t as DocumentLink['table'], id: String(r.id), journalId: String(journal) });
+        return rest;
+      });
       await withAppContext(tx.client, { userId: actor, companyId }, () =>
-        withApprovalGateExempt({ companyId, userId: actor, open: true, documentType }, () => insertRows(tx, t, data.rows[t])));
+        withApprovalGateExempt({ companyId, userId: actor, open: true, documentType }, () => insertRows(tx, t, unlinked)));
     } else {
       await insertRows(tx, t, t === 'payroll_run_headers' ? runs.insert : data.rows[t]);
     }
   }
+  await linkDocumentJournals(tx, links);
   await finaliseRuns(tx, companyId, runs.finals);
   const firstPurchase = data.rows.assets.map((a) => String(a.purchase_date)).sort()[0];
   if (firstPurchase) {

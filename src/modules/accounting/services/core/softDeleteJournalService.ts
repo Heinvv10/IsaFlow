@@ -32,6 +32,7 @@ import { SoftDeleteRefusalError } from './softDeleteErrors';
 import { findJournalChainHead } from '../shared/journalChainHead';
 import { withRowLockBudget } from './rowLockBudget';
 import { JournalReversalLockTimeoutError } from '../gl/journalEntryReversalClaim';
+import { lockDocumentJournalAccounts, lockJournalAccountsBeforeDocument } from '../shared/documentJournalAccountsLock';
 import { ApprovePermissionError } from './approvePermission';
 
 /** Statuses of an invoice that was never approved (a cancelled one has had its journal taken back already): nothing on the books. */
@@ -171,6 +172,8 @@ export async function prepareInvoiceDelete(
   userId: string,
   options: { allowReversal: boolean },
 ): Promise<{ reversalJournalEntryId: string | null }> {
+  // 1018 round 15 L1: the journal's accounts before the invoice row (shared/documentJournalAccountsLock).
+  await lockDocumentJournalAccounts(companyId, entityType === 'customer_invoice' ? 'customer_invoices' : 'supplier_invoices', entityId);
   const row = await assertInvoiceDeletable(entityType, entityId, companyId);
   // Under the row lock just taken: an invoice approved or later, or carrying a journal, is on the books, and deleting it takes it off.
   if (!options.allowReversal && (row.gl_journal_entry_id || !NEVER_APPROVED.includes(String(row.status)))) {
@@ -197,6 +200,18 @@ export async function prepareInvoiceDelete(
     `;
   }
   return { reversalJournalEntryId };
+}
+
+/**
+ * 1018 round 15 L1: the undo restores the invoice row and then reverses the delete's reversal, so the accounts of that
+ * reversal are taken first, before the restore (read unlocked: the restore and the reinstate below decide on locked rows).
+ */
+export async function lockUndoReversalAccounts(entityType: string, entityId: string, companyId: string): Promise<void> {
+  const [row] = (await sql`
+    SELECT reversal_journal_entry_id AS r FROM soft_delete_journal_reversals
+    WHERE company_id = ${companyId}::UUID AND entity_type = ${entityType} AND entity_id = ${entityId}::UUID
+  `) as DbRow[];
+  await lockJournalAccountsBeforeDocument(row?.r ? String(row.r) : null);
 }
 
 /**

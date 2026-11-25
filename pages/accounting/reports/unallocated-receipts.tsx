@@ -49,7 +49,7 @@ export default function UnallocatedReceiptsReport() {
     <AppLayout>
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
         <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-6 py-4">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between max-lg:flex-wrap max-lg:gap-3">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-amber-500/10"><AlertCircle className="h-6 w-6 text-amber-500" /></div>
               <div>
@@ -58,7 +58,7 @@ export default function UnallocatedReceiptsReport() {
               </div>
             </div>
             <Link href="/accounting/customer-allocations"
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium">
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium max-lg:min-h-11 max-lg:inline-flex max-lg:items-center">
               Allocate Receipts
             </Link>
           </div>
@@ -79,7 +79,7 @@ export default function UnallocatedReceiptsReport() {
             ) : items.length === 0 ? (
               <div className="p-8 text-center text-[var(--ff-text-tertiary)]">All receipts are fully allocated</div>
             ) : (
-              <table className="w-full text-sm">
+              <table className="w-full text-sm table-cards">
                 <thead><tr className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-tertiary)]">
                   <th className="px-4 py-3 text-left text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Receipt No</th>
                   <th className="px-4 py-3 text-left text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Customer</th>
@@ -92,13 +92,13 @@ export default function UnallocatedReceiptsReport() {
                   {items.map(r => (
                     <tr key={r.id} className="hover:bg-teal-500/[0.04]">
                       <td className="px-4 py-3 font-medium text-[var(--ff-text-primary)]">
-                        <Link href={`/accounting/customer-payments/${r.id}`} className="hover:text-blue-400">{r.paymentNumber}</Link>
+                        <Link href={`/accounting/customer-payments/${r.id}`} className="hover:text-blue-400 max-lg:inline-flex max-lg:items-center max-lg:min-h-11">{r.paymentNumber}</Link>
                       </td>
-                      <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{r.clientName}</td>
-                      <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{formatDisplayDate(r.date)}</td>
-                      <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">{fmt(Number(r.amount))}</td>
-                      <td className="px-4 py-3 text-right tabular-nums text-teal-400">{fmt(Number(r.allocatedAmount))}</td>
-                      <td className="px-4 py-3 text-right tabular-nums font-bold text-amber-400">{fmt(Number(r.amount) - Number(r.allocatedAmount))}</td>
+                      <td data-label="Customer" className="px-4 py-3 text-[var(--ff-text-secondary)]">{r.clientName}</td>
+                      <td data-label="Date" className="px-4 py-3 text-[var(--ff-text-secondary)]">{formatDisplayDate(r.date)}</td>
+                      <td data-label="Total" className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">{fmt(Number(r.amount))}</td>
+                      <td data-label="Allocated" className="px-4 py-3 text-right tabular-nums text-teal-400">{fmt(Number(r.allocatedAmount))}</td>
+                      <td data-label="Unallocated" className="px-4 py-3 text-right tabular-nums font-bold text-amber-400">{fmt(Number(r.amount) - Number(r.allocatedAmount))}</td>
                     </tr>
                   ))}
                 </tbody>

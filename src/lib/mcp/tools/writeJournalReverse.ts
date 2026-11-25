@@ -20,6 +20,8 @@ import {
   payrollReversalRefusal,
 } from '@/modules/accounting/services/payroll/payrollJournalReversalGuard';
 import { ShareHasLiveUndosError, liveUndoSharesOf } from '@/modules/accounting/services/gl/shareUndoReversalGuard';
+import { refuseReversingIntercompanyClearing } from '@/modules/accounting/services/intercompany/clearingReversalGuard';
+import { isReceiptRefusal } from '@/modules/accounting/services/ar/receiptRefusal';
 import type { McpTool } from '../types';
 import { MUTATION_ARG_SCHEMA, type DryRunResult } from '@/lib/mcp/contracts';
 import {
@@ -36,6 +38,9 @@ import { mcpPostingAgent } from '../postingAgent';
 import { NOT_FOUND, guardCastableArgs, ok, safeErrorText, strArg, toolError } from './toolHelpers';
 import { lockJournalCashForGlReversal } from '@/modules/accounting/services/bank/bankReversalGate';
 import { BankControlError } from '@/modules/accounting/services/bank/bankControlRefusal';
+import {
+  JournalReinstatesCancelledDocumentError, reinstatesCancelledDocument,
+} from '@/modules/accounting/services/gl/journalReinstateRefusal';
 
 const TOOL = 'reverse_journal_entry';
 
@@ -173,6 +178,21 @@ export const reverseJournalEntryTool: McpTool = {
       cashLinesLocked = await lockJournalCashForGlReversal(ctx.companyId, id);
     } catch (err) {
       if (err instanceof BankControlError) return toolError(err.message);
+      throw err;
+    }
+
+    // 1018 round 12 (codex gate): the link's cancelled-document rule, asked read-only, so the dry run refuses what the
+    // write refuses (the trigger stays the guard against a concurrent cancel).
+    if (await reinstatesCancelledDocument(ctx.companyId, id)) {
+      return toolError(new JournalReinstatesCancelledDocumentError(entry.entryNumber).message);
+    }
+
+    // P4-D (round 3, B): an intercompany clearing receipt's journal is reversed only by the receipt's cancel — asked here read-only, so the
+    // dry run refuses what the write refuses, with the same sentence
+    try {
+      await refuseReversingIntercompanyClearing(ctx.companyId, entry);
+    } catch (err) {
+      if (isReceiptRefusal(err)) return toolError(err.message);
       throw err;
     }
 

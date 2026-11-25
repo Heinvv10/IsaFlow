@@ -55,8 +55,8 @@ export function ValidationStep({ summary, onBack, onNext }: Step3Props) {
           <div className="px-4 py-3 border-b border-[var(--ff-border-light)]">
             <span className="text-sm font-medium text-[var(--ff-text-primary)]">Row-level issues</span>
           </div>
-          <div className="overflow-x-auto max-h-72 overflow-y-auto">
-            <table className="w-full text-sm">
+          <div className="overflow-x-auto max-h-72 overflow-y-auto max-lg:max-h-[60vh]">
+            <table className="table-cards w-full text-sm">
               <thead className="sticky top-0 bg-[var(--ff-bg-secondary)]">
                 <tr className="border-b border-[var(--ff-border-light)]">
                   <th className="text-left px-4 py-2 text-[var(--ff-text-secondary)] font-medium">Row</th>
@@ -70,13 +70,13 @@ export function ValidationStep({ summary, onBack, onNext }: Step3Props) {
                   ...v.warnings.map((w, i) => ({ row: v.row, type: 'warning', msg: w, key: `w-${v.row}-${i}` })),
                 ]).map(item => (
                   <tr key={item.key} className="border-b border-[var(--ff-border-light)]/50">
-                    <td className="px-4 py-2 text-[var(--ff-text-secondary)]">{item.row}</td>
-                    <td className="px-4 py-2">
+                    <td data-label="Row" className="px-4 py-2 text-[var(--ff-text-secondary)]">{item.row}</td>
+                    <td data-label="Type" className="px-4 py-2">
                       {item.type === 'error'
                         ? <span className="inline-flex items-center gap-1 text-red-400"><XCircle className="h-3 w-3" />Error</span>
                         : <span className="inline-flex items-center gap-1 text-amber-400"><AlertTriangle className="h-3 w-3" />Warning</span>}
                     </td>
-                    <td className="px-4 py-2 text-[var(--ff-text-secondary)]">{item.msg}</td>
+                    <td data-label="Message" className="px-4 py-2 text-[var(--ff-text-secondary)]">{item.msg}</td>
                   </tr>
                 ))}
               </tbody>
@@ -85,10 +85,10 @@ export function ValidationStep({ summary, onBack, onNext }: Step3Props) {
         </div>
       )}
 
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between max-lg:flex-wrap max-lg:gap-3">
         <button
           onClick={onBack}
-          className="inline-flex items-center gap-2 px-4 py-2 border border-[var(--ff-border-light)] text-[var(--ff-text-secondary)] rounded-lg hover:bg-[var(--ff-bg-secondary)] transition-colors text-sm"
+          className="inline-flex items-center gap-2 px-4 py-2 border border-[var(--ff-border-light)] text-[var(--ff-text-secondary)] rounded-lg hover:bg-[var(--ff-bg-secondary)] transition-colors text-sm max-lg:min-h-11"
         >
           <ArrowLeft className="h-4 w-4" />
           Back
@@ -96,7 +96,7 @@ export function ValidationStep({ summary, onBack, onNext }: Step3Props) {
         <button
           disabled={summary.validCount === 0}
           onClick={onNext}
-          className="inline-flex items-center gap-2 px-5 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium"
+          className="inline-flex items-center gap-2 px-5 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium max-lg:min-h-11"
         >
           <ArrowRight className="h-4 w-4" />
           Continue ({summary.validCount} valid rows)
@@ -156,16 +156,16 @@ export function ImportStep({
             </p>
           )}
         </div>
-        <div className="flex items-center justify-center gap-4">
+        <div className="flex items-center justify-center gap-4 max-lg:flex-wrap">
           <button
             onClick={onViewEntries}
-            className="inline-flex items-center gap-2 px-5 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 transition-colors text-sm font-medium"
+            className="inline-flex items-center gap-2 px-5 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 transition-colors text-sm font-medium max-lg:min-h-11"
           >
             View Journal Entries
           </button>
           <button
             onClick={onReset}
-            className="inline-flex items-center gap-2 px-5 py-2 border border-[var(--ff-border-light)] text-[var(--ff-text-secondary)] rounded-lg hover:bg-[var(--ff-bg-secondary)] transition-colors text-sm"
+            className="inline-flex items-center gap-2 px-5 py-2 border border-[var(--ff-border-light)] text-[var(--ff-text-secondary)] rounded-lg hover:bg-[var(--ff-bg-secondary)] transition-colors text-sm max-lg:min-h-11"
           >
             Import Another File
           </button>
@@ -178,7 +178,7 @@ export function ImportStep({
     <div className="space-y-6">
       <div className="bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] rounded-lg p-6 space-y-4">
         <h2 className="text-base font-semibold text-[var(--ff-text-primary)]">Import Summary</h2>
-        <div className="grid grid-cols-3 gap-4 text-center">
+        <div className="grid grid-cols-3 gap-4 text-center max-lg:grid-cols-1">
           <div>
             <div className="text-2xl font-bold text-[var(--ff-text-primary)]">{validRows.length}</div>
             <div className="text-xs text-[var(--ff-text-secondary)]">Lines to import</div>
@@ -204,7 +204,7 @@ export function ImportStep({
               { value: false, label: 'Import as Draft', desc: 'Entries created as drafts — review and post manually' },
               { value: true, label: 'Import and Post', desc: 'Entries immediately posted to the general ledger' },
             ].map(opt => (
-              <label key={String(opt.value)} className="flex items-start gap-3 cursor-pointer">
+              <label key={String(opt.value)} className="flex items-start gap-3 cursor-pointer max-lg:min-h-11">
                 <input
                   type="radio"
                   name="postMode"
@@ -229,10 +229,10 @@ export function ImportStep({
         </div>
       )}
 
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between max-lg:flex-wrap max-lg:gap-3">
         <button
           onClick={onBack}
-          className="inline-flex items-center gap-2 px-4 py-2 border border-[var(--ff-border-light)] text-[var(--ff-text-secondary)] rounded-lg hover:bg-[var(--ff-bg-secondary)] transition-colors text-sm"
+          className="inline-flex items-center gap-2 px-4 py-2 border border-[var(--ff-border-light)] text-[var(--ff-text-secondary)] rounded-lg hover:bg-[var(--ff-bg-secondary)] transition-colors text-sm max-lg:min-h-11"
         >
           <ArrowLeft className="h-4 w-4" />
           Back
@@ -240,7 +240,7 @@ export function ImportStep({
         <button
           onClick={onImport}
           disabled={importing}
-          className="inline-flex items-center gap-2 px-6 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium"
+          className="inline-flex items-center gap-2 px-6 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium max-lg:min-h-11"
         >
           {importing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
           {importing ? 'Importing...' : `Import ${validRows.length} rows`}

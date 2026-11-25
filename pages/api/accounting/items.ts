@@ -11,6 +11,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { MAX_CODE_LENGTH } from '@/modules/accounting/services/items/itemCatalogTypes';
 import {
   getItem,
   listItems,
@@ -78,7 +79,14 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       return apiResponse.validationError(res, { item_type: 'Must be physical or service' });
     }
 
-    const code = String(body.code || '').trim();
+    // A missing or null code means "generate one"; a code that is sent must be text that fits VARCHAR(50) (MAX_CODE_LENGTH), as on PUT.
+    if (body.code !== undefined && body.code !== null && typeof body.code !== 'string') {
+      return apiResponse.validationError(res, { code: 'Item code must be text' });
+    }
+    const code = (body.code ?? '').trim();
+    if (code.length > MAX_CODE_LENGTH) {
+      return apiResponse.validationError(res, { code: `Item code must be at most ${MAX_CODE_LENGTH} characters` });
+    }
     if (code) {
       const isDupe = await checkCodeDuplicate(companyId, code);
       if (isDupe) {
@@ -126,17 +134,27 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     if (!exists) return apiResponse.notFound(res, 'Item', id);
 
     if (body.code !== undefined) {
-      const newCode = String(body.code).trim();
-      if (newCode) {
-        const isDupe = await checkCodeDuplicate(companyId, newCode, id);
-        if (isDupe) {
-          return apiResponse.validationError(res, { code: `Item code '${newCode}' already exists` });
-        }
+      if (body.code === null) {
+        return apiResponse.validationError(res, { code: 'null is not allowed on update; omit code to keep it' });
+      }
+      if (typeof body.code !== 'string') {
+        return apiResponse.validationError(res, { code: 'Item code must be text' });
+      }
+      const newCode = body.code.trim();
+      if (!newCode) {
+        return apiResponse.validationError(res, { code: 'Item code cannot be blank' });
+      }
+      if (newCode.length > MAX_CODE_LENGTH) {
+        return apiResponse.validationError(res, { code: `Item code must be at most ${MAX_CODE_LENGTH} characters` });
+      }
+      const isDupe = await checkCodeDuplicate(companyId, newCode, id);
+      if (isDupe) {
+        return apiResponse.validationError(res, { code: `Item code '${newCode}' already exists` });
       }
     }
 
     const input: UpdateItemInput = { id };
-    if (body.code !== undefined) input.code = String(body.code);
+    if (body.code !== undefined) input.code = body.code.trim();
     if (body.description !== undefined) input.description = String(body.description);
     if (body.item_type !== undefined) input.item_type = String(body.item_type);
     if (body.category_id !== undefined) input.category_id = String(body.category_id);

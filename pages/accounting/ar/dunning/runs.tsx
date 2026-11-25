@@ -106,7 +106,7 @@ export default function DunningRunsPage() {
           <div>
             <Link
               href="/accounting/ar/dunning"
-              className="inline-flex items-center gap-1 text-sm text-brand-700 dark:text-teal-400 hover:underline mb-2"
+              className="inline-flex items-center gap-1 text-sm text-brand-700 dark:text-teal-400 hover:underline mb-2 max-lg:min-h-11"
             >
               <ArrowLeft className="w-4 h-4" /> Back to templates
             </Link>
@@ -134,13 +134,13 @@ export default function DunningRunsPage() {
           <Stat label="Response rate" value={`${responseRate}%`} tone="gray" />
         </section>
 
-        <div className="flex gap-2 text-sm">
+        <div className="flex gap-2 text-sm max-lg:flex-wrap">
           {(['', 'none', 'paid', 'promised', 'disputed', 'silent'] as ResponseFilter[]).map((f) => (
             <button
               key={f || 'all'}
               type="button"
               onClick={() => setFilter(f)}
-              className={`px-3 py-1.5 rounded-md border ${
+              className={`px-3 py-1.5 rounded-md border max-lg:min-h-11 ${
                 filter === f
                   ? 'bg-brand-600 text-white border-brand-600'
                   : 'bg-surface-raised text-ink border-line hover:bg-surface-sunken'
@@ -157,7 +157,7 @@ export default function DunningRunsPage() {
           </div>
         ) : (
           <div className="border border-line rounded-lg overflow-x-auto">
-            <table className="min-w-full text-sm">
+            <table className="min-w-full text-sm table-cards">
               <thead className="bg-surface-sunken text-ink-muted text-left">
                 <tr>
                   <th className="px-3 py-2">Sent</th>
@@ -172,19 +172,19 @@ export default function DunningRunsPage() {
               <tbody>
                 {sends.map((s) => (
                   <tr key={s.id} className="border-t border-line text-ink">
-                    <td className="px-3 py-2 whitespace-nowrap text-ink-muted">
+                    <td data-label="Sent" className="px-3 py-2 whitespace-nowrap text-ink-muted">
                       {fmtDateTime(s.sent_at)}
                     </td>
-                    <td className="px-3 py-2 font-medium">{s.invoice_number}</td>
-                    <td className="px-3 py-2">{s.customer_name}</td>
-                    <td className="px-3 py-2">
+                    <td data-label="Invoice" className="px-3 py-2 font-medium">{s.invoice_number}</td>
+                    <td data-label="Customer" className="px-3 py-2">{s.customer_name}</td>
+                    <td data-label="Tone" className="px-3 py-2">
                       <span className="inline-flex items-center gap-1">
                         <span className={`w-2 h-2 rounded-full ${TONE_DOT[s.template_tone]}`} />
                         {s.template_name}
                       </span>
                     </td>
-                    <td className="px-3 py-2 capitalize text-ink-muted">{s.trigger_source}</td>
-                    <td className="px-3 py-2">
+                    <td data-label="Trigger" className="px-3 py-2 capitalize text-ink-muted">{s.trigger_source}</td>
+                    <td data-label="Status" className="px-3 py-2">
                       {s.email_status === 'sent' ? (
                         <span className="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-400">
                           <CheckCircle2 className="w-4 h-4" /> Sent
@@ -197,7 +197,7 @@ export default function DunningRunsPage() {
                         <span className="text-ink-muted">Pending</span>
                       )}
                     </td>
-                    <td className="px-3 py-2">
+                    <td data-label="Response" className="px-3 py-2">
                       {s.response_action ? (
                         <span className={`text-xs px-2 py-0.5 rounded ${RESPONSE_BADGE[s.response_action]}`}>
                           {RESPONSE_LABEL[s.response_action]}
@@ -210,7 +210,7 @@ export default function DunningRunsPage() {
                 ))}
                 {sends.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="px-3 py-8 text-center text-ink-muted">
+                    <td colSpan={7} className="px-3 py-8 text-center text-ink-muted max-lg:!py-8 max-lg:!text-center">
                       No sends yet.
                     </td>
                   </tr>

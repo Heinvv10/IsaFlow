@@ -34,7 +34,7 @@ export default function StockLevelsPage() {
     <AppLayout>
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
         <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-6 py-4">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between max-lg:flex-wrap max-lg:gap-3">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-green-500/10"><BarChart3 className="h-6 w-6 text-green-500" /></div>
               <div><h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Stock Levels</h1><p className="text-sm text-[var(--ff-text-secondary)]">Current inventory quantities and valuations</p></div>
@@ -61,34 +61,34 @@ export default function StockLevelsPage() {
             </div>
           )}
           <div className="flex items-center gap-3">
-            <label className="flex items-center gap-2 text-sm text-[var(--ff-text-secondary)]">
+            <label className="flex items-center gap-2 text-sm text-[var(--ff-text-secondary)] max-lg:min-h-11">
               <input type="checkbox" checked={showBelowOnly} onChange={e => setShowBelowOnly(e.target.checked)} className="rounded" />
               Show only below reorder level
             </label>
           </div>
           <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-hidden">
-            <table className="w-full text-sm">
+            <table className="w-full text-sm table-cards">
               <thead><tr className="border-b border-[var(--ff-border-light)] text-left text-[var(--ff-text-secondary)]">
                 <th className="px-4 py-3">Code</th><th className="px-4 py-3">Product</th><th className="px-4 py-3">Category</th>
                 <th className="px-4 py-3 text-right">In Stock</th><th className="px-4 py-3 text-right">Reorder At</th>
                 <th className="px-4 py-3 text-right">Avg Cost</th><th className="px-4 py-3 text-right">Stock Value</th>
               </tr></thead>
               <tbody>
-                {loading && <tr><td colSpan={7} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)]"><Loader2 className="h-5 w-5 animate-spin inline mr-2" />Loading...</td></tr>}
-                {!loading && items.length === 0 && <tr><td colSpan={7} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)]">No inventory items</td></tr>}
+                {loading && <tr><td colSpan={7} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)] max-lg:!py-8 max-lg:!text-center"><Loader2 className="h-5 w-5 animate-spin inline mr-2" />Loading...</td></tr>}
+                {!loading && items.length === 0 && <tr><td colSpan={7} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)] max-lg:!py-8 max-lg:!text-center">No inventory items</td></tr>}
                 {items.map(i => {
                   const below = Number(i.current_stock) <= Number(i.reorder_level) && Number(i.reorder_level) > 0;
                   return (
                     <tr key={i.id} className="border-b border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-primary)]/50">
                       <td className="px-4 py-3 font-medium text-[var(--ff-text-primary)]">{i.code}</td>
-                      <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{i.name}</td>
-                      <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{i.category}</td>
-                      <td className={`px-4 py-3 text-right font-medium ${below ? 'text-amber-400' : 'text-[var(--ff-text-primary)]'}`}>
-                        {below && <AlertTriangle className="h-3 w-3 inline mr-1" />}{Number(i.current_stock)} {i.unit}
+                      <td data-label="Product" className="px-4 py-3 text-[var(--ff-text-secondary)]">{i.name}</td>
+                      <td data-label="Category" className="px-4 py-3 text-[var(--ff-text-secondary)]">{i.category}</td>
+                      <td data-label="In Stock" className={`px-4 py-3 text-right font-medium ${below ? 'text-amber-400' : 'text-[var(--ff-text-primary)]'}`}>
+                        <span className="max-lg:text-right">{below && <AlertTriangle className="h-3 w-3 inline mr-1" />}{Number(i.current_stock)} {i.unit}</span>
                       </td>
-                      <td className="px-4 py-3 text-right text-[var(--ff-text-secondary)]">{Number(i.reorder_level)}</td>
-                      <td className="px-4 py-3 text-right text-[var(--ff-text-primary)]">{fmt(Number(i.avg_cost))}</td>
-                      <td className="px-4 py-3 text-right text-teal-400">{fmt(Number(i.stock_value || 0))}</td>
+                      <td data-label="Reorder At" className="px-4 py-3 text-right text-[var(--ff-text-secondary)]">{Number(i.reorder_level)}</td>
+                      <td data-label="Avg Cost" className="px-4 py-3 text-right text-[var(--ff-text-primary)]">{fmt(Number(i.avg_cost))}</td>
+                      <td data-label="Stock Value" className="px-4 py-3 text-right text-teal-400">{fmt(Number(i.stock_value || 0))}</td>
                     </tr>
                   );
                 })}

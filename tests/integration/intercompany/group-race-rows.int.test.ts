@@ -74,7 +74,7 @@ describe("a side's first save and a revoke at the same moment", () => {
 describe('a message send, a link insert and a revoke at the same moment', () => {
   it('a message in flight first: a manual revoke waits for it', async () => {
     const id = await plantConnection(pool, co.A, co.B);
-    const send = "INSERT INTO intercompany_messages(connection_id, from_company_id, to_company_id, kind, source_doc_type, source_doc_id, payload) VALUES ($1, $2, $3, 'payment', 'payment', gen_random_uuid(), '{}')";
+    const send = "INSERT INTO intercompany_messages(connection_id, from_company_id, to_company_id, kind, source_doc_type, source_doc_id, payload) VALUES ($1, $2, $3, 'reject', 'payment', gen_random_uuid(), '{}')";
     const r = await serialised(inFlight(U.ab, co.A, send, [id, co.A, co.B]), revokeByA(id), openSession(U.a, co.A), undefined, true);
     expect(r).toEqual({ waited: 'lock', firstEnd: 'ok', second: 'ok' });
     expect((await connection(id)).status).toBe('revoked');

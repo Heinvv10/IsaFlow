@@ -6,7 +6,8 @@ import { ConnectionRefusal } from './connectionTypes';
 /** True (and the response sent) when `err` is a refusal; otherwise false so the caller rethrows. */
 export function respondIfRefusal(res: NextApiResponse, err: unknown): boolean {
   if (!(err instanceof ConnectionRefusal)) return false;
-  if (err.status === 404) apiResponse.notFound(res, 'Connection');
+  // The refusal names what was not found ("Connection not found", "Message not found").
+  if (err.status === 404) apiResponse.notFound(res, err.message.replace(/ not found$/, '') || 'Connection');
   else if (err.status === 403) apiResponse.forbidden(res, err.message);
   else if (err.status === 409) apiResponse.conflict(res, err.message);
   else apiResponse.badRequest(res, err.message);

@@ -125,7 +125,7 @@ describe('a viewer holding its own pair does not stall pairs that share no group
         const s = await openSession(U.ab, from);
         try {
           await s.query("SET LOCAL lock_timeout = '1500ms'");
-          await s.query('INSERT INTO intercompany_messages(connection_id, from_company_id, to_company_id, kind, source_doc_type, source_doc_id, payload) VALUES ($1, $2, $3, \'payment\', \'payment\', gen_random_uuid(), \'{}\')', [id, from, to]);
+          await s.query('INSERT INTO intercompany_messages(connection_id, from_company_id, to_company_id, kind, source_doc_type, source_doc_id, payload) VALUES ($1, $2, $3, \'reject\', \'payment\', gen_random_uuid(), \'{}\')', [id, from, to]);
           await s.query('COMMIT');
         } finally {
           s.release();

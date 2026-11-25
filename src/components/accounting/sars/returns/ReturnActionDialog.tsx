@@ -130,7 +130,7 @@ export function ReturnActionDialog(p: Props) {
       <Modal.Body className="space-y-4">
         <p className="text-sm text-[var(--ff-text-secondary)]">{text}</p>
         {p.action === 'file' && !stale && (
-          <Input ref={firstField} label="SARS eFiling reference" value={reference} maxLength={200} onChange={(e) => setReference(e.target.value)} />
+          <Input ref={firstField} label="SARS eFiling reference" className="max-lg:min-h-11" value={reference} maxLength={200} onChange={(e) => setReference(e.target.value)} />
         )}
         {p.action === 'amend' && (
           <ReturnReasonField ref={firstField} id="return-amend-reason" label="Reason for the amendment (required)" value={reason} onChange={setReason}
@@ -165,13 +165,13 @@ export function ReturnActionDialog(p: Props) {
       <Modal.Footer>
         {stale ? (
           <>
-            <Button variant="ghost" onClick={p.onClose}>Close</Button>
-            {offerAmendInstead && <Button ref={amendInstead} variant="secondary" onClick={p.onAmendInstead}>Amend instead</Button>}
+            <Button variant="ghost" className="max-lg:min-h-11" onClick={p.onClose}>Close</Button>
+            {offerAmendInstead && <Button ref={amendInstead} variant="secondary" className="max-lg:min-h-11" onClick={p.onAmendInstead}>Amend instead</Button>}
           </>
         ) : (
           <>
-            <Button variant="ghost" onClick={p.onClose}>Cancel</Button>
-            <Button ref={primary} variant={p.action === 'amend' ? 'danger' : 'primary'} className={DISABLED} loading={busy}
+            <Button variant="ghost" className="max-lg:min-h-11" onClick={p.onClose}>Cancel</Button>
+            <Button ref={primary} variant={p.action === 'amend' ? 'danger' : 'primary'} className={`${DISABLED} max-lg:min-h-11`} loading={busy}
               disabled={busy || missing !== null} onClick={() => void submit()}>
               {blocked && p.isOwnerOrAdmin ? `Override and ${cta.toLowerCase()}` : cta}
             </Button>

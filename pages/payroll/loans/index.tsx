@@ -95,7 +95,7 @@ export default function LoansListPage() {
   return (
     <AppLayout>
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
-        <div className="border-b border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)] px-6 py-4 flex items-center justify-between">
+        <div className="border-b border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)] px-6 py-4 flex items-center justify-between max-lg:flex-wrap max-lg:gap-3">
           <div className="flex items-center gap-3">
             <div className="p-2 rounded-lg bg-emerald-500/10">
               <Banknote className="h-6 w-6 text-emerald-500" />
@@ -106,7 +106,7 @@ export default function LoansListPage() {
             </div>
           </div>
           <WriteOnly>
-            <Link href="/payroll/loans/new" className="flex items-center gap-2 px-4 py-2 rounded-lg bg-success-700 hover:bg-success-800 text-white text-sm font-medium">
+            <Link href="/payroll/loans/new" className="flex items-center gap-2 px-4 py-2 rounded-lg bg-success-700 hover:bg-success-800 text-white text-sm font-medium max-lg:min-h-11">
               <Plus className="h-4 w-4" /> New Loan
             </Link>
           </WriteOnly>
@@ -114,13 +114,13 @@ export default function LoansListPage() {
 
         <div className="p-6 space-y-4">
           {componentsMissing && !loading && (
-            <div className="flex items-center justify-between gap-4 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
+            <div className="flex items-center justify-between gap-4 max-lg:flex-wrap rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
               <div className="text-amber-300">
                 Loan payslip components not configured. Without these, loan payments record but don&apos;t appear on payslips.
               </div>
               <WriteOnly>
                 <button onClick={seedComponents} disabled={seeding}
-                  className="px-3 py-1.5 rounded-md bg-amber-600 hover:bg-amber-700 text-white text-xs font-medium disabled:opacity-50">
+                  className="px-3 py-1.5 rounded-md bg-amber-600 hover:bg-amber-700 text-white text-xs font-medium disabled:opacity-50 max-lg:min-h-11">
                   {seeding ? 'Creating...' : 'Create loan components'}
                 </button>
               </WriteOnly>
@@ -136,7 +136,7 @@ export default function LoansListPage() {
           <div className="flex items-center gap-3">
             <label className="text-sm text-[var(--ff-text-secondary)]">Status</label>
             <select value={statusFilter} onChange={e => setStatusFilter(e.target.value as LoanRow['status'] | '')}
-              className="rounded-md bg-[var(--ff-surface-primary)] border border-[var(--ff-border-primary)] text-sm px-2 py-1 text-[var(--ff-text-primary)]">
+              className="rounded-md bg-[var(--ff-surface-primary)] border border-[var(--ff-border-primary)] text-sm px-2 py-1 text-[var(--ff-text-primary)] max-lg:min-h-11">
               <option value="">All</option>
               <option value="active">Active</option>
               <option value="settled">Settled</option>
@@ -154,14 +154,14 @@ export default function LoansListPage() {
               <Banknote className="h-12 w-12 text-[var(--ff-text-tertiary)] mx-auto mb-3" />
               <p className="text-[var(--ff-text-secondary)] font-medium">No loans yet</p>
               <WriteOnly>
-                <Link href="/payroll/loans/new" className="inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-lg bg-success-700 hover:bg-success-800 text-white text-sm font-medium">
+                <Link href="/payroll/loans/new" className="inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-lg bg-success-700 hover:bg-success-800 text-white text-sm font-medium max-lg:min-h-11">
                   <Plus className="h-4 w-4" /> Create first loan
                 </Link>
               </WriteOnly>
             </div>
           ) : (
             <div className="rounded-lg border border-[var(--ff-border-primary)] overflow-hidden bg-[var(--ff-surface-primary)]">
-              <table className="w-full text-sm">
+              <table className="table-cards w-full text-sm">
                 <thead>
                   <tr className="border-b border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)] text-left">
                     <th className="py-3 px-4 font-medium text-[var(--ff-text-secondary)]">Loan #</th>
@@ -177,15 +177,15 @@ export default function LoansListPage() {
                 <tbody>
                   {loans.map(l => (
                     <tr key={l.id} className="border-b border-[var(--ff-border-primary)] last:border-0 hover:bg-[var(--ff-bg-tertiary)]">
-                      <td className="py-3 px-4 font-id text-[var(--ff-text-primary)]">{l.loanNumber}</td>
-                      <td className="py-3 px-4 text-[var(--ff-text-primary)]">{l.description}</td>
-                      <td className="py-3 px-4 text-[var(--ff-text-secondary)]">{l.method.replace('_', ' ')}</td>
-                      <td className="py-3 px-4"><StatusBadge status={l.status} /></td>
-                      <td className="py-3 px-4 text-right tabular-nums text-[var(--ff-text-secondary)]">{(l.annualInterestRate * 100).toFixed(2)}%</td>
-                      <td className="py-3 px-4 text-right tabular-nums text-[var(--ff-text-primary)]">{formatCurrency(l.principal)}</td>
-                      <td className="py-3 px-4 text-right tabular-nums text-[var(--ff-text-primary)] font-medium">{formatCurrency(l.outstandingBalance)}</td>
+                      <td data-label="Loan #" className="py-3 px-4 font-id text-[var(--ff-text-primary)]">{l.loanNumber}</td>
+                      <td data-label="Description" className="py-3 px-4 text-[var(--ff-text-primary)]">{l.description}</td>
+                      <td data-label="Method" className="py-3 px-4 text-[var(--ff-text-secondary)]">{l.method.replace('_', ' ')}</td>
+                      <td data-label="Status" className="py-3 px-4"><StatusBadge status={l.status} /></td>
+                      <td data-label="Rate" className="py-3 px-4 text-right tabular-nums text-[var(--ff-text-secondary)]">{(l.annualInterestRate * 100).toFixed(2)}%</td>
+                      <td data-label="Principal" className="py-3 px-4 text-right tabular-nums text-[var(--ff-text-primary)]">{formatCurrency(l.principal)}</td>
+                      <td data-label="Outstanding" className="py-3 px-4 text-right tabular-nums text-[var(--ff-text-primary)] font-medium">{formatCurrency(l.outstandingBalance)}</td>
                       <td className="py-3 px-4 text-right">
-                        <Link href={`/payroll/loans/${l.id}`} className="text-emerald-400 hover:text-emerald-300 text-xs font-medium">Open</Link>
+                        <Link href={`/payroll/loans/${l.id}`} className="text-emerald-400 hover:text-emerald-300 text-xs font-medium max-lg:inline-flex max-lg:items-center max-lg:min-h-11">Open</Link>
                       </td>
                     </tr>
                   ))}

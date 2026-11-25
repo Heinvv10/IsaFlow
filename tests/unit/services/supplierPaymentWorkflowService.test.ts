@@ -54,6 +54,11 @@ vi.mock('@/lib/neon', () => {
   };
 });
 
+// intercompany P4-E (j).3: the loan-account guard asks its own queries and the flag (tested in its own unit file and the intercompany suites);
+// this file's sql mock answers every statement with a row, so the real guard would read "linked" and, with no flag read here, fail closed
+vi.mock('@/modules/accounting/services/intercompany/loanAccountPaymentGuard', () => ({
+  refuseLoanAccountPayment: vi.fn(async () => undefined), refuseLoanAccountApply: vi.fn(async () => undefined), refuseLoanAccountBatch: vi.fn(async () => undefined),
+}));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
 }));

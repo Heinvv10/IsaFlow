@@ -44,7 +44,7 @@ export function SupplierLedgerResults({ ledger }: { ledger: LedgerData }) {
       )}
 
       <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-hidden">
-        <table className="w-full text-sm">
+        <table className="table-cards w-full text-sm">
           <thead>
             <tr className="border-b border-[var(--ff-border-light)] text-left text-[var(--ff-text-secondary)]">
               <th className="px-4 py-3">Date</th>
@@ -60,7 +60,7 @@ export function SupplierLedgerResults({ ledger }: { ledger: LedgerData }) {
               <tr>
                 <td
                   colSpan={6}
-                  className="px-4 py-8 text-center text-[var(--ff-text-tertiary)]"
+                  className="px-4 py-8 text-center text-[var(--ff-text-tertiary)] max-lg:!py-8 max-lg:!text-center"
                 >
                   No transactions for the selected period
                 </td>
@@ -71,10 +71,10 @@ export function SupplierLedgerResults({ ledger }: { ledger: LedgerData }) {
                 key={row.transaction_id}
                 className="border-b border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-primary)]/50"
               >
-                <td className="px-4 py-2 text-[var(--ff-text-secondary)] font-mono text-xs">
+                <td data-label="Date" className="px-4 py-2 text-[var(--ff-text-secondary)] font-mono text-xs">
                   {formatDisplayDate(row.transaction_date)}
                 </td>
-                <td className="px-4 py-2">
+                <td data-label="Type" className="px-4 py-2">
                   <span
                     className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
                       row.type === 'invoice'
@@ -85,24 +85,24 @@ export function SupplierLedgerResults({ ledger }: { ledger: LedgerData }) {
                     {typeLabel(row.type)}
                   </span>
                 </td>
-                <td className="px-4 py-2 text-[var(--ff-text-primary)]">
+                <td data-label="Reference" className="px-4 py-2 text-[var(--ff-text-primary)]">
                   {row.reference ?? '—'}
                 </td>
-                <td className="px-4 py-2 text-right tabular-nums">
+                <td data-label="Debit" className="px-4 py-2 text-right tabular-nums">
                   {row.debit > 0 ? (
                     <span className="text-red-700 dark:text-red-400">{fmt(row.debit)}</span>
                   ) : (
                     <span className="text-[var(--ff-text-tertiary)]">—</span>
                   )}
                 </td>
-                <td className="px-4 py-2 text-right tabular-nums">
+                <td data-label="Credit" className="px-4 py-2 text-right tabular-nums">
                   {row.credit > 0 ? (
                     <span className="text-teal-800 dark:text-teal-400">{fmt(row.credit)}</span>
                   ) : (
                     <span className="text-[var(--ff-text-tertiary)]">—</span>
                   )}
                 </td>
-                <td
+                <td data-label="Balance"
                   className={`px-4 py-2 text-right tabular-nums font-medium ${row.running_balance > 0.005 ? 'text-[var(--ff-text-primary)]' : 'text-teal-800 dark:text-teal-400'}`}
                 >
                   {fmt(row.running_balance)}
@@ -119,13 +119,13 @@ export function SupplierLedgerResults({ ledger }: { ledger: LedgerData }) {
                 >
                   Totals
                 </td>
-                <td className="px-4 py-3 text-right tabular-nums text-red-700 dark:text-red-400">
+                <td data-label="Debit" className="px-4 py-3 text-right tabular-nums text-red-700 dark:text-red-400">
                   {fmt(totalDebits)}
                 </td>
-                <td className="px-4 py-3 text-right tabular-nums text-teal-800 dark:text-teal-400">
+                <td data-label="Credit" className="px-4 py-3 text-right tabular-nums text-teal-800 dark:text-teal-400">
                   {fmt(totalCredits)}
                 </td>
-                <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">
+                <td data-label="Balance" className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">
                   {fmt(ledger.closing_balance)}
                 </td>
               </tr>

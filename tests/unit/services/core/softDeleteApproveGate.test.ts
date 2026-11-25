@@ -10,6 +10,8 @@ vi.mock('@/lib/neon', () => ({ sql: vi.fn(async () => []) }));
 const assertInvoiceDeletable = vi.fn();
 vi.mock('@/modules/accounting/services/core/softDeleteInvoiceGuards', () => ({ assertInvoiceDeletable: (...a: unknown[]) => assertInvoiceDeletable(...a) }));
 vi.mock('@/modules/accounting/services/gl/journalEntryPostingService', () => ({ reverseJournalEntry: vi.fn(async () => ({ id: 'rev-1' })) }));
+// 1018 round 15: the journal's accounts are taken before the invoice row (its own read, before the lock this suite is about).
+vi.mock('@/modules/accounting/services/shared/documentJournalAccountsLock', () => ({ lockDocumentJournalAccounts: vi.fn(async () => undefined), lockJournalAccountsBeforeDocument: vi.fn(async () => undefined) }));
 vi.mock('@/modules/accounting/services/shared/journalChainHead', () => ({ findJournalChainHead: vi.fn(async () => ({ kind: 'head', id: 'je-1', standing: true, unreversed: 1 })) }));
 
 import { sql } from '@/lib/neon';
