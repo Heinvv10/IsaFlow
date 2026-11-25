@@ -58,7 +58,9 @@
 --          and grill F6 said "refused"), as 999x's history guard and 999n's line freeze already allow it: deleting a
 --          tenant removes its whole history. Census (PR body): the only FK that cascades into payroll_run_headers is
 --          payroll_run_headers_company_id_fkey (companies, ON DELETE CASCADE); the two gl_journal_entries FKs are NO
---          ACTION / SET NULL; app_user holds only SELECT on companies.
+--          ACTION / SET NULL; app_user holds only SELECT on companies. A company's id is fixed (companies_id_fixed,
+--          BEFORE UPDATE, ENABLE ALWAYS, every non-superuser; breaker H of 5ef58a1b12), so "the company row is gone"
+--          cannot be faked by moving the row's id for one statement.
 --        * rule b only, the Demo company (a literal id: no GUC or role check, which the app pool could forge; 999n's
 --          reasoning). The Demo reseed runs as production's postgres, NOSUPERUSER, so it is bound: it reopens the
 --          Demo's final runs first (scripts/lib/demoReseed/payrollFinal.ts reopenFinalRuns), which satisfies rule a,
@@ -79,7 +81,7 @@
 --   reseed     the old colour's reseed also reopens before its wipe (999n), so it is not refused.
 --   approval_evidence_at  the old colour never names it (no SELECT * that is written back); its header writes pass
 --              through the evidence trigger, which keeps or stamps the column itself. It never TRUNCATEs headers and
---              never changes a header's or employee's id.
+--              never changes a header's, an employee's or a company's id.
 --   So it reads and writes the same rows as before.
 --
 -- LOCKS. DROP/CREATE POLICY take ACCESS EXCLUSIVE on each table for an instant; CREATE OR REPLACE TRIGGER and ENABLE
@@ -94,6 +96,7 @@
 --   DROP FUNCTION IF EXISTS public.payroll_run_headers_approval_evidence(), public.payroll_run_headers_no_truncate(),
 --     public.payroll_company_row_exists(uuid);
 --   DELETE FROM public.app_definer_reviews WHERE signature = 'payroll_company_row_exists(uuid)';
+--   DROP TRIGGER IF EXISTS companies_id_fixed ON public.companies; DROP FUNCTION IF EXISTS public.companies_id_fixed();
 --   GRANT TRUNCATE ON public.payroll_run_headers TO migration_admin;
 --   ALTER TABLE public.payroll_run_headers DROP COLUMN IF EXISTS approval_evidence_at;
 --   DROP TRIGGER IF EXISTS payroll_employees_company_fixed ON public.payroll_employees;
@@ -202,15 +205,23 @@ COMMENT ON COLUMN public.payroll_run_headers.approval_evidence_at IS
 -- other trace below the service) is stamped. Run as the migration role (the table's owner: a trusted identity for
 -- 999x's snapshot trigger, and the figures and stamps 999n freezes are not touched). Re-runs touch nothing.
 SET LOCAL statement_timeout = '120s';
-UPDATE public.payroll_run_headers
-   SET approval_evidence_at = COALESCE(approved_at, approval_grandfathered_at, reopened_at, lines_confirmed_at,
-                                       cancelled_at, updated_at, pg_catalog.now())
- WHERE approval_evidence_at IS NULL
-   AND (status IN ('approved', 'paid', 'cancelled')
-        OR approved_at IS NOT NULL OR approval_grandfathered_at IS NOT NULL OR approved_by IS NOT NULL
-        OR lines_confirmed_at IS NOT NULL OR reopened_at IS NOT NULL OR off_cycle_payday_at IS NOT NULL
-        OR journal_entry_id IS NOT NULL OR posted_journal_entry_id IS NOT NULL
-        OR (approval_history IS NOT NULL AND NOT pg_catalog.isempty(approval_history)));
+-- Round 2 (breaker L of 5ef58a1b12) adds approved_plan_hash (951: written at approval), approved_taxed_employees (925:
+-- written at reopen), approval_revision (951: written by reopen AND by every recalculation, so it also marks calculated
+-- runs that were never approved: fail closed, and no path deletes a calculated run), paid_at (read through to_jsonb:
+-- dev has the column, production does not, 999f) and a payslip delivery or bank file built for the run (999o, 999h).
+UPDATE public.payroll_run_headers h
+   SET approval_evidence_at = COALESCE(h.approved_at, h.approval_grandfathered_at, h.reopened_at, h.lines_confirmed_at,
+                                       h.cancelled_at, h.updated_at, pg_catalog.now())
+ WHERE h.approval_evidence_at IS NULL
+   AND (h.status IN ('approved', 'paid', 'cancelled')
+        OR h.approved_at IS NOT NULL OR h.approval_grandfathered_at IS NOT NULL OR h.approved_by IS NOT NULL
+        OR h.lines_confirmed_at IS NOT NULL OR h.reopened_at IS NOT NULL OR h.off_cycle_payday_at IS NOT NULL
+        OR h.journal_entry_id IS NOT NULL OR h.posted_journal_entry_id IS NOT NULL
+        OR h.approved_plan_hash IS NOT NULL OR h.approved_taxed_employees IS NOT NULL OR h.approval_revision IS NOT NULL
+        OR (pg_catalog.to_jsonb(h) ->> 'paid_at') IS NOT NULL
+        OR (h.approval_history IS NOT NULL AND NOT pg_catalog.isempty(h.approval_history))
+        OR EXISTS (SELECT 1 FROM public.payslip_deliveries d WHERE d.run_id = h.id)
+        OR EXISTS (SELECT 1 FROM public.payroll_bank_files f WHERE f.run_id = h.id));
 
 -- The column is the trigger's: an untrusted INSERT starts with none; an UPDATE, by every role, keeps the old value,
 -- takes the clock when the old or the new row is final, and only a trusted identity (payroll_run_trusted_restore, 999x:
@@ -259,13 +270,36 @@ AS $$
 $$;
 ALTER FUNCTION public.payroll_company_row_exists(uuid) OWNER TO migration_admin;
 REVOKE ALL ON FUNCTION public.payroll_company_row_exists(uuid) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.payroll_company_row_exists(uuid) TO app_user, platform_admin, migration_admin, postgres;
+-- Not app_user (breaker L of 5ef58a1b12: no app code needs it, and it would answer whether any company id exists).
+-- app_user holds no DELETE on companies, so it never reaches a company cascade; a nested DELETE it fires another way
+-- meets a permission error, which fails closed.
+GRANT EXECUTE ON FUNCTION public.payroll_company_row_exists(uuid) TO platform_admin, migration_admin, postgres;
+REVOKE EXECUTE ON FUNCTION public.payroll_company_row_exists(uuid) FROM app_user;
 
 INSERT INTO public.app_definer_reviews (signature, writes, body_md5)
 SELECT 'payroll_company_row_exists(uuid)',
-       'none: reads whether one companies row exists, by id, past RLS, for the 1054 header DELETE rule (a nested DELETE is exempt only once its company row is gone: the ON DELETE CASCADE of a company delete); answers a boolean, names nothing; EXECUTE to the header deleters only',
+       'none: reads whether one companies row exists, by id, past RLS, for the 1054 header DELETE rule (a nested DELETE is exempt only once its company row is gone: the ON DELETE CASCADE of a company delete); answers a boolean, names nothing; EXECUTE to platform_admin, migration_admin and postgres only (not app_user)',
        public.app_definer_hash('public.payroll_company_row_exists(uuid)'::regprocedure)
 ON CONFLICT (signature) DO UPDATE SET writes = EXCLUDED.writes, body_md5 = EXCLUDED.body_md5;
+
+-- A company's id is fixed (breaker H of 5ef58a1b12): the helper above is only as good as companies.id. A role that may
+-- UPDATE companies (platform_admin, migration_admin, postgres) swapped a victim company's id away for one statement,
+-- deleted its final header from a pg_temp trigger (nested, and its company row "gone"), and swapped the id back before
+-- the NO ACTION checks ran. No code changes a company's id (census in the PR body); a superuser is exempt as in 999n.
+CREATE OR REPLACE FUNCTION public.companies_id_fixed() RETURNS trigger
+LANGUAGE plpgsql SECURITY INVOKER SET search_path = pg_catalog, public, pg_temp AS $$
+BEGIN
+  IF current_setting('is_superuser') <> 'on' AND NEW.id IS DISTINCT FROM OLD.id THEN
+    RAISE EXCEPTION 'companies: a company''s id is fixed' USING ERRCODE = '23514';
+  END IF;
+  RETURN NEW;
+END
+$$;
+
+CREATE OR REPLACE TRIGGER companies_id_fixed
+  BEFORE UPDATE ON public.companies
+  FOR EACH ROW EXECUTE FUNCTION public.companies_id_fixed();
+ALTER TABLE public.companies ENABLE ALWAYS TRIGGER companies_id_fixed;
 
 CREATE OR REPLACE FUNCTION public.payroll_run_headers_final_no_delete() RETURNS trigger
 LANGUAGE plpgsql SECURITY INVOKER SET search_path = pg_catalog, public, pg_temp AS $$

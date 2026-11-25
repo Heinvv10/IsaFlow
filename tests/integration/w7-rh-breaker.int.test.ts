@@ -7,7 +7,10 @@
  *     migration_admin no longer holds it;
  *  B3 app_user renames an approved header's id (with and without lines) to free the old id: refused; an employee's id
  *     is fixed too;
- *  B4 app_user clears reopened_at on a reopened run: the delete is still refused (approval_evidence_at stays).
+ *  B4 app_user clears reopened_at on a reopened run: the delete is still refused (approval_evidence_at stays);
+ *  R2-H platform_admin / migration_admin swap the victim company's id away for one statement so the nested DELETE sees
+ *     its company "gone", then swap it back: refused (companies.id is fixed);
+ *  R2-L app_user cannot call payroll_company_row_exists.
  * Every case runs in a transaction that is rolled back; seeding as the fixture's superuser.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -137,6 +140,45 @@ describe('B4: clearing reopened_at does not free a once-approved run', () => {
       expect((await c.query('UPDATE payroll_run_headers SET reopened_at = NULL, approval_evidence_at = NULL WHERE id = $1 RETURNING approval_evidence_at',
         [REOPENED])).rows[0].approval_evidence_at).not.toBeNull();
       await expect(c.query('DELETE FROM payroll_run_headers WHERE id = $1', [REOPENED])).rejects.toThrow(EVIDENCE_REFUSED);
+    });
+  });
+});
+
+describe('round 2 H: a company\'s id is fixed, so "the company row is gone" cannot be faked', () => {
+  it.each(['platform_admin', 'migration_admin'])('%s: the id-swap route to the nested delete is refused', async (role) => {
+    await as(role, async (c) => {
+      await c.query('CREATE TEMP TABLE kick (v uuid) ON COMMIT DROP');
+      await c.query(`CREATE FUNCTION pg_temp.zap() RETURNS trigger LANGUAGE plpgsql AS $f$
+        BEGIN
+          DELETE FROM public.payroll_run_headers WHERE id = '${FIN}';
+          UPDATE public.companies SET id = NEW.v WHERE id = 'ffffffff-0000-4000-8000-0000000000ff';
+          RETURN NEW;
+        END $f$`);
+      await c.query('CREATE TRIGGER kick_t AFTER INSERT ON pg_temp.kick FOR EACH ROW EXECUTE FUNCTION pg_temp.zap()');
+      await expect(c.query(`WITH k AS (INSERT INTO pg_temp.kick VALUES ($1) RETURNING v)
+        UPDATE public.companies SET id = 'ffffffff-0000-4000-8000-0000000000ff' WHERE id = (SELECT v FROM k)`, [A])).rejects
+        .toMatchObject({ code: '23514', message: expect.stringMatching(/companies: a company's id is fixed/) });
+    });
+    expect(await exists(FIN)).toBe(true);
+    expect((await one('SELECT count(*)::int AS n FROM companies WHERE id = $1', [A])).n).toBe(1);
+  });
+  it('a direct re-key of a company is refused too, and other company columns still update', async () => {
+    await as('platform_admin', async (c) => {
+      await c.query('SAVEPOINT k');
+      await expect(c.query('UPDATE companies SET id = gen_random_uuid() WHERE id = $1', [A])).rejects.toThrow(/a company's id is fixed/);
+      await c.query('ROLLBACK TO SAVEPOINT k');
+      expect((await c.query("UPDATE companies SET name = 'RH breaker A2' WHERE id = $1", [A])).rowCount).toBe(1);
+    });
+  });
+});
+
+describe('round 2 L: payroll_company_row_exists is not app_user\'s', () => {
+  it('app_user cannot execute it; platform_admin can', async () => {
+    await as('app_user', async (c) => {
+      await expect(c.query('SELECT public.payroll_company_row_exists($1)', [A])).rejects.toMatchObject({ code: '42501' });
+    });
+    await as('platform_admin', async (c) => {
+      expect((await c.query('SELECT public.payroll_company_row_exists($1) AS e', [A])).rows[0].e).toBe(true);
     });
   });
 });
