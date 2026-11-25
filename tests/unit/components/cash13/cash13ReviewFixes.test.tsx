@@ -6,7 +6,8 @@
  * and the AI tab keeps its generated forecast across tab switches.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { useLayoutEffect } from 'react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 vi.mock('@/components/accounting/cashForecast13/cash13Client', async () => (await import('./setup')).client);
 vi.mock('@/contexts/CompanyContext', async () => (await import('./setup')).companyModule());
@@ -165,6 +166,25 @@ describe('pay-day form', () => {
     expect((screen.getByLabelText('Day (1 to 31)') as HTMLInputElement).value).toBe('15');
     rerender(<PayDayControl setting={setting(28)} canEdit onSave={save} />);
     expect((screen.getByLabelText('Day (1 to 31)') as HTMLInputElement).value).toBe('28');
+  });
+
+  it('a choice made in the commit that first shows the form is kept (no later sync overwrites it)', async () => {
+    // A layout effect runs after the form is in the DOM and before that commit's passive effects: the earliest click.
+    function ChooseAtOnce() {
+      useLayoutEffect(() => { fireEvent.click(screen.getByLabelText('The last working day of the month')); }, []);
+      return null;
+    }
+    const save = vi.fn(async () => ok({}));
+    render(<><PayDayControl setting={setting(25)} canEdit onSave={save} /><ChooseAtOnce /></>);
+    await act(async () => {}); // every queued render and effect has run
+    expect((screen.getByLabelText('The last working day of the month') as HTMLInputElement).checked).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Save pay day' }));
+    await waitFor(() => expect(save).toHaveBeenCalledWith({ kind: 'last_working_day' }));
+  });
+
+  it('opens on the stored rule', () => {
+    render(<PayDayControl setting={{ payDay: { kind: 'last_working_day' }, day: 31, isDefault: false }} canEdit onSave={vi.fn()} />);
+    expect((screen.getByLabelText('The last working day of the month') as HTMLInputElement).checked).toBe(true);
   });
 });
 
