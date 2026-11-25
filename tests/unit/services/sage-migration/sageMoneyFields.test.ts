@@ -76,7 +76,7 @@ describe('a line Total', () => {
 
 describe('R2 (round 13): discount spellings, by word inside the key', () => {
   it('Disc%, Markdown, Allowance, PercentOff, Rebate, LineDiscountAmount and an accented Discöunt on a line refuse as po_discount_unsupported', () => {
-    for (const key of ['Disc%', 'MarkdownValue', 'Allowance', 'PercentOff', 'Rebate', 'LineDiscountAmount', 'Disc\u00f6unt']) {
+    for (const key of ['Disc%', 'MarkdownValue', 'Allowance', 'PercentOff', 'Rebate', 'LineDiscountAmount', 'Disc\u00f6unt', 'R\u00e9bate']) {
       const r = refused({ PurchaseOrders: [po({ [key]: 5 })] });
       expect(r.codes, key).toEqual(['po_discount_unsupported']);
       expect(r.why, key).toContain(`Lines[0].${key} is 5: a discount is not imported`);

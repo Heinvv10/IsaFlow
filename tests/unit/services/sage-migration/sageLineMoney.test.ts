@@ -42,6 +42,13 @@ describe('B13-1: a line Tax or Total without its Exclusive', () => {
   });
 });
 
+describe('Exclusive, Tax and Total', () => {
+  it('Total must be their sum', () => {
+    expect(read(po([L({ Exclusive: 100, Tax: 15, Total: 115 })])).ok).toBe(true);
+    expect(read(po([L({ Exclusive: 100, Tax: 15, Total: 105 })])).why).toContain('Lines[0].Total 105 is not Exclusive 100 + Tax 15');
+  });
+});
+
 describe('B13-1: Exclusive and Total, no Tax', () => {
   it('Total must be Exclusive + the tax the tool computes at the line rate', () => {
     const r = read(po([L({ Exclusive: 100, Total: 57.5 })]));
