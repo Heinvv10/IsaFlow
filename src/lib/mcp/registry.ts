@@ -143,6 +143,7 @@ export class McpRegistry {
       const replay = await findIdempotentReplay(ctx.companyId, name, idempotencyKey, argsHash);
       if (replay.status === 'match') {
         log.info('MCP: idempotent replay served', { tool: name, companyId: ctx.companyId }, 'mcp');
+        ctx.onIdempotentReplay?.();
         // Stored results may carry registry-internal flags (billable) — strip on replay too.
         const { billable: _b, wroteNothing: _w, ...replayWire } = replay.result;
         return replayWire;
