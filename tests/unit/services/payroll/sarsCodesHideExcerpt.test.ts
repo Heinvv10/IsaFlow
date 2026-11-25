@@ -29,6 +29,7 @@ describe('W19: official_excerpt is not selected or served', () => {
   it('the tenant catalogue neither selects nor returns it', async () => {
     const c = await getSarsCode('4102', 2027);
     expect(st.queries.join('\n')).not.toContain('official_excerpt');
+    expect(st.queries.join('\n')).not.toMatch(/\.\*|\*\s+FROM|SELECT\s+\*/i); // explicit column list, no star
     expect(c).not.toBeNull();
     expect(c).not.toHaveProperty('officialExcerpt');
   });
@@ -36,6 +37,7 @@ describe('W19: official_excerpt is not selected or served', () => {
   it('the admin list neither selects nor returns it', async () => {
     await listCodes(2027);
     expect(st.queries.join('\n')).not.toContain('official_excerpt');
+    expect(st.queries.join('\n')).not.toMatch(/\.\*|\*\s+FROM|SELECT\s+\*/i); // explicit column list, no star
   });
 });
 
