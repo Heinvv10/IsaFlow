@@ -1,8 +1,9 @@
 /**
- * Migration 1008 adds no writer: the two most used invoice writers besides the form, quote conversion and the
- * recurring run, still write lines with NULL vat_type / tax_amount and a NULL amounts_are, and the invoice posts the
- * legacy journal (one uncoded default_revenue leg, one 'standard' VAT Output leg of the header tax). The create
- * service's own case is in invoice-line-vat-posting.
+ * Migration 1008 adds no writer: the recurring run still writes lines with NULL vat_type / tax_amount and a NULL
+ * amounts_are, and so does the conversion of a LEGACY quote (one saved before migration 1024, whose lines carry no
+ * type; a typed quote converts typed, quote-line-vat), and the invoice posts the legacy journal (one uncoded
+ * default_revenue leg, one 'standard' VAT Output leg of the header tax). The create service's own case is in
+ * invoice-line-vat-posting.
  *
  * Disposable databases only.
  */
@@ -40,12 +41,14 @@ describeIfDisposable('legacy invoice writers after migration 1008', () => {
     await dropLineRevenue(f);
   });
 
-  it('quote conversion writes untyped lines and the invoice posts the legacy journal', async () => {
+  it('a legacy quote\'s conversion writes untyped lines and the invoice posts the legacy journal', async () => {
     const q = await inTx(f.fx, () => createQuote(f.fx.companyId, {
       customerName: 'Quote client', clientId: f.fx.customerId, quoteDate: '2026-07-10',
       lines: [{ description: 'Shoot', quantity: 1, unitPrice: 1000, taxRate: 15 }],
     }, f.fx.userId));
-    await sql`UPDATE customer_quotes SET status = 'accepted' WHERE id = ${q.id}::UUID`;
+    // The shape a quote saved before migration 1024 has: no line typed, amounts_are NULL.
+    await sql`UPDATE customer_quote_lines SET vat_type = NULL, tax_amount = NULL WHERE quote_id = ${q.id}::UUID`;
+    await sql`UPDATE customer_quotes SET status = 'accepted', amounts_are = NULL WHERE id = ${q.id}::UUID`;
     const out = await inTx(f.fx, () => convertToInvoice(f.fx.companyId, q.id, f.fx.userId));
     const invoiceId = out!.invoiceId;
     expect(await lineVat(invoiceId)).toEqual([{ vat_type: null, tax_amount: null }]);

@@ -1,7 +1,7 @@
 /**
  * Customer Quotes API
  * GET  — list quotes (search, status, limit, offset)
- * POST — create quote
+ * POST — create quote (lines: vatType per line, or the legacy taxRate; amountsAre — quoteLineTax)
  * PUT  — update quote (requires id in body)
  * DELETE — delete quote (requires id in body)
  */
@@ -15,6 +15,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { ItemLineRefusal } from '@/modules/accounting/services/items/itemLineDefaults';
 import { getQuotes, getQuote, createQuote, updateQuote, deleteQuote, LineValidationError } from '@/modules/accounting/services/ar/quoteService';
 import { InvoiceLineCodingRefusal } from '@/modules/accounting/services/ar/invoiceLineCoding';
+import { InvoiceLineVatRefusal, InvoiceVatNotRegisteredRefusal } from '@/modules/accounting/services/ar/invoiceLineVatTypes';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
@@ -44,6 +45,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       // Line-validation failures (W1) are client errors, not 500s.
       if (err instanceof LineValidationError) return apiResponse.badRequest(res, err.message);
       if (err instanceof InvoiceLineCodingRefusal || err instanceof ItemLineRefusal) return apiResponse.badRequest(res, err.message, { code: err.code });
+      // Per-line VAT (migration 1024, quoteLineTax): refused before the first write.
+      if (err instanceof InvoiceLineVatRefusal || err instanceof InvoiceVatNotRegisteredRefusal) return apiResponse.badRequest(res, err.message, { code: err.code });
       if (err instanceof CustomerNotInCompanyError) return apiResponse.badRequest(res, err.message);
       throw err;
     }
@@ -59,6 +62,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     } catch (err) {
       if (err instanceof LineValidationError) return apiResponse.badRequest(res, err.message);
       if (err instanceof InvoiceLineCodingRefusal || err instanceof ItemLineRefusal) return apiResponse.badRequest(res, err.message, { code: err.code });
+      // Per-line VAT (migration 1024, quoteLineTax): refused before the first write.
+      if (err instanceof InvoiceLineVatRefusal || err instanceof InvoiceVatNotRegisteredRefusal) return apiResponse.badRequest(res, err.message, { code: err.code });
       if (err instanceof CustomerNotInCompanyError) return apiResponse.badRequest(res, err.message);
       throw err;
     }

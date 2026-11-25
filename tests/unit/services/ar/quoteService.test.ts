@@ -154,6 +154,7 @@ describe('getQuote — reads real customer_quote_lines columns', () => {
 describe('createQuote — writes real customer_quote_lines columns', () => {
   it('inserts lines using sort_order/amount/gl_account_id, not line_number/line_total/account_id', async () => {
     mockSql.mockResolvedValueOnce([{ ok: 1 }]); // R-067 ownership fence — clientId is this company's
+    mockSql.mockResolvedValueOnce([{ vat_period: 'bi-monthly', vat_system_type: null, customer_vat: null }]); // VAT registration (quoteLineTax)
     mockSql.mockResolvedValueOnce([{ used: 0, prefix: 'QUO', padding: 7 }]); // reserve from the company sequence
     mockSql.mockResolvedValueOnce([{ id: QUOTE_ID }]); // INSERT customer_quotes RETURNING id
     mockSql.mockResolvedValueOnce([]); // INSERT line 1
@@ -194,11 +195,14 @@ describe('createQuote — writes real customer_quote_lines columns', () => {
         'amount',
         'gl_account_id',
         'item_id',
+        'tax_amount',
+        'vat_type',
       ]);
     }
   });
 
   it('computes amount as quantity * unitPrice, tax-exclusive (matches customer_invoice_items.amount semantics)', async () => {
+    mockSql.mockResolvedValueOnce([{ vat_period: 'bi-monthly', vat_system_type: null, customer_vat: null }]); // VAT registration
     mockSql.mockResolvedValueOnce([{ used: 0, prefix: 'QUO', padding: 7 }]);
     mockSql.mockResolvedValueOnce([{ id: QUOTE_ID }]);
     mockSql.mockResolvedValueOnce([]); // capture this call's values below
@@ -226,7 +230,7 @@ describe('createQuote — writes real customer_quote_lines columns', () => {
   });
 
   it('passes sort_order as the 1-based line position', async () => {
-    mockSql.mockResolvedValueOnce([{ vat_period: 'bi-monthly', vat_system_type: null }]); // lines omit taxRate: the company's default
+    mockSql.mockResolvedValueOnce([{ vat_period: 'bi-monthly', vat_system_type: null }]); // VAT registration (quoteLineTax)
     mockSql.mockResolvedValueOnce([{ used: 0, prefix: 'QUO', padding: 7 }]);
     mockSql.mockResolvedValueOnce([{ id: QUOTE_ID }]);
     mockSql.mockResolvedValueOnce([]);
@@ -260,7 +264,7 @@ describe('updateQuote — re-inserts lines using real columns', () => {
   it('inserts replacement lines using sort_order/amount/gl_account_id', async () => {
     mockSql.mockResolvedValueOnce([quoteHeaderRow()]); // existing header (getQuote)
     mockSql.mockResolvedValueOnce([realQuoteLineRow()]); // existing lines (getQuote)
-    mockSql.mockResolvedValueOnce([{ vat_period: 'bi-monthly', vat_system_type: null }]); // the line omits taxRate
+    mockSql.mockResolvedValueOnce([{ vat_period: 'bi-monthly', vat_system_type: null }]); // VAT registration (quoteLineTax)
     mockSql.mockResolvedValueOnce([]); // UPDATE customer_quotes
     mockSql.mockResolvedValueOnce([]); // DELETE customer_quote_lines
     mockSql.mockResolvedValueOnce([]); // INSERT replacement line
@@ -286,6 +290,8 @@ describe('updateQuote — re-inserts lines using real columns', () => {
       'amount',
       'gl_account_id',
       'item_id',
+      'tax_amount',
+      'vat_type',
     ]);
     const values = insertLineCall.slice(1);
     expect(values[columns.indexOf('amount')]).toBe(120); // 3 * 40

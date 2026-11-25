@@ -215,17 +215,12 @@ export const ALLOWED: Record<string, AllowedEntry> = {
     + '(admin_invoices, admin audit 2026-11-14 item 2.10). It posts to no tenant ledger, picks no account and '
     + 'writes no journal; admin_invoices is not a GL table.',
   },
-  'src/modules/accounting/services/ar/quoteLineTax.ts': {
+  'src/modules/accounting/services/ar/quoteInvoiceVat.ts': {
     kinds: ['rate_constant'],
-    reason: 'No claim decided: STANDARD_VAT_RATE is the rate a customer QUOTE line takes when the caller sends none '
-    + '(0 for a company that is not VAT registered). A quote posts nothing and picks no account; it is output VAT '
-    + 'on an offer, priced as the invoice it may become (audit 11 Nov 2026 item 5).',
-  },
-  'src/modules/accounting/services/ar/quoteConvertService.ts': {
-    kinds: ['rate_constant'],
-    reason: 'No claim decided: STANDARD_VAT_RATE is the DRAFT invoice header rate when a converted quote mixes rates '
-    + '(the column default it had before). The draft posts nothing; it posts through the customer-invoice '
-    + 'approval path like any other draft.',
+    reason: 'No claim decided: SA_STANDARD_VAT_RATE_PCT is the DRAFT invoice header rate when a LEGACY (untyped) quote '
+    + 'mixes line rates (the column default it had before, moved here from quoteConvertService with migration 1024). '
+    + 'A typed quote\'s lines are priced by their VAT types (invoiceLineVatPricing). The draft posts nothing; it posts '
+    + 'through the customer-invoice approval path like any other draft.',
   },
   'src/modules/accounting/services/ar/writeOffService.ts': {
     kinds: ['vat_field_on_a_posting_path'],
