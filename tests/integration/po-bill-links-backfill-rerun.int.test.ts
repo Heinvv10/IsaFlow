@@ -23,6 +23,7 @@ const bill: Record<string, { id: string; subtotal: number }> = {};
 const po: Record<string, string> = {};
 let expected: Record<string, string> = {};
 let preB: string;
+const EXISTING = ['app', 'mcp', 'mcp', 'mcp', 'mcp'];
 
 const raw = (f: BillFixture, key: string, o: Parameters<typeof seedRawBill>[2]) =>
   seedRawBill(pool, f, o).then((r) => { bill[key] = { id: r.id, subtotal: r.subtotal }; return r; });
@@ -66,6 +67,19 @@ beforeAll(async () => {
   await raw(a, 'b10foreignPo', { ...lineBill(10), header: pbx.po });
   await raw(a, 'b11closedPo', { ...lineBill(20), header: p8.po });
   await raw(a, 'b12twoPos', { items: [{ total: 40, poItem: p9.items[0] }, { total: 60, poItem: p10.items[0] }], subtotal: 100, total: 115 });
+  // The held and residual rules (review M2). (a) header Y, an mcp link on X that no line names: Y gets the subtotal less X's 30.
+  const px = await mk(a, 'px', [100]);
+  const py = await mk(a, 'py', [100]);
+  await raw(a, 'bHeldA', { ...lineBill(100), header: py.po });
+  // (b) a line names PP and PP carries an mcp link: the lines account for it, so held ignores it and the header PO gets 100 - 60.
+  const pp = await mk(a, 'pp', [60]);
+  const pyb = await mk(a, 'pyb', [100]);
+  await raw(a, 'bHeldB', { items: [{ total: 60, poItem: pp.items[0] }, { total: 40 }], subtotal: 100, total: 115, header: pyb.po });
+  // (c) a header PO and two zero-posting line POs all fall back: only the lowest id (byte order of its text) takes the residual.
+  const ph = await mk(a, 'ph', [100]);
+  const pz1 = await mk(a, 'pz1', [100]);
+  const pz2 = await mk(a, 'pz2', [100]);
+  await raw(a, 'bLowest', { items: [{ total: 100 }, { total: 0, poItem: pz1.items[0] }, { total: 0, poItem: pz2.items[0] }], subtotal: 100, total: 115, header: ph.po });
   await raw(b, 'bb1', { ...lineBill(80), header: pb1.po });
   await raw(b, 'bb2owned', { ...lineBill(90), header: pb2.po });
   await raw(b, 'bb3mcp', { ...lineBill(10), header: pb1.po });
@@ -81,11 +95,19 @@ beforeAll(async () => {
     `INSERT INTO purchase_order_bill_links (company_id, purchase_order_id, supplier_invoice_id, amount, source, external_system, external_ref)
      VALUES ($1, $2, $3, 10, 'mcp', 'sage', 'REF-10')`, [b.co, pb1.po, bill.bb3mcp!.id]);
 
+  for (const [bk, pk, amount, ref] of [['bHeldA', 'px', 30, 'REF-A'], ['bHeldB', 'pp', 60, 'REF-B']] as const) {
+    await pool.query(
+      `INSERT INTO purchase_order_bill_links (company_id, purchase_order_id, supplier_invoice_id, amount, source, external_system, external_ref)
+       VALUES ($1, $2, $3, $4, 'mcp', 'sage', $5)`, [a.co, po[pk], bill[bk]!.id, amount, ref]);
+  }
+  const lowest = ['ph', 'pz1', 'pz2'].map((k) => po[k]!).sort((x, y) => (x < y ? -1 : 1))[0]!;
+
   const key = (x: string, y: string) => `${bill[x]!.id}|${po[y]!}`;
   expected = {
     [key('b1', 'p1')]: '100.00', [key('b2', 'p2')]: '60.00', [key('b3', 'p4')]: '70.00', [key('b3', 'p3')]: '30.00',
     [key('b8draftBill', 'p1b')]: '50.00', [key('b11closedPo', 'p8')]: '20.00', [key('b12twoPos', 'p9')]: '40.00', [key('b12twoPos', 'p10')]: '60.00',
-    [key('bb1', 'pb1')]: '80.00',
+    [key('bb1', 'pb1')]: '80.00', [key('bHeldA', 'py')]: '70.00', [key('bHeldB', 'pyb')]: '40.00', [`${bill.bLowest!.id}|${lowest}`]: '100.00',
+    [key('bHeldA', 'px')]: '30.00', [key('bHeldB', 'pp')]: '60.00',
     // What was there before the run, unchanged:
     [key('b9held', 'p7')]: '100.00', [key('bb2owned', 'pb2')]: '90.00', [key('bb3mcp', 'pb1')]: '10.00',
   };
@@ -111,7 +133,7 @@ async function evaluate(setup: string | null, call: string): Promise<string[]> {
     await c.query('BEGIN');
     if (setup) await c.query(setup);
     const before = await rowsOf(c, [a.co, b.co]);
-    if (before.length !== 3) faults.push(`setup: ${before.length} links before the run, expected the 3 existing`);
+    if (before.length !== EXISTING.length) faults.push(`setup: ${before.length} links before the run, expected the ${EXISTING.length} existing`);
     try { await c.query(call); } catch (e) { faults.push(`first run threw: ${(e as Error).message}`); return faults; }
     const mine = new Set(Object.values(bill).map((x) => x.id));
     for (const n of notes) if ([...mine].some((id) => n.includes(id))) faults.push(`a fixture bill was skipped: ${n.slice(0, 120)}`);
@@ -140,9 +162,9 @@ async function evaluate(setup: string | null, call: string): Promise<string[]> {
     try { await c.query(call); } catch (e) { faults.push(`second run threw: ${(e as Error).message}`); return faults; }
     const again = await rowsOf(c, [a.co, b.co]);
     if (JSON.stringify(again) !== JSON.stringify(rows)) faults.push('the second run changed links');
-    const written = notes.map((n) => /: (\d+) link\(s\) written/.exec(n)?.[1]).filter((n) => n !== undefined);
-    // Other suites' unlinked bills are written once by the first (global) run; the second must write nothing for anybody.
-    if (written.length !== 1 || written[0] !== '0') faults.push(`the second run's notice: ${notes.join(' | ')}`);
+    // The second run writes nothing for these companies (their rows above are identical, none skipped); a notice's global count would also count
+    // a concurrent suite's rows, which is not this migration's business.
+    for (const n of notes) if ([...mine].some((id) => n.includes(id))) faults.push(`a fixture bill was skipped on the second run: ${n.slice(0, 120)}`);
     return faults;
   } finally {
     c.off('notice', onNotice);
@@ -150,6 +172,10 @@ async function evaluate(setup: string | null, call: string): Promise<string[]> {
   }
 }
 
+const HELD_LINES_CLAUSE = `
+                        -- 1022 (PR #1703, breaker BRK-B): not a link of a PO the bill's lines name: the lines account for it.
+                        AND NOT EXISTS (SELECT 1 FROM supplier_invoice_items x JOIN po_items pi ON pi.id = x.po_item_id
+                                         WHERE x.supplier_invoice_id = si.id AND pi.purchase_order_id = l.purchase_order_id)`;
 const live = async () => String((await pool.query(`SELECT prosrc FROM pg_proc WHERE oid = 'public.purchase_order_bill_links_backfill(uuid)'::regprocedure`)).rows[0].prosrc);
 const mutant = (src: string, from: string, to: string) => {
   expect(src.split(from).length - 1, `the live function contains ${JSON.stringify(from)} once`).toBe(1);
@@ -166,7 +192,7 @@ describe('migration 1032 over two companies of unlinked bills', () => {
   });
 
   it('starts with no backfill link in either company', async () => {
-    expect((await rowsOf(pool, [a.co, b.co])).map((r) => r.source).sort()).toEqual(['app', 'mcp', 'mcp']);
+    expect((await rowsOf(pool, [a.co, b.co])).map((r) => r.source).sort()).toEqual(EXISTING);
   });
 
   it('links exactly where the rules say, writes nothing the second time, keeps every bill within its subtotal and every other row as it was', async () => {
@@ -187,11 +213,42 @@ describe('the checks have teeth: each mutant of the live function is caught', ()
     ['cancelled bills too', "si.status <> 'cancelled' AND ", '', /expected none/],
     ['deleted bills too', 'AND si.deleted_at IS NULL', '', /expected none/],
     ['a table lock above ROW EXCLUSIVE', '  FOR r IN\n', '  LOCK TABLE public.purchase_order_bill_links IN SHARE ROW EXCLUSIVE MODE;\n  FOR r IN\n', /table lock/],
-    ['header residual ignores the lines', 's.sub_c - s.pos_total - s.held_c', 's.sub_c', /exceed its subtotal|expected 30\.00/],
+    ['header residual ignores the lines', ' - s.pos_total', '', /exceed its subtotal|bLowest|expected 30\.00/],
+    ['header residual ignores the mcp links held', ' - s.held_c', '', /bHeldA|bHeldB/],
+    ['held counts a link of a PO the lines name', HELD_LINES_CLAUSE, '', /bHeldB/],
+    ['held counts the links the writer owns, not the others', "AND NOT (l.source IN ('app', 'backfill') AND l.external_ref IS NULL)", "AND (l.source IN ('app', 'backfill') AND l.external_ref IS NULL)", /bHeldA|bHeldB/],
+    ['the residual goes to the highest id, not the lowest', 'MIN(pt.po::TEXT COLLATE "C")', 'MAX(pt.po::TEXT COLLATE "C")', /bLowest/],
   ];
   it.each(cases)('%s', async (_name, from, to, caught) => {
     const faults = await evaluate(mutant(await live(), from, to), 'SELECT public.bf_mutant()');
     expect(faults.length, 'the mutant is not caught').toBeGreaterThan(0);
     expect(faults.join(' | ')).toMatch(caught);
+  }, 60_000);
+});
+
+describe('known limit (design note, limit 2): a stale link beside a re-pointed header is not repaired', () => {
+  let m: BillFixture;
+  beforeAll(async () => { m = await seedBillFixture(pool, 'po-bf-rerun-limit'); }, 60_000);
+  afterAll(async () => { await dropBillFixture(pool, m); }, 60_000);
+
+  it('the function today links header PO B beside the stale backfill link to A: 200.00 on a 100.00 bill (pinned, not endorsed)', async () => {
+    const poA = await seedPo(pool, m, { lines: [100] });
+    const poB = await seedPo(pool, m, { lines: [100] });
+    const stale = await seedRawBill(pool, m, { items: [{ total: 100 }], subtotal: 100, total: 115, header: poB.po });
+    const c = await pool.connect();
+    try {
+      await c.query('BEGIN');
+      // The stale link: written by an earlier backfill while the header named A, then the header was re-pointed to B outside the app.
+      await c.query(`INSERT INTO purchase_order_bill_links (company_id, purchase_order_id, supplier_invoice_id, amount, source) VALUES ($1, $2, $3, 100, 'backfill')`, [m.co, poA.po, stale.id]);
+      const sql = /```sql\n([\s\S]*?)```/.exec(readFileSync(join(process.cwd(), 'docs/design/po-bill-links-backfill.md'), 'utf8'))?.[1];
+      expect(sql, 'the design note carries the count query').toBeDefined();
+      const count = async () => (await c.query(`SELECT * FROM (${sql!.replace(/;\s*$/, '')}) q WHERE q.company_id = $1`, [m.co])).rows;
+      expect(await count(), 'the note\'s query finds the bill before the run').toEqual([{ company_id: m.co, bills: '1' }]);
+      await c.query('SELECT purchase_order_bill_links_backfill($1)', [m.co]);
+      const links = (await c.query('SELECT purchase_order_id AS po, amount::TEXT AS amount FROM purchase_order_bill_links WHERE supplier_invoice_id = $1 ORDER BY amount, purchase_order_id', [stale.id])).rows;
+      expect(links.map((l) => [l.po, l.amount]).sort()).toEqual([[poA.po, '100.00'], [poB.po, '100.00']].sort());
+      expect(await count(), 'and no longer once B is linked').toEqual([]);
+      await c.query('ROLLBACK');
+    } finally { c.release(); }
   }, 60_000);
 });

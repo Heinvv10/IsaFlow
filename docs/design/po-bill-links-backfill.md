@@ -1,6 +1,6 @@
 # PO <-> bill links: one-off backfill re-run (migration 1032)
 
-Status: proposed. Follow-up to PR #1703 / migration 1006 (`docs/design/mcp-po-bill-links.md`, item 11).
+Status: built (migration 1032). Follow-up to PR #1703 / migration 1006 (`docs/design/mcp-po-bill-links.md`, item 11).
 
 ## Why
 
@@ -33,13 +33,35 @@ writes nothing else: no GL row, no change to a bill, a PO or a line.
 
 `INSERT ... ON CONFLICT (company_id, purchase_order_id, supplier_invoice_id) DO NOTHING`: a pair that already has a link
 (any source) is never touched, so a second run writes 0 and a link an operator or the app made or unlinked-and-remade is
-left alone. Two limits, stated so nobody is surprised: (1) a pair a user UNLINKED since 1006 is re-linked (the unlink deletes the row;
-the backfill cannot tell it from a bill never linked); (2) a bill whose header was re-pointed from PO A to PO B by a writer other than the app keeps its `backfill` link to A and gains one
-to B: the function counts only links it does not own when it sizes a header-only PO, so A + B can exceed the bill's subtotal (probed on the
-throwaway database: A 100.00 and B 100.00 on a 100.00 bill). The app's own sync remakes a draft's links on its next edit and unlinking removes
-one, so this needs a non-app header edit of a bill that already carried a backfill link; it is the function's behaviour since 1006/1022 and this
-migration does not change it (a change would be a function redefinition and its own design decision). The integration test proves the normal
-shapes stay within the subtotal.
+left alone. Limits, stated so nobody is surprised:
+
+1. **Unlinked pairs stay unlinked.** A user's unlink (`purchaseOrderBillUnlink.ts`) deletes the link row, clears `po_item_id` on the bill's lines
+   into that PO and resets the bill's header when it names the PO (`syncBillHeaderPurchaseOrder`), so the backfill's candidate query (header
+   or a line names a PO) finds nothing to re-link. The unlink is audited (`audit_trail`, `link_removed`). A bill changed outside the app so
+   that it names the PO again is a candidate again, like any other.
+2. **A stale link beside a re-pointed header (named, not fixed).** A bill whose header was re-pointed from PO A to PO B by a writer other than
+   the app, with a `backfill` / `app` ref-less link to A that no line names and no link to B, keeps A and gains B: the function subtracts only
+   links it does not own when it sizes a header-only PO, so A + B can exceed the bill's subtotal (probed on the throwaway database: A 100.00 and
+   B 100.00 on a 100.00 bill; pinned by the integration test "known limit"). The app's own sync remakes a draft's links on its next edit. It is
+   the function's behaviour since 1006/1022; this migration does not change it (a change is a function redefinition and its own design decision).
+   Before the deploy, anyone with prod read access can count the bills in that shape (rows per company; empty = the limit cannot bite):
+
+   ```sql
+   SELECT si.company_id, count(*) AS bills
+     FROM supplier_invoices si
+     JOIN purchase_orders hp ON hp.id = si.purchase_order_id AND hp.company_id = si.company_id AND hp.supplier_id = si.supplier_id
+                            AND hp.status IN ('approved', 'partially_received', 'received', 'closed')
+    WHERE si.status <> 'cancelled' AND si.deleted_at IS NULL
+      AND NOT EXISTS (SELECT 1 FROM purchase_order_bill_links lb WHERE lb.supplier_invoice_id = si.id AND lb.purchase_order_id = hp.id)
+      AND EXISTS (SELECT 1 FROM purchase_order_bill_links la
+                   WHERE la.company_id = si.company_id AND la.supplier_invoice_id = si.id AND la.purchase_order_id <> hp.id
+                     AND la.source IN ('app', 'backfill') AND la.external_ref IS NULL
+                     AND NOT EXISTS (SELECT 1 FROM supplier_invoice_items x JOIN po_items pi ON pi.id = x.po_item_id
+                                      WHERE x.supplier_invoice_id = si.id AND pi.purchase_order_id = la.purchase_order_id))
+    GROUP BY si.company_id;
+   ```
+3. **Old amounts stay.** The re-run does not correct links 1006 sized under the pre-BRK-B `held_c` rule (before 1022 stopped subtracting a
+   link on a PO the bill's lines name): `ON CONFLICT DO NOTHING` leaves every existing link as it is.
 
 ## Rollback
 
@@ -64,7 +86,7 @@ which a re-run restores). Migrations are not rolled back by `rollback-deploy.sh`
 ## Tests (`tests/integration/po-bill-links-backfill-rerun.int.test.ts`)
 
 Two companies, bills without links (raw inserts, so no app sync ran): header-only, line-linked, line + header split, cancelled, soft-deleted,
-draft bill, draft PO, other-supplier PO, other company's PO, a bill already holding an mcp link. The migration file's SQL runs as the
+draft bill, draft PO, other-supplier PO, other company's PO, a bill already holding an mcp link, an mcp link on a PO that no line names (held), one on a PO the lines name (not held), and a header PO plus two zero-posting line POs (lowest id takes the residual). The migration file's SQL runs as the
 suite's `postgres` inside a transaction that is rolled back (a global run must not write into other suites' fixtures). Asserts: links exactly
 as the rules say; a second run writes 0; every bill's links sum to at most its subtotal; the other company's pre-existing link is unchanged;
-no table lock above ROW EXCLUSIVE. Mutants (copies of the live function with one line changed) must each fail the same checks.
+no table lock above ROW EXCLUSIVE. Mutants (copies of the live function with one clause changed) must each fail the same checks; a separate test pins limit 2 above and runs the query above against it.
