@@ -34,7 +34,7 @@ import { RegionalTab } from '@/components/accounting/settings/RegionalTab';
 import { CustomerZoneTab } from '@/components/accounting/settings/CustomerZoneTab';
 import { NetcashTab } from '@/components/accounting/settings/NetcashTab';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
-import { settingsSnapshot, useSettingsDirty } from '@/components/accounting/settings/settingsSnapshot';
+import { formSnapshot, useSettingsDirty } from '@/components/accounting/settings/settingsSnapshot';
 import { useUnsavedChangesGuard } from '@/components/accounting/settings/useUnsavedChangesGuard';
 import { useCompanySettingsSave } from '@/components/accounting/settings/useCompanySettingsSave';
 
@@ -142,7 +142,7 @@ export default function CompanySettingsPage() {
     setCompany(prev => prev ? { ...prev, [field]: value } as Company : prev);
   };
 
-  const snapshot = settingsSnapshot({ company, docNumbers, messages, docDisplayFields });
+  const snapshot = formSnapshot({ company, docNumbers, messages, docDisplayFields });
   const { dirty, markClean } = useSettingsDirty(snapshot, !loading && supplReady && !!company);
   const guard = useUnsavedChangesGuard(dirty);
   const { handleSave, saving, saved, stale, setStale } = useCompanySettingsSave({
@@ -238,7 +238,7 @@ export default function CompanySettingsPage() {
 
         {error && (
           <SettingsErrorBanner message={error} onReload={stale && activeCompany?.id ? () => {
-            setError(''); setStale(false); setReloads(n => n + 1); void fetchCompany(activeCompany.id);
+            setError(''); setStale(false); setReloads(n => n + 1); void fetchCompany(activeCompany.id); void fetchSupplementary(activeCompany.id);
           } : undefined} />
         )}
         {saved && <SettingsSavedBanner />}

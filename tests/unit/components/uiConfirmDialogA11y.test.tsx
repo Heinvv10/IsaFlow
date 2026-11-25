@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { Modal } from '../../../src/components/ui/Modal';
 import { ConfirmDialog } from '../../../src/components/ui/ConfirmDialog';
 
 afterEach(cleanup);
@@ -16,13 +17,24 @@ describe('ui ConfirmDialog semantics', () => {
     expect(document.getElementById(dlg.getAttribute('aria-describedby')!)?.textContent).toBe(props.message);
   });
 
-  it('a destructive one is an alertdialog and opens on Cancel; a default one opens on the accept button', () => {
+  it('a destructive one is an alertdialog; every variant opens on Cancel unless the caller opts in', () => {
     const { unmount } = render(<ConfirmDialog open tone="destructive" {...props} onCancel={vi.fn()} />);
     expect(screen.getByRole('alertdialog')).toBeTruthy();
     expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Cancel' }));
     unmount();
-    render(<ConfirmDialog open {...props} onCancel={vi.fn()} />);
+    const second = render(<ConfirmDialog open {...props} onCancel={vi.fn()} />);
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Cancel' }));
+    second.unmount();
+    render(<ConfirmDialog open autoFocusAccept {...props} onCancel={vi.fn()} />);
     expect(document.activeElement).toBe(screen.getByRole('button', { name: /Revoke/ }));
+  });
+
+  it('Escape inside a dialog stacked on a Modal cancels only the dialog', () => {
+    const onClose = vi.fn(); const onCancel = vi.fn();
+    render(<Modal open onClose={onClose} title="Underneath"><ConfirmDialog open {...props} onCancel={onCancel} /></Modal>);
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Cancel' }), { key: 'Escape' });
+    expect(onCancel).toHaveBeenCalledTimes(1);
+    expect(onClose).not.toHaveBeenCalled();
   });
 
   it('Escape cancels, but not while loading', () => {

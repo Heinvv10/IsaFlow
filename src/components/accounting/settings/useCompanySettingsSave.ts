@@ -59,7 +59,8 @@ export function useCompanySettingsSave(i: CompanySettingsSaveInput) {
       afterDelay(() => setSaved(false), 3000);
     } catch (err) {
       setStale(!companySaved && err instanceof ApiRequestError && err.status === 409); // changed since loaded: offer Reload
-      i.setError(apiErrorMessage(err, 'Could not save the changes - try again'));
+      const message = apiErrorMessage(err, 'Could not save the changes - try again');
+      i.setError(!companySaved && err instanceof ApiRequestError && err.status === 409 ? `${message}. Reload replaces every unsaved edit on this page.` : message);
     } finally {
       setSaving(false);
     }

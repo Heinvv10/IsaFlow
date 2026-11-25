@@ -17,8 +17,10 @@ export function useUnsavedChangesGuard(dirty: boolean) {
     const onRoute = (url: string, opts?: { shallow?: boolean }) => {
       if (bypass.current || opts?.shallow) return;
       setPending(url);
-      router.events.emit('routeChangeError');
-      throw new Error('Route change aborted: unsaved company settings');
+      // `cancelled` is what Next's router recognises: the push resolves false instead of rejecting.
+      const err = Object.assign(new Error('Route change aborted: unsaved company settings'), { cancelled: true });
+      router.events.emit('routeChangeError', err, url, { shallow: false });
+      throw err;
     };
     window.addEventListener('beforeunload', onUnload);
     router.events.on('routeChangeStart', onRoute);

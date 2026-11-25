@@ -4,7 +4,8 @@
  * tone='destructive' styles the accept button red and makes it an alertdialog.
  * Semantics: aria-modal, labelled by the title and described by the message;
  * Escape cancels; Tab stays inside (same trap as Modal.tsx); focus returns to
- * the opener on close. Destructive opens on Cancel so a stray Enter is safe.
+ * the opener on close. Opens on Cancel (autoFocusAccept opts out) so a stray Enter is safe. Escape from inside is
+ * handled and stopped here, so a Modal underneath does not also close.
  */
 
 import * as React from 'react';
@@ -21,6 +22,8 @@ export interface ConfirmDialogProps {
   cancelLabel?: string;
   tone?: 'default' | 'destructive';
   loading?: boolean;
+  /** Opens on the accept button. Default: Cancel, so a stray Enter never accepts. */
+  autoFocusAccept?: boolean;
   onAccept: () => void;
   onCancel: () => void;
 }
@@ -33,6 +36,7 @@ export function ConfirmDialog({
   cancelLabel = 'Cancel',
   tone = 'default',
   loading = false,
+  autoFocusAccept = false,
   onAccept,
   onCancel,
 }: ConfirmDialogProps) {
@@ -49,7 +53,7 @@ export function ConfirmDialog({
     const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const buttons = () => Array.from(rootRef.current?.querySelectorAll<HTMLElement>('button:not([disabled])') ?? []);
     const initial = buttons();
-    (destructive ? initial[0] : initial[initial.length - 1])?.focus();
+    (autoFocusAccept ? initial[initial.length - 1] : initial[0])?.focus();
     // On the document, not the dialog: focus can sit outside it (a link just clicked, a page that stole it back).
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') { if (!latest.current.loading) latest.current.onCancel(); return; }
@@ -65,7 +69,7 @@ export function ConfirmDialog({
     };
     document.addEventListener('keydown', onKeyDown);
     return () => { document.removeEventListener('keydown', onKeyDown); opener?.focus(); };
-  }, [open, destructive]);
+  }, [open, autoFocusAccept]);
 
   if (!open) return null;
 
@@ -78,6 +82,7 @@ export function ConfirmDialog({
       aria-describedby={messageId}
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
       onClick={onCancel}
+      onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); if (!loading) onCancel(); } }}
     >
       <div
         className="bg-[var(--ff-bg-secondary)] rounded-xl border border-[var(--ff-border-light)] shadow-2xl w-full max-w-sm mx-4 p-6 max-lg:flex max-lg:flex-col max-lg:max-h-[calc(100dvh-2rem)]"

@@ -27,3 +27,9 @@ export function useSettingsDirty(snapshot: string, ready: boolean) {
   }, [ready, baseline, snapshot]);
   return { dirty: ready && baseline !== null && baseline !== snapshot, markClean: setBaseline };
 }
+
+/** What the form edits. The financial-year fields are derived by the server (re-read after a save), so they are not form state. */
+export function formSnapshot(state: { company: object | null; docNumbers: unknown; messages: unknown; docDisplayFields: unknown }): string {
+  const { financialYearStartActual: _a, financialYearStartLocked: _l, financialYearStartLockReason: _r, ...company } = (state.company ?? {}) as Record<string, unknown>;
+  return settingsSnapshot({ ...state, company: state.company ? company : null });
+}
