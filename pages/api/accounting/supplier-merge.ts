@@ -20,7 +20,7 @@ import {
 } from '@/modules/accounting/services/core/duplicateMergeService';
 import { lockMovablePurchaseOrders, movePurchaseOrders } from '@/modules/accounting/services/core/supplierMergePurchaseOrders';
 import {
-  assertMayMergePostedSupplierDocuments, mayMergePostedSupplierDocuments, refuseIfMovedPosted,
+  assertMayMergePostedSupplierDocuments, mayMergePostedSupplierDocuments, postedSql, refuseIfMovedPosted,
 } from '@/modules/accounting/services/core/supplierMergePosted';
 import { respondIfApprovePermissionRefused } from '@/modules/accounting/services/core/approvePermissionResponse';
 import { moveExpectationsAndAlerts, moveIntercompanySide, sideRefusal } from '@/modules/accounting/services/core/supplierMergeOpenWork';
@@ -88,7 +88,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
             content_authors = approval_add_author(content_authors, ${user.id}::UUID), content_edited_at = NOW()
         WHERE supplier_id = ${source_id}
           AND company_id = ${companyId}
-        RETURNING status
+        RETURNING ${postedSql('payment')} AS posted
       `;
       refuseIfMovedPosted(movedPayments as Array<Record<string, unknown>>, 'payment', mayMovePosted); // processed while the merge waited
       await stampBatchesOfMovedPayments(companyId, batchIds, user.id);
@@ -104,7 +104,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
             content_authors = approval_add_author(content_authors, ${user.id}::UUID), content_edited_at = NOW()
         WHERE supplier_id = ${source_id}
           AND company_id = ${companyId}
-        RETURNING invoice_number, grn_id, deleted_at, status
+        RETURNING invoice_number, grn_id, deleted_at, status, ${postedSql('bill')} AS posted
       `;
       // A bill made live and noted while this ran, without the supplier lock, is moved here after it waited on the row (#1708):
       // refused, and this transaction's savepoint takes the whole merge back.
@@ -125,7 +125,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
             content_authors = approval_add_author(content_authors, ${user.id}::UUID), content_edited_at = NOW()
         WHERE supplier_id = ${source_id}
           AND company_id = ${companyId}
-        RETURNING status
+        RETURNING ${postedSql('credit_note')} AS posted
       `;
       refuseIfMovedPosted(movedNotes as Array<Record<string, unknown>>, 'credit_note', mayMovePosted);
       await moveExpectationsAndAlerts(companyId, source_id, target_id, { userId: user.id, via: 'supplier-merge' });

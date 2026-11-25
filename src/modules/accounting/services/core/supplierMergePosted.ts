@@ -4,11 +4,13 @@
  * refused, ApprovePermissionError (403 on the routes), before anything moves; a merge of suppliers with only draft documents still
  * goes through.
  *
- * Posted, by document (the populations the ledger already uses):
- *   - bills: approved, partially_paid, paid (APPROVED_BILL_STATUSES: each carries its posted journal);
- *   - payments: processed, reconciled (the journal posted at process);
- *   - supplier credit notes: approved, partially_applied, applied (the note's journal posts at approval, so an approved one counts);
- *   - purchase orders past submitted (approved, partially received, received, closed: a commitment; a cancelled one commits nothing).
+ * Posted, by document, on the safer side (breaker of #1900, M1 / M2): a posted status OR the marks a posting leaves, so a document
+ * posted and then cancelled, voided, reversed or sent back to pending / disputed still counts (its journal pair moves with it):
+ *   - bills: approved, partially_paid, paid; or a journal link, an approval stamp (approved_at), or a journal sourced from it;
+ *   - payments: approved (it will pay the payee's bank details), processed, reconciled; or in a payment batch, a journal link, an
+ *     approval or process stamp, or a journal sourced from it;
+ *   - supplier credit notes: approved, partially_applied, applied; or a journal link, an approval stamp, a journal sourced from it;
+ *   - purchase orders: past submitted (approved, partially_received, received); or an approval stamp (approved, then cancelled).
  * Deleted documents count by their status too: a merge moves them as well.
  *
  * Decided under the merge's locks, both merge paths (core/duplicateMergeService.mergeSuppliers, pages/api/accounting/supplier-merge):
@@ -24,16 +26,35 @@ import { ApprovePermissionError, mayApprove } from './approvePermission';
 import type { SourcePo } from './supplierMergePurchaseOrders';
 
 export const POSTED_BILL_STATUSES: readonly string[] = ['approved', 'partially_paid', 'paid'];
-export const POSTED_PAYMENT_STATUSES: readonly string[] = ['processed', 'reconciled'];
+export const POSTED_PAYMENT_STATUSES: readonly string[] = ['approved', 'processed', 'reconciled'];
 export const POSTED_CREDIT_NOTE_STATUSES: readonly string[] = ['approved', 'partially_applied', 'applied'];
 const UNCOMMITTED_PO_STATUSES: readonly string[] = ['draft', 'submitted', 'cancelled'];
 
+const inList = (xs: readonly string[]) => xs.map((x) => `'${x}'`).join(', ');
+const sourcedJournal = (table: string) =>
+  `EXISTS (SELECT 1 FROM gl_journal_entries je WHERE je.company_id = ${table}.company_id AND je.source_record_id = ${table}.id)`;
+/**
+ * "Posted" as a predicate on the row of each table, unaliased, so it serves both the pre-check (FROM <table>) and each move's
+ * RETURNING (UPDATE <table> ... RETURNING <predicate> AS posted). Constants only: no caller value is spliced into the text.
+ */
+const POSTED_SQL = {
+  bill: `(supplier_invoices.status IN (${inList(POSTED_BILL_STATUSES)}) OR supplier_invoices.gl_journal_entry_id IS NOT NULL
+          OR supplier_invoices.approved_at IS NOT NULL OR ${sourcedJournal('supplier_invoices')})`,
+  payment: `(supplier_payments.status IN (${inList(POSTED_PAYMENT_STATUSES)}) OR supplier_payments.batch_id IS NOT NULL
+          OR supplier_payments.gl_journal_entry_id IS NOT NULL OR supplier_payments.approved_at IS NOT NULL
+          OR supplier_payments.processed_at IS NOT NULL OR ${sourcedJournal('supplier_payments')})`,
+  credit_note: `(credit_notes.status IN (${inList(POSTED_CREDIT_NOTE_STATUSES)}) OR credit_notes.gl_journal_entry_id IS NOT NULL
+          OR credit_notes.approved_at IS NOT NULL OR ${sourcedJournal('credit_notes')})`,
+} as const;
+/** The predicate for a move's RETURNING: `RETURNING ..., ${postedSql('bill')} AS posted`. */
+export const postedSql = (kind: 'bill' | 'payment' | 'credit_note') => sql.unsafe(POSTED_SQL[kind]);
+
 export type PostedKind = 'bill' | 'payment' | 'credit_note' | 'purchase_order';
 const NOUN: Record<PostedKind, [string, string]> = {
-  bill: ['approved, partly paid or paid bill', 'approved, partly paid or paid bills'],
-  payment: ['processed or reconciled payment', 'processed or reconciled payments'],
-  credit_note: ['approved or applied credit note', 'approved or applied credit notes'],
-  purchase_order: ['approved or received purchase order', 'approved or received purchase orders'],
+  bill: ['approved, partly paid, paid or once-posted bill', 'approved, partly paid, paid or once-posted bills'],
+  payment: ['approved, batched, processed or reconciled payment', 'approved, batched, processed or reconciled payments'],
+  credit_note: ['approved, applied or once-posted credit note', 'approved, applied or once-posted credit notes'],
+  purchase_order: ['approved, received or once-approved purchase order', 'approved, received or once-approved purchase orders'],
 };
 
 function refusal(counts: Partial<Record<PostedKind, number>>): ApprovePermissionError {
@@ -59,23 +80,22 @@ export async function assertMayMergePostedSupplierDocuments(
   const [row] = (await sql`
     SELECT
       (SELECT count(*) FROM supplier_invoices WHERE company_id = ${companyId}::UUID AND supplier_id = ${sourceId}::UUID
-          AND status = ANY(${POSTED_BILL_STATUSES}::TEXT[]))::INT AS bills,
+          AND ${postedSql('bill')})::INT AS bills,
       (SELECT count(*) FROM supplier_payments WHERE company_id = ${companyId}::UUID AND supplier_id = ${sourceId}::UUID
-          AND status = ANY(${POSTED_PAYMENT_STATUSES}::TEXT[]))::INT AS payments,
+          AND ${postedSql('payment')})::INT AS payments,
       (SELECT count(*) FROM credit_notes WHERE company_id = ${companyId}::UUID AND supplier_id = ${sourceId}::UUID
-          AND status = ANY(${POSTED_CREDIT_NOTE_STATUSES}::TEXT[]))::INT AS notes
+          AND ${postedSql('credit_note')})::INT AS notes
   `) as DbRow[];
   const counts = {
     bill: Number(row?.bills ?? 0), payment: Number(row?.payments ?? 0), credit_note: Number(row?.notes ?? 0),
-    purchase_order: pos.filter((p) => !UNCOMMITTED_PO_STATUSES.includes(p.status)).length,
+    purchase_order: pos.filter((p) => !UNCOMMITTED_PO_STATUSES.includes(p.status) || p.approvedAt !== null).length,
   };
   if (Object.values(counts).some((n) => n > 0)) throw refusal(counts);
 }
 
-/** On a document UPDATE's RETURNING rows (each with its `status`): refused when the person may not move a posted one (see above). */
+/** On a document UPDATE's RETURNING rows (each with `posted`: `postedSql(kind)`): refused when the person may not move a posted one. */
 export function refuseIfMovedPosted(moved: ReadonlyArray<Record<string, unknown>>, kind: PostedKind, mayMovePosted: boolean): void {
   if (mayMovePosted) return;
-  const posted = kind === 'bill' ? POSTED_BILL_STATUSES : kind === 'payment' ? POSTED_PAYMENT_STATUSES : POSTED_CREDIT_NOTE_STATUSES;
-  const n = moved.filter((r) => posted.includes(String(r.status))).length;
+  const n = moved.filter((r) => r.posted === true).length;
   if (n > 0) throw refusal({ [kind]: n });
 }
