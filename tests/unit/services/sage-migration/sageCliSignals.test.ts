@@ -17,7 +17,7 @@ import type { BatchReport, MigrationOptions } from '@/modules/accounting/service
 const h = vi.hoisted(() => {
   let open: () => void = () => undefined;
   const s = {
-    opts: null as MigrationOptions | null, phase: 'dry' as 'dry' | 'live', poolEnded: 0, ignoreStop: false,
+    opts: null as MigrationOptions | null, phase: 'dry' as 'dry' | 'live', poolEnded: 0, ignoreStop: false, failFinal: false,
     gate: Promise.resolve(), poolGate: Promise.resolve(),
     arm() { s.gate = new Promise<void>((r) => { open = r; }); },
     release() { open(); },
@@ -42,6 +42,14 @@ vi.mock('@/modules/accounting/services/sage-migration/sageMigrationRunner', () =
   }),
 }));
 vi.mock('@/modules/accounting/services/sage-migration/sageReportSummary', () => ({ CONSOLE_ERROR_CHARS: 600, summaryLines: () => ['SUMMARY LINE'], exitCodeFor: () => 0 }));
+vi.mock('node:fs', async (orig) => {
+  const real = await orig<typeof import('node:fs')>();
+  const writeSync = ((fd: number, buf: unknown, ...rest: unknown[]) => {
+    if (h.failFinal && String(buf).includes('THE-FINAL-REPORT')) throw new Error('EFBIG: injected');
+    return (real.writeSync as (...x: unknown[]) => number)(fd, buf, ...rest);
+  }) as typeof real.writeSync;
+  return { ...real, default: { ...real, writeSync }, writeSync };
+});
 vi.mock('pg', () => ({ default: { Pool: class { on() { return this; } async end() { h.poolEnded++; await h.poolGate; } } } }));
 
 let d: string;
@@ -53,7 +61,7 @@ const HOOKS = ['uncaughtException', 'unhandledRejection'] as const;
 let before: Record<string, Function[]>;
 beforeEach(() => {
   d = mkdtempSync(join(tmpdir(), 'sage-cli-signals-'));
-  Object.assign(h, { opts: null, phase: 'dry', poolEnded: 0, poolGate: Promise.resolve(), ignoreStop: false });
+  Object.assign(h, { opts: null, phase: 'dry', poolEnded: 0, poolGate: Promise.resolve(), ignoreStop: false, failFinal: false });
   h.arm();
   out = []; err = [];
   process.exitCode = undefined;
@@ -168,7 +176,17 @@ describe('B19-2: a signal during the last batch (none left to stop before)', () 
     await done;
     expect(process.exitCode).toBe(0);
     expect(json()).toMatchObject({ marker: 'THE-FINAL-REPORT' });
-    expect(err.join('')).toMatch(/SIGTERM came after the last batch was sent: the run finished; its summary and report stand \(exit 0\)/);
+    expect(err.join('')).toMatch(/SIGTERM came after the run's last stop check: the run finished \(exit 0\)\n$/); // said last (R20-3)
+  });
+  it('R20-3: with the report not written, the closing line comes after that and gives the final exit code (3)', async () => {
+    h.ignoreStop = true;
+    h.failFinal = true;
+    const { done } = await start();
+    fire('SIGTERM');
+    h.release();
+    await done;
+    expect(process.exitCode).toBe(3);
+    expect(err.join('')).toMatch(/the report was not written: .*EFBIG: injected[\s\S]*SIGTERM came after the run's last stop check: the run finished \(exit 3\)\n$/);
   });
 });
 

@@ -164,8 +164,8 @@ describe('round 18: dry-run stops, no stop after the last batch, progress', () =
   });
 });
 
-describe('R19-1: a stop before the live phase', () => {
-  it('is a refused start: no "phase live" event, nothing live sent', async () => {
+describe('R19-1: a stop before the live phase (a PIN of the existing order, R20-4: it held before round 19 too)', () => {
+  it('pin: a refused start, no "phase live" event, nothing live sent (red when "live" is emitted before the pre-live check)', async () => {
     const { StopRequested } = await import('@/modules/accounting/services/sage-migration/sageMigrationRunner');
     const phases: string[] = [];
     const err = await run({

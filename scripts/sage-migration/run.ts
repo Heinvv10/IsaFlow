@@ -199,8 +199,6 @@ async function main(): Promise<void> {
     // The summary is printed FIRST: a committed run must always tell what it did, whatever happens to the report file.
     const { lines, code } = summarize(report, values['allow-refusals'] === true, values['allow-differences'] === true);
     for (const line of lines) (code === 4 ? say(line) : out(line));
-    // A signal that came during the last batch (no batch left to stop before): the run finished, and says so (B19-2, R19-3).
-    if (stopSignal !== null) say(`${stopSignal} came after the last batch was sent: the run finished; its summary and report stand (exit ${code})`);
     process.exitCode = code;
     if (owned) {
       const why = owned.write(report);
@@ -215,6 +213,9 @@ async function main(): Promise<void> {
       }
       owned.close();
     }
+    // A signal that came after the run's last stop check (during the last batch, its check, or a run with none): the run finished, and says
+    // so last, with the exit code it ends with (B19-2, R19-3, R20-3).
+    if (stopSignal !== null) say(`${stopSignal} came after the run's last stop check: the run finished (exit ${process.exitCode})`);
   } finally {
     // A pool that fails to close cannot change what the run did, nor its exit code (R17-7).
     try { await pool.end(); } catch (err) { say(`closing the database pool failed: ${err instanceof Error ? err.message : String(err)}`); }
