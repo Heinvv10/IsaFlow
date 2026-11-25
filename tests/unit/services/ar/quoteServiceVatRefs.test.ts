@@ -81,6 +81,21 @@ describe('round 11: a line naming an item claims the stored line of THAT item be
   });
 });
 
+describe('round 11 LOW 2: the lenient pass lets a line or a stored line with no item fit (pinned by place)', () => {
+  const G0 = 'a1a1a1a1-0000-4000-8000-000000000010';
+  const G2 = 'a1a1a1a1-0000-4000-8000-000000000012';
+  it('two item-less lines re-priced against [none, X, none]: the second keeps s1 (X, GX) by place, not the item-less s2', async () => {
+    world.stored = [storedLine('s0', 1, null, G0, '100.00'), storedLine('s1', 2, X, GX, '100.00'), storedLine('s2', 3, null, G2, '100.00')];
+    await put([{ description: 'Svc', quantity: 1, unitPrice: 250 }, { description: 'Svc', quantity: 1, unitPrice: 150 }]);
+    expect(rows()).toEqual([[null, G0], [X, GX]]);
+  });
+  it('a line naming a new item fits an item-less stored line at its place (its account kept: X has no default)', async () => {
+    world.stored = [storedLine('s0', 1, null, G0, '100.00'), storedLine('s1', 2, null, G2, '100.00')];
+    await put([{ description: 'Svc', quantity: 1, unitPrice: 250 }, { description: 'Svc', quantity: 1, unitPrice: 150, itemId: X }]);
+    expect(rows()).toEqual([[null, G0], [X, G2]]);
+  });
+});
+
 describe('round 11: the item check judges "new" against the matched stored line too', () => {
   it('LOW 1: s1 sent by id naming its own item Y, Y deactivated since, saves (not re-checked), item Y and GY', async () => {
     world.inactiveItems.add(Y);
