@@ -74,12 +74,19 @@ describe('a refusal before the create: nothing written anywhere', () => {
   it('a bad --run-tag, a bad count, an export that does not parse: exit 2, --report not created, the runner never runs', async () => {
     const bad = join(d, 'bad.json');
     writeFileSync(bad, '{"status":"x"}');
-    for (const [extra, file] of [[['--run-tag', 'bad tag!'], undefined], [['--live', '--expect-items', '12x', '--expect-pos', '1'], undefined], [[], bad]] as const) {
+    const cases = [
+      [['--run-tag', 'bad tag!'], undefined, /^--run-tag must be 1-32 letters/],
+      [['--live', '--expect-items', '12x', '--expect-pos', '1'], undefined, /^not a count: 12x/],
+      [[], bad, /^sage migration stopped: .*status/],
+    ] as const;
+    for (const [extra, file, said] of cases) {
       vi.resetModules();
+      err.length = 0;
       const report = join(d, `r-${extra.length}-${String(file).length}.json`);
       expect(await runCli(report, [...extra], file), extra.join(' ')).toBe(2);
       expect(existsSync(report), extra.join(' ')).toBe(false);
-      expect(err.join(''), extra.join(' ')).toMatch(/--report .* was not created/);
+      expect(err.join(''), extra.join(' ')).toMatch(said); // a refusal is said as it is, not as a "stop"
+      expect(err.join(''), extra.join(' ')).toMatch(/\(nothing written; --report .* was not created\)\n$/);
     }
     expect(h.calls).toBe(0);
   });
@@ -98,6 +105,7 @@ describe('after the create: every exit leaves a report in it', () => {
     const report = join(d, 'report.json');
     expect(await runCli(report)).toBe(2);
     expect(json(report)).toMatchObject({ status: 'stopped', message: expect.stringMatching(/another Sage migration is running/) });
+    expect(err.join('')).not.toMatch(/was not created/);
   });
 });
 

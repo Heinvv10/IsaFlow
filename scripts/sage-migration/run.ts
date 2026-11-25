@@ -36,11 +36,9 @@ const out = (s: string) => process.stdout.write(`${s}\n`);
 let owned: OwnedReport | null = null;
 /** The --report asked for, while it does not exist yet: a refusal then says it was not created. */
 let reportAsked: string | undefined;
-/** The run's own report (or a stop report) is written: nothing more goes to --report. */
-let reportDone = false;
+/** A stop report through the held descriptor; once the run's own report (or a stop report) is written the file is closed, so it is refused. */
 const leaveStopReport = (err: unknown): void => {
-  if (!owned || reportDone) return;
-  reportDone = true;
+  if (!owned) return;
   const why = owned.write(stopReportBody(err));
   if (why) process.stderr.write(`${why}\n`);
   owned.close();
@@ -135,7 +133,6 @@ async function main(): Promise<void> {
     for (const line of lines) (code === 4 ? process.stderr.write(`${line}\n`) : out(line));
     process.exitCode = code;
     if (owned) {
-      reportDone = true;
       const why = owned.write(report);
       if (why) {
         // The summary above says what the run did; this says what happened to the report. A 1 or a 4 is never hidden by it (0 -> 3 only).
