@@ -9,7 +9,7 @@
  * longer 500s.
  */
 
-import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // Migration 874: the quote-line account check has its own real-PG suite
 // (invoice-line-revenue-quotes.int.test.ts); here every account is accepted.
@@ -37,66 +37,8 @@ vi.mock('@/modules/accounting/services/ar/quoteService', () => ({
   getQuote: vi.fn(),
 }));
 
-import { sql } from '@/lib/neon';
-import { als } from '@/lib/als';
-import { getQuote } from '@/modules/accounting/services/ar/quoteService';
 import { convertToInvoice } from '@/modules/accounting/services/ar/quoteConvertService';
-
-const mockSql = sql as unknown as MockedFunction<(...args: unknown[]) => Promise<unknown[]>>;
-const mockGetQuote = getQuote as unknown as MockedFunction<typeof getQuote>;
-
-const COMPANY_ID = '11111111-1111-1111-1111-111111111111';
-const QUOTE_ID = '22222222-2222-2222-2222-222222222222';
-const GL_ACCOUNT_ID = '33333333-3333-3333-3333-333333333333';
-
-/**
- * `claimUnderLockTimeout` refuses to claim outside a request transaction — the
- * claim would autocommit and could not be rolled back with the writes that
- * follow it. These unit tests mock `sql`, so the client only has to exist;
- * `SET LOCAL` goes to the stub.
- */
-const requestCtx = {
-  client: { query: vi.fn() }, userId: 'u1', companyId: COMPANY_ID, claims: {},
-} as unknown as Parameters<typeof als.run>[0];
-const inRequestTx = <T>(fn: () => Promise<T>): Promise<T> => als.run(requestCtx, fn);
-
-
-function acceptedQuote() {
-  return {
-    id: QUOTE_ID,
-    quoteNumber: 'QUO-00001',
-    clientId: null,
-    customerName: 'Acme Corp',
-    quoteDate: '2026-07-01',
-    expiryDate: null,
-    status: 'accepted',
-    subtotal: 200,
-    taxAmount: 30,
-    total: 230,
-    notes: null,
-    terms: null,
-    convertedInvoiceId: null,
-    createdAt: '2026-07-01T00:00:00.000Z',
-    updatedAt: '2026-07-01T00:00:00.000Z',
-    lines: [
-      {
-        id: '44444444-4444-4444-4444-444444444444',
-        quoteId: QUOTE_ID,
-        lineNumber: 1,
-        description: 'Consulting services',
-        quantity: 2,
-        unitPrice: 100,
-        taxRate: 15,
-        lineTotal: 200,
-        accountId: GL_ACCOUNT_ID,
-      },
-    ],
-  };
-}
-
-function sqlTextOf(call: unknown[]): string {
-  return (call[0] as readonly string[]).join(' ');
-}
+import { COMPANY_ID, GL_ACCOUNT_ID, QUOTE_ID, acceptedQuote, inRequestTx, mockGetQuote, mockSql, sqlTextOf } from './helpers/quoteConvertWorld';
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -138,6 +80,9 @@ describe('convertToInvoice — writes real customer_invoice_items columns', () =
       'gl_account_id',
       'cc1_id',
       'item_id',
+      'tax_amount',
+      'vat_type',
+      'line_position',
     ]);
 
     const values = insertItemCall.slice(1);
@@ -145,6 +90,8 @@ describe('convertToInvoice — writes real customer_invoice_items columns', () =
     expect(values[columnList.indexOf('gl_account_id')]).toBe(GL_ACCOUNT_ID);
     // A quote with no customer has no FNO to store (and sends no query for one).
     expect(values[columnList.indexOf('cc1_id')]).toBeNull();
+    // A legacy quote (no line typed) converts untyped, as before migration 1024.
+    expect([values[columnList.indexOf('tax_amount')], values[columnList.indexOf('vat_type')]]).toEqual([null, null]);
   });
 });
 
