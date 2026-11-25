@@ -56,11 +56,22 @@ describe('FieldFrame warning scrolls clear', () => {
     await frame();
     expect(scrolls).toEqual([]);
   });
-  it('a warning hidden behind an error does not scroll', async () => {
+  it('a warning hidden behind an error does not scroll, and scrolls once the error clears', async () => {
     const view = render(<Field />);
     screen.getByRole('textbox').focus();
     view.rerender(<Field warning="w" error="e" />);
     await frame();
     expect(scrolls).toEqual([]);
+    view.rerender(<Field warning="w" />);
+    await frame();
+    expect(scrolls).toHaveLength(1);
+  });
+  it('text that changes again before the frame scrolls once, for the latest text', async () => {
+    const view = render(<Field />);
+    screen.getByRole('textbox').focus();
+    view.rerender(<Field warning="first" />);
+    view.rerender(<Field warning="second" />);
+    await frame();
+    expect(scrolls).toHaveLength(1);
   });
 });
