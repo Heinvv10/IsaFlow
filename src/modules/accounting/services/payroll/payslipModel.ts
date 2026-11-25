@@ -63,6 +63,12 @@ export interface PayslipRun {
   runId: string;
   periodMonth: number;
   periodYear: number;
+  /** Wave 7 PP: the run's own dates (null on a monthly run), frequency and kind: what the slip's period line prints. */
+  periodStart: string | null;
+  periodEnd: string | null;
+  payFrequency: string;
+  runKind: string;
+  offCycleReason: string | null;
   runDate: string | null;
   /** R-035 cleared (or grandfathered): false prints DRAFT on every page. */
   final: boolean;
@@ -72,7 +78,10 @@ export interface PayslipRun {
   payslips: Payslip[];
 }
 
-interface HeaderRow { period_month: number; period_year: number; run_date: string | Date | null }
+interface HeaderRow {
+  period_month: number; period_year: number; run_date: string | Date | null;
+  period_start: string | Date | null; period_end: string | Date | null; pay_frequency: string; run_kind: string; off_cycle_reason: string | null;
+}
 
 interface LineRow extends Omit<DetailsRow, 'details_frozen'> {
   snapshot_approved_at: string | null;
@@ -128,7 +137,7 @@ async function readLines(companyId: string, runId: string, employeeIds: string[]
 
 export async function getPayslips(companyId: string, runId: string, employeeIds?: string[]): Promise<PayslipRun> {
   const headers = (await sql`
-    SELECT period_month, period_year, run_date FROM payroll_run_headers
+    SELECT period_month, period_year, run_date, period_start, period_end, pay_frequency, run_kind, off_cycle_reason FROM payroll_run_headers
      WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid AND status <> 'cancelled'
   `) as HeaderRow[];
   const header = headers[0];
@@ -155,6 +164,11 @@ export async function getPayslips(companyId: string, runId: string, employeeIds?
 
   return {
     runId, periodMonth: run.periodMonth, periodYear: run.periodYear, runDate: dateOnly(header.run_date), final,
+    // A monthly regular run carries no dates (payrollFrequency.runPeriodOf); only a weekly or fortnightly one prints them.
+    periodStart: header.pay_frequency === 'monthly' ? null : dateOnly(header.period_start),
+    periodEnd: header.pay_frequency === 'monthly' ? null : dateOnly(header.period_end),
+    payFrequency: String(header.pay_frequency), runKind: String(header.run_kind),
+    offCycleReason: header.off_cycle_reason == null ? null : String(header.off_cycle_reason),
     detailsAsAt: frozen ? 'approval' : 'download',
     employer: shown[0]!.employer,
     payslips: shown.map(({ l, details: d, yearToDate: frozenYtd, componentTypes: frozenTypes }): Payslip => ({
