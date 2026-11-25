@@ -127,7 +127,7 @@ export function matchQuoteLines(sent: readonly SentQuoteLine[], stored: readonly
   const out: (LineMatch | null)[] = sent.map(() => null);
   const compatible = (l: SentQuoteLine, s: StoredQuoteVatLine) => !given(l.taxRate) || Number(l.taxRate) === rateOn(s, date);
   const free = (j: number) => j >= 0 && j < stored.length && !used.has(j);
-  // The ONE place a match is made, by every path (id, positional, the passes): `identical` (what "unchanged" reads) also
+  // The ONE place a match is made, by every path (id, positional, the standard-only rule): `identical` (what "unchanged" reads) also
   // needs a compatible rate, so a line sent by id at another legacy rate keeps its identity but is never unchanged.
   const take = (i: number, j: number) => {
     used.add(j);
