@@ -197,9 +197,10 @@ describe('FZ: a final run refuses money changes the app never makes', () => {
     await expect(asRole('migration_admin', (c) => c.query('UPDATE payroll_run_headers SET total_gross = 0 WHERE id = $1', [run1]))).rejects.toThrow(FROZEN);
   }, 60_000);
 
-  it.each(HEADER_MOVES)('header column %s alone is frozen on a final run (BYPASSRLS role)', async (_col, set) => {
+  it.each(HEADER_MOVES)('header column %s alone is frozen on a final run (BYPASSRLS role)', async (col, set) => {
+    // Since 1054 (wave 7 RH) a header's company is fixed on every run, and that trigger speaks first.
     await expect(asRole('migration_admin', (c) => c.query(`UPDATE payroll_run_headers SET ${set} WHERE id = $1`, [run1])))
-      .rejects.toThrow(/figures are frozen/);
+      .rejects.toThrow(col === 'company_id' ? /a row's id and company are fixed/ : /figures are frozen/);
   }, 60_000);
 
   it.each(PERIOD_MOVES)('header column %s alone is frozen on a final run (period_start/end held still)', async (_col, set) => {
