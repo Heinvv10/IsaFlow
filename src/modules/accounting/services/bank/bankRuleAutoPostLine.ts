@@ -21,6 +21,7 @@ import {
 import { VatPeriodLockedError } from '../gl/journalVatLockGuard';
 import { buildAutoCreateLines, getPeriodStatusForDate, type RuleAllocType } from './bankRulesMatchingHelpers';
 import { lockBankTransactionForUpdate } from './bankTxLock';
+import { isSupplierLive, lockSupplierIfLive } from '../core/supplierLiveLock';
 import { resolveRuleVatCode } from '../gl/ruleVatResolution';
 import { feedStateOf } from './bankFeedStateGuard';
 import { isBankEvidenced, manualLinePaymentRefusal } from '../ap/bankLinePaymentGate';
@@ -107,6 +108,11 @@ export async function autoPostRuleLine(input: AutoPostLineInput): Promise<AutoPo
 
   const totalAmount = Math.abs(Number(tx.amount));
   const isDeposit = Number(tx.amount) > 0;
+  // A supplier rule's supplier live before the journal (supplierLiveLock): a merge leaves rules on the source, so a rule naming one
+  // merged away (or deleted) is the `supplier_merged` skip, named in the run for re-pointing (bankRuleSupplierMerged). Money out
+  // locks it FOR KEY SHARE; money in only reads it, as planSupplierRefund then takes it FOR UPDATE (and re-checks it live).
+  if (allocType === 'supplier' && supplierId
+      && !(isDeposit ? await isSupplierLive(companyId, supplierId) : await lockSupplierIfLive(companyId, supplierId))) return { kind: 'supplier_merged' };
   // R-035 PR5 (Hein, D2): a supplier rule paying out from a HAND-KEYED line is
   // a payment instruction with nobody deciding it: skipped (counted), before
   // any write, under an enforced supplier_payment rule. Feed and imported

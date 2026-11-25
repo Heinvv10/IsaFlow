@@ -20,7 +20,6 @@ export interface CodeRow {
   applicability_note: string | null;
   source_document: string | null;
   source_url: string | null;
-  official_excerpt: string | null;
   brs_version: string | null;
   imported_at: string;
   used_by_companies: number;

@@ -4,7 +4,7 @@
  * The five call sites are pinned in tests/unit/components/flagNavCallSites.test.tsx.
  */
 import { describe, it, expect } from 'vitest';
-import { flagOfHref, IC_PAYMENTS_HREF, LOAN_RECON_HREF, MODULE_READ_NAV_FLAGS, moduleReadFlag, NAV_FLAGS, stripFlagNav, THREE_WAY_HREF } from '@/components/accounting/navSections/flagNav';
+import { flagOfHref, IC_PAYMENTS_HREF, LOAN_RECON_HREF, MODULE_READ_NAV_FLAGS, moduleReadFlag, NAV_FLAGS, stripFlagNav, THREE_WAY_HREF, TRIAL_UPGRADE_HREF } from '@/components/accounting/navSections/flagNav';
 import { TABS, settingsTab } from '@/components/accounting/accountingNavConfig';
 import { accountingTab } from '@/components/accounting/navSections/accounting';
 import { accountantsTab } from '@/components/accounting/navSections/accountants';
@@ -101,7 +101,8 @@ describe('stripFlagNav', () => {
     expect(after).not.toContain(THREE_WAY_HREF);
     expect(after).not.toContain(LOAN_RECON_HREF);
     expect(after).not.toContain(IC_PAYMENTS_HREF);
-    expect(after).toEqual(before.filter((h) => h !== THREE_WAY_HREF && h !== LOAN_RECON_HREF && h !== IC_PAYMENTS_HREF));
+    expect(after).not.toContain(TRIAL_UPGRADE_HREF);
+    expect(after).toEqual(before.filter((h) => h !== THREE_WAY_HREF && h !== LOAN_RECON_HREF && h !== IC_PAYMENTS_HREF && h !== TRIAL_UPGRADE_HREF));
   });
 
   it('flag off: the Management Accounting section keeps its other links in order', () => {

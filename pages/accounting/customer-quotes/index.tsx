@@ -170,8 +170,10 @@ export default function CustomerQuotesPage() {
     try {
       const res = await apiFetch('/api/accounting/customer-quotes-action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: q.id, action: 'convert' }) });
       await assertOk(res, 'Could not convert the quote - try again');
-      const json = await res.json().catch(() => ({})) as { data?: { invoiceId?: string }; invoiceId?: string };
-      setSuccessMsg({ text: `${q.quoteNumber} converted.`, invoiceId: json.data?.invoiceId || json.invoiceId || '' }); void load();
+      const json = await res.json().catch(() => ({})) as { data?: { invoiceId?: string; warnings?: { message: string }[] }; invoiceId?: string };
+      // A total that moved (the VAT rate changed since the quote's date) is said, not only logged.
+      const warned = (json.data?.warnings ?? []).map((w) => w.message).join(' ');
+      setSuccessMsg({ text: `${q.quoteNumber} converted.${warned ? ` ${warned}` : ''}`, invoiceId: json.data?.invoiceId || json.invoiceId || '' }); void load();
     } catch (err) { window.alert(apiErrorMessage(err, 'Could not convert the quote - try again')); }
     finally { setConverting(null); }
   };
