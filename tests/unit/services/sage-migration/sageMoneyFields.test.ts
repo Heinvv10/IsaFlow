@@ -48,7 +48,7 @@ describe('another money-like field this import does not read', () => {
   it('not zero on a line or the PO refuses the PO as po_money_field_unsupported', () => {
     for (const [line, extra, key] of [
       [{ Rebate: 5 }, {}, 'Lines[0].Rebate'], [{ SurchargeAmount: 2 }, {}, 'Lines[0].SurchargeAmount'], [{ PriceInclusive: 115 }, {}, 'Lines[0].PriceInclusive'],
-      [{}, { AmountDue: 115 }, 'AmountDue'], [{}, { DeliveryCharge: 30 }, 'DeliveryCharge'], [{}, { TotalInclusive: 'x' }, 'TotalInclusive'],
+      [{}, { OutstandingAmount: 115 }, 'OutstandingAmount'], [{}, { DeliveryCharge: 30 }, 'DeliveryCharge'], [{}, { TotalInclusive: 'x' }, 'TotalInclusive'],
     ] as const) {
       const r = refused({ PurchaseOrders: [po(line, extra)] });
       expect(r.codes, key).toEqual(['po_money_field_unsupported']);
@@ -56,7 +56,7 @@ describe('another money-like field this import does not read', () => {
     }
   });
   it('zero passes; the fields read (Exclusive, Tax, Total, UnitPriceExclusive) and non-money fields are not touched', () => {
-    expect(refused({ PurchaseOrders: [po({ Rebate: 0 }, { AmountDue: 0, Reference: 'R1', Comments: 'c' })] }).codes).toEqual([]);
+    expect(refused({ PurchaseOrders: [po({ Rebate: 0 }, { OutstandingAmount: 0, Reference: 'R1', Comments: 'c' })] }).codes).toEqual([]);
   });
   it('the synthetic fixture reads clean (its line Total is Exclusive + Tax)', () => {
     expect(parseSageExport(JSON.parse(readFileSync('tests/fixtures/sage-export/sage-export.json', 'utf8'))).refusals).toEqual([]);
