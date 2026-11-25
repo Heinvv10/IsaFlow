@@ -156,11 +156,15 @@ describe('lockReclassLinesForUpdate (real DB)', async () => {
   afterAll(async () => {
     if (!reachable) return;
     const c = await dedicated();
+    const errors: unknown[] = [];
     try {
-      for (const id of created) await removeCompany(c, id);
+      for (const id of created) {
+        try { await removeCompany(c, id); } catch (e) { errors.push(e); }
+      }
       const { rows } = await c.query<{ n: string }>('SELECT count(*) AS n FROM companies WHERE name = $1', [CO_NAME]);
-      expect(Number(rows[0]!.n)).toBe(0);
+      try { expect(Number(rows[0]!.n)).toBe(0); } catch (e) { errors.push(e); }
     } finally { await done(c); }
+    if (errors.length) throw errors.length === 1 ? errors[0] : new AggregateError(errors, 'afterAll cleanup failed');
   });
 
   it.skipIf(!reachable)('a second batch over the SAME lines cannot proceed until the first commits', async (ctx) => {
