@@ -106,7 +106,7 @@ describe('salary bank file', () => {
     const [file] = await files(a);
     const before = (await a.pool.query('SELECT status, approved_at, paid_at FROM payroll_run_headers WHERE id = $1', [run1])).rows[0];
     const ok = await act(a, run1, String(file!.id), 'confirm');
-    expect([ok.statusCode, ok.body.data]).toEqual([200, { id: file!.id, status: 'confirmed', settlement: null }]);
+    expect([ok.statusCode, ok.body.data]).toEqual([200, { id: file!.id, status: 'confirmed', settlement: null, creditorJournalId: null }]); // no creditor lines (GC2)
     expect((await a.pool.query('SELECT status, approved_at, paid_at FROM payroll_run_headers WHERE id = $1', [run1])).rows[0]).toEqual(before);
     expect((await files(a))[0]).toMatchObject({ confirmed_by: a.admin });
     expect((await status(a, run1)).body.data!.paymentConfirmed).toBe(true);
