@@ -84,6 +84,17 @@ for (const theme of THEMES) {
     await expect(page).toHaveURL(/company-settings/);
     await expect(page.locator(PHONE)).toHaveValue('0110000099');
 
+    // The command palette navigates with router.push: the same dialog, and nothing moves until Leave.
+    await page.locator(PHONE).focus();
+    await page.keyboard.press('Control+k');
+    await page.getByRole('combobox', { name: 'Search pages, actions and records' }).fill('Trial balance');
+    await page.keyboard.press('Enter');
+    await expect(dialog).toBeVisible();
+    await expect(page).toHaveURL(/company-settings/);
+    await page.keyboard.press('Escape');
+    await expect(dialog).toBeHidden();
+    await expect(page.locator(PHONE)).toHaveValue('0110000099');
+
     await page.getByRole('link', { name: 'Dashboard' }).first().click();
     await expect(dialog).toBeVisible();
     await page.getByRole('button', { name: 'Leave' }).click();
