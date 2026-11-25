@@ -41,7 +41,9 @@ export function insideEmploymentEdge(period: PayrollPeriod, row: ShareRow, emplo
   const { start, end } = periodBoundsOf(period);
   const employedFrom = isoOfDate(employee.startDate);
   const employedTo = employee.endDate ? isoOfDate(employee.endDate) : null;
-  const startsInside = row.effectiveFrom > start && row.effectiveFrom <= end && row.effectiveFrom > employedFrom;
+  // A row starting after the employee's last day is not inside employment: it keeps today's pay (ruling 19's scope).
+  const startsInside = row.effectiveFrom > start && row.effectiveFrom <= end && row.effectiveFrom > employedFrom
+    && (employedTo == null || row.effectiveFrom <= employedTo);
   const endsInside = row.effectiveTo != null && row.effectiveTo >= start && row.effectiveTo < end
     && (employedTo == null || row.effectiveTo < employedTo);
   return startsInside || endsInside;

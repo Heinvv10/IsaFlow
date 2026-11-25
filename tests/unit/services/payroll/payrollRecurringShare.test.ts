@@ -69,6 +69,12 @@ describe('inside employment only (ruling 19)', () => {
     expect(recurringShareOf('monthly', july, row('2026-07-16'), leaver)).toMatchObject({ days: 7, of: 23 });
   });
 
+  it("a row starting after a leaver's last day is outside employment: not apportioned (today's pay kept)", () => {
+    const leaver = { startDate: local('2020-01-01'), endDate: local('2026-07-15') };
+    expect(recurringShareOf('monthly', july, row('2026-07-16'), leaver)).toBeNull();
+    expect(recurringShareOf('monthly', july, row('2026-07-15'), leaver)).toMatchObject({ days: 1, of: 23 });
+  });
+
   it('a row outside the period is not apportioned', () => {
     expect(recurringShareOf('monthly', july, row('2026-08-03'), longServing)).toBeNull();
     expect(recurringShareOf('monthly', july, row('2020-01-01', '2026-06-30'), longServing)).toBeNull();
