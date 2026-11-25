@@ -74,7 +74,8 @@ describe('(c) B19-1: a connection lost while the client is checked out', () => {
     expect(client.release).toHaveBeenCalledWith(true);
   });
   it('R20-2: a backend killed DURING the COMMIT (FATAL 57P01 rejects it before any client error): connectionLost', async () => {
-    for (const fatal of [Object.assign(new Error('terminating connection due to administrator command'), { code: '57P01' }), new Error('Connection terminated unexpectedly')]) {
+    for (const fatal of [Object.assign(new Error('terminating connection due to administrator command'), { code: '57P01' }), Object.assign(new Error('the database system is shutting down'), { code: '57P03' }),
+      Object.assign(new Error('server closed the connection'), { code: '08006' }), new Error('Connection terminated unexpectedly')]) {
       const client = Object.assign(new EventEmitter(), {
         query: async (text: string) => { if (text === 'COMMIT') throw fatal; return { rows: [] }; },
         release: vi.fn(),
