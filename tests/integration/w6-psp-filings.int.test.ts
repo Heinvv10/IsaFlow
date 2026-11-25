@@ -22,7 +22,7 @@ import { updatePayrollEmployee } from '@/modules/accounting/services/payroll/pay
 import { PspComponentRefused, PspStatusChangedSinceApproval } from '@/modules/accounting/services/payroll/pspLineRules';
 import { insertDirective } from './w5-dr.helpers';
 import { reopenPayrollRun } from '@/modules/accounting/services/payroll/payrollRunReopen';
-import yearEndRoute from '../../pages/api/payroll/year-end/status';
+import irp5SummaryRoute from '../../pages/api/payroll/irp5/summary';
 import { listRunAllowanceFiling } from '@/modules/accounting/services/payroll/payrollAllowanceFiling';
 import { getPayslips } from '@/modules/accounting/services/payroll/payslipModel';
 import { saTaxYearBounds } from '@/modules/accounting/services/payroll/irp5DataService';
@@ -94,14 +94,8 @@ async function expectViewerSeesNoPspSplit(f: SeveranceFixture): Promise<void> {
   expect(r.totalVariance).toBeCloseTo(0, 2);
   expect(r.totalIrp5).toBeCloseTo(r.totalEmp201, 2);
   expect(JSON.stringify(r.runWarnings)).not.toMatch(/personal service provider|PSP/i);
-  type YearEnd = { emp501: Record<string, unknown> & { totalVariance: number; totalIrp5: number; totalEmp201: number; balanced: boolean }; payrollRuns: { totalPaye: number }; runWarnings: string[] };
-  const y = ((await asViewer(yearEndRoute as Route, 'GET', '/api/payroll/year-end/status?taxYear=2027', undefined, q)).body as unknown as { data: YearEnd }).data;
-  expect(['pspPaye' in y.emp501, 'unexplainedVariance' in y.emp501, 'pspNote' in y.emp501]).toEqual([false, false, false]);
-  expect(y.emp501.totalVariance).toBeCloseTo(0, 2);
-  expect(y.emp501.totalIrp5).toBeCloseTo(y.emp501.totalEmp201, 2);
-  expect(y.payrollRuns.totalPaye).toBeCloseTo(y.emp501.totalEmp201, 2);
-  expect(y.emp501.balanced).toBe(true);
-  expect(JSON.stringify(y.runWarnings)).not.toMatch(/personal service provider|PSP/i);
+  // W31: the year-end checklist's balanced flag (|variance| < 0.01 with EMP201 PAYE) is read off the same reconciliation.
+  expect(Math.abs(r.totalVariance) < 0.01 && r.totalEmp201 > 0).toBe(true);
 }
 
 describe('M3/M4 at assignment: the real route answers 409, no row written', () => {
@@ -326,26 +320,22 @@ describe('round 2: IRP3(c), a reopened month, the year-end checklist', () => {
     await expect(calculatePayrollRun(march, f.company)).resolves.toBeTruthy();
   });
 
-  it('M1: the year-end checklist leaves PSP PAYE off the IRP5 total, names it apart, and skips the PSP\'s readiness', async () => {
+  it('M1 (W31: moved from the deleted year-end checklist): the EMP501 reconciliation leaves PSP PAYE off the IRP5 total and names it apart; the IRP5 summary does not certify the PSP', async () => {
     const f = await seedEmployee(pool, fixtures, 'psp yearend', 30_000);
     const who = await addEmployee(pool, f, 'psp-ye', PAY);
-    await pool.query("UPDATE payroll_employees SET tax_number = NULL WHERE id = $1", [who]); // would be a readiness error for an employee
     await toPsp(f, who, 'company');
     const march = await newRun(pool, f, 3);
     await calculatePayrollRun(march, f.company);
     await approve(march);
-    const out = await f.call(yearEndRoute as Route, 'GET', '/api/payroll/year-end/status?taxYear=2027', undefined, { query: { taxYear: '2027' } });
-    const data = (out.body as unknown as { data: { emp501: { totalVariance: number; pspPaye: number; unexplainedVariance: number; balanced: boolean };
-      readiness: { errors: number }; runWarnings: string[] } }).data;
-    expect([data.emp501.pspPaye, data.emp501.totalVariance, data.emp501.unexplainedVariance, data.emp501.balanced]).toEqual([10_800, 10_800, 0, false]);
-    // The same company with no PSP: the PSP (no tax number) adds no readiness error.
-    const c = await seedEmployee(pool, fixtures, 'psp yearend control', 30_000);
-    const cm = await newRun(pool, c, 3);
-    await calculatePayrollRun(cm, c.company);
-    await approve(cm);
-    const control = await c.call(yearEndRoute as Route, 'GET', '/api/payroll/year-end/status?taxYear=2027', undefined, { query: { taxYear: '2027' } });
-    expect(data.readiness.errors).toBe((control.body as unknown as { data: { readiness: { errors: number } } }).data.readiness.errors);
+    const out = await f.call(reconciliationRoute as Route, 'GET', '/api/payroll/emp501/reconciliation?taxYear=2027', undefined, { query: { taxYear: '2027' } });
+    const data = (out.body as unknown as { data: { totalVariance: number; totalPspPaye: number; totalUnexplainedVariance: number; totalEmp201: number; runWarnings: string[] } }).data;
+    expect([data.totalPspPaye, data.totalVariance, data.totalUnexplainedVariance, Math.abs(data.totalVariance) < 0.01 && data.totalEmp201 > 0])
+      .toEqual([10_800, 10_800, 0, false]);
     expect(data.runWarnings.some((w) => w.includes('TSB-psp-ye'))).toBe(true);
+    const summary = await f.call(irp5SummaryRoute as Route, 'GET', '/api/payroll/irp5/summary?taxYear=2027', undefined, { query: { taxYear: '2027' } });
+    const rows = (summary.body as unknown as { data: { employees: Array<{ employeeId: string; totalGross: number; messages: Array<{ code: string }> }> } }).data.employees;
+    const pspRow = rows.find((e) => e.employeeId === who)!;
+    expect([pspRow.totalGross, pspRow.messages.some((m) => m.code === 'IRP5_PSP_NOT_CERTIFIED')]).toEqual([0, true]);
     await expectViewerSeesNoPspSplit(f);
   });
 });
