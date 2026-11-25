@@ -14,6 +14,8 @@ const h = vi.hoisted(() => ({
     company: { status: string; trial_ends_at: string | null } | null;
     current: { id: string; status: string; plan_id: string; current_period_end: string; is_paid: boolean } | null;
     mandate: 'none' | 'pending_code' | 'chargeable';
+    /** The active mandate's max_amount_cents: the price of the plan the owner authorised at start. */
+    ceilingCents: number;
     plan: { code: string; is_active: boolean; monthly_price_cents: number } | null;
   },
 }));
@@ -37,6 +39,9 @@ function answer(text: string): unknown[] {
   if (/FROM plans WHERE id/.test(text)) return w.plan ? [w.plan] : [];
   if (/FROM subscriptions s JOIN plans p/.test(text)) return w.current ? [w.current] : [];
   if (/status = 'paused' LIMIT 1/.test(text)) return [];
+  if (/AS chargeable FROM subscription_mandates/.test(text)) {
+    return w.mandate === 'none' ? [] : [{ max_amount_cents: String(w.ceilingCents), chargeable: w.mandate === 'chargeable' }];
+  }
   if (/paystack_authorization_code IS NOT NULL/.test(text)) return w.mandate === 'chargeable' ? [{ x: 1 }] : [];
   if (/FROM subscription_mandates/.test(text)) return w.mandate !== 'none' ? [{ x: 1 }] : [];
   if (/^INSERT INTO subscription_mandates/.test(text)) return [{ id: 'm-1' }];
@@ -118,6 +123,7 @@ beforeEach(() => {
     company: { status: 'trial', trial_ends_at: '2026-12-01T00:00:00.000Z' },
     current: { id: 'sub-1', status: 'trial', plan_id: 'p-trial', current_period_end: '2026-12-01T00:00:00.000Z', is_paid: false },
     mandate: 'chargeable',
+    ceilingCents: 12300,
     plan: { code: 'starter', is_active: true, monthly_price_cents: 12300 },
   };
   vi.clearAllMocks();
@@ -205,6 +211,21 @@ describe('POST convert', () => {
       const r = await call(convert, 'owner');
       expect(r.statusCode, m).toBe(409);
     }
+    expect(writes()).toHaveLength(0);
+  });
+
+  it('authorise cheap, convert dear: 409 with a clear message and nothing written', async () => {
+    h.world.ceilingCents = 5000; // authorised a R50 plan at start; the Starter plan is R123
+    const r = await call(convert, 'owner');
+    expect(r.statusCode).toBe(409);
+    expect(r.body!.error!.message).toBe('Your payment method was authorised for a different amount than this plan costs. Choose the plan you authorised.');
+    expect(writes()).toHaveLength(0);
+    expect(audits()).toHaveLength(0);
+  });
+
+  it('re-authorise on any plan change: a cheaper plan than the authorised one is refused too', async () => {
+    h.world.ceilingCents = 99900;
+    expect((await call(convert, 'owner')).statusCode).toBe(409);
     expect(writes()).toHaveLength(0);
   });
 

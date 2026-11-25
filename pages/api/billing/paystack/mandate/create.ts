@@ -7,7 +7,7 @@
  * pool, the payment request on the request's transaction). The payer returns
  * to the admin mandate-return page.
  *
- * Body: { maxAmountCents: number }  // billing ceiling (display only)
+ * Body: { maxAmountCents: number }  // billing ceiling: runQueuedCharges never debits above it
  * Returns: { checkoutUrl: string, reference: string, mandateId: string }
  */
 
