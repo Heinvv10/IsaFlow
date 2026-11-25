@@ -118,7 +118,7 @@ export function GarnisheeOrdersCard({ employeeId }: { employeeId: string }) {
                   {o.totalDebt !== null && ` · owes ${formatCurrency(o.balance ?? 0)} of ${formatCurrency(o.totalDebt)}`}
                   {o.pending > 0 && ` · ${formatCurrency(o.pending)} on runs not yet approved`}
                 </span>
-                <GarnisheeCreditorBank url={url} orderId={o.id} bank={o.creditorBank} onSaved={load} />
+                <GarnisheeCreditorBank url={url} orderId={o.id} bank={o.creditorBank} adminOnly={o.status === 'ended' || o.creditorEntryAdminOnly} onSaved={load} />
               </span>
               {o.status !== 'ended' && (ending?.id === o.id ? (
                 <span className="flex w-full flex-wrap items-end gap-2">

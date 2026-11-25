@@ -56,18 +56,20 @@ describe('setCreditorBank', () => {
 
   it('a manager\'s first entry on an order already deducted by an ever-approved run (or ended) is refused before any write', async () => {
     vi.mocked(sql).mockResolvedValueOnce([] as never) // the company payroll-approval lock
-      .mockResolvedValueOnce([{ ...EMPTY, status: 'active', ever_approved: true }] as never);
+      .mockResolvedValueOnce([{ ...EMPTY, status: 'active', creditor_entry_admin_only: true }] as never);
     await expect(setCreditorBank('c1', 'e1', 'o1', INPUT, 'manager', ACTOR)).rejects.toMatchObject({ code: 'FIRST_ENTRY_REQUIRES_ADMIN', status: 403 });
-    vi.mocked(sql).mockResolvedValueOnce([] as never).mockResolvedValueOnce([{ ...EMPTY, status: 'ended', ever_approved: false }] as never);
+    vi.mocked(sql).mockResolvedValueOnce([] as never).mockResolvedValueOnce([{ ...EMPTY, status: 'ended', creditor_entry_admin_only: false }] as never);
     await expect(setCreditorBank('c1', 'e1', 'o1', INPUT, 'manager', ACTOR)).rejects.toMatchObject({ code: 'FIRST_ENTRY_REQUIRES_ADMIN' });
     expect(sqlText().some((t) => /UPDATE payroll_garnishee_orders/.test(t))).toBe(false);
-    expect(sqlText().filter((t) => /pg_advisory_xact_lock/.test(t))).toHaveLength(2);
+    // T3: the approval lock is taken before the order row is read and locked, every time.
+    const order = sqlText().map((t) => (/pg_advisory_xact_lock/.test(t) ? 'lock' : /FOR NO KEY UPDATE/.test(t) ? 'row' : 'other'));
+    expect(order).toEqual(['lock', 'row', 'lock', 'row']);
     expect(logAuditOrThrow).not.toHaveBeenCalled();
   });
 
   it('an owner\'s first entry on such an order writes, and takes no approval lock', async () => {
     const after = { ...ROW, creditor_account_number: '10098765432' };
-    vi.mocked(sql).mockResolvedValueOnce([{ ...EMPTY, status: 'ended', ever_approved: true }] as never).mockResolvedValueOnce([after] as never);
+    vi.mocked(sql).mockResolvedValueOnce([{ ...EMPTY, status: 'ended', creditor_entry_admin_only: true }] as never).mockResolvedValueOnce([after] as never);
     await setCreditorBank('c1', 'e1', 'o1', INPUT, 'owner', ACTOR);
     expect(sqlText().some((t) => /pg_advisory_xact_lock/.test(t))).toBe(false);
     expect(sqlText().some((t) => /UPDATE payroll_garnishee_orders/.test(t))).toBe(true);
@@ -75,7 +77,7 @@ describe('setCreditorBank', () => {
 
   it('a manager\'s first entry writes, and the audit row holds masked values only', async () => {
     const after = { ...ROW, creditor_bank_name: 'Standard Bank', creditor_branch_code: '051001', creditor_account_number: '10098765432', creditor_account_type: 'savings', creditor_account_holder: null };
-    vi.mocked(sql).mockResolvedValueOnce([] as never).mockResolvedValueOnce([{ ...EMPTY, status: 'active', ever_approved: false }] as never)
+    vi.mocked(sql).mockResolvedValueOnce([] as never).mockResolvedValueOnce([{ ...EMPTY, status: 'active', creditor_entry_admin_only: false }] as never)
       .mockResolvedValueOnce([after] as never);
     const view = await setCreditorBank('c1', 'e1', 'o1', INPUT, 'manager', ACTOR);
     expect(view).toMatchObject({ accountNumber: '…5432', masked: true });
@@ -84,6 +86,29 @@ describe('setCreditorBank', () => {
     expect(audit).toContain('…5432');
     expect(audit).not.toContain('10098765432');
     expect(audit).not.toContain('051001');
+    expect(vi.mocked(logAuditOrThrow).mock.calls[0]![0].changes!.metadata).toEqual({
+      changedFields: 'creditor_bank_name,creditor_branch_code,creditor_account_number,creditor_account_type,creditor_account_holder',
+    });
+  });
+
+  it('S1: a change whose last four match still names the number as changed (masked old and new are equal)', async () => {
+    const before = { ...ROW, status: 'active', creditor_entry_admin_only: true };
+    const input = { bankName: 'First National Bank', branchCode: '250655', accountNumber: '99001234567', accountType: 'cheque' as const, accountHolder: 'Acme Credit Ltd' };
+    vi.mocked(sql).mockResolvedValueOnce([before] as never).mockResolvedValueOnce([{ ...before, creditor_account_number: '99001234567' }] as never);
+    await setCreditorBank('c1', 'e1', 'o1', input, 'admin', ACTOR);
+    const params = vi.mocked(logAuditOrThrow).mock.calls[0]![0];
+    const number = params.changes!.fields.find((f) => f.field === 'creditor_account_number')!;
+    expect([number.old, number.new]).toEqual(['…4567', '…4567']);
+    expect(params.changes!.metadata).toEqual({ changedFields: 'creditor_account_number' });
+  });
+
+  it('S2: a table CHECK refusal is rethrown without the driver\'s DETAIL (which would carry the number)', async () => {
+    const check = Object.assign(new Error('new row violates check constraint'), { code: '23514', detail: 'Failing row contains (… 10098765432 …)' });
+    vi.mocked(sql).mockResolvedValueOnce([{ ...EMPTY, status: 'active', creditor_entry_admin_only: false }] as never).mockRejectedValueOnce(check as never);
+    const err = await setCreditorBank('c1', 'e1', 'o1', INPUT, 'owner', ACTOR).catch((e: unknown) => e as Error & { detail?: string });
+    expect(err.message).toBe('The creditor bank details were refused by the table check.');
+    expect(JSON.stringify({ ...err, message: err.message })).not.toContain('10098765432');
+    expect(logAuditOrThrow).not.toHaveBeenCalled();
   });
 });
 

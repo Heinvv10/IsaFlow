@@ -1,13 +1,17 @@
 /**
  * GarnisheeCreditorBank - the creditor's bank details on one garnishee order (wave 7 GC1): shown masked (account number
  * to its last four, branch code to its last two, holder to its first letter), entered or changed through
- * PUT .../garnishee-orders/[orderId]. A change to details already entered is owner / admin only; the route refuses
- * anyone else and the refusal is shown. The number is never shown in full here and is cleared from the form once sent.
+ * PUT .../garnishee-orders/[orderId]. A change to details already entered is owner / admin only, and so is the first
+ * entry on an order that has ended or that an approved run has deducted (1051's flag): for anyone else the card offers
+ * no form and says who can, and the route refuses them anyway (a refusal is shown). The number is never shown in full
+ * here and is cleared from the form once sent.
  * Paying the creditor from the salary bank file comes later (GC2).
  */
 import { useState } from 'react';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { Input, Select } from '@/components/ui';
+import { useCompany } from '@/contexts/CompanyContext';
+import { isHistoryAdmin } from '@/modules/accounting/services/core/entityChanges/entityChangeTypes';
 import type { CreditorBank } from '@/modules/accounting/services/payroll/payrollGarnisheeCreditorBank';
 
 const TYPES = [
@@ -18,9 +22,11 @@ const FAILED = 'Could not save the creditor\'s bank details - try again';
 
 interface Draft { bankName: string; branchCode: string; accountNumber: string; accountType: string; accountHolder: string }
 
-export function GarnisheeCreditorBank({ url, orderId, bank, onSaved }: {
-  url: string; orderId: string; bank: CreditorBank | null; onSaved: () => Promise<void>;
+export function GarnisheeCreditorBank({ url, orderId, bank, adminOnly, onSaved }: {
+  url: string; orderId: string; bank: CreditorBank | null; adminOnly: boolean; onSaved: () => Promise<void>;
 }) {
+  const { companyRole } = useCompany();
+  const mayEdit = isHistoryAdmin(companyRole ?? undefined) || (!bank && !adminOnly);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -53,10 +59,11 @@ export function GarnisheeCreditorBank({ url, orderId, bank, onSaved }: {
       {draft === null ? (
         <span className="flex flex-wrap items-center gap-2">
           <span data-testid={`creditor-bank-${orderId}`}>{summary}</span>
-          <button type="button" className="text-[var(--ff-brand-eyebrow)] underline"
+          {!mayEdit && <span>(an owner or admin {bank ? 'changes them' : 'enters them on this order'})</span>}
+          {mayEdit && <button type="button" className="text-[var(--ff-brand-eyebrow)] underline"
             onClick={() => { setError(''); setDraft({ bankName: bank?.bankName ?? '', branchCode: '', accountNumber: '', accountType: bank?.accountType ?? 'cheque', accountHolder: '' }); }}>
             {bank ? 'Change bank details' : 'Enter bank details'}
-          </button>
+          </button>}
         </span>
       ) : (
         <fieldset className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2" disabled={saving}>

@@ -4,7 +4,9 @@
  *  - a Login-as session and a token channel are 403 on GET and PUT, before any read or service call;
  *  - a PUT with a key outside the five is 400, and invalid values are 422 (the real parseBankDetailsInput), with no
  *    service call;
- *  - a person signed in as themselves reaches the service, with `view=masked` passed through.
+ *  - a person signed in as themselves reaches the service, with `view=masked` passed through and the values trimmed
+ *    (account number spaces removed) by the real parser;
+ *  - the real withCsrf wraps the export: a PUT without the CSRF cookie and header is 403 before anything else (T5).
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -14,7 +16,6 @@ const masks = vi.hoisted(() => [] as Array<readonly string[] | undefined>);
 const actor = vi.hoisted(() => ({ value: 'self' as 'self' | 'impersonation' | 'unknown' }));
 vi.mock('@/lib/auth/permissionService', async (orig) => (await import('../helpers/modulePermissionMock')).permissionServiceAllowing(await orig<object>()));
 vi.mock('@/lib/auth', () => ({ withAuth: (h: H) => h }));
-vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (h: H) => h }));
 vi.mock('@/lib/auth/withPayrollDetailAccess', () => ({ withPayrollDetailAccess: (h: H) => h }));
 vi.mock('@/lib/api-error-handler', () => ({
   withErrorHandler: (h: H, o?: { maskBodyKeys?: readonly string[] }) => { masks.push(o?.maskBodyKeys); return h; },
@@ -37,7 +38,9 @@ import route from '../../../pages/api/payroll/employees/[id]/garnishee-orders/[o
 const QUERY = { id: '11111111-1111-4111-8111-111111111111', orderId: '22222222-2222-4222-8222-222222222222' };
 const BANK = { bankName: 'First National Bank', branchCode: '250655', accountNumber: '62001234567', accountType: 'cheque', accountHolder: 'Acme Credit Ltd' };
 
-async function call(method: string, body: unknown, query: Record<string, string> = QUERY) {
+const CSRF = 'gc1-route-test-csrf-token-0123456789abcdef';
+
+async function call(method: string, body: unknown, query: Record<string, string> = QUERY, csrf = true) {
   const res = {
     statusCode: 0, body: undefined as unknown, headers: {} as Record<string, unknown>,
     status(c: number) { this.statusCode = c; return this; },
@@ -45,7 +48,7 @@ async function call(method: string, body: unknown, query: Record<string, string>
     setHeader(k: string, v: unknown) { this.headers[k] = v; },
   };
   const req = {
-    method, query, body, headers: {}, socket: { remoteAddress: '127.0.0.1' }, companyId: 'c1', companyRole: 'manager',
+    method, query, body, headers: csrf ? { 'x-csrf-token': CSRF } : {}, cookies: csrf ? { isaflow_csrf: CSRF } : {}, socket: { remoteAddress: '127.0.0.1' }, companyId: 'c1', companyRole: 'manager',
     user: { id: 'u1', email: 'u@example.invalid', claims: { session_id: 's1' } },
   } as unknown as NextApiRequest;
   await (route as H)(req, res as unknown as NextApiResponse);
@@ -89,5 +92,21 @@ describe('creditor bank details route', () => {
     expect((await call('GET', undefined, { ...QUERY, view: 'masked' })).statusCode).toBe(200);
     expect(vi.mocked(getCreditorBank).mock.calls[0]!.slice(0, 5)).toEqual(['c1', QUERY.id, QUERY.orderId, 'manager', true]);
     expect((await call('DELETE', undefined)).statusCode).toBe(405);
+  });
+
+  it('T4: values are trimmed and the account number\'s spaces removed before the service sees them', async () => {
+    const res = await call('PUT', { bankName: '  Standard Bank ', branchCode: ' 051001 ', accountNumber: '1009 8765 432', accountType: 'savings', accountHolder: '  ' });
+    expect(res.statusCode).toBe(200);
+    expect(vi.mocked(setCreditorBank).mock.calls[0]![3]).toEqual({
+      bankName: 'Standard Bank', branchCode: '051001', accountNumber: '10098765432', accountType: 'savings', accountHolder: null,
+    });
+  });
+
+  it('T5: the real withCsrf guards the export: a PUT without the token is 403 and reaches nothing', async () => {
+    const res = await call('PUT', BANK, QUERY, false);
+    expect(res.statusCode).toBe(403);
+    expect(JSON.stringify(res.body)).toContain('CSRF');
+    expect(setCreditorBank).not.toHaveBeenCalled();
+    expect(sql).not.toHaveBeenCalled();
   });
 });

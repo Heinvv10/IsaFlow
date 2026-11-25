@@ -2,7 +2,12 @@
  * The creditor's bank details on a garnishee order (wave 7 GC1, migration 1051) through the real routes, withAuth,
  * app_user and RLS, on two tenants. Claims:
  *  - a manager makes the first entry, except on an order that is ended or that an approved run has deducted (403
- *    FIRST_ENTRY_REQUIRES_ADMIN, nothing written; the trigger refuses it as app_user too); a change by a manager is 403 CHANGE_REQUIRES_ADMIN and writes nothing; an owner /
+ *    FIRST_ENTRY_REQUIRES_ADMIN, nothing written; the trigger refuses it as app_user too, on both arms); the
+ *    "deducted by an approved run" fact (creditor_entry_admin_only) is set at approval and survives a reopen, a
+ *    recalculation that takes nil and the deletion of the deduction (team review #1895 B0, B1; breaker R1, R2);
+ *  - the table refuses an order inserted with creditor details, stamps or the flag prefilled, whoever writes it, and a
+ *    stamp written alone keeps the old stamp (B2; breaker R5); another employee's id with the order's id is 404 (R3);
+ *  - a change by a manager is 403 CHANGE_REQUIRES_ADMIN and writes nothing; an owner /
  *    admin changes them; the same details again write nothing;
  *  - refusals (bad values, an extra key, another tenant's order, a viewer) change no row and write no audit row;
  *  - the list and the PUT answer are masked for everyone; a full GET is owner / admin only and writes one `export`
@@ -191,41 +196,107 @@ describe('garnishee creditor bank details', () => {
     expect(await stored(a, orderA)).toMatchObject({ creditor_account_number: '10098765432' });
   });
 
-  it('a manager\'s first entry is refused on an order an approved run deducted, and on an ended one; an admin\'s is not', async () => {
-    const made = await a.call(orders as Route, 'POST', `/api/payroll/employees/${emp}/garnishee-orders`, emp,
-      { body: { ...ORDER, reference: 'EAO 2/2027', instalment: 10000, totalDebt: 500000, startDate: '2027-02-01' } });
-    expect(made.statusCode).toBe(201);
-    const deducted = String(made.body.data!.id);
-    const run = await a.calculatedRun(2, 2027);
+
+  /** One employee, one order of its own (so no other order eats the s65J 25% limit), deducted by a run of `month` 2027. */
+  async function deductedOrder(month: number, ref: string): Promise<{ employee: string; order: string; run: string }> {
+    const employee = (await a.employee(200000)).employee;
+    const made = await a.call(orders as Route, 'POST', `/api/payroll/employees/${employee}/garnishee-orders`, employee,
+      { body: { ...ORDER, reference: ref, instalment: 10000, totalDebt: 500000, startDate: `2027-${String(month).padStart(2, '0')}-01` } });
+    expect(made.statusCode, JSON.stringify(made.body)).toBe(201);
+    const order = String(made.body.data!.id);
+    const run = await a.calculatedRun(month, 2027);
+    // B0: the rule below is only tested if the run really deducted this order.
+    const rows = (await a.pool.query('SELECT amount::float8 AS amount FROM payroll_garnishee_deductions WHERE order_id = $1 AND run_id = $2', [order, run])).rows;
+    expect(rows).toEqual([{ amount: 10000 }]);
     const approved = await a.api.approve(run);
     expect(approved.statusCode, JSON.stringify(approved.body)).toBe(200);
-    const refused = await at(a, emp, deducted, 'PUT', { body: BANK, user: manager });
-    expect([refused.statusCode, reason(refused)]).toEqual([403, 'FIRST_ENTRY_REQUIRES_ADMIN']);
-    expect(await stored(a, deducted)).toMatchObject({ creditor_account_number: null, stamped: false });
-    expect(await audits(a, deducted)).toEqual([]);
-    // The trigger holds the rule for a writer that skips the service (app_user, the manager's claims).
+    return { employee, order, run };
+  }
+  const flag = async (order: string) => (await a.pool.query('SELECT creditor_entry_admin_only AS f FROM payroll_garnishee_orders WHERE id = $1', [order])).rows[0]!.f as boolean;
+  const asManager = async (q: (c: { query: (s: string, p?: unknown[]) => Promise<unknown> }) => Promise<unknown>, user = manager) => {
     const c = await a.pool.connect();
     try {
       await c.query('BEGIN');
       await c.query('SET LOCAL ROLE app_user');
-      await c.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: manager, role: 'authenticated' })]);
+      await c.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: user, role: 'authenticated' })]);
       await c.query("SELECT set_config('app.current_company_id', $1, true)", [a.company]);
-      await expect(c.query(`UPDATE payroll_garnishee_orders SET creditor_bank_name = 'FNB', creditor_branch_code = '250655',
-        creditor_account_number = '62001234567', creditor_account_type = 'cheque' WHERE id = $1`, [deducted]))
-        .rejects.toThrow(/ended or approved-deducted order/);
+      return await q(c);
     } finally {
       await c.query('ROLLBACK').catch(() => undefined);
       c.release();
     }
-    expect((await at(a, emp, deducted, 'PUT', { body: BANK })).statusCode).toBe(200);
-    expect(await stored(a, deducted)).toMatchObject({ creditor_account_number: '62001234567', creditor_bank_set_by: a.admin });
+  };
+  const FIRST = `UPDATE payroll_garnishee_orders SET creditor_bank_name = 'FNB', creditor_branch_code = '250655',
+    creditor_account_number = '62001234567', creditor_account_type = 'cheque' WHERE id = $1`;
 
-    const fresh = await a.call(orders as Route, 'POST', `/api/payroll/employees/${emp}/garnishee-orders`, emp,
-      { body: { ...ORDER, reference: 'EAO 3/2027', startDate: '2027-12-01' } });
-    const ended = String(fresh.body.data!.id);
+  it('B0/B1/R1: approval sets the flag; a manager\'s first entry is refused, and still after a reopen and a nil recalculation', async () => {
+    const { employee, order, run } = await deductedOrder(3, 'EAO 3/2027');
+    expect(await flag(order)).toBe(true);
+    const refused = await at(a, employee, order, 'PUT', { body: BANK, user: manager });
+    expect([refused.statusCode, reason(refused)]).toEqual([403, 'FIRST_ENTRY_REQUIRES_ADMIN']);
+    expect(await stored(a, order)).toMatchObject({ creditor_account_number: null, stamped: false });
+    expect(await audits(a, order)).toEqual([]);
+    // R1: reopen, then a higher-priority order takes the whole 25% limit, so the recalculation records nothing for it.
+    expect((await a.api.reopen(run)).statusCode).toBe(200);
+    const big = await a.call(orders as Route, 'POST', `/api/payroll/employees/${employee}/garnishee-orders`, employee,
+      { body: { ...ORDER, reference: 'EAO 3b/2027', instalment: 900000, totalDebt: null, priority: 1, startDate: '2027-03-01' } });
+    expect(big.statusCode).toBe(201);
+    expect((await a.api.calculate(run)).statusCode).toBe(200);
+    expect((await a.pool.query('SELECT 1 FROM payroll_garnishee_deductions WHERE order_id = $1', [order])).rows).toEqual([]);
+    expect(await flag(order)).toBe(true);
+    const still = await at(a, employee, order, 'PUT', { body: BANK, user: manager });
+    expect([still.statusCode, reason(still)]).toEqual([403, 'FIRST_ENTRY_REQUIRES_ADMIN']);
+    // An owner / admin may.
+    expect((await at(a, employee, order, 'PUT', { body: BANK })).statusCode).toBe(200);
+    expect(await stored(a, order)).toMatchObject({ creditor_account_number: '62001234567', creditor_bank_set_by: a.admin });
+  });
+
+  it('R2/T2 (flag arm): as app_user, deleting the reopened run\'s deduction does not open the first entry; the flag never clears', async () => {
+    const { order, run } = await deductedOrder(4, 'EAO 4/2027');
+    expect((await a.api.reopen(run)).statusCode).toBe(200);
+    await expect(asManager(async (c) => {
+      const del = (await c.query('DELETE FROM payroll_garnishee_deductions WHERE order_id = $1 RETURNING id', [order])) as { rows: unknown[] };
+      expect(del.rows).toHaveLength(1);
+      return c.query(FIRST, [order]);
+    })).rejects.toThrow(/ended or approved-deducted order/);
+    await expect(asManager((c) => c.query('UPDATE payroll_garnishee_orders SET creditor_entry_admin_only = false WHERE id = $1', [order]), a.admin))
+      .rejects.toThrow(/never cleared/);
+    expect(await flag(order)).toBe(true);
+  });
+
+  it('T2 (ended arm): an ended order\'s first entry is the admin\'s, through the route and the trigger', async () => {
+    const made = await a.call(orders as Route, 'POST', `/api/payroll/employees/${emp}/garnishee-orders`, emp,
+      { body: { ...ORDER, reference: 'EAO 12/2027', startDate: '2027-12-01' } });
+    const ended = String(made.body.data!.id);
     expect((await at(a, emp, ended, 'POST', { body: { endDate: '2027-12-31', reason: 'Order rescinded by the court' } })).statusCode).toBe(200);
-    const endedRefused = await at(a, emp, ended, 'PUT', { body: BANK, user: manager });
-    expect([endedRefused.statusCode, reason(endedRefused)]).toEqual([403, 'FIRST_ENTRY_REQUIRES_ADMIN']);
+    expect(await flag(ended)).toBe(false);
+    const refused = await at(a, emp, ended, 'PUT', { body: BANK, user: manager });
+    expect([refused.statusCode, reason(refused)]).toEqual([403, 'FIRST_ENTRY_REQUIRES_ADMIN']);
+    await expect(asManager((c) => c.query(FIRST, [ended]))).rejects.toThrow(/ended or approved-deducted order/);
     expect(await stored(a, ended)).toMatchObject({ creditor_account_number: null });
+    expect((await at(a, emp, ended, 'PUT', { body: BANK })).statusCode).toBe(200);
+  });
+
+  it('R3: another employee of the same company, with this order\'s id, is 404 on GET and PUT', async () => {
+    const other = (await a.employee(100000)).employee;
+    expect((await at(a, other, orderA, 'PUT', { body: BANK })).statusCode).toBe(404);
+    expect((await at(a, other, orderA, 'GET')).statusCode).toBe(404);
+  });
+
+  it('B2/R5: an order inserted with creditor details, stamps or the flag is refused whoever writes it; a stamp alone keeps the old', async () => {
+    const insert = (extra: string, value: string) => a.pool.query(
+      `INSERT INTO payroll_garnishee_orders (company_id, employee_id, kind, reference, creditor_name, instalment, total_debt, balance,
+         start_date, payable_account_id, created_by, ${extra})
+       SELECT company_id, employee_id, kind, 'R5', creditor_name, instalment, total_debt, total_debt, start_date, payable_account_id, created_by, ${value}
+         FROM payroll_garnishee_orders WHERE id = $1`, [orderA]);
+    // As the table owner (no grant applies): the trigger alone refuses.
+    await expect(insert('creditor_account_number', "'99990000333'")).rejects.toThrow(/entered without creditor bank details/);
+    await expect(insert('creditor_bank_set_by', "'FORGED-OWNER-ID'")).rejects.toThrow(/entered without creditor bank details/);
+    await expect(insert('creditor_entry_admin_only', 'true')).rejects.toThrow(/entered without creditor bank details/);
+    const before = await stored(a, orderA);
+    const forged = await a.pool.query(
+      "UPDATE payroll_garnishee_orders SET creditor_bank_set_by = 'forged', creditor_bank_set_at = '2020-01-01' WHERE id = $1 RETURNING creditor_bank_set_by",
+      [orderA]);
+    expect(forged.rows[0]!.creditor_bank_set_by).toBe(before.creditor_bank_set_by);
   });
 });

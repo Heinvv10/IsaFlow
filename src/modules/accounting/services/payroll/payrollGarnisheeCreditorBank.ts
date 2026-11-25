@@ -8,15 +8,18 @@
  * (payrollGarnisheeApi.garnisheeWriter). A change to details already entered is owner / admin only
  * (CHANGE_REQUIRES_ADMIN), as an employee's (Hein's decision 14). The first entry is any of them, except that a
  * manager's is refused (FIRST_ENTRY_REQUIRES_ADMIN, as an employee's under Hein's ruling on D1) on an order that is
- * ended or that any run which is or ever was approved has deducted (orderEverApproved): money already owed to the
- * creditor would otherwise follow an account a manager chose. 1051's trigger holds both rules for any other writer.
+ * ended or carries creditor_entry_admin_only (1051: set when an approval applies one of its deductions, never cleared,
+ * so a reopen or recalculation does not forget it): money already owed to the creditor would otherwise follow an
+ * account a manager chose. 1051's trigger holds both rules, on the same two columns, for any other writer.
  * The same details sent again write nothing (decided after the role, so a manager cannot test a guessed number).
  * Lock order (a manager): the company payroll-approval lock, then the order row, as approval and reopen take them, so
- * the ever-approved verdict and an approval are one order; an owner / admin is never refused by it and takes only the row.
+ * an approval in flight commits its flag before the verdict; an owner / admin is never refused by it and takes only the row.
  * Masking: everyone sees the account number to its last four, the branch code to its last two and the holder to its
  * first letter (entityChangeMasking), except an owner / admin's full read (GET without view=masked), which is recorded
  * in audit_log (`export`) in the read's transaction; the record names the fields, never the values. A change's audit
- * row carries masked values only. No log line carries a value.
+ * row carries masked values and, in metadata, the names of the fields whose full values changed (two numbers with the
+ * same last four would otherwise look unchanged). No log line carries a value. A table CHECK refusal (23514, whose
+ * DETAIL would carry the row) is rethrown without the driver's text.
  * Every refusal is raised before the first write (a 4xx commits the request).
  */
 import { sql } from '@/lib/neon';
@@ -73,26 +76,14 @@ export function creditorBankView(r: DbRow, full: boolean): CreditorBank | null {
   };
 }
 
-/**
- * The order row, locked for a write, with its status and whether a run that is or ever was approved has deducted from
- * it: a deduction applied to the balance, or on a run approved or paid now, or ever (approved_at, a journal, a reopen,
- * an approval history; the predicate of payrollBankDetailsService.paidThroughApprovedRun), or a balance below the total
- * debt. Fails closed: a reopened run recalculated since still counts.
- */
+/** The order row, locked for a write, with the two facts the first-entry rule reads (status, creditor_entry_admin_only). */
 async function orderRowForWrite(companyId: string, employeeId: string, orderId: string): Promise<DbRow> {
   const rows = (await sql`
-    SELECT o.id, o.status, o.creditor_account_holder, o.creditor_bank_name, o.creditor_branch_code, o.creditor_account_number,
-           o.creditor_account_type, o.creditor_bank_set_at,
-           (o.balance IS DISTINCT FROM o.total_debt OR EXISTS (
-              SELECT 1 FROM payroll_garnishee_deductions d
-                JOIN payroll_run_headers h ON h.id = d.run_id AND h.company_id = d.company_id
-               WHERE d.order_id = o.id AND d.company_id = o.company_id
-                 AND (d.balance_applied OR h.status IN ('approved', 'paid') OR h.approved_at IS NOT NULL
-                      OR h.journal_entry_id IS NOT NULL OR h.reopened_at IS NOT NULL
-                      OR NOT isempty(COALESCE(h.approval_history, '{}'))))) AS ever_approved
-      FROM payroll_garnishee_orders o
-     WHERE o.id = ${orderId}::uuid AND o.company_id = ${companyId}::uuid AND o.employee_id = ${employeeId}::uuid
-     FOR NO KEY UPDATE OF o
+    SELECT id, status, creditor_entry_admin_only, creditor_account_holder, creditor_bank_name, creditor_branch_code,
+           creditor_account_number, creditor_account_type, creditor_bank_set_at
+      FROM payroll_garnishee_orders
+     WHERE id = ${orderId}::uuid AND company_id = ${companyId}::uuid AND employee_id = ${employeeId}::uuid
+     FOR NO KEY UPDATE
   `) as DbRow[];
   if (!rows[0]) throw new CreditorBankRefusal('ORDER_NOT_FOUND', 'Garnishee order not found.');
   return rows[0];
@@ -128,6 +119,16 @@ export async function getCreditorBank(
   return view;
 }
 
+/** The stored fields whose full values differ (all five for a first entry): names only, for the audit row. */
+function changedFields(r: DbRow | null, i: BankDetailsInput): string[] {
+  const pairs: Array<[string, unknown, unknown]> = [
+    ['creditor_bank_name', r?.creditor_bank_name, i.bankName], ['creditor_branch_code', r?.creditor_branch_code, i.branchCode],
+    ['creditor_account_number', r?.creditor_account_number, i.accountNumber], ['creditor_account_type', r?.creditor_account_type, i.accountType],
+    ['creditor_account_holder', r?.creditor_account_holder ?? null, i.accountHolder],
+  ];
+  return pairs.filter(([, before, after]) => r === null || before !== after).map(([name]) => name);
+}
+
 const same = (r: DbRow, i: BankDetailsInput) => r.creditor_bank_name === i.bankName && r.creditor_branch_code === i.branchCode
   && r.creditor_account_number === i.accountNumber && r.creditor_account_type === i.accountType
   && (r.creditor_account_holder ?? null) === i.accountHolder;
@@ -153,7 +154,7 @@ export async function setCreditorBank(
   if (existing && !admin) {
     throw new CreditorBankRefusal('CHANGE_REQUIRES_ADMIN', 'Only an owner or admin can change a creditor\'s bank details once entered.');
   }
-  if (!existing && !admin && (row.status === 'ended' || row.ever_approved === true)) {
+  if (!existing && !admin && (row.status === 'ended' || row.creditor_entry_admin_only === true)) {
     throw new CreditorBankRefusal('FIRST_ENTRY_REQUIRES_ADMIN',
       'Only an owner or admin can enter the creditor\'s bank details on an order that has ended or that an approved pay run has deducted.');
   }
@@ -167,8 +168,13 @@ export async function setCreditorBank(
      WHERE id = ${orderId}::uuid AND company_id = ${companyId}::uuid AND employee_id = ${employeeId}::uuid
     RETURNING id, creditor_account_holder, creditor_bank_name, creditor_branch_code, creditor_account_number,
               creditor_account_type, creditor_bank_set_at
-  `) as DbRow[];
-  const after = updated[0]!;
+  `.catch((err: unknown) => {
+    // A CHECK refusal's DETAIL carries the failing row (the full number): never let it reach a log or a response.
+    if ((err as { code?: string }).code === '23514') throw new Error('The creditor bank details were refused by the table check.');
+    throw err;
+  })) as DbRow[];
+  const after = updated[0];
+  if (!after) throw new CreditorBankRefusal('ORDER_NOT_FOUND', 'Garnishee order not found.');
   const before = existing ? creditorBankView(row, false) : null;
   const now = creditorBankView(after, false)!;
   await logAuditOrThrow({
@@ -179,7 +185,7 @@ export async function setCreditorBank(
       { field: 'creditor_account_number', old: before?.accountNumber ?? null, new: now.accountNumber, label: 'Creditor account number' },
       { field: 'creditor_account_type', old: before?.accountType ?? null, new: now.accountType, label: 'Creditor account type' },
       { field: 'creditor_account_holder', old: before?.accountHolder ?? null, new: now.accountHolder, label: 'Creditor account holder' },
-    ] },
+    ], metadata: { changedFields: changedFields(existing ? row : null, input).join(',') } },
     ip: actor.ip, userAgent: actor.userAgent, sessionId: actor.sessionId ?? undefined,
   });
   log.info('setCreditorBank', { companyId, employeeId, orderId, changed: existing });
