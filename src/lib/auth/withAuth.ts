@@ -11,7 +11,6 @@ import { getAuthPool } from './authPool';
 import { parseCookies, clearAuthCookies, clearCookiesForRefusedToken, ACCESS_COOKIE, ACTIVE_COMPANY_COOKIE } from './cookies';
 import type { RequestContext } from '@/lib/als';
 import { runOwnedContext, drainAfterCommit, settleAfterRollback } from '@/lib/afterCommit';
-import { timed } from '@/lib/serverTiming';
 import { log } from '@/lib/logger';
 import { rollbackError, rollbackFailed } from '@/lib/rollbackFailed';
 import { setTenantTags, sanitizeRoute } from '@/lib/sentry/tags';
@@ -57,7 +56,7 @@ export function withAuth(handler: Handler): NextApiHandler {
 
     let claims;
     try {
-      claims = await timed(res, 'a-verify', () => verifyToken(token, cookies[IMPERSONATION_PROOF_COOKIE]));
+      claims = await verifyToken(token, cookies[IMPERSONATION_PROOF_COOKIE]);
     } catch (err) {
       // D9: GoTrue could not answer. Not a verdict on the token: 503, cookies kept.
       if (respondIfAuthUnavailable(res, err, 'withAuth')) return;
@@ -95,18 +94,16 @@ export function withAuth(handler: Handler): NextApiHandler {
     }
 
     const startedAt = Date.now();
-    const client = await timed(res, 'b-connect', () => connectObserved(getAuthPool(), 'authPool'));
+    const client = await connectObserved(getAuthPool(), 'authPool');
     let deferred: DeferredEnd | null = null;
     let owned: RequestContext | null = null;
     let committed = false; // after-rollback work runs unless this turns true
     let unusable = false; // set when a ROLLBACK fails: the connection may still be inside its transaction
     try {
-      await timed(res, 'c-gucs', async () => {
       await client.query('BEGIN');
       await client.query('SET LOCAL ROLE app_user');
       await client.query(`SELECT set_config('request.jwt.claims', $1, true)`, [JSON.stringify(claims)]);
       await client.query(`SELECT set_config('app.current_company_id', $1, true)`, [activeCompanyId]);
-      });
 
       // Belt-and-braces membership + account-standing check. Runs under
       // app_user (inside the RLS scope) so this query also validates that the
@@ -124,7 +121,7 @@ export function withAuth(handler: Handler): NextApiHandler {
       // Neither user_id nor users.id is cast: both are TEXT columns.
       let membership: { rows: CompanyMembershipRow[] };
       try {
-        membership = await timed(res, 'd-membership', () => getCompanyMembership(client, claims.sub, activeCompanyId));
+        membership = await getCompanyMembership(client, claims.sub, activeCompanyId);
       } catch {
         unusable = await rollbackFailed(client, 'withAuth');
         return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Not a member of this company' } });
@@ -172,7 +169,7 @@ export function withAuth(handler: Handler): NextApiHandler {
       // Pentest M23: per-company rate limit for well-known heavy route
       // categories. Keeps a single tenant from saturating the pool with
       // full-GL aggregations.
-      if (!(await timed(res, 'e-autorl', () => checkAutoRateLimit(req.url, activeCompanyId, claims.sub, req.method)))) {
+      if (!(await checkAutoRateLimit(req.url, activeCompanyId, claims.sub, req.method))) {
         unusable = await rollbackFailed(client, 'withAuth');
         return res.status(429).json({
           success: false,
