@@ -95,7 +95,7 @@ export default function MyReportsPage() {
           </div>
           <Link
             href="/accounting/reports/builder"
-            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-md hover:bg-indigo-700 transition-colors"
+            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-md hover:bg-indigo-700 transition-colors max-lg:min-h-11"
           >
             <PlusCircle className="w-4 h-4" />
             New Report
@@ -126,7 +126,7 @@ export default function MyReportsPage() {
             <p className="text-sm mb-4">Create your first custom report using the Report Builder</p>
             <Link
               href="/accounting/reports/builder"
-              className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-md hover:bg-indigo-700 transition-colors"
+              className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-md hover:bg-indigo-700 transition-colors max-lg:min-h-11"
             >
               <PlusCircle className="w-4 h-4" />
               Create Report
