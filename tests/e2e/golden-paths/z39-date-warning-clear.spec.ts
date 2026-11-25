@@ -8,14 +8,16 @@
 // Dev only: a layout check of the build; the post-deploy run has nothing to learn from it that CI did not.
 import { devices, expect, test, type Locator, type Page } from '@playwright/test';
 import { settle } from '../helpers/themeSpec';
+import { todayInSast } from '../../../src/lib/saDateParser';
 import { warmInvoiceRoutes } from './helpers/warmInvoiceRoutes';
 
 test.beforeAll(warmInvoiceRoutes);
 
 const lockedNow = () => {
   const iso = (d: Date) => d.toISOString().slice(0, 10);
-  const now = new Date();
-  const y = now.getUTCFullYear(); const m = now.getUTCMonth();
+  // The month the app calls "today" (SAST), so a typed day lands in it also just after midnight on the 1st.
+  const [y, month] = todayInSast().split('-').map(Number) as [number, number];
+  const m = month - 1;
   return [{ periodName: 'Locked month', fiscalYear: y, periodNumber: 1, startDate: iso(new Date(Date.UTC(y, m, 1))), endDate: iso(new Date(Date.UTC(y, m + 1, 0))), status: 'locked' }];
 };
 

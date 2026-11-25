@@ -7,6 +7,7 @@ import { cleanup, render, screen } from '@testing-library/react';
 import { FieldFrame } from '@/components/ui/FieldFrame';
 
 const scrolls: Array<{ id: string; arg: unknown }> = [];
+const original = Element.prototype.scrollIntoView;
 const frame = () => new Promise<void>((r) => requestAnimationFrame(() => r()));
 
 function Field({ warning, error }: { warning?: string | null; error?: string | null }) {
@@ -22,7 +23,7 @@ beforeEach(() => {
   scrolls.length = 0;
   Element.prototype.scrollIntoView = vi.fn(function (this: Element, arg?: unknown) { scrolls.push({ id: this.id, arg }); });
 });
-afterEach(cleanup);
+afterEach(() => { cleanup(); Element.prototype.scrollIntoView = original; });
 
 describe('FieldFrame warning scrolls clear', () => {
   it('scrolls the warning into view when it appears while the field has focus, and again when its text changes', async () => {
