@@ -18,7 +18,8 @@
  *       3. UNIQUE: a description held by one stored line, or by twins all carrying one item and account: that line;
  *          one unique stored line is kept even at another legacy rate (the rate sent re-types the line);
  *       4. RENAMED: a description no FREE stored line holds (round 14: one held only by lines already matched cannot
- *          be this line), naming the item of the stored line at its own place: that line;
+ *          be this line), naming the item of the stored line at its own place, which no other unmatched sent line of
+ *          that stored line's description still wants: that line;
  *       5. otherwise a line whose description has stored twins of different items or accounts, one of them still free,
  *          is AMBIGUOUS and refused (unmatchedItemProblem: a 400 asking for the saved line's id, or an explicit itemId
  *          and accountId); any other line is a new line.
@@ -203,10 +204,12 @@ function standardOnly(sent: readonly SentQuoteLine[], stored: readonly StoredQuo
     else if (js.length > 0 && js.some(free)) ambiguous.push(i);
   });
   // 4. Renamed at its place: a description no FREE stored line holds (one held only by lines already matched cannot be
-  // this line), naming the item of the stored line at its own place.
+  // this line), naming the item of the stored line at its own place, which no other unmatched line of ITS description
+  // still wants (else it is that line's, and this one a new line).
   sent.forEach((l, i) => {
     if (!open(i) || i >= stored.length || twinsOf(l).some(free) || !fits(l, i)) return;
-    if (itemOf(l) !== null && itemOf(l) === normalItem(stored[i]!.itemId)) take(i, i);
+    const wanted = sent.some((o, k) => k !== i && !out[k] && sameDescription(o, stored[i]!));
+    if (!wanted && itemOf(l) !== null && itemOf(l) === normalItem(stored[i]!.itemId)) take(i, i);
   });
   return ambiguous;
 }

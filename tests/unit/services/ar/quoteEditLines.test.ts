@@ -254,6 +254,16 @@ describe('a standard-only quote: a match needs a compatible rate and a free stor
     expect(run([line({ description: 'D', taxRate: 14, itemId: A })], [lg('e', 'E', 14), lg('d1', 'D', 15), lg('d2', 'D', 15)]).ids).toEqual([null]);
   });
 
+  it('a NEW line of a matched description never renames the line at its place that other unmatched lines still want', () => {
+    // [A p X, B p X, B p Y] reordered with ids-less explicit B lines and a new A inserted at the B place: the new A is new.
+    const a0 = stored('a', { description: 'A', itemId: A, accountId: 'x' });
+    const bx = stored('bx', { description: 'B', itemId: A, accountId: 'x' });
+    const by = stored('by', { description: 'B', itemId: A, accountId: 'y' });
+    const sent = [line({ description: 'B', itemId: A, accountId: 'x' }), line({ description: 'A', unitPrice: 30, itemId: A }),
+      line({ description: 'A', itemId: A, accountId: 'x' }), line({ description: 'B', itemId: A, accountId: 'y' })];
+    expect(run(sent, [a0, bx, by]).ids[1]).toBeNull();
+  });
+
   it('M4 (round 14): legacy [A p, A q, B] resent [B, A, A] with no itemIds is accepted and unchanged (never re-priced)', () => {
     const lg = (id: string, description: string, itemId: string | null, accountId: string, unitPrice: number) =>
       stored(id, { description, unitPrice, amount: unitPrice, itemId, accountId, vatType: null, taxAmount: null });
