@@ -33,6 +33,7 @@ import {
 } from './supplierAllocationLines';
 import { assertAllocationShape } from './supplierAllocationShape';
 import { SupplierPaymentRefusal } from './supplierPaymentRefusal';
+import { lockSupplierIfLive, SUPPLIER_NOT_LIVE_REFUSAL } from '../core/supplierLiveLock';
 import { refuseLoanAccountBatch } from '../intercompany/loanAccountPaymentGuard';
 
 export interface BatchPaymentLines {
@@ -57,6 +58,12 @@ export async function assertBatchAllocatable(
   // Across the WHOLE batch: a bill named by two payments would otherwise pass
   // the balance check twice against the same outstanding.
   assertAllocationShape(payments.flatMap((p) => p.allocations));
+  // The payees FIRST, FOR KEY SHARE and live, in id order, before the bill locks below (supplierLiveLock; bank/.claude.md: batch ->
+  // supplier -> payments -> bills; the new batch row holds nothing yet): a merge waits for the batch, and a payee merged away since
+  // the form opened is refused before any write (breaker of aad49a02, H1).
+  for (const id of [...new Set(payments.map((p) => String(p.supplierId)))].sort()) {
+    if (!(await lockSupplierIfLive(companyId, id))) throw new SupplierPaymentRefusal(SUPPLIER_NOT_LIVE_REFUSAL);
+  }
   await checkUnderLock(companyId, payments.flatMap((p) =>
     p.allocations.map((a) => ({ ...a, supplierId: p.supplierId }))), { countPending: true });
 }

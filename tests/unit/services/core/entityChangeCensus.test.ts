@@ -107,6 +107,7 @@ const WRITERS: Record<string, string[]> = {
     `${S}gl/financialYearEndChangeApply.ts`, `${S}gl/financialYearEndChangeUndo.ts`, // financial_year_start on a change of year end / its undo
     'src/modules/admin/services/adminCompanyMutations.ts', 'src/modules/admin/services/companyLifecycleService.ts',
     'src/modules/admin/services/trialService.ts',
+    'src/modules/admin/services/trialConvertCore.ts', // the trial convert shared by the admin path and the self-serve upgrade
     // complete-setup's UPDATE of the company it has just created (entity_type, onboarding_request_key), as its new owner (withAuth).
     'src/modules/onboarding/services/onboardingSetupWriters.ts',
     'src/modules/onboarding/services/tenantProvisioningService.ts',

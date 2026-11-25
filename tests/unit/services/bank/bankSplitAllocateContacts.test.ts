@@ -14,6 +14,13 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+// The supplier live lock needs a request transaction (core/supplierLiveLock); here the supplier is live. Its SQL, the wait and the
+// merged-away refusal are proved on real PostgreSQL (tests/integration/i1699-*.int.test.ts, i1882-*.int.test.ts).
+vi.mock('@/modules/accounting/services/core/supplierLiveLock', async (orig) => ({
+  ...(await orig<typeof import('@/modules/accounting/services/core/supplierLiveLock')>()),
+  lockSupplierIfLive: async () => true,
+  isSupplierLive: async () => true,
+}));
 vi.mock('@/modules/accounting/services/bank/bankAllocationPeriod', () => ({ allocationPeriodFor: async () => 'fp-open' })); // WP2 row 12: proven in bank-wp2-12-fiscal-preflight.int
 vi.mock('@/modules/accounting/services/bank/bankAllocationInputGuard', () => ({ assertAllocationInputUsable: vi.fn() })); // reads Postgres; proven in bank-catchall-allocation.int
 vi.mock('@/modules/accounting/services/bank/bankLineJournalGate', () => ({ assertBankLineMayPostToAccounts: vi.fn() }));
