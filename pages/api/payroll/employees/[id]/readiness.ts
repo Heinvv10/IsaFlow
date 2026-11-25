@@ -11,11 +11,13 @@ import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withNoStore } from '@/lib/auth/withNoStore';
 import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
+import { timed } from '@/lib/serverTiming';
 import { log } from '@/lib/logger';
-import { checkReportRateLimit, INTERACTIVE_REPORT_LIMIT } from '@/lib/rateLimit';
+import { checkReportRateLimit } from '@/lib/rateLimit';
 import { requireUuidParam } from '@/lib/schemas/common';
 import { assertHumanSession } from '@/modules/accounting/services/bank/bankControlRefusal';
 import { respondIfBankControlRefused } from '@/modules/accounting/services/bank/bankControlResponse';
+import { READINESS_RATE_LIMIT } from '@/modules/accounting/services/payroll/employeeReadinessLimit';
 import { readEmployeeReadiness } from '@/modules/accounting/services/payroll/employeeReadinessRead';
 import { withPayrollModule } from '@/lib/auth/withPayrollModule';
 
@@ -25,16 +27,16 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const employeeId = requireUuidParam(req, res, 'id');
   if (!employeeId) return;
   try {
-    await assertHumanSession('read employee readiness');
+    await timed(res, 'human', () => assertHumanSession('read employee readiness'));
   } catch (err) {
     if (respondIfBankControlRefused(res, err)) return;
     throw err;
   }
-  if (!(await checkReportRateLimit(companyId, `employee-readiness:u:${user.id}`, INTERACTIVE_REPORT_LIMIT))) {
+  if (!(await timed(res, 'ratelimit', () => checkReportRateLimit(companyId, `employee-readiness:u:${user.id}`, READINESS_RATE_LIMIT)))) {
     log.warn('Readiness read rate limit exceeded', { companyId, userId: user.id }, 'employee-readiness');
     return apiResponse.tooManyRequests(res, 'Too many requests. Please try again shortly.');
   }
-  const read = await readEmployeeReadiness(companyId, employeeId);
+  const read = await timed(res, 'query', () => readEmployeeReadiness(companyId, employeeId));
   if (!read) return apiResponse.notFound(res, 'Employee');
   return apiResponse.success(res, read);
 }

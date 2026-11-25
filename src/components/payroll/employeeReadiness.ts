@@ -13,7 +13,8 @@ export interface ReadinessAssignment {
   effectiveFrom: string;
   effectiveTo: string | null;
 }
-export type BankState = 'on-file' | 'none' | 'unknown';
+/** `limited`: the read was refused for volume (429): a wait, not a fault, and it says so. */
+export type BankState = 'on-file' | 'none' | 'unknown' | 'limited';
 /** `pending`: that read has not answered yet. */
 export type BankRead = BankState | 'pending';
 export interface ReadinessItem { key: 'tax' | 'pay' | 'bank' | 'bank-check'; label: string; href: string }
@@ -58,6 +59,7 @@ export function employeeReadiness({ employee, components, bank, runMonth = today
     // An unanswered read is never "ready": a transient failure must not read as a good bill of health.
     if (bank === 'pending') pending.push('bank details');
     if (bank === 'none') missing.push({ key: 'bank', label: 'bank details', href: '#employee-bank' });
+    if (bank === 'limited') missing.push({ key: 'bank-check', label: 'Bank check paused: too many requests, try again in a minute', href: '#employee-bank' });
     if (bank === 'unknown') missing.push({ key: 'bank-check', label: 'Could not check bank details', href: '#employee-bank' });
   }
   return { ready: missing.length === 0 && pending.length === 0, missing, pending };
