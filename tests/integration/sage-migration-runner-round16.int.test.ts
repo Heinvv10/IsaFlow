@@ -3,10 +3,15 @@
  *   - B13-1: a PO whose lines carry Totals but no Exclusive (offsetting each other, so the header adds up) is refused, never booked at
  *     quantity x price; the rest of the file is booked;
  *   - B13-2: a PO batch that re-created a deleted PO is never "answered ok, nothing new written" in a stop;
- *   - L3: a batch the tool refused whose COMMIT did not answer is said to be refused, with the reason.
+ *   - L3: a batch the tool refused whose COMMIT did not answer is said to be refused, with the reason;
+ *   - L4 / B13-3: a refused start of the CLI (exit 2) replaces an earlier run's --report with a stop report.
  * Fixture route: isaflow_schema_fixture (assertDisposable). Never skips.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { Pool } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { cleanupWorld } from './helpers/itemsWorld';
@@ -81,4 +86,22 @@ describe('L3 (round 13): a live batch the tool refused, whose COMMIT (of the ref
       expect(await booked(pool, s.companyId)).toMatchObject({ items: 10 });
     } finally { vi.restoreAllMocks(); }
   });
+});
+
+describe('L4 / B13-3 (round 13): a refused start of the CLI and the --report file of an earlier run', () => {
+  it('every refusal after the arguments are read (exit 2) replaces the file with a stop report', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sage-refused-report-'));
+    try {
+      const report = join(dir, 'report.json');
+      const base = ['--no-env-file', 'scripts/sage-migration/run.ts', '--company', s.companyId, '--user', s.userId, '--file', 'tests/fixtures/sage-export/sage-export.json', '--report', report];
+      for (const [extra, why] of [[['--run-tag', 'bad tag!'], /--run-tag must be/], [['--live'], /--live needs --expect-items/], [['--live', '--expect-items', 'x', '--expect-pos', '1'], /not a count: x/]] as const) {
+        writeFileSync(report, JSON.stringify({ status: 'completed', note: 'an earlier run' }));
+        const r = spawnSync('bun', [...base, ...extra], { encoding: 'utf8', timeout: 170_000, env: { ...process.env, DATABASE_SSL: 'disable' } });
+        expect(r.status, extra.join(' ')).toBe(2);
+        const json = JSON.parse(readFileSync(report, 'utf8'));
+        expect(json, extra.join(' ')).toMatchObject({ status: 'stopped', liveStarted: false, committed: [], failed: [] });
+        expect(json.message, extra.join(' ')).toMatch(why);
+      }
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  }, 180_000);
 });

@@ -26,7 +26,13 @@ import { exitCodeForError, stopMessage } from '../../src/modules/accounting/serv
 import { MigrationStopped } from '../../src/modules/accounting/services/sage-migration/sageMigrationStopped';
 
 const out = (s: string) => process.stdout.write(`${s}\n`);
-const fail = (s: string): never => { process.stderr.write(`${s}\n`); process.exit(2); };
+/** --report, once the arguments are parsed: a refused start writes its stop report there too, so an earlier run's report is not left. */
+let reportPath: string | undefined;
+const fail = (s: string): never => {
+  process.stderr.write(`${s}\n`);
+  if (reportPath) writeStopReport(reportPath, new Error(s));
+  process.exit(2);
+};
 
 /** "80950000.00" -> 8095000000 cents, exactly (no float). */
 function cents(text: string): number {
@@ -63,6 +69,7 @@ async function main(): Promise<void> {
     },
     strict: true,
   });
+  reportPath = values.report;
   try { assertLocalDatabase(); } catch (err) { fail(err instanceof Error ? err.message : String(err)); }
   if (!values.company || !UUID_RE.test(values.company)) fail('--company <uuid> is required');
   if (!values.user || !UUID_RE.test(values.user)) fail('--user <uuid> is required');
