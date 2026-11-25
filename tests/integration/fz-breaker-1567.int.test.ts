@@ -218,7 +218,11 @@ describe('FZ breaker (A): a final run\'s figures cannot be changed', () => {
     const { run } = await finalRun();
     expect((await one('SELECT public.payroll_run_is_final(gen_random_uuid()) AS f')).f).toBe(true);
     expect((await one('SELECT public.payroll_run_is_final(gen_random_uuid(), true) AS f')).f).toBe(false);
-    // The stated boundary: the owner may delete a whole run header (the reseed wipes this way); the cascade passes.
+    // 999n's stated boundary (any role may delete a whole run header) is closed for a FINAL run by 1054 (wave 7 RH):
+    // the owner's direct delete is refused. Reopened first, as the reseed does before its wipe, the cascade passes.
+    await expect(as('postgres', (c) => c.query('DELETE FROM payroll_run_headers WHERE id = $1', [run])))
+      .rejects.toThrow(/a final pay run is not deleted/);
+    await su.query("UPDATE payroll_run_headers SET status = 'calculated', approved_at = NULL, approval_grandfathered_at = NULL WHERE id = $1", [run]);
     await as('postgres', (c) => c.query('DELETE FROM payroll_run_headers WHERE id = $1', [run]));
     expect((await one('SELECT count(*)::int AS n FROM payroll_run_lines WHERE run_id = $1', [run])).n).toBe(0);
   });

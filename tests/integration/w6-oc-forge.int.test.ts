@@ -167,7 +167,7 @@ describe('the approval history is never removed or invented below the service', 
 });
 
 describe('the guards bind the app, not trusted ops roles (review #1679 ops M), and history grows only at a reopen (#1679f)', () => {
-  it('a NOSUPERUSER ops role (migration_admin, as postgres is on Supabase) restores and deletes an approved header with its history', async () => {
+  it('a NOSUPERUSER ops role (migration_admin, as postgres is on Supabase) restores an approved header with its history; deleting it is refused (1054)', async () => {
     const id = crypto.randomUUID();
     const c = await a.pool.connect();
     try {
@@ -182,8 +182,11 @@ describe('the guards bind the app, not trusted ops roles (review #1679 ops M), a
           tstzmultirange(tstzrange(now() - interval '3 days', now() - interval '2 days')), jsonb_build_object($3::text, 1234))
         RETURNING off_cycle_paid_gross`, [id, a.company, mid]);
       expect(back.rows[0].off_cycle_paid_gross).toEqual({ [mid]: 1234 });
-      await c.query('DELETE FROM payroll_run_headers WHERE id = $1', [id]);
-      await c.query('COMMIT');
+      // 1054 (wave 7 RH): a FINAL header is not deleted by any non-superuser, trusted ops roles included.
+      await c.query('SAVEPOINT d');
+      await expect(c.query('DELETE FROM payroll_run_headers WHERE id = $1', [id])).rejects.toThrow(/a final pay run is not deleted/);
+      await c.query('ROLLBACK TO SAVEPOINT d');
+      await c.query('ROLLBACK');
     } catch (err) {
       await c.query('ROLLBACK');
       throw err;
@@ -326,9 +329,9 @@ describe('the guards bind the app, not trusted ops roles (review #1679 ops M), a
       // A tenant with one approved header carrying its history (written by a trusted identity, as a restore would).
       const tenant = String((await c.query(`INSERT INTO companies (name) VALUES ('ZZ OC cascade ${tag}') RETURNING id`)).rows[0].id);
       const gone = String((await c.query(finalHeader.replace('RETURNING off_cycle_paid_gross AS g', 'RETURNING id'), [tenant])).rows[0].id);
-      // platform_admin: its own DELETE of a header approved before is refused ...
+      // platform_admin: its own DELETE of a header approved before is refused (a final one by 1054 first) ...
       await c.query('SET ROLE platform_admin');
-      expect(await attempt('DELETE FROM payroll_run_headers WHERE id = $1', [gone])).toMatch(/cancel it instead/);
+      expect(await attempt('DELETE FROM payroll_run_headers WHERE id = $1', [gone])).toMatch(/a final pay run is not deleted/);
       // ... but deleting the company cascades as the table's owner and removes it (accepted: a tenant delete).
       expect(await attempt('DELETE FROM companies WHERE id = $1 RETURNING id', [tenant])).toEqual([{ id: tenant }]);
       await c.query('RESET ROLE');
