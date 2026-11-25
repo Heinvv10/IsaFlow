@@ -165,22 +165,22 @@ describe('each step\'s edges (mutation-checked)', () => {
     expect(rows()).toEqual([[X, GX], [Y, GY], [null, null]]);
   });
 
-  it('renamed: a description a stored line holds (claimed by id) never takes the line at its place by item', async () => {
+  it('renamed: onto a description whose stored line is already matched (by id), naming its own item: it keeps its place', async () => {
     world.stored = [named('l0', 1, 'A', X, GX, '10.00'), named('l1', 2, 'B', X, GY, '10.00')];
     await put([{ description: 'B', quantity: 1, unitPrice: 12, itemId: X }, { id: 'l1', description: 'B', quantity: 1, unitPrice: 10 }]);
-    expect(rows()).toEqual([[X, null], [X, GY]]);
+    expect(rows()).toEqual([[X, GX], [X, GY]]);
   });
 });
 
 describe('round 14: a line unchanged in its own place keeps it (an edit making another line identical never takes it)', () => {
-  it('H1: A renamed to B while B stays unchanged in place: B keeps its item and account, the renamed line is new', async () => {
+  it('H1: A renamed to B while B stays unchanged in place: B keeps its item and account; the renamed line is new unless it names its own item', async () => {
     world.stored = [named('l0', 1, 'A', X, GX, '10.00'), named('l1', 2, 'B', Y, GY, '10.00')];
     await put([{ description: 'B', quantity: 1, unitPrice: 10 }, { description: 'B', quantity: 1, unitPrice: 10 }]);
     expect(rows()).toEqual([[null, null], [Y, GY]]);
     again();
     world.stored = [named('l0', 1, 'A', X, GX, '10.00'), named('l1', 2, 'B', X, GY, '10.00')];
     await put([{ description: 'B', quantity: 1, unitPrice: 10, itemId: X }, { description: 'B', quantity: 1, unitPrice: 10, itemId: X }]);
-    expect(rows()).toEqual([[X, null], [X, GY]]);
+    expect(rows()).toEqual([[X, GX], [X, GY]]); // renamed in place naming its own item: it keeps A's account
   });
 
   it('M1: identical twins and a third, the first re-priced in place: saved, each keeps its own account', async () => {

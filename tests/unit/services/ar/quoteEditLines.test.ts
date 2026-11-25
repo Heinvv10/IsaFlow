@@ -244,7 +244,8 @@ describe('a standard-only quote: a match needs a compatible rate and a free stor
     const a0 = stored('a', { description: 'A', itemId: A, accountId: 'x' });
     const b1 = stored('b', { description: 'B', itemId: B, accountId: 'y' });
     expect(run([line({ description: 'B' }), line({ description: 'B' })], [a0, b1]).ids).toEqual([null, 'b']);
-    expect(run([line({ description: 'B', itemId: A }), line({ description: 'B', itemId: B })], [a0, b1]).ids).toEqual([null, 'b']);
+    // Naming its own item, the line renamed in place keeps it: B's stored line is already matched, so it cannot be that one.
+    expect(run([line({ description: 'B', itemId: A }), line({ description: 'B', itemId: B })], [a0, b1]).ids).toEqual(['a', 'b']);
   });
 
   it('M4 (round 14): legacy [A p, A q, B] resent [B, A, A] with no itemIds is accepted and unchanged (never re-priced)', () => {
