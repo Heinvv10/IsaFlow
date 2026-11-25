@@ -52,15 +52,17 @@ async function merge(fx: BillFixture, user: string, role: string, target: string
 }
 
 describe('mergeEntities (the duplicates merge) and posted documents', () => {
-  it('a manager without Suppliers Approve: an approved bill is refused 403-typed, before anything moves', async () => {
+  it('a manager without Suppliers Approve: posted documents are refused 403-typed, by the pre-check, before anything moves', async () => {
     await withFixture('smpa-bill', async (fx, target) => {
       await withholdApprove(fx);
       const bill = await makeBill(pool, fx, [{ acct: fx.acc.opex, amount: 100 }], { status: 'approved' });
-      const draftPay = await payment(fx, 'draft');
+      const pay = await payment(fx, 'processed');
       const { err } = await merge(fx, fx.manager, 'manager', target);
       expect(err).toBeInstanceOf(ApprovePermissionError);
-      expect((err as Error).message).toMatch(/approve a supplier merge that moves posted documents \(1 approved, partly paid or paid bill\)/);
-      expect([await on('supplier_invoices', bill), await on('supplier_payments', draftPay), await live(fx.supplier)]).toEqual([fx.supplier, fx.supplier, true]);
+      // Both kinds named: the pre-check's census of the source, not a RETURNING check (which names the first moved kind only).
+      expect((err as Error).message).toContain(
+        'approve a supplier merge that moves posted documents (1 approved, partly paid or paid bill, 1 processed or reconciled payment)');
+      expect([await on('supplier_invoices', bill), await on('supplier_payments', pay), await live(fx.supplier)]).toEqual([fx.supplier, fx.supplier, true]);
     });
   }, 30_000);
 
@@ -125,8 +127,11 @@ describe('the REST routes', () => {
     await withFixture('smpa-rest', async (fx, target) => {
       await withholdApprove(fx);
       const bill = await makeBill(pool, fx, [{ acct: fx.acc.opex, amount: 100 }], { status: 'paid' });
+      await payment(fx, 'reconciled');
       const out = await callRoute(supplierMergeRoute as never, fx, fx.manager, '/api/accounting/supplier-merge', { source_id: fx.supplier, target_id: target });
       expect(out.statusCode, JSON.stringify(out.body)).toBe(403);
+      // The pre-check's census (both kinds), not a RETURNING check.
+      expect(JSON.stringify(out.body)).toContain('1 approved, partly paid or paid bill, 1 processed or reconciled payment');
       expect(await on('supplier_invoices', bill)).toBe(fx.supplier);
     });
   }, 30_000);
