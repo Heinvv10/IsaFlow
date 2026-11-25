@@ -9,6 +9,7 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { validatePaymentAllocations } from '../../utils/paymentAllocation';
 import { assertSupplierInCompany } from '../core/contactDirectoryService';
+import { lockSupplierIfLive, SUPPLIER_NOT_LIVE_REFUSAL } from '../core/supplierLiveLock';
 import { UNKNOWN_SUPPLIER } from './apAgingInvoices';
 import { assertBillAllocatable } from './billAllocatable';
 import { fetchBillCandidates } from './supplierAllocationLines';
@@ -142,6 +143,9 @@ export async function createSupplierPayment(companyId: string,
   try {
     // R-068: the invoices below are company-scoped; supplier_id was not.
     await assertSupplierInCompany(companyId, input.supplierId);
+    // The supplier FIRST, FOR KEY SHARE and live (supplierLiveLock; bank/.claude.md: batch -> supplier -> payments -> bills): a merge
+    // waits for this payment, and a supplier merged away since the form opened is refused before any write (breaker of aad49a02, H1).
+    if (!(await lockSupplierIfLive(companyId, input.supplierId))) throw new SupplierPaymentRefusal(SUPPLIER_NOT_LIVE_REFUSAL);
     const invoiceIds = input.allocations.map(a => a.invoiceId);
     // Lock the bills first, in the settlement path's id order, and only then
     // read them and the allocations already promised against them. Unlocked, a

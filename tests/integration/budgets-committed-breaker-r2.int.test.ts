@@ -10,12 +10,12 @@
  *   held   the app writer and the 1006 backfill do not subtract a line-named PO's link as well as its lines.
  * Fixture route: isaflow_schema_fixture (assertDisposable). Never skips.
  */
-import { readFileSync } from 'node:fs';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { dropBillFixture, openRequest, seedBillFixture, setPolicy, type BillFixture } from './helpers/budgetBillFixture';
 import { callTool } from './helpers/poImportHarness';
+import { BACKFILL_FUNCTION } from './helpers/backfillRerunMigration';
 import { linkRows, seedPo, seedRawBill, type SeededPo } from './helpers/poBillLinkHarness';
 import { linkBillsToPurchaseOrderTool as link } from '@/lib/mcp/tools/writeLinkBillsToPurchaseOrder';
 import { unlinkBillFromPurchaseOrderTool as unlink } from '@/lib/mcp/tools/writeUnlinkBillFromPurchaseOrder';
@@ -184,11 +184,10 @@ describe('the writers of ref-less links subtract a line-named PO once', () => {
     expect(await zLink(bill.id, z.po)).toEqual(['700.00']);
   });
 
-  it('the 1006 backfill (as 1022 redefines it) links Z at 700, not 400', async () => {
+  it('the 1006 backfill (as 1022 and 1032 redefine it) links Z at 700, not 400', async () => {
     const { z, bill } = await shape();
-    // The definition in the 1022 file, not whatever an earlier suite left in this database.
-    const file = readFileSync('scripts/migrations/sql/1022_retire_supplier_purchase_orders.sql', 'utf8');
-    await pool.query(file.slice(file.indexOf('CREATE OR REPLACE FUNCTION public.purchase_order_bill_links_backfill'), file.indexOf('-- ── 1c.')));
+    // The definition in the 1032 file (the live one after the release), not whatever an earlier suite left in this database.
+    await pool.query(BACKFILL_FUNCTION);
     await pool.query('SELECT purchase_order_bill_links_backfill($1)', [f.co]);
     expect(await zLink(bill.id, z.po)).toEqual(['700.00']);
   });

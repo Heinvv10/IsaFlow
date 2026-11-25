@@ -20,6 +20,8 @@ export type DeliveryStatus = 'sent' | 'failed' | 'unknown';
 
 interface DeliveryRecord {
   companyId: string; runId: string; employeeId: string; email: string; subject: string; sha256: string; resend: boolean;
+  /** Wave 7 PX (migration 1052, ruling 17): the hash of the unencrypted render; `sha256` is the bytes attached. */
+  plaintextSha256: string;
   actor: EmployeeEmailActor;
 }
 
@@ -34,14 +36,14 @@ export async function recordClaim(o: DeliveryRecord): Promise<void> {
   await withOwnCompanyTx(async () => {
     await sql`
       INSERT INTO payslip_deliveries
-        (company_id, run_id, employee_id, run_approved_at, recipient_email, pdf_sha256, status, error, resend, claim)
+        (company_id, run_id, employee_id, run_approved_at, recipient_email, pdf_sha256, plaintext_sha256, status, error, resend, claim)
       SELECT ${companyId}::uuid, h.id, ${employeeId}::uuid, COALESCE(h.approved_at, h.approval_grandfathered_at), ${o.email},
-             ${o.sha256}, 'unknown', ${CLAIM_ERROR}, ${o.resend}, true
+             ${o.sha256}, ${o.plaintextSha256}, 'unknown', ${CLAIM_ERROR}, ${o.resend}, true
         FROM payroll_run_headers h WHERE h.id = ${runId}::uuid AND h.company_id = ${companyId}::uuid
     `;
     await logAuditOrThrow({
       companyId, userId: actor.userId, userEmail: actor.userEmail, action: 'export', entityType: 'payslip_email', entityId: runId,
-      changes: { fields: [], metadata: { employeeId, recipient: o.email, sha256: o.sha256, resend: String(o.resend) } },
+      changes: { fields: [], metadata: { employeeId, recipient: o.email, sha256: o.sha256, plaintextSha256: o.plaintextSha256, resend: String(o.resend) } },
       ip: actor.ip, userAgent: actor.userAgent, sessionId: actor.sessionId ?? undefined,
     });
   });
@@ -53,9 +55,9 @@ export async function recordOutcome(o: DeliveryRecord & { status: DeliveryStatus
   await withOwnCompanyTx(async () => {
     await sql`
       INSERT INTO payslip_deliveries
-        (company_id, run_id, employee_id, run_approved_at, recipient_email, pdf_sha256, status, message_id, error, resend)
+        (company_id, run_id, employee_id, run_approved_at, recipient_email, pdf_sha256, plaintext_sha256, status, message_id, error, resend)
       SELECT ${companyId}::uuid, h.id, ${employeeId}::uuid, COALESCE(h.approved_at, h.approval_grandfathered_at), ${o.email},
-             ${o.sha256}, ${o.status}, ${o.messageId}, ${o.error}, ${o.resend}
+             ${o.sha256}, ${o.plaintextSha256}, ${o.status}, ${o.messageId}, ${o.error}, ${o.resend}
         FROM payroll_run_headers h WHERE h.id = ${runId}::uuid AND h.company_id = ${companyId}::uuid
     `;
     await logEmailAttempt({

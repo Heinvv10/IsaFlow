@@ -1,7 +1,8 @@
 /**
  * Wave 6 PE (grill F14): the emailed payslip PDF.
  *  - it opens only with the employee's password, and what it says then is exactly what the unprotected render says;
- *  - the same slip renders to the same bytes (fixed creation date and file id), so pdf_sha256 is reproducible;
+ *  - wave 7 PX: it is AES-256 (R 6), not RC4-40; the same slip renders to the same PLAINTEXT (fixed creation date and
+ *    file id), so plaintext_sha256 is reproducible, while each encryption is salted, so pdf_sha256 is per send;
  *  - the password is the ID number, else the passport number; neither = no password (never sent unprotected);
  *  - the mail never carries the password, and the subject cannot carry a header.
  */
@@ -24,7 +25,7 @@ const slip: Payslip = {
   yearToDate: { grossPay: 25000, taxableIncome: 25000, paye: 3500, uifEmployee: 177.12, netPay: 21322.88 },
 };
 const run: PayslipRun = {
-  runId: '22222222-2222-4222-8222-222222222222', periodMonth: 11, periodYear: 2026, runDate: '2026-11-25', final: true,
+  runId: '22222222-2222-4222-8222-222222222222', periodMonth: 11, periodYear: 2026, periodStart: null, periodEnd: null, payFrequency: 'monthly', runKind: 'regular', offCycleReason: null, runDate: '2026-11-25', final: true,
   detailsAsAt: 'approval', employer: { name: 'Fixture <Payroll>\r\nBcc: x@example.invalid', address: '1 Main Road, Durban' }, payslips: [slip],
 };
 const APPROVED = new Date('2026-11-17T04:12:33.123Z');
@@ -41,6 +42,8 @@ describe('the emailed payslip PDF', () => {
     const { pdf } = await renderEmailPayslip(run, slip, ID, APPROVED);
     expect(pdf.subarray(0, 8).toString('latin1')).toMatch(/^%PDF-1\./);
     expect(pdf.toString('latin1')).toMatch(/\/Encrypt \d+ 0 R/);
+    expect(pdf.toString('latin1')).toMatch(/\/R 6\b/);
+    expect(pdf.toString('latin1')).toMatch(/\/AESV3\b/);
     await expect(text(pdf)).rejects.toThrow(/password/i);
     await expect(text(pdf, '8001015009088')).rejects.toThrow(/password/i);
     const plain = await text(await buildPayslipPdf({ ...run, payslips: [slip] }));
@@ -48,20 +51,37 @@ describe('the emailed payslip PDF', () => {
     expect(await text(pdf, ID)).toBe(plain);
   });
 
-  it('renders the same slip to the same bytes, and sha256 is the hash of those bytes', async () => {
+  it('the same slip has the same plaintext hash; sha256 is the hash of the bytes attached, new on every encryption', async () => {
     const a = await renderEmailPayslip(run, slip, ID, APPROVED);
     const b = await renderEmailPayslip(run, slip, ID, APPROVED);
-    expect(Buffer.compare(a.pdf, b.pdf)).toBe(0);
+    const plain = await buildPayslipPdf({ ...run, payslips: [slip] }, {
+      createdAt: APPROVED,
+      fileId: createHash('sha256').update(`payslip-email:${run.runId}:${slip.employeeId}:${APPROVED.toISOString()}`).digest('hex').slice(0, 32),
+    });
+    expect(a.plaintextSha256).toBe(createHash('sha256').update(plain).digest('hex'));
+    expect(b.plaintextSha256).toBe(a.plaintextSha256);
     expect(a.sha256).toBe(createHash('sha256').update(a.pdf).digest('hex'));
+    expect(b.sha256).not.toBe(a.sha256);
+    expect(a.sha256).not.toBe(a.plaintextSha256);
     expect(a.filename).toBe('payslip-2026-11-E-001.pdf');
     // Another approval of the run is another document.
-    expect((await renderEmailPayslip(run, slip, ID, new Date('2026-11-18T00:00:00Z'))).sha256).not.toBe(a.sha256);
+    expect((await renderEmailPayslip(run, slip, ID, new Date('2026-11-18T00:00:00Z'))).plaintextSha256).not.toBe(a.plaintextSha256);
   });
 
   it('the password: the ID number, else the passport number, else none', () => {
     expect(payslipPassword({ idNumber: ' 800101 5009 087 ', passportNumber: 'A1' })).toEqual({ password: ID, source: 'id_number' });
     expect(payslipPassword({ idNumber: '  ', passportNumber: 'M 1234567' })).toEqual({ password: 'M1234567', source: 'passport_number' });
     expect(payslipPassword({ idNumber: null, passportNumber: null })).toBeNull();
+    // Wave 7 PX: a control character (NUL, say) is no password; the passport is used, else none.
+    expect(payslipPassword({ idNumber: '8001\u00005009087', passportNumber: 'M1234567' })).toEqual({ password: 'M1234567', source: 'passport_number' });
+    expect(payslipPassword({ idNumber: '8001\u0000', passportNumber: 'M\u0007' })).toBeNull();
+  });
+
+  it('the subject names the real period of a weekly slip and of a bonus run (wave 7 PP)', () => {
+    const weekly = { ...run, payFrequency: 'weekly', periodMonth: 2, periodYear: 2027, periodStart: '2027-02-22', periodEnd: '2027-02-28' };
+    expect(payslipEmailMessage(weekly, slip, 'id_number').subject).toContain('Your payslip for Week 22–28 Feb 2027 from');
+    expect(payslipEmailMessage(weekly, slip, 'id_number').html).toContain('Your payslip for Week 22–28 Feb 2027 from');
+    expect(payslipEmailMessage({ ...run, runKind: 'off_cycle', offCycleReason: 'bonus' }, slip, 'id_number').subject).toContain('Bonus, Nov 2026');
   });
 
   it('the mail names the document, never the password, and the subject is one line', () => {
