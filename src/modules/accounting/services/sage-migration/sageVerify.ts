@@ -7,7 +7,7 @@
  *     `changedAfterCommit`, the rows named in `changedRows`. A stored answer wrote nothing and gets no such note.
  */
 import type { BatchReport, PhaseReport } from './sageMigrationTypes';
-import { checkRowsPresent, type Send } from './sageBatchRun';
+import { checkRowsPresent, type PlannedBatches, type Send } from './sageBatchRun';
 import type { StoppedBatches } from './sageMigrationStopped';
 import { categoriesMismatch, itemsMismatchRows } from './sageOwnership';
 import type { Snapshot } from './sageSnapshot';
@@ -50,6 +50,19 @@ export function unconfirmedBatch(failed: BatchReport, live: BatchReport | undefi
     return { ...failed, commitUnconfirmed: true, toolRefused: true, toolReported: null, error: `the tool refused this batch (${live.error ?? 'no reason given'}); its COMMIT was not confirmed (${failed.error ?? 'no detail'})` };
   }
   return { ...failed, commitUnconfirmed: true, toolReported: live?.toolReported ?? null, ...(live?.replayed ? { replayed: true as const } : {}) };
+}
+
+/**
+ * What a stop calls committed, checked against the books as the live phases are (round-13 L6): rows present for every batch, and for
+ * category and item batches the books hold what was sent, so a batch that fails that check is never listed as plain "committed".
+ */
+export function settleCommitted(committed: readonly BatchReport[], all: PlannedBatches, snapshot: Snapshot): BatchReport[] {
+  return committed.map((b) => {
+    const one = phaseOf([b]);
+    if (b.entity === 'category') return verifiedCategories(one, all.categories, snapshot).batches[0]!;
+    if (b.entity === 'item') return verifiedItems(one, all.items, snapshot).batches[0]!;
+    return all.purchaseOrders.some((x) => x.n === b.n) ? verified(one, all.purchaseOrders, snapshot).batches[0]! : b;
+  });
 }
 
 /** What the live phases sent so far, for a stop: the batches that committed (or may have), and those that failed (nothing written). */

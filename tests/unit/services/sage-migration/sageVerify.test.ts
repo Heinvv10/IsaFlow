@@ -3,7 +3,7 @@
  * integration suites). sageVerify is PURE: a hand-built Send list and snapshot.
  */
 import { describe, expect, it } from 'vitest';
-import { recordSent, stoppedBatches, unconfirmedBatch, verifiedCategories, verifiedItems, type Sent } from '@/modules/accounting/services/sage-migration/sageVerify';
+import { recordSent, settleCommitted, stoppedBatches, unconfirmedBatch, verifiedCategories, verifiedItems, type Sent } from '@/modules/accounting/services/sage-migration/sageVerify';
 import type { Send } from '@/modules/accounting/services/sage-migration/sageBatchRun';
 import type { BatchReport, PhaseReport } from '@/modules/accounting/services/sage-migration/sageMigrationTypes';
 import type { Snapshot } from '@/modules/accounting/services/sage-migration/sageSnapshot';
@@ -85,5 +85,19 @@ describe('unconfirmedBatch (B12-1, L3 round 13)', () => {
   });
   it('no result at all: no answer', () => {
     expect(unconfirmedBatch(failed, undefined)).toMatchObject({ commitUnconfirmed: true, toolReported: null });
+  });
+});
+
+describe('settleCommitted (L6, round 13): a stop checks its committed batches as the live phases do', () => {
+  const all = { categories: [catSend(1, '10', 'Optics')], items: [itemSend(1, ['1', '2'])], purchaseOrders: [] };
+  it('an item batch whose items the books hold otherwise is changedAfterCommit, not plain committed; a category likewise', () => {
+    const [cat, items] = settleCommitted([batch('category', 1), batch('item', 1)], all, snap([item('1'), item('2', { isActive: false })], [{ ref: '10', name: 'Optics X' }]));
+    expect(cat).toMatchObject({ status: 'failed', changedAfterCommit: true, changedRows: ['Optics'] });
+    expect(items).toMatchObject({ status: 'failed', changedAfterCommit: true, changedRows: ['FIB-2'] });
+  });
+  it('books as sent: unchanged; an unconfirmed batch is left as it is', () => {
+    const lost = batch('item', 1, { status: 'failed', commitUnconfirmed: true });
+    const books = snap([item('1'), item('2')], [{ ref: '10', name: 'Optics' }]);
+    expect(settleCommitted([batch('category', 1), batch('item', 1), lost], all, books)).toEqual([batch('category', 1), batch('item', 1), lost]);
   });
 });

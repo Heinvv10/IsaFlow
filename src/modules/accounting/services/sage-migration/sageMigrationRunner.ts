@@ -21,9 +21,9 @@ import type { ParsedExport } from './sageExportTypes';
 import type { BatchReport, MigrationOptions, MigrationReport, PhaseReport } from './sageMigrationTypes';
 import { RUN_TAG } from './sageBatches';
 import { assertPoGlAccount } from './sageAccountCheck';
-import { checkRowsPresent, keyFor, planBatches, sendBatch, type PlannedBatches, type Send } from './sageBatchRun';
+import { keyFor, planBatches, sendBatch, type PlannedBatches, type Send } from './sageBatchRun';
 import { ownershipProblem } from './sageOwnership';
-import { recordSent, stoppedBatches, unconfirmedBatch, verified, verifiedCategories, verifiedItems, type Sent } from './sageVerify';
+import { recordSent, settleCommitted, stoppedBatches, unconfirmedBatch, verified, verifiedCategories, verifiedItems, type Sent } from './sageVerify';
 import { MigrationStopped } from './sageMigrationStopped';
 import { CommitUnconfirmedError } from './sageToolSession';
 import { budgetWouldHaveFailed } from './sageBudgetReport';
@@ -113,16 +113,16 @@ async function livePhase(pool: Pool, o: MigrationOptions, list: Send[], before: 
 }
 
 /**
- * What a stop reports as committed: each batch the tool answered ok, checked against the books as the phases are (a replayed answer whose
- * rows were deleted wrote nothing). Best effort: if the books cannot be read, the batches are listed as they were.
+ * What a stop reports as committed, checked against the books as the phases are (settleCommitted). Best effort: if the books cannot be
+ * read, the batches are listed as they were.
  */
-async function settled(committed: BatchReport[], sends: Send[], read: () => Promise<Snapshot>): Promise<BatchReport[]> {
+async function settled(committed: BatchReport[], all: PlannedBatches, read: () => Promise<Snapshot>): Promise<BatchReport[]> {
   let snapshot: Snapshot;
   try { snapshot = await read(); } catch (err) {
     log.warn('sage migration: the books could not be read to check the committed batches', { message: err instanceof Error ? err.message : String(err) }, 'sage-migration');
     return committed;
   }
-  return committed.map((b) => { const send = sends.find((x) => x.entity === b.entity && x.n === b.n); return send ? checkRowsPresent(b, send, snapshot) : b; });
+  return settleCommitted(committed, all, snapshot);
 }
 
 export async function runSageMigration(pool: Pool, parsed: ParsedExport, opts: MigrationOptions): Promise<MigrationReport> {
@@ -205,7 +205,7 @@ async function runLocked(pool: Pool, parsed: ParsedExport, opts: MigrationOption
       }),
     };
   } catch (err) {
-    const committed = await settled(sent.committed, [...all.categories, ...all.items, ...all.purchaseOrders], () => withToolSession(pool, opts.companyId, opts.userId, false, () => readSnapshot(opts.companyId)));
+    const committed = await settled(sent.committed, all, () => withToolSession(pool, opts.companyId, opts.userId, false, () => readSnapshot(opts.companyId)));
     throw new MigrationStopped(err, true, committed, stoppedBatches(sent, dry));
   }
 }
