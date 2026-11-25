@@ -95,6 +95,12 @@ describe('B15-1 / R15-L1 (round 15): --report never overwrites a file that is no
     const { file } = setup();
     expect(checkReportTarget(['--file', file, '--report', file, '--file', '--live'])).toMatchObject({ ok: false });
   });
+  it('every --file is compared, not only the last (the strict parse keeps the last): even an export that looks like a report', () => {
+    const { d } = setup();
+    const a = join(d, 'a.json');
+    writeFileSync(a, '{"status":"completed"}'); // is a tool report by its content: only the --file comparison protects it
+    expect(checkReportTarget(['--file', a, '--report', a, '--file', join(d, 'b.json')])).toMatchObject({ ok: false, why: expect.stringMatching(/is the export --file itself/) });
+  });
   it('a value that starts with -- is not taken as the report path', () => {
     expect(scanReportArgs(['--file', 'x.json', '--report', '--live'])).toEqual({ reports: [], files: ['x.json'] });
     expect(scanReportArgs(['--report', '--file', 'x.json'])).toEqual({ reports: [], files: ['x.json'] });

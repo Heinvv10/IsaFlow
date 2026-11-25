@@ -41,7 +41,8 @@ describe('B15-1: --report never overwrites the export', () => {
     ]) {
       const r = cli(args);
       expect(r.status, args.join(' ')).toBe(2);
-      expect(r.stderr, args.join(' ')).toMatch(/is the export --file itself|is not a report of this tool/);
+      // The hard link and the repeated --file are the export itself (dev + ino, every --file); the swap is a file that is not a report.
+      expect(r.stderr, args.join(' ')).toMatch(args.includes('--live') || args[3] === join(d, 'link.json') ? /is the export --file itself/ : /is not a report of this tool/);
       expect(readFileSync(file, 'utf8'), args.join(' ')).toBe(bytes);
     }
   }, 180_000);
