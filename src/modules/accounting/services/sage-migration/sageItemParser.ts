@@ -6,7 +6,10 @@
  * is not stored on SageItem, so nothing downstream can import it as opening stock.
  */
 import type { RowResult, SageItem } from './sageExportTypes';
-import { isRaw, readBool, readId, readNumber, readText, SAGE_NONE_UNKNOWN, type Raw } from './sageValues';
+import { isRaw, readBool, readId, readNumber, readText, recasedFieldReasons, SAGE_NONE_UNKNOWN, type Raw } from './sageValues';
+
+/** The fields of an item row this import reads (QuantityOnHand only for the count): any other spelling of one is refused. */
+const ITEM_FIELDS = ['ID', 'Code', 'Description', 'Active', 'Physical', 'PriceExclusive', 'LastCost', 'AverageCost', 'TaxTypeIdSales', 'TaxTypeIdPurchases', 'Category', 'QuantityOnHand'] as const;
 import { taxTypeFor } from './sageTaxTypes';
 
 function taxField(o: Raw, key: string, why: string[]): SageItem['taxSales'] | undefined {
@@ -54,6 +57,7 @@ export function parseSageItem(raw: unknown, index: number): RowResult<SageItem> 
   const taxSales = taxField(o, 'TaxTypeIdSales', why);
   const taxPurchases = taxField(o, 'TaxTypeIdPurchases', why);
   const cat = category(o, why);
+  why.push(...recasedFieldReasons(o, ITEM_FIELDS));
   if (why.length > 0) {
     return {
       ok: false,

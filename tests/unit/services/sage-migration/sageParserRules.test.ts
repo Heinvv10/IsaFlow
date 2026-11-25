@@ -260,7 +260,7 @@ describe('B8-F (round 8): LineType (assumed 0 = item, 1 = account): a line that 
     Exclusive: 2400, Tax: 360, Total: 2760 }), 0);
   const codeOf = (r: ReturnType<typeof parseSagePurchaseOrder>) => (r.ok ? 'ok' : r.refusal.code);
   it('absent, 0 and "0" are item lines, as before (the SelectionId is the item)', () => {
-    for (const t of [undefined, 0, '0', null, '']) {
+    for (const t of [undefined, 0, '0', null]) { // "" is refused since round 11 (B11-4): sageRecasedFields.test.ts
       const r = withType(t);
       expect(codeOf(r), String(t)).toBe('ok');
       expect(r.ok && r.value.lines[0]!.itemId).toBe('50002');

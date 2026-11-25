@@ -6,12 +6,15 @@
  * present and different is refused.
  */
 import type { RowResult, SagePoLine, SagePurchaseOrder } from './sageExportTypes';
-import { isRaw, readDate, readId, readNumber, readText, type Raw } from './sageValues';
+import { isRaw, readDate, readId, readNumber, readText, recasedFieldReasons, type Raw } from './sageValues';
 import { hasWholeCents } from '@/lib/money/wholeCents';
 import { VatRateDateError } from '@/lib/vat/standardRate';
 import { rateOf, standardRateOn, taxTypeFor } from './sageTaxTypes';
 
 const MAX_LINES = 200;
+/** The fields of a PO row and of a line this import reads (currency fields are matched in any case already): any other spelling of one is refused. */
+const PO_FIELDS = ['ID', 'DocumentNumber', 'Date', 'DeliveryDate', 'Status', 'Reference', 'Comments', 'SupplierId', 'SupplierName', 'Exclusive', 'Tax', 'Total', 'PdfFile', 'Lines'] as const;
+const LINE_FIELDS = ['Description', 'Quantity', 'UnitPriceExclusive', 'Exclusive', 'Tax', 'TaxPercentage', 'TaxTypeId', 'ItemId', 'SelectionId', 'LineType'] as const;
 const CURRENCY_KEY = /currenc|exchange/i;
 const RATE_KEY = /exchange.*rate|^rate$/i;
 
@@ -78,7 +81,8 @@ export const ACCOUNT_LINE_MARK = '(po_account_line_unsupported)';
 export const UNKNOWN_LINE_TYPE_MARK = '(po_line_type_unknown)';
 function lineTypeProblem(raw: Raw, at: string): string | null {
   const v = raw.LineType;
-  if (v === undefined || v === null || v === '') return null;
+  // "" is not "no type": it is refused like "  " (B11-4); only an absent or null LineType is an item line.
+  if (v === undefined || v === null) return null;
   const n = typeof v === 'number' ? v : typeof v === 'string' && /^\d+$/.test(v.trim()) ? Number(v.trim()) : Number.NaN;
   if (n === 0) return null;
   if (n === 1) {
@@ -105,6 +109,7 @@ function parseLine(raw: unknown, i: number, why: string[], date: string): SagePo
   const itemId = readId(raw, 'ItemId', sub, false, true);
   const selection = readId(raw, 'SelectionId', sub, false, true);
   if (typeof itemId === 'string' && typeof selection === 'string' && itemId !== selection) sub.push('ItemId and SelectionId name different items');
+  sub.push(...recasedFieldReasons(raw, LINE_FIELDS));
   why.push(...sub.map((s) => `${at}${s}`));
   if (why.length > before) return undefined;
   return {
@@ -141,6 +146,7 @@ export function parseSagePurchaseOrder(raw: unknown, index: number): RowResult<S
     && Math.round(exclusive * 100) + Math.round(tax * 100) !== Math.round(total * 100)) {
     why.push(`Exclusive ${exclusive} + Tax ${tax} is not Total ${total}`);
   }
+  why.push(...recasedFieldReasons(o, PO_FIELDS));
   const foreign = foreignCurrencyReasons(o);
   why.push(...foreign);
   if (why.length > 0) {

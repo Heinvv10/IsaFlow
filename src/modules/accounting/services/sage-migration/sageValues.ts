@@ -32,6 +32,19 @@ export function readId(o: Raw, key: string, why: string[], required = true, mayM
   return undefined;
 }
 
+/**
+ * The keys of `o` that spell a field this import reads in another case (ItemID, lineType, category): each is a reason, so the row is
+ * refused, never read as if the field were absent (a re-cased LineType 1 would link an account line to an item; ItemID would drop a link).
+ * Keys that match no field read here, in any case, stay ignored.
+ */
+export function recasedFieldReasons(o: Raw, fields: readonly string[]): string[] {
+  const byLower = new Map(fields.map((f) => [f.toLowerCase(), f]));
+  return Object.keys(o).flatMap((k) => {
+    const field = byLower.get(k.toLowerCase());
+    return field !== undefined && field !== k ? [`${k} is ${field} in another case: a field this import reads is refused in any other spelling, never ignored`] : [];
+  });
+}
+
 const LONE_SURROGATE = /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/;
 
 /** Why text cannot be stored (Postgres refuses a NUL byte; a lone surrogate would be written as U+FFFD, merging distinct values), or null. */
