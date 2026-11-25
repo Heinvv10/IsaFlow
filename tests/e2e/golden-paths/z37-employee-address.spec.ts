@@ -119,7 +119,7 @@ for (const theme of THEMES) {
     await expect(page.getByRole('heading', { name: 'New Employee', exact: true })).toBeVisible({ timeout: 90_000 });
     await page.getByLabel('First name *').fill('Zinhle');
     await page.getByLabel('Last name *').fill('Create');
-    await page.getByLabel('Employee number *').fill(`Z37-${theme}-${Date.now()}`);
+    await page.getByLabel('Employee number *').fill(`Z37${theme[0]}-${Date.now() % 1e9}`);
     const section = page.getByTestId('create-address');
     await section.getByLabel('Street or farm name').fill('Weaver Street');
     await section.getByLabel('Street number').fill('9');

@@ -43,7 +43,7 @@ export function EntityHistoryTimeline({ entityType, entityId, employeeId, allowR
       </ul>
       {loading && <Loader2 className="h-5 w-5 animate-spin text-[var(--ff-text-tertiary)] mx-auto" aria-label="Loading" />}
       {!loading && hasMore && (
-        <button type="button" onClick={loadMore} className="text-sm text-blue-400 hover:text-blue-300">Show older changes</button>
+        <button type="button" onClick={loadMore} className="text-sm text-blue-700 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300">Show older changes</button>
       )}
     </div>
   );
