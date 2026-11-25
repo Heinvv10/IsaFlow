@@ -119,7 +119,7 @@ const PATHS: Array<[string, (fx: BillFixture, target: string) => Promise<RaceOut
   }],
 ];
 const RACES: Array<[string, string, string, string, string]> = [
-  // label, table the merge blocks on, held status flip, needle in the refusal, document-kind column filter
+  // label, table the merge blocks on, held status flip, needle in the refusal, kind (a label and the fixture-tag suffix only)
   ['a draft bill approved', 'supplier_invoices', 'approved', '1 approved, partly paid, paid or once-posted bill', 'bill'],
   ['a draft payment approved', 'supplier_payments', 'approved', '1 approved, batched, processed or reconciled payment', 'payment'],
   ['a draft payment processed', 'supplier_payments', 'processed', '1 approved, batched, processed or reconciled payment', 'payment'],
@@ -139,11 +139,12 @@ describe.each(PATHS)('the RETURNING re-check under the merge\'s lock: %s', (_nam
       const hold: PoolClient = await pool.connect();
       const holdPid = Number((await hold.query('SELECT pg_backend_pid() AS pid')).rows[0].pid);
       let sawWait = false;
+      let merging: Promise<RaceOutcome> | undefined;
       try {
         await hold.query('BEGIN');
         await hold.query('SET LOCAL session_replication_role = replica');
         await hold.query(`UPDATE ${table} SET status = $2 WHERE id = $1`, [held, status]);
-        const merging = run(fx, target);
+        merging = run(fx, target);
         for (let i = 0; i < 200 && !sawWait; i++) {
           sawWait = (await pool.query(
             // Blocked BY the hold connection itself (not any session waiting on a lock): no other suite's waiter can match.
@@ -163,6 +164,8 @@ describe.each(PATHS)('the RETURNING re-check under the merge\'s lock: %s', (_nam
       } finally {
         await hold.query('ROLLBACK').catch(() => undefined);
         hold.release();
+        // Never leave the merge pending (a throw in the probe loop skips the COMMIT): the rollback frees its row, and it is settled here.
+        await merging?.catch(() => undefined);
       }
     });
   }, 40_000);
