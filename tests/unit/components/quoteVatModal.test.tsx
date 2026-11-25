@@ -3,7 +3,8 @@
  * invoice form's picker), the customer's default types a line with none of its own, the totals under the lines carry
  * one VAT row per type, priced per line as the server stores it, and the body sends each line's vatType with the price
  * as entered and amountsAre, never a legacy taxRate. A company not registered for VAT gets no VAT column, no "Amounts
- * are" and untyped lines. Real page; only the network is scripted.
+ * are" and untyped lines. A quote date is required (M1), and a picked type survives a customer change (M2). Real page;
+ * only the network is scripted.
  */
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
@@ -53,8 +54,24 @@ async function openAndFill(price: string, customer = 'c1') {
   fireEvent.change(screen.getAllByPlaceholderText('Item description')[0]!, { target: { value: 'Widget' } });
   fireEvent.change(screen.getByLabelText('Unit price, line 1'), { target: { value: price } });
 }
-const create = () => fireEvent.click(screen.getAllByRole('button', { name: /Create Quote/i }).at(-1)!);
+const createButton = () => screen.getAllByRole('button', { name: /Create Quote/i }).at(-1)! as HTMLButtonElement;
+const create = () => fireEvent.click(createButton());
 const dialog = () => screen.getByRole('dialog');
+/** The totals block's figure on the row whose label starts with `label` (Subtotal, VAT Standard (15%), Total...). */
+const figure = (label: string) => {
+  const rows = Array.from(within(dialog()).getByRole('region', { name: 'Invoice totals' }).querySelectorAll('div'));
+  const hit = rows.find((r) => r.children.length === 2 && (r.children[0]!.textContent ?? '').startsWith(label));
+  return hit?.children[1]!.textContent ?? `no row "${label}"`;
+};
+const addLine = (description: string, price: string, n: number) => {
+  fireEvent.click(screen.getByRole('button', { name: /Add line/i }));
+  fireEvent.change(screen.getAllByPlaceholderText('Item description')[n - 1]!, { target: { value: description } });
+  fireEvent.change(screen.getByLabelText(`Unit price, line ${n}`), { target: { value: price } });
+};
+const pickType = async (n: number, name: RegExp) => {
+  fireEvent.click(screen.getByRole('combobox', { name: `VAT type, line ${n}` }));
+  fireEvent.click(within(await screen.findByRole('listbox')).getByRole('option', { name }));
+};
 
 it('a registered company: line 1 is Standard, VAT (15%) under the lines, and it sends vatType with the price, no taxRate', async () => {
   renderPage('bi-monthly');
@@ -69,17 +86,15 @@ it('a registered company: line 1 is Standard, VAT (15%) under the lines, and it 
   expect('taxRate' in body.lines[0]!).toBe(false);
 });
 
-it('a line typed Exempt beside a standard one: one VAT row per type, and each line sends its own type', async () => {
+it('a line typed Exempt beside a standard one: one VAT row per type, the exempt line adds no VAT, each line sends its type', async () => {
   renderPage('bi-monthly');
   await openAndFill('100');
-  fireEvent.click(screen.getByRole('button', { name: /Add line/i }));
-  fireEvent.change(screen.getAllByPlaceholderText('Item description')[1]!, { target: { value: 'Rent' } });
-  fireEvent.change(screen.getByLabelText('Unit price, line 2'), { target: { value: '50' } });
-  const pickers = screen.getAllByRole('combobox', { name: 'VAT type' });
-  fireEvent.click(pickers[1]!);
-  fireEvent.click(await screen.findByRole('option', { name: 'Exempt' }));
-  expect(within(dialog()).getByText(/VAT Standard \(15%\)/)).toBeTruthy();
-  expect(within(dialog()).getByText(/VAT Exempt/)).toBeTruthy();
+  addLine('Rent', '50', 2);
+  await pickType(2, /^Exempt/);
+  expect(figure('Subtotal')).toMatch(/150\.00/);
+  expect(figure('VAT Standard (15%)')).toMatch(/15\.00/);
+  expect(figure('VAT Exempt')).toMatch(/0\.00/);
+  expect(figure('Total')).toMatch(/165\.00/);
   create();
   expect((await sent()).lines.map((l) => [l.description, l.vatType])).toEqual([['Widget', 'standard'], ['Rent', 'exempt']]);
 });
@@ -94,9 +109,12 @@ it('an exempt customer\'s lines start Exempt (the server\'s default chain)', asy
 it('Including VAT sends the price as entered with amountsAre inclusive; the total is the gross typed', async () => {
   renderPage('bi-monthly');
   await openAndFill('100');
-  await pickOption('Amounts are', /Including VAT/); // the shown R100 ex becomes R115 incl
+  await pickOption('Amounts are', /Including VAT/);
+  // The switch converts the typed price: R100 ex VAT becomes R115 incl, and the line's total stays R100 net.
+  expect((screen.getByLabelText('Unit price, line 1') as HTMLInputElement).value).toMatch(/^115(\.00)?$/);
+  expect(screen.getByRole('columnheader', { name: /Unit Price \(incl\. VAT\)/ })).toBeTruthy();
   fireEvent.change(screen.getByLabelText('Unit price, line 1'), { target: { value: '230' } });
-  expect(within(dialog()).getAllByText(/230\.00/).length).toBeGreaterThan(0);
+  expect([figure('Subtotal'), figure('VAT (15%)'), figure('Total')].map((t) => t.replace(/[^\d.]/g, ''))).toEqual(['200.00', '30.00', '230.00']);
   create();
   const body = await sent();
   expect([body.amountsAre, body.lines[0]!.unitPrice, body.lines[0]!.vatType]).toEqual(['inclusive', 230, 'standard']);
@@ -105,7 +123,7 @@ it('Including VAT sends the price as entered with amountsAre inclusive; the tota
 it('a company not registered for VAT: no VAT column or "Amounts are", untyped lines, exclusive', async () => {
   renderPage('none');
   await openAndFill('100');
-  expect(screen.queryByRole('combobox', { name: 'VAT type' })).toBeNull();
+  expect(screen.queryByRole('combobox', { name: /^VAT type/ })).toBeNull();
   expect(screen.queryByRole('combobox', { name: 'Amounts are' })).toBeNull();
   expect(within(dialog()).getByText(/not registered for VAT/)).toBeTruthy();
   create();
@@ -121,4 +139,29 @@ it('holds, as the invoice form does: standard VAT that rounds to nothing is said
   expect(await screen.findByRole('alert')).toBeTruthy();
   expect(screen.getByRole('alert').textContent).toMatch(/rounds to nothing/);
   expect(posts()).toHaveLength(0);
+});
+
+it('M1: clearing the quote date holds Create (the server would price on today, the modal on no date): nothing is sent', async () => {
+  renderPage('bi-monthly');
+  await openAndFill('100');
+  const date = screen.getByRole('textbox', { name: /Quote Date/ });
+  fireEvent.change(date, { target: { value: '' } });
+  fireEvent.blur(date);
+  await waitFor(() => expect(createButton().disabled).toBe(true));
+  create();
+  expect(posts()).toHaveLength(0);
+});
+
+it('M2: a type picked on a line stays when the customer changes; a line with none follows the new customer', async () => {
+  renderPage('bi-monthly');
+  await openAndFill('100');
+  addLine('Rent', '50', 2);
+  await pickType(1, /^Zero-rated/);
+  expect(screen.getByRole('combobox', { name: 'VAT type, line 2' }).textContent).toMatch(/^Standard/);
+  const customer = screen.getAllByRole('combobox').find((c) => c.querySelector('option[value="c2"]'))!;
+  fireEvent.change(customer, { target: { value: 'c2' } });
+  expect(screen.getByRole('combobox', { name: 'VAT type, line 1' }).textContent).toMatch(/^Zero-rated/);
+  expect(screen.getByRole('combobox', { name: 'VAT type, line 2' }).textContent).toMatch(/^Exempt/);
+  create();
+  expect((await sent()).lines.map((l) => [l.description, l.vatType])).toEqual([['Widget', 'zero_rated'], ['Rent', 'exempt']]);
 });
