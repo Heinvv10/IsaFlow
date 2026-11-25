@@ -87,10 +87,10 @@ const SITES: Readonly<Record<string, Readonly<Record<number, string>>>> = {
   [`${S}payroll/payrollRunDirectiveClaim.ts`]: { 177: 'company_id, tax_directive_id, payment_date, gross_amount, paye_amount, net_amount, payroll_run_id, created_by' },
   [`${S}payroll/payrollRunCreatePeriod.ts`]: { 83: 'company_id, period_month, period_year, created_by, pay_frequency, run_kind, period_start, period_end, run_date' },
   [`${S}payroll/payrollRunHeaders.ts`]: {
-    138: 'company_id, period_month, period_year, created_by, pay_frequency, run_kind, period_start, period_end',
+    148: 'company_id, period_month, period_year, created_by, pay_frequency, run_kind, period_start, period_end',
     // Wave 6 OC: the canceller's name, read as text through the company's member view (cancelled_by is TEXT, 999w/999f).
-    157: 'SELECT h.*, CASE WHEN h.cancelled_by IS NULL THEN NULL',
-    158: 'ELSE public.approval_company_member_name(h.company_id, h.cancelled_by::text) END AS cancelled_by_name',
+    167: 'SELECT h.*, CASE WHEN h.cancelled_by IS NULL THEN NULL',
+    168: 'ELSE public.approval_company_member_name(h.company_id, h.cancelled_by::text) END AS cancelled_by_name,',
   },
   // Wave 6 OC: Cancel run stamps who cancelled it, an untyped bind (TEXT column).
   [`${S}payroll/payrollOffCycleCancel.ts`]: { 83: 'cancelled_by = ${userId}, cancelled_at = now()' },
@@ -100,7 +100,7 @@ const SITES: Readonly<Record<string, Readonly<Record<number, string>>>> = {
     209: 'INSERT INTO payroll_off_cycle_employees (company_id, run_id, employee_id, component_id, amount, created_by)',
   },
   [`${S}payroll/payrollRunLock.ts`]: { 239: 'prepared_by     = ${preparedBy},' },
-  [`${S}payroll/payrollRunReopen.ts`]: { 93: 'approved_by = NULL,          -- no longer approved; lines_confirmed_at stays (migration 718)' },
+  [`${S}payroll/payrollRunReopen.ts`]: { 110: 'approved_by = NULL,          -- no longer approved; lines_confirmed_at stays (migration 718)' },
   // Wave 6 BF: payroll_bank_files.created_by is TEXT, restamped by its trigger from the session user (999h).
   [`${S}payroll/payrollBankFileService.ts`]: {
     122: 'INSERT INTO payroll_bank_files (company_id, run_id, format, layout, sha256, line_count, total_cents, action_date, run_approved_at, created_by)',
@@ -167,7 +167,7 @@ const VALUE_BINDS: Readonly<Record<string, Readonly<Record<number, string>>>> = 
   },
   [`${S}payroll/payrollGarnisheeOrders.ts`]: { 140: '${f.totalDebt}, ${f.startDate}::date, ${f.endDate}::date, ${f.priority}, ${payable.id}::uuid, ${actor.userId}' },
   [`${S}payroll/payrollRunDirectiveClaim.ts`]: { 181: '${l.gross}, ${l.paye}, ${Math.round((l.gross - l.paye) * 100) / 100}, h.id, ${userId}' },
-  [`${S}payroll/payrollRunHeaders.ts`]: { 141: "${companyId}::uuid, ${period.month}, ${period.year}, ${createdBy ?? null}, 'monthly', 'regular'," },
+  [`${S}payroll/payrollRunHeaders.ts`]: { 151: "${companyId}::uuid, ${period.month}, ${period.year}, ${createdBy ?? null}, 'monthly', 'regular'," },
   [`${S}payroll/taxDirectivePaymentService.ts`]: { 214: '${bankAccountId}, ${userId}' },
   [`${S}payroll/taxDirectiveService.ts`]: { 108: '${requestedByUserId},' },
   [`${S}payroll/uifDeclarationService.ts`]: { 241: "'draft', ${generatedByUserId}, NOW()" },
