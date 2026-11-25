@@ -35,6 +35,17 @@ export class PayrollRunReopenRefusedError extends Error {
   }
 }
 
+/** Wave 7 MP: the run is marked paid. A 409 RUN_PAID (the route answers it before the generic 400). */
+export class PayrollRunPaidReopenError extends PayrollRunReopenRefusedError {
+  readonly code = PAYROLL_REFUSAL.RUN_PAID;
+  readonly status = 409;
+  constructor(paidOn: string | null) {
+    super(`Paid runs cannot be reopened: this run was marked paid${paidOn ? ` on ${paidOn}` : ''} and its payments were issued. `
+      + 'Correct it with an off-cycle run.');
+    this.name = 'PayrollRunPaidReopenError';
+  }
+}
+
 export async function reopenPayrollRun(opts: {
   runId: string;
   companyId: string;
@@ -58,7 +69,7 @@ export async function reopenPayrollRun(opts: {
   const previousStatus = String(run.status);
   if (!REOPENABLE_STATUSES.has(previousStatus)) {
     if (previousStatus === 'paid') {
-      throw new PayrollRunReopenRefusedError('Paid runs cannot be reopened — payments have been issued. Reverse via a new run.');
+      throw new PayrollRunPaidReopenError(run.paid_on == null ? null : String(run.paid_on)); // DATE reads as text (pgTypes)
     }
     if (previousStatus === 'cancelled') {
       throw new PayrollRunReopenRefusedError('Cancelled runs cannot be reopened — create a new run for this period.');
