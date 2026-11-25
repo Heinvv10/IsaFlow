@@ -220,6 +220,49 @@ describe('updateQuote: per-line VAT', () => {
     expect(inserted('customer_quote_lines').map((l) => l.gl_account_id)).toEqual([X]);
   });
 
+  const G = '66666666-6666-6666-6666-666666666666';
+  const G2 = '88888888-8888-8888-8888-888888888888';
+  const typedLine = (o: Record<string, unknown> = {}) => storedLine({ id: 't1', description: 'Svc', unit_price: '100.00', amount: '100.00',
+    tax_rate: '15', vat_type: 'standard', tax_amount: '15', gl_account_id: G, item_id: ITEM_ID, ...o });
+  const accounts = () => inserted('customer_quote_lines').map((l) => [l.item_id, l.gl_account_id]);
+
+  it('round 8: a typed quote resent notes-only without accountId keeps each line\'s item AND account', async () => {
+    world.stored = [typedLine()];
+    await updateQuote(COMPANY_ID, QUOTE_ID, { customerName: 'Acme', notes: 'n', lines: [{ description: 'Svc', quantity: 1, unitPrice: 100 }] }, 'u1');
+    expect(accounts()).toEqual([[ITEM_ID, G]]);
+  });
+
+  it('round 8: a legacy quote re-priced on one line keeps every line\'s account (the untouched one too)', async () => {
+    world.stored = [
+      legacySvc({ gl_account_id: G }),
+      storedLine({ id: 'b', sort_order: 2, description: 'Other', unit_price: '50.00', amount: '50.00', tax_rate: '15', vat_type: null, tax_amount: null, gl_account_id: G2 }),
+    ];
+    await updateQuote(COMPANY_ID, QUOTE_ID, { customerName: 'Acme', lines: [
+      { description: 'Svc', quantity: 2, unitPrice: 100 }, { description: 'Other', quantity: 1, unitPrice: 50 },
+    ] }, 'u1');
+    expect(inserted('customer_quote_lines').map((l) => [l.vat_type, l.gl_account_id])).toEqual([['standard', G], ['standard', G2]]);
+  });
+
+  it('round 8: the stored item resent on a re-priced line keeps the stored account; a NEW item takes its own default account', async () => {
+    world.itemAccount = G2;
+    world.stored = [typedLine({ item_id: ITEM_ID })];
+    await updateQuote(COMPANY_ID, QUOTE_ID, { customerName: 'Acme', lines: [{ description: 'Svc', quantity: 1, unitPrice: 120, itemId: ITEM_ID }] }, 'u1');
+    expect(accounts()).toEqual([[ITEM_ID, G]]);
+    mockSql.mockClear();
+    world.stored = [typedLine({ item_id: null })];
+    await updateQuote(COMPANY_ID, QUOTE_ID, { customerName: 'Acme', lines: [{ description: 'Svc', quantity: 1, unitPrice: 100, itemId: ITEM_ID }] }, 'u1');
+    expect(accounts()).toEqual([[ITEM_ID, G2]]);
+  });
+
+  it('round 8: an accountId sent wins, null included; itemId null clears the stored item (LOW 2)', async () => {
+    world.stored = [typedLine()];
+    await updateQuote(COMPANY_ID, QUOTE_ID, { customerName: 'Acme', lines: [{ description: 'Svc', quantity: 1, unitPrice: 100, accountId: null }] } as never, 'u1');
+    expect(accounts()).toEqual([[ITEM_ID, null]]);
+    mockSql.mockClear();
+    await updateQuote(COMPANY_ID, QUOTE_ID, { customerName: 'Acme', lines: [{ description: 'Svc', quantity: 1, unitPrice: 100, itemId: null }] }, 'u1');
+    expect(inserted('customer_quote_lines').map((l) => l.item_id)).toEqual([null]);
+  });
+
   it('L1: a line with no description (a bare API body) is a clean 400 naming the line, nothing written', async () => {
     await expect(updateQuote(COMPANY_ID, QUOTE_ID, { customerName: 'Acme', lines: [{ quantity: 1, unitPrice: 1 }] } as never, 'u1'))
       .rejects.toThrow('Line 1: description is required');

@@ -86,7 +86,8 @@ const itemsDiffer = (l: SentQuoteLine, s: StoredQuoteVatLine) => itemOf(l) !== n
 const key = (l: { description: string; quantity: unknown; unitPrice: unknown }) => identicalLineKey(descOf(l.description), l.quantity, l.unitPrice);
 /**
  * Whether the item a sent line names is not the stored line's: another item, one added where it had none, or one
- * removed (`itemId` null or ''). An `itemId` left out keeps the stored item (itemEditLines), so it is no change.
+ * removed (`itemId` null or ''). An `itemId` left out keeps the stored item (quoteLineTax.lineRefs writes the matched
+ * stored line's item), so it is no change.
  */
 const itemChanged = (l: SentQuoteLine, s: StoredQuoteVatLine) => l.itemId !== undefined && itemOf(l) !== (s.itemId ? s.itemId.toLowerCase() : null);
 const identical = (l: SentQuoteLine, s: StoredQuoteVatLine) => key(l) === key(s) && !itemChanged(l, s);

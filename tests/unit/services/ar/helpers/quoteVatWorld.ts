@@ -18,18 +18,23 @@ const text = (call: unknown[]) => (call[0] as readonly string[]).join('?');
 const header = { id: QUOTE_ID, quote_number: 'QUO1', client_id: null, customer_name: 'Acme', quote_date: '2026-11-11', expiry_date: null,
   status: 'draft', subtotal: '0', tax_amount: '0', total: '0', notes: null, terms: null, converted_invoice_id: null, created_at: '', updated_at: '' };
 
-export interface World { vatPeriod: string; customerVat: string | null; itemVat: string | null; stored: Record<string, unknown>[]; head: Record<string, unknown> }
-export const world: World = { vatPeriod: 'bi-monthly', customerVat: null, itemVat: null, stored: [], head: {} };
+export interface World {
+  vatPeriod: string; customerVat: string | null; itemVat: string | null; stored: Record<string, unknown>[]; head: Record<string, unknown>;
+  /** The catalogue item's sales account (an active account of the company). */
+  itemAccount: string | null;
+}
+export const world: World = { vatPeriod: 'bi-monthly', customerVat: null, itemVat: null, stored: [], head: {}, itemAccount: null };
 
 /** Fresh mocks and a registered company with no stored quote; call in beforeEach. */
 export function resetWorld(): void {
   vi.clearAllMocks();
   mockSql.mockReset();
-  Object.assign(world, { vatPeriod: 'bi-monthly', customerVat: null, itemVat: null, stored: [], head: {} });
+  Object.assign(world, { vatPeriod: 'bi-monthly', customerVat: null, itemVat: null, stored: [], head: {}, itemAccount: null });
   mockSql.mockImplementation(async (...call: unknown[]) => {
     const t = text(call);
     if (t.includes('FROM companies')) return [{ vat_period: world.vatPeriod, vat_system_type: null, customer_vat: world.customerVat }];
-    if (t.includes('FROM items')) return [{ id: ITEM_ID, is_active: true, sales_account_id: null, purchases_account_id: null, vat_on_sales: world.itemVat, vat_on_purchases: null }];
+    if (t.includes('FROM items')) return [{ id: ITEM_ID, is_active: true, sales_account_id: world.itemAccount, purchases_account_id: null, vat_on_sales: world.itemVat, vat_on_purchases: null }];
+    if (t.includes('FROM gl_accounts')) return world.itemAccount ? [{ id: world.itemAccount, is_active: true }] : [];
     if (t.includes('INSERT INTO customer_quotes')) return [{ id: QUOTE_ID }];
     if (t.includes('FROM customer_quote_lines')) return world.stored;
     if (t.includes('FROM customer_quotes')) return [{ ...header, ...world.head }];
