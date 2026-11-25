@@ -21,6 +21,8 @@ import { laterMonthFinalRefusal } from './payrollOffCycleOrder';
 import { bankFileReopenWarnings } from './payrollBankFileStatus';
 import { clearPayslipDetails } from './payslipSnapshot';
 import { restoreRunGarnishees } from './payrollGarnisheeRun';
+import { Emp201FiledReopenError, regularReopenFiledRefusal } from './payrollReopenFiledMonth';
+import { PAYROLL_REFUSAL } from './payrollRefusalCodes';
 
 /**
  * A refusal raised before reopenPayrollRun writes anything. The route answers
@@ -65,7 +67,11 @@ export async function reopenPayrollRun(opts: {
   }
   // Wave 6 OC: an off-cycle run is reopened only while its month's EMP201 is not filed, before or after payday (409, #1679 M4).
   const paid = await offCyclePaidReopenRefusal(opts.companyId, run);
-  if (paid) throw new OffCycleRunRefusedError(paid, 409);
+  if (paid) throw new OffCycleRunRefusedError(paid, 409, PAYROLL_REFUSAL.EMP201_FILED);
+  // Wave 7 EL (W25): nor a regular run whose month's EMP201 is filed (409 EMP201_FILED, naming its reference). A plain
+  // read under the approval lock taken above, which a filing takes before its drift check (lock order: payrollReopenFiledMonth).
+  const filed = await regularReopenFiledRefusal(opts.companyId, run);
+  if (filed) throw new Emp201FiledReopenError(filed);
   // Nor while a later month of its tax year is final (gate ruling 3 on 7630d9379f): the later-month guard would refuse
   // its recalculation and approval, stranding it outside the month's totals. Judged before any change.
   if (run.run_kind === 'off_cycle') {
