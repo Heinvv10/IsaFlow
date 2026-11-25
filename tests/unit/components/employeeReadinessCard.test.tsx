@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import React from 'react';
 import { render, screen, cleanup, waitFor, fireEvent } from '@testing-library/react';
 import { EmployeeReadinessCard } from '@/components/payroll/EmployeeReadinessCard';
+import { prefetchReadiness, clearReadinessReads } from '@/components/payroll/employeeBankState';
 import { EmployeeDrawerBody } from '@/components/payroll/EmployeeDrawerBody';
 
 const EMP = '11111111-1111-4111-8111-111111111111';
@@ -24,7 +25,7 @@ const serveBank = (bank: () => Response) => fetchMock.mockImplementation(async (
 });
 const urls = () => fetchMock.mock.calls.map(([u]) => String(u));
 
-beforeEach(() => { runs = []; finalRun = { hasFinalRun: false }; fetchMock.mockReset(); vi.stubGlobal('fetch', fetchMock); });
+beforeEach(() => { clearReadinessReads(); runs = []; finalRun = { hasFinalRun: false }; fetchMock.mockReset(); vi.stubGlobal('fetch', fetchMock); });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 const props = { employeeId: EMP, employee: { taxNumber: '0123456789', paymentMethod: 'eft' }, assignments: [salary] };
@@ -106,6 +107,7 @@ describe('EmployeeReadinessCard', () => {
     const { unmount } = render(<EmployeeReadinessCard {...props} />);
     expect(await screen.findByText('1 thing before the next pay run: bank details')).toBeTruthy();
     unmount();
+    clearReadinessReads(); // a later visit, outside the few seconds a read is shared
     finalRun = { hasFinalRun: false };
     render(<EmployeeReadinessCard {...props} />);
     expect(await screen.findByText('1 thing before the first pay run: bank details')).toBeTruthy();
@@ -145,6 +147,37 @@ describe('EmployeeReadinessCard', () => {
     await waitFor(() => expect(screen.queryByText(/^Checking/)).toBeNull());
     expect(screen.queryByText('Ready to pay')).toBeNull();
     expect(screen.getByText('1 thing before the next pay run: Could not check bank details')).toBeTruthy();
+  });
+
+  it('a 429 says the check is paused, not that it "could not" check (RS3)', async () => {
+    fetchMock.mockResolvedValue(fail(429));
+    render(<EmployeeReadinessCard {...props} />);
+    expect(await screen.findByText('1 thing before the next pay run: Bank check paused: too many requests, try again in a minute')).toBeTruthy();
+    expect(screen.queryByText(/Could not check bank details/)).toBeNull();
+  });
+
+  it('strict mode mounts the card twice but asks once (the first answer was thrown away and the second queued behind the page)', async () => {
+    serveBank(() => ok({ id: 'b1' }));
+    render(<React.StrictMode><EmployeeReadinessCard {...props} /></React.StrictMode>);
+    expect(await screen.findByText('Ready to pay')).toBeTruthy();
+    expect(urls().filter(u => u.endsWith('/readiness'))).toHaveLength(1);
+  });
+
+  it('uses a read the page already started, instead of asking again after the profile has loaded', async () => {
+    serveBank(() => ok({ id: 'b1' }));
+    prefetchReadiness(EMP, 0);
+    render(<EmployeeReadinessCard {...props} />);
+    expect(await screen.findByText('Ready to pay')).toBeTruthy();
+    expect(urls().filter(u => u.endsWith('/readiness'))).toHaveLength(1);
+  });
+
+  it('a bank change reads again even right after a read (new refresh key)', async () => {
+    serveBank(() => ok({ id: 'b1' }));
+    prefetchReadiness(EMP, 0);
+    const { rerender } = render(<EmployeeReadinessCard {...props} refreshKey={0} />);
+    expect(await screen.findByText('Ready to pay')).toBeTruthy();
+    rerender(<EmployeeReadinessCard {...props} refreshKey={1} />);
+    await waitFor(() => expect(urls().filter(u => u.endsWith('/readiness'))).toHaveLength(2));
   });
 
   it('judges the salary against the month after the latest calculated run', async () => {
