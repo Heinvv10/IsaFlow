@@ -25,6 +25,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { PayrollApprovalRefusedError } from './payrollApprovalRefusal';
+import { judgeConfirmedCreditorPayments } from './payrollBankFileReapproval';
 import type { GarnisheeDeduction, GarnisheeKind, GarnisheeOrderInput } from './payrollGarnishee';
 import type { ValidationResult } from './payrollTypes';
 
@@ -80,6 +81,7 @@ export async function replaceRunGarnisheeDeductions(
  * Refused as PayrollApprovalRefusedError (a 4xx with nothing written). Locks the orders (FOR UPDATE) for the approval.
  */
 export async function judgeGarnisheeBalances(companyId: string, runId: string, alreadyApproved = false): Promise<void> {
+  await judgeConfirmedCreditorPayments(companyId, runId); // GC2: a creditor a confirmed file paid is never re-deducted differently
   const rows = (await sql`
     SELECT o.creditor_name, o.instalment, o.balance, o.status, d.amount
       FROM payroll_garnishee_deductions d

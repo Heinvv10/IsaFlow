@@ -21,12 +21,22 @@
  *   JOURNAL_NOT_POSTED        the run has no posted payroll journal of its own crediting net pay (no account to credit).
  *   CREDITORS_NOT_PAYABLE     a payable or the net-pay account is inactive: the post would refuse after a write.
  * Not reversed by a reopen (the bank paid); its own reversal is refused (payrollJournalReversalGuard): a confirmed file
- * is final, so the payment it records is too.
+ * is final, so the payment it records is too. A re-approval of the run that would deduct one of these orders a different
+ * amount is refused (payrollBankFileReapproval), so the order's balance always counts what the creditor was paid.
+ *
+ * THE JUDGE -> POST WINDOW. settleBankFile holds the run's bank-file advisory lock and the file row (FOR UPDATE) from
+ * before this judge to its commit, so no other confirm, void or generate of the file interleaves. What is NOT locked:
+ *   - the order's creditor details: an edit committed after the judge read them does not change what is posted (the
+ *     journal posts the amounts the file paid, from its items), and the file's lines keep the account as paid;
+ *   - the fiscal period: a close committed in the window is caught by postJournalEntry's own period check; the draft
+ *     it leaves is deleted (postCreditorJournal) before the refusal propagates, so a 4xx commits no draft journal;
+ *   - the accounts' active flag: the same, by postJournalEntry's inactive-account refusal.
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { createJournalEntry } from '@/modules/accounting/services/gl/journalEntryCrudService';
 import { postJournalEntry } from '@/modules/accounting/services/gl/journalEntryPostingService';
+import { cleanUpAfter } from '@/modules/accounting/services/gl/reversalCleanup';
 import { NET_PAY_CLEARING_DESCRIPTION, NET_PAY_DESCRIPTION } from './payrollLabourComparison';
 import { runJournalDescriptionOf } from './payrollJournalDescription';
 import { PayrollBankFileRefusal } from './payrollBankFileStatus';
@@ -98,15 +108,15 @@ export async function judgeCreditorConfirm(opts: {
       JOIN gl_journal_lines jl ON jl.journal_entry_id = je.id
       JOIN gl_accounts a ON a.id = jl.gl_account_id AND a.company_id = je.company_id
      WHERE je.company_id = ${companyId}::uuid AND je.source = 'auto_payroll' AND je.status = 'posted'
-       AND je.description = ${runJournalDescriptionOf(run)} AND je.reversal_of_id IS NULL
+       AND je.description = ${runJournalDescriptionOf(run)} AND je.reversal_of_id IS NULL AND je.reversed_at IS NULL
        AND jl.credit > 0 AND jl.description IN (${NET_PAY_DESCRIPTION}, ${NET_PAY_CLEARING_DESCRIPTION})
      ORDER BY je.posted_at DESC NULLS LAST, je.created_at DESC
      LIMIT 1
   `) as DbRow[])[0] : undefined;
   if (!net) {
     throw new PayrollBankFileRefusal('JOURNAL_NOT_POSTED',
-      'This run has no posted payroll journal of its own crediting net pay, so there is no account to pay the garnishee creditors from. '
-      + 'Post the payroll journal first, then confirm the file.');
+      'This run has no posted payroll journal of its own in force crediting net pay (never posted, or reversed), so there is no '
+      + 'account to pay the garnishee creditors from. Approve the run again to post its journal, then confirm the file.');
   }
   if (net.is_active !== true || items.some((r) => r.payable_active !== true)) {
     throw new PayrollBankFileRefusal('CREDITORS_NOT_PAYABLE',
@@ -132,6 +142,14 @@ export async function postCreditorJournal(companyId: string, fileId: string, pos
   const entry = await createJournalEntry(companyId, {
     entryDate: posting.entryDate, description: posting.description, source: 'auto_payroll', sourceRecordId: fileId, lines: posting.lines,
   }, userId);
-  await postJournalEntry(companyId, entry.id, userId);
+  try {
+    await postJournalEntry(companyId, entry.id, userId);
+  } catch (err) {
+    // A refusal in the judge -> post window (a period closed, an account deactivated) is a 4xx, which commits: the draft
+    // must not survive it. `status = 'draft'` keeps this from ever touching a posted journal.
+    await cleanUpAfter(err, () => sql`
+      DELETE FROM gl_journal_entries WHERE id = ${entry.id}::uuid AND company_id = ${companyId}::uuid AND status = 'draft'`);
+    throw err;
+  }
   return entry.id;
 }

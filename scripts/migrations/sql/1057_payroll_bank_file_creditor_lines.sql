@@ -39,6 +39,7 @@
 --   restore 999h's payroll_bank_files_guard and payroll_bank_file_items_guard bodies;
 --   ALTER TABLE public.payroll_bank_file_items ADD CONSTRAINT payroll_bank_file_items_one_per_employee UNIQUE (file_id, employee_id);
 --   DROP INDEX IF EXISTS public.payroll_bank_file_items_employee_line, public.payroll_bank_file_items_creditor_line,
+--     public.payroll_bank_file_items_garnishee_order,
 --     public.payroll_bank_files_one_creditor_journal;
 --   ALTER TABLE public.payroll_bank_file_items DROP CONSTRAINT IF EXISTS payroll_bank_file_items_creditor_snapshot,
 --     DROP COLUMN IF EXISTS garnishee_order_id, ... (the six snapshot columns);
@@ -94,6 +95,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS payroll_bank_file_items_employee_line
 CREATE UNIQUE INDEX IF NOT EXISTS payroll_bank_file_items_creditor_line
   ON public.payroll_bank_file_items (file_id, garnishee_order_id) WHERE garnishee_order_id IS NOT NULL;
 ALTER TABLE public.payroll_bank_file_items DROP CONSTRAINT IF EXISTS payroll_bank_file_items_one_per_employee;
+-- The FK's own index: the re-approval guard and the confirm read creditor lines by order.
+CREATE INDEX IF NOT EXISTS payroll_bank_file_items_garnishee_order ON public.payroll_bank_file_items (garnishee_order_id)
+  WHERE garnishee_order_id IS NOT NULL;
 
 COMMENT ON COLUMN public.payroll_bank_file_items.garnishee_order_id IS
   'NULL: the file paid the employee their net (999h). Set: it paid this garnishee order''s creditor the employee''s deduction (1057, GC2).';
