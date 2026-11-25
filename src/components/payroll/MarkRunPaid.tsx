@@ -14,6 +14,7 @@ import { DateField } from '@/components/ui/DateField';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { todayInSast } from '@/lib/saDateParser';
 import { formatDisplayDate, formatDisplayDateTime } from '@/utils/dateFormat';
+import { announcePayrollRunChanged } from '@/components/payroll/payrollRunEvents';
 
 const BTN = 'px-4 py-2 min-h-[44px] rounded-lg text-sm font-medium disabled:opacity-50';
 const FAILED = 'Could not mark the run paid - try again';
@@ -59,6 +60,7 @@ export function MarkRunPaidButton({ runId, run, companyRole, onPaid }: {
       const res = await apiFetch(`/api/payroll/runs/${runId}/mark-paid`, { method: 'POST', body: JSON.stringify(body) });
       await assertOk(res, FAILED);
       setOpen(false);
+      announcePayrollRunChanged(); // the period bar re-reads the run's status
       onPaid();
     } catch (err) {
       setError(apiErrorMessage(err, FAILED));
