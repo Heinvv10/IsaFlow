@@ -22,7 +22,7 @@
  *                                          line is "No budget" (not judged; under the block policy the plan refuses an approved PO with none)
  *
  */
-import type { SagePoLine, SagePurchaseOrder } from './sageExportTypes';
+import type { SagePurchaseOrder } from './sageExportTypes';
 import { importStatusFor } from './sagePoStatus';
 import { SAGE_SYSTEM } from './sageItemMapping';
 

@@ -10,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { cleanupWorld } from './helpers/itemsWorld';
-import { afterCommitOf, booked, cleanupSageWorld, exportFile, failingCommitPool, parsedExport, sageWorld, type SageWorld } from './helpers/sageMigrationWorld';
+import { booked, cleanupSageWorld, exportFile, failingCommitPool, parsedExport, sageWorld, type SageWorld } from './helpers/sageMigrationWorld';
 import { runSageMigration } from '@/modules/accounting/services/sage-migration/sageMigrationRunner';
 import { migrationLockKey } from '@/modules/accounting/services/sage-migration/sageRunLock';
 import { MigrationStopped } from '@/modules/accounting/services/sage-migration/sageMigrationStopped';
