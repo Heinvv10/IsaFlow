@@ -64,7 +64,12 @@ describe('parsePurchaseOrder', () => {
     [{ lines: [{ description: 'a', quantity: 1, unit_price: 1, tax_rate: 101 }] }, /tax_rate must be at most 100/],
     [{ lines: [{ description: 'a', quantity: 1, unit_price: 1, line_total: 1.005 }] }, /line_total must be whole cents/],
     [{ lines: [{ description: 'a', quantity: 1, unit_price: 1, gl_account_id: 'x' }] }, /gl_account_id must be a UUID/],
-    [{ lines: [{ description: 'a', quantity: 1, unit_price: 1, item_id: ACC }] }, /lines\[0\]\.item_id is not a field of this tool/],
+    [{ lines: [{ description: 'a', quantity: 1, unit_price: 1, itemId: ACC }] }, /lines\[0\]\.itemId is not a field of this tool/],
+    [{ lines: [{ description: 'a', quantity: 1, unit_price: 1, item_id: 'cable' }] }, /lines\[0\]\.item_id must be an item UUID/],
+    [{ lines: [{ description: 'a', quantity: 1, unit_price: 1, item_id: 7 }] }, /lines\[0\]\.item_id must be an item UUID/],
+    [{ lines: [{ description: 'a', quantity: 1, unit_price: 1, item_code: 7 }] }, /lines\[0\]\.item_code must be a string/],
+    [{ lines: [{ description: 'a', quantity: 1, unit_price: 1, item_code: 'x'.repeat(101) }] }, /lines\[0\]\.item_code is longer than 100/],
+    [{ lines: [{ description: 'a', quantity: 1, unit_price: 1, item_id: ACC, item_code: 'CAB-1' }] }, /purchase_orders\[0\]\.lines\[0\]: give item_id or item_code, not both/],
     [{ total: 5 }, /purchase_orders\[0\]\.total is not a field of this tool/],
     [{ expected_totals: { vat: 1 } }, /expected_totals\.vat is not a field of this tool/],
     [{ lines: [{ description: 'a', quantity: 0.004, unit_price: 1 }] }, /quantity has at most two decimals/],
@@ -117,5 +122,28 @@ describe('parsePurchaseOrderBatch', () => {
   it('keeps each element\'s index', () => {
     const r = parsePurchaseOrderBatch([po(), po({ po_number: 'PO0000198' })]) as ParsedPo[];
     expect(r.map((p) => [p.index, p.poNumber])).toEqual([[0, 'PO0000197'], [1, 'PO0000198']]);
+  });
+});
+
+describe('a line naming its catalogue item', () => {
+  const withLine = (extra: Record<string, unknown>) => parsed(po({ lines: [{ description: 'Cable', quantity: 1, unit_price: 10, ...extra }] }));
+
+  it('carries item_id (lower-cased) or a trimmed item_code, and neither for a free-text line', () => {
+    expect(withLine({ item_id: ACC.toUpperCase() }).lines[0]).toMatchObject({ itemId: ACC, itemCode: null });
+    expect(withLine({ item_code: '  CAB-1 ' }).lines[0]).toMatchObject({ itemId: null, itemCode: 'CAB-1' });
+    expect(withLine({}).lines[0]).toMatchObject({ itemId: null, itemCode: null });
+    expect(withLine({ item_id: '', item_code: '' }).lines[0]).toMatchObject({ itemId: null, itemCode: null });
+    expect(withLine({ item_id: null, item_code: null }).lines[0]).toMatchObject({ itemId: null, itemCode: null });
+  });
+
+  it('does not change the pricing of the line (the import links only, it derives nothing from the item)', () => {
+    const plain = withLine({ gl_account_id: ACC }).lines[0]!;
+    const linked = withLine({ gl_account_id: ACC, item_code: 'CAB-1' }).lines[0]!;
+    expect({ ...linked, itemCode: null }).toEqual(plain);
+  });
+
+  it('names the PO and the line of a refusal', () => {
+    const batch = parsePurchaseOrderBatch([po(), po({ po_number: 'PO0000198', lines: [{ description: 'a', quantity: 1, unit_price: 1 }, { description: 'b', quantity: 1, unit_price: 1, item_id: ACC, item_code: 'X' }] })]);
+    expect(batch).toBe('purchase_orders[1].lines[1]: give item_id or item_code, not both');
   });
 });

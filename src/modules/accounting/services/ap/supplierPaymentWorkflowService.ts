@@ -26,6 +26,12 @@ import { underFlowLockBudget } from '../core/rowLockBudget';
 import { BALANCE_DERIVED, moveSupplierBillPaid } from '../ar/invoiceStatusRecompute';
 import { assertMayReverseMatchedLeg } from '../bank/bankReversalGate';
 import { assertVoidKeepsCredit } from './supplierVoidCredit';
+import { mirrorPaymentAllocations } from '../intercompany/allocationOutbox';
+import { refuseLoanAccountPayment } from '../intercompany/loanAccountPaymentGuard';
+import { partnerClearedRefusal } from '../intercompany/allocationUndoGate';
+import { SupplierPaymentRefusal } from './supplierPaymentRefusal';
+import type { LoanClearPermit } from '../intercompany/loanClearPermit';
+import type { ActorType } from '@/lib/mcp/contracts/actor';
 type Row = DbRow;
 
 /**
@@ -67,7 +73,7 @@ export async function processSupplierPayment(
   companyId: string,
   id: string,
   userId: string,
-  opts?: { postingAgent?: string },
+  opts?: { postingAgent?: string; actorType?: ActorType; loanClearPermit?: LoanClearPermit },
 ): Promise<SupplierPayment> {
   await assertNotImpersonating(); // R-032 L5: first, before any read or write
   try {
@@ -90,6 +96,10 @@ export async function processSupplierPayment(
     // R-035 PR5: the money moves here, so the approval is re-checked under the
     // lock — before the posting, so the route's 409 commits nothing.
     await assertPaymentApprovalCleared(companyId, payment);
+    // P4-E (j).3: a linked bill is paid from the payer's loan account only by the intercompany loan clearing (its permit) — before the posting.
+    await refuseLoanAccountPayment(companyId, {
+      billIds: payment.allocations.map((a) => a.invoiceId), creditedAccountIds: [payment.bankAccountId], postingAgent: opts?.postingAgent, permit: opts?.loanClearPermit,
+    });
 
     // No separate CLAIM before the posting: the payment row lock above already serialises a double-click (the loser
     // waits on it, then reads 'processed' and is refused 409 before posting anything, K-107), so the row is written
@@ -124,7 +134,7 @@ export async function processSupplierPayment(
       description: `Supplier payment ${payment.paymentNumber}`,
       source: 'auto_supplier_payment',
       lines,
-    }, userId, opts?.postingAgent ? { postingAgent: opts.postingAgent } : defaultHumanMeta(userId));
+    }, userId, opts?.postingAgent ? { postingAgent: opts.postingAgent, ...(opts.actorType ? { actorType: opts.actorType } : {}) } : defaultHumanMeta(userId));
 
     await postJournalEntry(companyId, journalEntry.id, userId);
 
@@ -156,6 +166,9 @@ export async function processSupplierPayment(
     // typed 409, which is raised only before the journal exists.
     if (!updatedRows[0]) throw new Error('Cannot process payment: its status changed concurrently');
     const updated = updatedRows[0];
+
+    // The payer's allocation message (intercompany P4-B): a loan-mode clearing is created, approved and processed, and never applied.
+    await mirrorPaymentAllocations(companyId, [id]);
 
     log.info('Processed supplier payment', { id, journalEntryId: journalEntry.id }, 'accounting');
     return mapPaymentRow(updated);
@@ -209,6 +222,9 @@ async function voidSupplierPaymentInner(
     // payment is voided as a status change. Only a processed one continues.
     if (await voidIfUnprocessed(companyId, payment, userId)) return { ...payment, status: 'cancelled' };
     assertSameJournal(journalId, payment.glJournalEntryId);
+    // P4-E (j).4: the partner already cleared it against the loan (accepted message): refused before any write.
+    const cleared = await partnerClearedRefusal(companyId, id);
+    if (cleared) throw new SupplierPaymentRefusal(cleared);
     // Before any write: a void must not leave the supplier owing the company (a refund already returned this cash).
     await assertVoidKeepsCredit(companyId, [id]);
     // A bank ALLOCATION posted this journal: undo it the MCP void's way — bills,

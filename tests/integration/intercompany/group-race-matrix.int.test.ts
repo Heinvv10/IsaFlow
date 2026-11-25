@@ -40,7 +40,7 @@ const pair = () => pairOf(co.A, co.B);
 const state = async () => (await pool.query('SELECT id, status, revoked_by FROM intercompany_connections WHERE company_low_id = $1 AND company_high_id = $2', pair())).rows[0];
 const sideB = async (id: string) => (await pool.query('SELECT supplier_id, auto_accept FROM intercompany_connection_sides WHERE connection_id = $1 AND company_id = $2', [id, co.B])).rows[0];
 const CREATE = "INSERT INTO intercompany_connections(company_low_id, company_high_id, kind, status, invited_by_company_id) VALUES ($1, $2, 'group', 'active', $1) RETURNING id";
-const SEND = "INSERT INTO intercompany_messages(connection_id, from_company_id, to_company_id, kind, source_doc_type, source_doc_id, payload) VALUES ($1, $2, $3, 'payment', 'payment', gen_random_uuid(), '{}')";
+const SEND = "INSERT INTO intercompany_messages(connection_id, from_company_id, to_company_id, kind, source_doc_type, source_doc_id, payload) VALUES ($1, $2, $3, 'reject', 'payment', gen_random_uuid(), '{}')";
 const SIDE = 'INSERT INTO intercompany_connection_sides(connection_id, company_id, partner_company_id, supplier_id, auto_accept) VALUES ($1, $2, $3, $4, true)';
 const AUTO = 'UPDATE intercompany_connection_sides SET auto_accept = true WHERE connection_id = $1 AND company_id = $2';
 const REACTIVATE = "UPDATE intercompany_connections SET status = 'active' WHERE id = $1";

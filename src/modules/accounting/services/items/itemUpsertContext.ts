@@ -7,6 +7,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import type { ItemFields } from './itemFieldValidation';
+import { ITEM_CODE_WHITESPACE } from './itemCodeWhitespace';
 import { ITEM_CODE_SEED, takeCompanyNumberLock } from '../core/numberLock';
 import { billLineAccountRefusalsById } from '../ap/billLineAccountGuard';
 import { invoiceLineCodingRefusal } from '../ar/invoiceLineCodingGuard';
@@ -43,6 +44,8 @@ export interface CategoryRef {
 export interface UpsertContext {
   byId: Map<string, ExistingItem>;
   byCode: Map<string, ExistingItem>;
+  /** Items stored with surrounding whitespace in their code ('FIB-0001 '), by the code trimmed. The unique index does not see them as 'FIB-0001'. */
+  paddedByCode: Map<string, ExistingItem[]>;
   byRef: Map<string, ExistingItem>;
   categories: CategoryRef[];
   /** account id -> is_active, for the accounts of THIS company only (anything else is absent). */
@@ -96,17 +99,19 @@ export async function loadUpsertContext(
   const existing = (await sql`
     SELECT i.* FROM items i
     WHERE i.company_id = ${companyId}::UUID
-      AND (i.code = ANY(${codes}::TEXT[]) OR i.id = ANY(${extraItemIds}::UUID[])
+      AND (i.code = ANY(${codes}::TEXT[]) OR btrim(i.code, ${ITEM_CODE_WHITESPACE}::TEXT) = ANY(${codes}::TEXT[]) OR i.id = ANY(${extraItemIds}::UUID[])
            OR (i.external_system, i.external_ref) IN (SELECT * FROM unnest(${refSystems}::TEXT[], ${refValues}::TEXT[])))
   `) as DbRow[];
 
   const byId = new Map<string, ExistingItem>();
   const byCode = new Map<string, ExistingItem>();
   const byRef = new Map<string, ExistingItem>();
+  const paddedByCode = new Map<string, ExistingItem[]>();
   for (const r of existing) {
     const item = mapExisting(r);
     byId.set(item.id, item);
     byCode.set(item.code, item);
+    if (item.code.trim() !== item.code) paddedByCode.set(item.code.trim(), [...(paddedByCode.get(item.code.trim()) ?? []), item]);
     if (item.externalSystem && item.externalRef) byRef.set(refKey(item.externalSystem, item.externalRef), item);
   }
 
@@ -145,5 +150,5 @@ export async function loadUpsertContext(
     const problem = await invoiceLineCodingRefusal(companyId, [{ glAccountId: id, projectId: null }], { lock: false });
     if (problem) accountProblems.set(`sales:${id}`, problem);
   }
-  return { byId, byCode, byRef, categories, accounts, itemsWithMovements, accountProblems };
+  return { byId, byCode, paddedByCode, byRef, categories, accounts, itemsWithMovements, accountProblems };
 }

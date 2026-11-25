@@ -30,13 +30,13 @@ export function DirectiveExpiryAction({ id, onSaved, onError }: { id: string; on
   };
 
   if (!open) {
-    return <button type="button" onClick={() => setOpen(true)} className="text-xs text-teal-500 hover:text-teal-400">Set expiry</button>;
+    return <button type="button" onClick={() => setOpen(true)} className="text-xs text-teal-500 hover:text-teal-400 max-lg:inline-flex max-lg:items-center max-lg:min-h-11">Set expiry</button>;
   }
   return (
-    <div className="flex items-end gap-2">
+    <div className="flex items-end gap-2 max-lg:flex-wrap">
       <DateField label="Expiry Date" value={date} onChange={(iso, v) => setDate(v.valid ? iso : null)} />
-      <button type="button" disabled={!date || saving} onClick={() => void save()} className="text-xs text-teal-500 hover:text-teal-400 disabled:opacity-50">Save</button>
-      <button type="button" onClick={() => setOpen(false)} className="text-xs text-[var(--ff-text-secondary)]">Close</button>
+      <button type="button" disabled={!date || saving} onClick={() => void save()} className="text-xs text-teal-500 hover:text-teal-400 disabled:opacity-50 max-lg:inline-flex max-lg:items-center max-lg:min-h-11">Save</button>
+      <button type="button" onClick={() => setOpen(false)} className="text-xs text-[var(--ff-text-secondary)] max-lg:inline-flex max-lg:items-center max-lg:min-h-11">Close</button>
     </div>
   );
 }

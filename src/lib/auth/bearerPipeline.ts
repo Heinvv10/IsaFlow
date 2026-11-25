@@ -274,7 +274,7 @@ export async function runBearerRequest(
         // outcome is unknown. Roll back, then replace the buffered 2xx with an honest 500.
         unusable = await rollbackFailed(client, 'bearerPipeline');
         reportFinalizeFailure(req, res, finalizeErr, { ...finalizeCtx, handlerFailed, connectionDestroyed: unusable });
-        answerCommitFailed(res, flush);
+        answerCommitFailed(res, flush, finalizeErr);
         return; // finally still runs (release + slow-request log)
       }
     }

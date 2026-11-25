@@ -22,11 +22,29 @@ import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vites
 // reverseJournalEntry first asks whether the entry has a late-claim companion
 // (vatLateClaimSplit); none here, and the positional sql queue must not see it.
 // FX PR0: the currency gate reads the company row; it has its own tests (fx-pr0-*).
+// intercompany P4-E (j).4: the payer undo gate asks its own queries (tested in the intercompany suites); off here
+vi.mock('@/modules/accounting/services/intercompany/allocationUndoGate', () => ({
+  PARTNER_CLEARED_SENTENCE: 'refused', partnerClearedRefusal: vi.fn(async () => null), partnerClearedJournalRefusal: vi.fn(async () => null),
+}));
+// P4-E round 3: the payer's journal key (a leaf the claim imports; tested in payerJournalKey.test.ts and the intercompany suites): none here
+vi.mock('@/modules/accounting/services/intercompany/payerJournalKey', async (orig) => ({
+  ...(await orig<typeof import('@/modules/accounting/services/intercompany/payerJournalKey')>()), lockPayerJournalKey: vi.fn(async () => null),
+}));
 vi.mock('@/modules/accounting/services/shared/documentCurrency', async (importOriginal) =>
   (await import('../../helpers/documentCurrencyMock')).documentCurrencyMock(await importOriginal()));
 // Step 6: a share journal with live undo-share journals is refused (gl/shareUndoReversalGuard, real-ledger proof in
 // breaker6-r2.int.test.ts); none here, and the positional sql queue must not see its read.
 vi.mock('@/modules/accounting/services/gl/shareUndoReversalGuard', () => ({ assertNoLiveUndoShares: vi.fn(async () => undefined) }));
+// P4-D A2: the intercompany clearing-receipt reversal guard is its own module, tested in its integration suite
+vi.mock('@/modules/accounting/services/intercompany/clearingReversalGuard', () => ({ refuseReversingIntercompanyClearing: vi.fn(async () => undefined) }));
+// 1018 round 13: the sorted chain locks before the claim (gl/ledgerLinkKeys); the positional sql queue must not see it.
+vi.mock('@/modules/accounting/services/gl/ledgerLinkKeys', () => ({ lockJournalChains: vi.fn(async () => undefined) }));
+// 1018 round 15 L2: the lines' accounts re-read under the claim (gl/reversalLines, real-ledger proof in
+// ledger-freeze-round15.int.test.ts); the positional sql queue must not see that read.
+vi.mock('@/modules/accounting/services/gl/reversalLines', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/modules/accounting/services/gl/reversalLines')>()),
+  accountsUnderClaim: vi.fn(async (_c: string, _id: string, _orig: unknown[], contra: unknown[]) => contra),
+}));
 vi.mock('@/modules/accounting/services/gl/vatLateClaimSplit', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/modules/accounting/services/gl/vatLateClaimSplit')>()),
   planLateClaimCompanionReversal: vi.fn(async () => null),
@@ -342,6 +360,7 @@ describe('reverseJournalEntry — contra attribution', () => {
       dimensionAssignmentMode: 'historical-copy',
       reversal: true, // a reversal may mirror a late claim's clearing leg (lateClaimClearingGuard)
       contraAccountIds: [ACCOUNT_A, ACCOUNT_B], // every leg is a contra: a historic header line stays reversible
+      exactVatType: true, // 1018 round 10: a legacy '' VAT type is copied as '', so the contra stays in its box
     });
   });
 
@@ -355,6 +374,7 @@ describe('reverseJournalEntry — contra attribution', () => {
       dimensionAssignmentMode: 'historical-copy',
       reversal: true, // a reversal may mirror a late claim's clearing leg (lateClaimClearingGuard)
       contraAccountIds: [ACCOUNT_A, ACCOUNT_B], // every leg is a contra: a historic header line stays reversible
+      exactVatType: true, // 1018 round 10: a legacy '' VAT type is copied as '', so the contra stays in its box
     });
   });
 });

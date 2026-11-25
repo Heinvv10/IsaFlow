@@ -12,6 +12,8 @@ import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import { apiFetch } from '@/lib/apiFetch';
 import { notify } from '@/utils/toast';
 import { CreateEntityModal } from '@/components/accounting/CreateEntityModal';
+import { subtypeOptionsFor, subtypeRequiredFor } from '@/components/accounting/dashboard/accountSubtypeOptions';
+import { subtypeErrorFor, missingSubtypeError } from '@/modules/accounting/services/gl/accountSubtypeRules';
 
 useApiJsonOverMock();
 
@@ -66,5 +68,113 @@ describe('CreateEntityModal create requests', () => {
     fireEvent.click(screen.getByText('Create'));
     await waitFor(() => expect(notify.error).toHaveBeenCalledWith('Supplier name must not exceed 200 characters'));
     expect(onCreated).not.toHaveBeenCalled();
+  });
+
+  describe('GL account subtype', () => {
+    // The API refuses a blank subtype on revenue/expense (missingSubtypeError, 400), so the modal must send one.
+    const subtypeSelect = () => screen.getByLabelText(/^Subtype/) as HTMLSelectElement;
+    const typeSelect = () => screen.getAllByRole('combobox')[0] as HTMLSelectElement;
+    const createBtn = () => screen.getByRole('button', { name: 'Create' }) as HTMLButtonElement;
+    const optionValues = () => Array.from(subtypeSelect().options).map(o => o.value);
+    const fillAccount = () => { type('e.g. 5250', '5250'); type('e.g. Cleaning & Maintenance', 'Cleaning'); };
+    const openAccount = () => render(<CreateEntityModal type="account" onClose={onClose} onCreated={onCreated} />);
+    const created = { success: true, data: { id: 'acc-1', accountCode: '5250', accountName: 'Cleaning' } };
+
+    it('posts the chosen accountSubtype for an expense account', async () => {
+      vi.mocked(apiFetch).mockResolvedValueOnce(envelope(200, created));
+      openAccount();
+      fillAccount();
+      fireEvent.change(subtypeSelect(), { target: { value: optionValues().find(v => v)! } });
+      fireEvent.click(createBtn());
+      await waitFor(() => expect(onCreated).toHaveBeenCalled());
+      const { url, body } = lastCall();
+      expect(url).toBe('/api/accounting/chart-of-accounts');
+      expect(body).toEqual({
+        accountCode: '5250', accountName: 'Cleaning', accountType: 'expense', normalBalance: 'debit',
+        accountSubtype: optionValues().find(v => v),
+      });
+    });
+
+    it('cannot save a revenue or expense account until a subtype is chosen', () => {
+      openAccount();
+      fillAccount();
+      expect(typeSelect().value).toBe('expense');
+      expect(subtypeSelect().getAttribute('aria-required')).toBe('true');
+      expect(subtypeSelect().options[0]!.textContent).toBe('Select…');
+      expect(createBtn().disabled).toBe(true);
+      fireEvent.click(createBtn());
+      expect(apiFetch).not.toHaveBeenCalled();
+
+      fireEvent.change(typeSelect(), { target: { value: 'revenue' } });
+      expect(createBtn().disabled).toBe(true);
+      fireEvent.change(subtypeSelect(), { target: { value: optionValues().find(v => v)! } });
+      expect(createBtn().disabled).toBe(false);
+    });
+
+    it('clears a chosen subtype when the type changes', () => {
+      openAccount();
+      fillAccount();
+      fireEvent.change(subtypeSelect(), { target: { value: optionValues().find(v => v)! } });
+      expect(subtypeSelect().value).not.toBe('');
+      fireEvent.change(typeSelect(), { target: { value: 'revenue' } });
+      expect(subtypeSelect().value).toBe('');
+      expect(createBtn().disabled).toBe(true);
+    });
+
+    it('does not carry a subtype chosen for another type into the save', async () => {
+      vi.mocked(apiFetch).mockResolvedValueOnce(envelope(200, created));
+      openAccount();
+      fillAccount();
+      fireEvent.change(subtypeSelect(), { target: { value: optionValues().find(v => v)! } });
+      fireEvent.change(typeSelect(), { target: { value: 'revenue' } });
+      fireEvent.change(typeSelect(), { target: { value: 'asset' } });
+      expect(subtypeSelect().getAttribute('aria-required')).toBe('false');
+      fireEvent.click(createBtn());
+      await waitFor(() => expect(onCreated).toHaveBeenCalled());
+      const { body } = lastCall();
+      expect(body.accountType).toBe('asset');
+      expect('accountSubtype' in body).toBe(false);
+    });
+
+    it('only offers subtypes the server accepts, and never a blank-subtype refusal for a chosen one', () => {
+      for (const t of ['expense', 'revenue', 'asset', 'liability', 'equity'] as const) {
+        const options = subtypeOptionsFor(t);
+        expect(options.length).toBeGreaterThan(0);
+        for (const o of options) {
+          expect(subtypeErrorFor({ accountType: t }, o.value), `${t}/${o.value}`).toBeNull();
+          expect(missingSubtypeError(t, o.value), `${t}/${o.value}`).toBeNull();
+        }
+        expect(subtypeRequiredFor(t)).toBe(missingSubtypeError(t, '') !== null);
+      }
+    });
+
+    it('still saves an asset account with no subtype and sends no accountSubtype key', async () => {
+      vi.mocked(apiFetch).mockResolvedValueOnce(envelope(200, created));
+      openAccount();
+      fillAccount();
+      fireEvent.change(typeSelect(), { target: { value: 'asset' } });
+      expect(subtypeSelect().options[0]!.textContent).toBe('None');
+      expect(createBtn().disabled).toBe(false);
+      fireEvent.click(createBtn());
+      await waitFor(() => expect(onCreated).toHaveBeenCalled());
+      const { body } = lastCall();
+      expect(body).toEqual({ accountCode: '5250', accountName: 'Cleaning', accountType: 'asset', normalBalance: 'debit' });
+      expect('accountSubtype' in body).toBe(false);
+    });
+
+    it('offers only the subtypes valid for the chosen type', () => {
+      openAccount();
+      for (const t of ['expense', 'revenue', 'asset', 'liability', 'equity'] as const) {
+        fireEvent.change(typeSelect(), { target: { value: t } });
+        const expected = subtypeOptionsFor(t).map(o => o.value);
+        expect(expected.length).toBeGreaterThan(0);
+        expect(optionValues().filter(v => v)).toEqual(expected);
+        expect(Array.from(subtypeSelect().options).filter(o => o.value).map(o => o.textContent))
+          .toEqual(subtypeOptionsFor(t).map(o => o.label));
+      }
+      fireEvent.change(typeSelect(), { target: { value: 'expense' } });
+      expect(optionValues()).not.toContain('bank');
+      expect(optionValues()).not.toContain('receivable');
+    });
   });
 });

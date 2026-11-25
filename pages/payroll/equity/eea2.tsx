@@ -71,10 +71,10 @@ export default function EEA2Page() {
           <h1 className="text-xl font-semibold text-[var(--ff-text-primary)]">EEA2 — Employment Equity</h1>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 max-lg:flex-wrap">
           <DateField label="As of" required value={asOf || null} onChange={(iso, v) => { if (v.valid && iso) setAsOf(iso); }} />
           <button onClick={load} disabled={loading}
-            className="px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-sm font-medium disabled:opacity-50">
+            className="px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-sm font-medium disabled:opacity-50 max-lg:min-h-11">
             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Refresh'}
           </button>
         </div>

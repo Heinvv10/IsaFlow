@@ -122,6 +122,8 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'COMPANY_SETTINGS_STALE',
   // A customer credit note's header job / CC1 / CC2 / BU refused (ar/creditNoteHeaderTags): set on a
   // linked note, or a job not this company's / cancelled. Names only the caller's own job; pre-write.
+  // core/contraSettlementService: a contra account or document the settlement guards refuse; read-only, pre-write.
+  'CONTRA_SETTLEMENT_REFUSED',
   'CREDIT_NOTE_DIMENSIONS_REFUSED',
   'CREDIT_NOTE_LOCK_TIMEOUT',
   // FX PR0 (shared/documentCurrency): a currency code that is not three letters. Fixed sentence; pre-write.
@@ -309,6 +311,10 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'TAX_DIRECTIVE_WITHOUT_EMPLOYEE',
   'PAYROLL_RUN_DIRECTIVE_USE',
   'EMPLOYEE_END_DATE_DIRECTIVE',
+  'JOURNAL_REINSTATES_CANCELLED_DOCUMENT', // 1018 round 3: re-reversal of a cancelled document's journal (gl/journalReinstateRefusal)
+  'JOURNAL_REVERSAL_CHAIN_FULL', // 1018 round 4: a reversal onto a full or branched chain (gl/journalReinstateRefusal)
+  'JOURNAL_REVERSAL_REFUSED', // 1018 round 10: any other refusal of the reversal link, in the user's words (gl/journalReinstateRefusal)
+  'JOURNAL_LINK_KEYS_LOCK_TIMEOUT', // 1018 round 13: a merge met a journal's link key held past the 5 s bound (gl/ledgerLinkKeys)
   'PREPARER_ID_NOT_SUPPORTED', // wave 6 HYb: a non-UUID preparer of a pay run R-035 governs (payrollPreparerGuard)
   'LEAVER_EXIT_AMBIGUOUS', // two live leaver-exit audit rows for a directive's current expiry: nothing restored
   'LEAVER_EXIT_WINDOW_TAKEN', // undoing a leaver exit when another run taxed the employee inside the restored window

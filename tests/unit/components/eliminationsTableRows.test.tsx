@@ -65,4 +65,18 @@ describe('eliminations table — rows from the real list API shape', () => {
       '', ELIMINATION_TYPE_LABELS.interco_revenue, 'January intercompany sale', '2026-01-31', 'draft', fmt(0),
     ]);
   });
+
+  it('an automatic (derived) row says so, has the label, and offers neither Post nor Reverse', async () => {
+    serve([
+      apiRow({ id: 'mirror:t1', adjustmentNumber: 'AUTO', status: 'posted', automatic: true, description: 'Automatic: mirrored intercompany documents - Invoice X (mirrored)' }),
+      apiRow({ id: '70000000-0000-4000-8000-000000000009', adjustmentNumber: 'ELIM-0009', status: 'posted' }),
+    ]);
+    render(<EliminationsPage />);
+    const auto = (await screen.findByText('AUTO')).closest('tr')!;
+    expect(within(auto).getByText('automatic')).toBeTruthy();
+    expect(within(auto).getByText(/^Automatic: mirrored intercompany documents/)).toBeTruthy();
+    expect(within(auto).queryByRole('button')).toBeNull();
+    const manual = screen.getByText('ELIM-0009').closest('tr')!;
+    expect(within(manual).getByRole('button', { name: /reverse/i })).toBeTruthy();
+  });
 });

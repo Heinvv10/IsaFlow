@@ -35,6 +35,7 @@ import { withAlsTransaction } from '@/lib/alsTransaction';
 import type { DbRow } from '@/lib/neon';
 import { als, assertTxUsable } from '@/lib/als';
 import { log } from '@/lib/logger';
+import { lockPayerJournalKey, PAYER_JOURNAL_KEY_BUSY } from '../intercompany/payerJournalKey';
 
 /** Postgres `lock_not_available` — `lock_timeout` elapsed waiting for the row. */
 const LOCK_NOT_AVAILABLE = '55P03';
@@ -42,12 +43,14 @@ const LOCK_NOT_AVAILABLE = '55P03';
 /**
  * Raised when another request holds the original longer than the 5s
  * `lock_timeout`. The reverse route and the MCP tool return a caught service
- * error's message to the caller, so this wording is what they read.
+ * error's message to the caller, so this wording is what they read. `message`:
+ * a wait for something other than the row says what it waited for (P4-E round
+ * 3: the payer's journal key, `PAYER_JOURNAL_KEY_BUSY`).
  */
 export class JournalReversalLockTimeoutError extends Error {
   readonly code = 'JOURNAL_REVERSAL_LOCK_TIMEOUT';
-  constructor(entryId: string) {
-    super(`Journal entry ${entryId} is being reversed by another request — retry in a moment.`);
+  constructor(entryId: string, message?: string) {
+    super(message ?? `Journal entry ${entryId} is being reversed by another request — retry in a moment.`);
     this.name = 'JournalReversalLockTimeoutError';
   }
 }
@@ -110,6 +113,11 @@ export async function claimJournalReversal(
     .rows[0]?.v as string | undefined;
   await client.query("SELECT set_config('lock_timeout', '5s', true)");
   try {
+    // P4-E (rounds 2-3): the payer's journal key BEFORE the row, the order every flow takes them (intercompany/payerJournalKey.ts: only for
+    // a chain an allocation message stands on); bounded by the 5 s, and a timeout there says what holds it, not "another reversal".
+    await lockPayerJournalKey(companyId, entryId).catch((err: unknown) => {
+      throw isLockTimeout(err) ? new JournalReversalLockTimeoutError(entryId, PAYER_JOURNAL_KEY_BUSY(entryId)) : err;
+    });
     const rows = (await sql`
       UPDATE gl_journal_entries
       SET reversed_by = ${userId}::UUID, reversed_at = NOW()
@@ -121,6 +129,9 @@ export async function claimJournalReversal(
     return rows.length > 0;
   } catch (err) {
     if (isLockTimeout(err)) throw new JournalReversalLockTimeoutError(entryId);
+    // Migration 1018: a legacy journal a contra already links but never stamped refuses the stamp. It IS reversed: the
+    // caller's "already reversed" (the error has aborted the claim's savepoint, which that refusal rolls back).
+    if ((err as { constraint?: unknown }).constraint === 'gl_je_reversal_attribution_kept') return false;
     throw err;
   } finally {
     // Restore rather than reset: inside a request the previous value is whatever

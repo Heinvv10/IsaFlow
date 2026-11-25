@@ -1,15 +1,19 @@
+import { useCallback, useState } from 'react';
 import { Sparkles, Check, X } from 'lucide-react';
 import type { SelectOption } from '../BankTxTable';
 import { ACCOUNT_TYPES, type GLSuggestion } from './glAccountSuggestions';
+import { subtypeOptionsFor, subtypeRequiredFor } from '../dashboard/accountSubtypeOptions';
 import { INPUT, LABEL } from './styles';
 
 interface Props {
   code: string;
   name: string;
   type: string;
+  subtype: string;
   onCode: (v: string) => void;
   onName: (v: string) => void;
   onType: (v: string) => void;
+  onSubtype: (v: string) => void;
   transactionDescription?: string;
   suggestion: GLSuggestion | null;
   suggestionApplied: boolean;
@@ -18,11 +22,27 @@ interface Props {
   onDismissSuggestion: () => void;
 }
 
+/**
+ * Account type + subtype state for the modal. A subtype is only valid for the
+ * type it was picked under, so every change of type (the picker or an applied
+ * suggestion) clears it here, in one place.
+ */
+export function useAccountTypeState() {
+  const [acctType, setType] = useState('expense');
+  const [acctSubtype, setAcctSubtype] = useState('');
+  const setAcctType = useCallback((v: string) => {
+    if (v !== acctType) setAcctSubtype('');
+    setType(v);
+  }, [acctType]);
+  return { acctType, acctSubtype, subtypeRequired: subtypeRequiredFor(acctType), setAcctType, setAcctSubtype };
+}
+
 export function AccountForm({
-  code, name, type, onCode, onName, onType,
+  code, name, type, subtype, onCode, onName, onType, onSubtype,
   transactionDescription, suggestion, suggestionApplied, existingMatch,
   onApplySuggestion, onDismissSuggestion,
 }: Props) {
+  const subtypeRequired = subtypeRequiredFor(type);
   const nb = ACCOUNT_TYPES.find(t => t.value === type)?.nb;
 
   return (
@@ -83,6 +103,14 @@ export function AccountForm({
         <label className={LABEL}>Account Name *</label>
         <input type="text" value={name} onChange={e => onName(e.target.value)}
           placeholder="e.g. Cleaning & Maintenance" className={INPUT} />
+      </div>
+      <div>
+        <label htmlFor="create-entity-subtype" className={LABEL}>Subtype{subtypeRequired ? ' *' : ''}</label>
+        <select id="create-entity-subtype" value={subtype} onChange={e => onSubtype(e.target.value)}
+          aria-required={subtypeRequired} className={INPUT}>
+          {subtypeRequired ? <option value="">Select…</option> : <option value="">None</option>}
+          {subtypeOptionsFor(type).map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+        </select>
       </div>
       <div className="flex items-center gap-2 text-xs text-[var(--ff-text-tertiary)]">
         Normal balance:&nbsp;

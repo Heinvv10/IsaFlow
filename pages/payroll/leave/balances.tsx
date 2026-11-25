@@ -27,7 +27,7 @@ interface EmployeeBalances {
   balances: Record<string, { accrued: number; taken: number; pending: number; balance: number }>;
 }
 
-function BalanceCell({ accrued, balance }: { accrued: number; balance: number }) {
+function BalanceCell({ label, accrued, balance }: { label: string; accrued: number; balance: number }) {
   const pct = accrued > 0 ? balance / accrued : 1;
   const color =
     pct >= 0.5
@@ -36,9 +36,11 @@ function BalanceCell({ accrued, balance }: { accrued: number; balance: number })
         ? 'text-yellow-400'
         : 'text-red-400';
   return (
-    <td className={`py-3 px-4 text-right text-sm font-medium ${color}`}>
-      {balance.toFixed(1)}
-      <span className="ml-1 text-xs text-[var(--ff-text-tertiary)]">/ {accrued.toFixed(1)}</span>
+    <td data-label={label} className={`py-3 px-4 text-right text-sm font-medium ${color}`}>
+      <span className="max-lg:text-right">
+        {balance.toFixed(1)}
+        <span className="ml-1 text-xs text-[var(--ff-text-tertiary)]">/ {accrued.toFixed(1)}</span>
+      </span>
     </td>
   );
 }
@@ -142,8 +144,8 @@ export default function LeaveBalancesPage() {
     <AppLayout>
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
         <div className="border-b border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)]">
-          <div className="px-6 py-4 flex items-center gap-4">
-            <Link href="/payroll/leave" className="p-2 rounded-lg hover:bg-[var(--ff-bg-tertiary)] text-[var(--ff-text-secondary)]">
+          <div className="px-6 py-4 flex items-center gap-4 max-lg:flex-wrap max-lg:gap-3">
+            <Link href="/payroll/leave" className="p-2 rounded-lg hover:bg-[var(--ff-bg-tertiary)] text-[var(--ff-text-secondary)] max-lg:min-h-11 max-lg:min-w-11 max-lg:inline-flex max-lg:items-center max-lg:justify-center">
               <ArrowLeft className="h-4 w-4" />
             </Link>
             <div className="flex items-center gap-3">
@@ -155,13 +157,13 @@ export default function LeaveBalancesPage() {
                 <p className="text-sm text-[var(--ff-text-secondary)]">Remaining leave per employee</p>
               </div>
             </div>
-            <div className="ml-auto flex items-center gap-2">
+            <div className="ml-auto flex items-center gap-2 max-lg:ml-0 max-lg:flex-wrap">
               <WriteOnly>
                 <button
                   type="button"
                   onClick={() => void runAccrual()}
                   disabled={actionBusy !== null}
-                  className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-bg-tertiary)] hover:bg-[var(--ff-bg-primary)] text-[var(--ff-text-primary)] text-sm font-medium disabled:opacity-50"
+                  className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-bg-tertiary)] hover:bg-[var(--ff-bg-primary)] text-[var(--ff-text-primary)] text-sm font-medium disabled:opacity-50 max-lg:min-h-11"
                   title="Apply BCEA accrual up to the current month"
                 >
                   {actionBusy === 'accrue' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
@@ -173,7 +175,7 @@ export default function LeaveBalancesPage() {
                   type="button"
                   onClick={() => void runRollover()}
                   disabled={actionBusy !== null}
-                  className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-bg-tertiary)] hover:bg-[var(--ff-bg-primary)] text-[var(--ff-text-primary)] text-sm font-medium disabled:opacity-50"
+                  className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-bg-tertiary)] hover:bg-[var(--ff-bg-primary)] text-[var(--ff-text-primary)] text-sm font-medium disabled:opacity-50 max-lg:min-h-11"
                   title={`Carry balances from ${year - 1} into ${year}`}
                 >
                   {actionBusy === 'rollover' ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
@@ -183,7 +185,7 @@ export default function LeaveBalancesPage() {
               <select
                 value={year}
                 onChange={e => setYear(Number(e.target.value))}
-                className="px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-primary)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:ring-1 focus:ring-teal-500"
+                className="px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-primary)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:ring-1 focus:ring-teal-500 max-lg:min-h-11"
               >
                 {yearOptions.map(y => <option key={y} value={y}>{y}</option>)}
               </select>
@@ -222,7 +224,7 @@ export default function LeaveBalancesPage() {
                 Colour: <span className="text-teal-400">green</span> ≥ 50% · <span className="text-yellow-400">amber</span> 25–49% · <span className="text-red-400">red</span> &lt; 25% of accrued remaining
               </p>
               <div className="rounded-lg border border-[var(--ff-border-primary)] overflow-hidden bg-[var(--ff-surface-primary)]">
-                <table className="w-full text-sm">
+                <table className="w-full text-sm table-cards">
                   <thead>
                     <tr className="border-b border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)]">
                       <th className="text-left py-3 px-4 text-[var(--ff-text-secondary)] font-medium">Employee</th>
@@ -237,8 +239,8 @@ export default function LeaveBalancesPage() {
                         <td className="py-3 px-4 font-medium text-[var(--ff-text-primary)]">{emp.employeeName}</td>
                         {leaveTypes.map(t => {
                           const b = emp.balances[t];
-                          if (!b) return <td key={t} className="py-3 px-4 text-right text-[var(--ff-text-tertiary)] text-sm">—</td>;
-                          return <BalanceCell key={t} accrued={b.accrued} balance={b.balance} />;
+                          if (!b) return <td key={t} data-label={t} className="py-3 px-4 text-right text-[var(--ff-text-tertiary)] text-sm">—</td>;
+                          return <BalanceCell key={t} label={t} accrued={b.accrued} balance={b.balance} />;
                         })}
                       </tr>
                     ))}

@@ -20,6 +20,7 @@ import {
   type ConsolidatedBSTotals,
 } from './consolidatedTrialBalanceService';
 import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
+import type { DroppedMirroredElimination } from './mirrorEliminations';
 
 type Row = DbRow;
 
@@ -30,6 +31,8 @@ export interface ConsolidatedIncomeStatement {
   totalRevenue: ConsolidatedISTotals; totalCostOfSales: ConsolidatedISTotals;
   grossProfit: ConsolidatedISTotals; totalOperatingExpenses: ConsolidatedISTotals;
   netProfit: ConsolidatedISTotals;
+  /** Mirrored eliminations in the period that could not be applied (an account with no group account): the figures keep them. */
+  droppedMirrored: DroppedMirroredElimination[];
 }
 
 export interface ConsolidatedBalanceSheet {
@@ -38,6 +41,7 @@ export interface ConsolidatedBalanceSheet {
   equity: ConsolidatedBSLineItem[];
   totalAssets: ConsolidatedBSTotals; totalLiabilities: ConsolidatedBSTotals;
   totalEquity: ConsolidatedBSTotals;
+  droppedMirrored: DroppedMirroredElimination[];
 }
 
 function buildISTotals(items: ConsolidatedLineItem[]): ConsolidatedISTotals {
@@ -112,8 +116,16 @@ export async function getConsolidatedIncomeStatement(
       }
     }
 
-    for (const elim of await getPostedEliminations(groupId, periodStart, periodEnd)) {
-      const entry = lineMap.get(elim.groupAccountId);
+    const droppedMirrored: DroppedMirroredElimination[] = [];
+    for (const elim of await getPostedEliminations(groupId, periodStart, periodEnd, { dropped: droppedMirrored })) {
+      let entry = lineMap.get(elim.groupAccountId);
+      // An elimination on a group account no member booked anything to in this period (a sale and its purchase fall in different months) still
+      // counts: it gets its own line, or the other side would be eliminated alone and group profit would move. A non-P&L account has no line here.
+      if (!entry && (elim.groupAccountType === 'revenue' || elim.groupAccountType === 'expense')) {
+        const category = elim.groupAccountType === 'revenue' ? 'revenue' : canonicalSubtype(elim.groupAccountSubtype ?? '') === 'cost_of_sales' ? 'costOfSales' : 'operatingExpenses';
+        entry = { groupAccountId: elim.groupAccountId, accountCode: elim.groupAccountCode, accountName: elim.groupAccountName, entities: {}, eliminationAmount: 0, consolidatedAmount: 0, category };
+        lineMap.set(elim.groupAccountId, entry);
+      }
       // The elimination must land in the SAME direction the member amounts
       // were accumulated in, a few lines above:
       //     amount = type === 'revenue' ? credit - debit : debit - credit
@@ -165,7 +177,7 @@ export async function getConsolidatedIncomeStatement(
     netProfit.eliminationAmount = grossProfit.eliminationAmount - totalOperatingExpenses.eliminationAmount;
     netProfit.consolidatedAmount = grossProfit.consolidatedAmount - totalOperatingExpenses.consolidatedAmount;
 
-    return { groupId, periodStart, periodEnd, revenue, costOfSales, operatingExpenses, totalRevenue, totalCostOfSales, grossProfit, totalOperatingExpenses, netProfit };
+    return { groupId, periodStart, periodEnd, revenue, costOfSales, operatingExpenses, totalRevenue, totalCostOfSales, grossProfit, totalOperatingExpenses, netProfit, droppedMirrored };
   } catch (err) {
     log.error('Failed to generate consolidated income statement', { groupId, error: err }, 'accounting');
     throw err;
@@ -253,7 +265,8 @@ export async function getConsolidatedBalanceSheet(
       }
     }
 
-    for (const elim of await getPostedEliminations(groupId, '1900-01-01', asAtDate)) {
+    const droppedMirrored: DroppedMirroredElimination[] = [];
+    for (const elim of await getPostedEliminations(groupId, '1900-01-01', asAtDate, { balanceSheetOnly: true, dropped: droppedMirrored })) {
       const entry = lineMap.get(elim.groupAccountId);
       if (!entry) continue;
       entry.eliminationAmount += balanceByAccountType(entry.category, elim.debit - elim.credit);
@@ -268,14 +281,8 @@ export async function getConsolidatedBalanceSheet(
       for (const v of Object.values(raw.entities)) entitySum += v;
       raw.consolidatedAmount = entitySum + raw.eliminationAmount;
       const { category } = raw;
-      const lineItem: ConsolidatedBSLineItem = {
-        groupAccountId: raw.groupAccountId,
-        accountCode: raw.accountCode,
-        accountName: raw.accountName,
-        entities: raw.entities,
-        eliminationAmount: raw.eliminationAmount,
-        consolidatedAmount: raw.consolidatedAmount,
-      };
+      const lineItem: ConsolidatedBSLineItem = { groupAccountId: raw.groupAccountId, accountCode: raw.accountCode, accountName: raw.accountName,
+        entities: raw.entities, eliminationAmount: raw.eliminationAmount, consolidatedAmount: raw.consolidatedAmount };
       if (category === 'asset') assets.push(lineItem);
       else if (category === 'liability') liabilities.push(lineItem);
       else if (category === 'equity') equity.push(lineItem);
@@ -284,7 +291,7 @@ export async function getConsolidatedBalanceSheet(
     const sort = (a: ConsolidatedBSLineItem, b: ConsolidatedBSLineItem) => a.accountCode.localeCompare(b.accountCode);
     assets.sort(sort); liabilities.sort(sort); equity.sort(sort);
 
-    return { groupId, asAtDate, assets, liabilities, equity, totalAssets: buildBSTotals(assets), totalLiabilities: buildBSTotals(liabilities), totalEquity: buildBSTotals(equity) };
+    return { groupId, asAtDate, assets, liabilities, equity, totalAssets: buildBSTotals(assets), totalLiabilities: buildBSTotals(liabilities), totalEquity: buildBSTotals(equity), droppedMirrored };
   } catch (err) {
     log.error('Failed to generate consolidated balance sheet', { groupId, error: err }, 'accounting');
     throw err;

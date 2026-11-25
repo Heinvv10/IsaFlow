@@ -103,7 +103,7 @@ describe('a message being sent while a company leaves', () => {
     try {
       await sender.query(
         `INSERT INTO intercompany_messages(connection_id, from_company_id, to_company_id, kind, source_doc_type, source_doc_id, payload)
-         VALUES ($1, $2, $3, 'payment', 'payment', gen_random_uuid(), '{}')`, [id, co.A, co.B]);
+         VALUES ($1, $2, $3, 'reject', 'payment', gen_random_uuid(), '{}')`, [id, co.A, co.B]);
       const leaverPid = await pidOf(leaver);
       let done = false;
       const leaving = leaver.query(LEAVE, [co.G, co.B]).then(() => { done = true; });

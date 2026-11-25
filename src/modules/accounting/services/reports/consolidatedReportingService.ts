@@ -6,14 +6,17 @@
  */
 
 import { toIsoTimestamp } from '@/lib/dateUtils';
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { getGroupMembers } from './consolidatedTrialBalanceService';
+import { getMirroredEliminations, type DroppedMirroredElimination } from './mirrorEliminations';
 import type { DbRow } from '@/types/db';
 import { AR_OPEN_STATUSES, AP_OPEN_STATUSES } from '@/lib/constants/invoiceStatuses';
 import { BANK_SUBTYPES } from '../gl/accountSubtypes';
 import { asAtTodayStr, documentInLedgerAsAtFragmentForRowTenant } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
-import { EliminationStateError, EliminationUnbalancedError } from './eliminationErrors';
+import { EliminationAlreadyStandsError, EliminationMirroredRowUnsupportedError, EliminationStateError, EliminationUnbalancedError } from './eliminationErrors';
+import { storedEliminationRows } from './eliminationDuplicates';
+import { allStand, anyLinkedElsewhere, factsFromRows, type MirrorFacts } from './mirrorFacts';
 import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 
 // ── Re-exports ────────────────────────────────────────────────────────────────
@@ -21,6 +24,8 @@ import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEn
 export { getConsolidatedTrialBalance } from './consolidatedTrialBalanceService';
 export type { ConsolidatedTrialBalance } from './consolidatedTrialBalanceService';
 export { getConsolidatedIncomeStatement, getConsolidatedBalanceSheet } from './consolidatedStatementsService';
+export { autoGenerateEliminations } from './eliminationGenerator';
+export { postEliminationAdjustment } from './eliminationDuplicates';
 export type { ConsolidatedIncomeStatement, ConsolidatedBalanceSheet } from './consolidatedStatementsService';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -34,21 +39,37 @@ export interface GroupDashboardStats {
   combinedAPTotal: number; combinedRevenue: number; combinedExpenses: number;
   entitySummaries: EntitySummary[];
 }
-interface EliminationLine { groupAccountId: string; debit: number; credit: number; description: string; }
+export interface EliminationLine { groupAccountId: string; debit: number; credit: number; description: string; }
 export interface ConsolidationAdjustment {
   id: string; groupId: string; adjustmentNumber: string; adjustmentType: string;
   description: string; periodStart: string; periodEnd: string; status: string;
   lines: EliminationLine[]; sourceIntercompanyId: string | null;
   postedBy: string | null; postedAt: string | null; createdAt: string;
+  /** A derived line (mirrored intercompany documents): computed from the ledgers at read time, never stored; it cannot be posted or reversed. */
+  automatic?: boolean;
+  /** A draft or posted stored adjustment whose source row now matches a live mirrored sale (intercompany_mirrored_duplicate): the mirror(s) named (facts.label). */
+  mirroredDuplicateOf?: string | null;
+  /** What is true of that mirror(s) for the adjustment's period (intercompany_mirror_facts): every sentence about it is worded from these (mirrorFacts.ts). */
+  mirrorFacts?: MirrorFacts | null;
+  /** Derived from mirrorFacts (never worded on its own): every named mirror is eliminated automatically for the period. */
+  mirrorStands?: boolean | null;
+  /** Derived from mirrorFacts: some named mirror is held by another row's active link. */
+  mirrorLinked?: boolean | null;
+  /** How many listed adjustments name the same mirror(s): more than one means at most one of them can be the duplicate. */
+  mirrorShared?: number | null;
+  /** The row is on or after its mirroring pair's cutover (so no standing mirror was left to it): the cutover date. */
+  pairCutover?: string | null;
+  /** Why a person made this elimination by hand for a group whose pairs mirror (required on or after a pair's cutover). */
+  manualReason?: string | null;
 }
-interface CreateEliminationInput {
+export interface CreateEliminationInput {
   adjustmentType: string; description: string; periodStart: string; periodEnd: string;
-  lines: EliminationLine[]; sourceIntercompanyId?: string;
+  lines: EliminationLine[]; sourceIntercompanyId?: string; manualReason?: string;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function mapAdjustmentRow(r: DbRow): ConsolidationAdjustment {
+export function mapAdjustmentRow(r: DbRow): ConsolidationAdjustment {
   const rawLines = typeof r.lines === 'string' ? JSON.parse(r.lines) : r.lines;
   return {
     id: String(r.id), groupId: String(r.group_id),
@@ -59,29 +80,8 @@ function mapAdjustmentRow(r: DbRow): ConsolidationAdjustment {
     sourceIntercompanyId: r.source_intercompany_id ? String(r.source_intercompany_id) : null,
     postedBy: r.posted_by ? String(r.posted_by) : null,
     postedAt: r.posted_at ? toIsoTimestamp(r.posted_at as Date | string) : null, createdAt: (toIsoTimestamp(r.created_at as Date | string) ?? ''),
+    manualReason: r.manual_reason ? String(r.manual_reason) : null,
   };
-}
-
-async function findGroupAccountByType(groupId: string, companyId: string, accountType: string): Promise<string | null> {
-  const rows = (await sql`
-    SELECT gcm.group_account_id FROM group_coa_mappings gcm
-    JOIN gl_accounts ga ON ga.id = gcm.company_account_id
-    WHERE gcm.group_id = ${groupId}::UUID AND gcm.company_id = ${companyId}::UUID
-      AND ga.company_id = ${companyId}::UUID AND ga.account_type = ${accountType}
-    LIMIT 1
-  `) as DbRow[];
-  return rows.length > 0 ? String(rows[0]!.group_account_id) : null;
-}
-
-async function findGroupAccountBySubtype(groupId: string, companyId: string, subtype: string): Promise<string | null> {
-  const rows = (await sql`
-    SELECT gcm.group_account_id FROM group_coa_mappings gcm
-    JOIN gl_accounts ga ON ga.id = gcm.company_account_id
-    WHERE gcm.group_id = ${groupId}::UUID AND gcm.company_id = ${companyId}::UUID
-      AND ga.company_id = ${companyId}::UUID AND ga.account_subtype = ${subtype}
-    LIMIT 1
-  `) as DbRow[];
-  return rows.length > 0 ? String(rows[0]!.group_account_id) : null;
 }
 
 // ── Group Dashboard Stats ─────────────────────────────────────────────────────
@@ -184,33 +184,35 @@ export async function createEliminationAdjustment(
     if (Math.abs(totalDebit - totalCredit) > 0.01) {
       throw new EliminationUnbalancedError(totalDebit, totalCredit);
     }
-    const rows = (await sql`
-      INSERT INTO consolidation_adjustments (
-        group_id, adjustment_type, description, period_start, period_end, lines, source_intercompany_id
-      ) VALUES (
-        ${groupId}::UUID, ${input.adjustmentType}, ${input.description},
-        ${input.periodStart}, ${input.periodEnd}, ${JSON.stringify(input.lines)}::JSONB,
-        ${input.sourceIntercompanyId ?? null}::UUID
-      ) RETURNING *
-    `) as DbRow[];
+    // A mirrored row is eliminated by the mirror (derived from the ledgers); a person's elimination of it is not supported yet. The generator skips those rows.
+    if (input.sourceIntercompanyId) {
+      const mirrored = (await sql`SELECT public.intercompany_is_mirrored_row(${input.sourceIntercompanyId}::UUID) AS m`) as DbRow[];
+      if (mirrored[0]?.m === true) throw new EliminationMirroredRowUnsupportedError(input.sourceIntercompanyId);
+    }
+    // No ON CONFLICT: 1019 builds the partial unique index only where no legacy duplicates exist, and an ON CONFLICT naming an index that is
+    // absent fails every insert. Where the index exists a second standing elimination of a row is a unique violation, mapped to the skip.
+    let rows: DbRow[];
+    try {
+      rows = await withSavepoint('consolidation_adjustment_insert', async () => (await sql`
+        INSERT INTO consolidation_adjustments (
+          group_id, adjustment_type, description, period_start, period_end, lines, source_intercompany_id, manual_reason
+        ) VALUES (
+          ${groupId}::UUID, ${input.adjustmentType}, ${input.description},
+          ${input.periodStart}, ${input.periodEnd}, ${JSON.stringify(input.lines)}::JSONB,
+          ${input.sourceIntercompanyId ?? null}::UUID, ${input.manualReason ?? null}
+        ) RETURNING *
+      `) as DbRow[]);
+    } catch (err) {
+      const e = err as { code?: string; constraint?: string };
+      if (e.code === '23505' && e.constraint === 'uq_consolidation_adjustments_standing_source') throw new EliminationAlreadyStandsError(input.sourceIntercompanyId ?? '');
+      throw err;
+    }
     log.info('Created elimination adjustment', { groupId, id: rows[0]!.id }, 'accounting');
     return mapAdjustmentRow(rows[0]!);
   } catch (err) {
-    log.error('Failed to create elimination adjustment', { groupId, error: err }, 'accounting');
-    throw err;
-  }
-}
-
-export async function postEliminationAdjustment(adjustmentId: string, groupId: string): Promise<void> {
-  try {
-    const result = (await sql`
-      UPDATE consolidation_adjustments SET status='posted', posted_at=NOW(), updated_at=NOW()
-      WHERE id=${adjustmentId}::UUID AND group_id=${groupId}::UUID AND status='draft' RETURNING id
-    `) as DbRow[];
-    if (result.length === 0) throw new EliminationStateError(adjustmentId, 'draft');
-    log.info('Posted elimination adjustment', { adjustmentId, groupId }, 'accounting');
-  } catch (err) {
-    log.error('Failed to post elimination adjustment', { adjustmentId, groupId, error: err }, 'accounting');
+    if (err instanceof EliminationMirroredRowUnsupportedError) log.info('Manual elimination of a mirrored row refused', { groupId, sourceIntercompanyId: input.sourceIntercompanyId }, 'accounting');
+    else if (err instanceof EliminationAlreadyStandsError) log.info('Elimination already stands for this row', { groupId, sourceIntercompanyId: input.sourceIntercompanyId }, 'accounting');
+    else log.error('Failed to create elimination adjustment', { groupId, error: err }, 'accounting');
     throw err;
   }
 }
@@ -229,75 +231,32 @@ export async function reverseEliminationAdjustment(adjustmentId: string, groupId
   }
 }
 
+/** `dropped`, when given, receives the period's mirrored eliminations that could not be applied (an account with no group account). */
 export async function getEliminationAdjustments(
-  groupId: string, periodStart?: string, periodEnd?: string
+  groupId: string, periodStart?: string, periodEnd?: string, dropped?: DroppedMirroredElimination[],
 ): Promise<ConsolidationAdjustment[]> {
   try {
     const pStart = periodStart ?? null; const pEnd = periodEnd ?? null;
-    const rows = (await sql`
-      SELECT * FROM consolidation_adjustments
-      WHERE group_id=${groupId}::UUID
-        AND (${pStart}::DATE IS NULL OR period_start >= ${pStart}::DATE)
-        AND (${pEnd}::DATE IS NULL OR period_end <= ${pEnd}::DATE)
-      ORDER BY created_at DESC
-    `) as DbRow[];
-    return rows.map(mapAdjustmentRow);
+    // A draft or posted manual adjustment whose row now matches a live mirrored sale may be eliminating that sale a second time
+    // (eliminationDuplicates.ts): the list says so, with whether the mirror is eliminated automatically and how many share it.
+    const rows = await storedEliminationRows(groupId, pStart, pEnd);
+    const stored = rows.map((r) => {
+      const facts = factsFromRows(r.mirror_facts as DbRow[] | null, String(r.facts_period_end));
+      return { ...mapAdjustmentRow(r), mirroredDuplicateOf: facts?.label ?? null, mirrorFacts: facts,
+        mirrorStands: facts ? allStand(facts) : null, mirrorLinked: facts ? anyLinkedElsewhere(facts) : null,
+        mirrorShared: r.mirror_shared == null ? null : Number(r.mirror_shared), pairCutover: r.pair_cutover ? String(r.pair_cutover) : null };
+    });
+    // The mirrored documents' eliminations are derived (the events dated in the period: an elimination, or a counter-elimination labelled as
+    // one when the pair stopped standing), not stored: listed before the stored ones, labelled, with no id to act on.
+    const derived = pStart && pEnd ? await getMirroredEliminations(groupId, pStart, pEnd, dropped) : [];
+    return [...derived.map((m): ConsolidationAdjustment => ({
+      id: `mirror:${m.transactionId}:${m.receiverJournalId}:${m.kind}`, groupId, adjustmentNumber: 'AUTO', adjustmentType: 'interco_revenue', description: m.description,
+      periodStart: m.keyDate, periodEnd: m.keyDate, status: 'posted', automatic: true,
+      lines: m.lines.map(l => ({ groupAccountId: l.groupAccountId, debit: l.debit, credit: l.credit, description: l.description })),
+      sourceIntercompanyId: m.transactionId, postedBy: null, postedAt: null, createdAt: m.keyDate,
+    })), ...stored];
   } catch (err) {
     log.error('Failed to fetch elimination adjustments', { groupId, error: err }, 'accounting');
-    throw err;
-  }
-}
-
-// ── Auto-generation ───────────────────────────────────────────────────────────
-
-export async function autoGenerateEliminations(
-  groupId: string, periodStart: string, periodEnd: string
-): Promise<ConsolidationAdjustment[]> {
-  try {
-    const icTxRows = (await sql`
-      SELECT ict.id, ict.source_company_id, ict.target_company_id,
-             ict.transaction_type, ict.amount, ict.description
-      FROM intercompany_transactions ict
-      WHERE ict.group_id=${groupId}::UUID AND ict.match_status='matched'
-        AND ict.transaction_date>=${periodStart} AND ict.transaction_date<=${periodEnd}
-    `) as DbRow[];
-
-    const created: ConsolidationAdjustment[] = [];
-
-    for (const tx of icTxRows) {
-      const txType = String(tx.transaction_type);
-      const amount = Number(tx.amount);
-      const srcId = String(tx.source_company_id);
-      const tgtId = String(tx.target_company_id);
-      const desc = tx.description ?? '';
-
-      if (txType === 'sale' || txType === 'purchase' || txType === 'mgmt_fee') {
-        const revGaId = await findGroupAccountByType(groupId, srcId, 'revenue');
-        const expGaId = await findGroupAccountByType(groupId, tgtId, 'expense');
-        if (revGaId && expGaId) {
-          const lines: EliminationLine[] = [
-            { groupAccountId: revGaId, debit: amount, credit: 0, description: `Eliminate intercompany ${txType} revenue` },
-            { groupAccountId: expGaId, debit: 0, credit: amount, description: `Eliminate intercompany ${txType} expense` },
-          ];
-          created.push(await createEliminationAdjustment(groupId, { adjustmentType: 'interco_revenue', description: `Auto-elimination: intercompany ${txType} - ${desc}`.trim(), periodStart, periodEnd, lines, sourceIntercompanyId: String(tx.id) }));
-        }
-      } else if (txType === 'loan' || txType === 'transfer') {
-        const recGaId = await findGroupAccountBySubtype(groupId, srcId, 'receivable');
-        const payGaId = await findGroupAccountBySubtype(groupId, tgtId, 'payable');
-        if (recGaId && payGaId) {
-          const lines: EliminationLine[] = [
-            { groupAccountId: payGaId, debit: amount, credit: 0, description: `Eliminate intercompany payable` },
-            { groupAccountId: recGaId, debit: 0, credit: amount, description: `Eliminate intercompany receivable` },
-          ];
-          created.push(await createEliminationAdjustment(groupId, { adjustmentType: 'interco_balance', description: `Auto-elimination: intercompany ${txType} balance - ${desc}`.trim(), periodStart, periodEnd, lines, sourceIntercompanyId: String(tx.id) }));
-        }
-      }
-    }
-
-    log.info('Auto-generated elimination adjustments', { groupId, count: created.length }, 'accounting');
-    return created;
-  } catch (err) {
-    log.error('Failed to auto-generate eliminations', { groupId, error: err }, 'accounting');
     throw err;
   }
 }

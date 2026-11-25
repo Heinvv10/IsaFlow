@@ -36,6 +36,7 @@ import { brokenChainMessage, findJournalChainHead, lockChainHead } from '../shar
 import { withRowLockBudget } from '../core/rowLockBudget';
 import { splitPartRefusal } from '../bank/splitJournalDocuments';
 import { JournalReversalLockTimeoutError } from '../gl/journalEntryReversalClaim';
+import { lockPayerJournalKey, PAYER_JOURNAL_KEY_BUSY } from '../intercompany/payerJournalKey';
 
 export interface BankLeg {
   /** The journal's reversal chain is out of the ledger; the caller decides what that means. */
@@ -163,6 +164,10 @@ export async function lockJournalAndUnmatch(
   companyId: string, journalId: string, leg: BankLeg, label: string,
 ): Promise<void> {
   const journals = [...new Set([journalId, leg.reverseId])];
+  // P4-E round 3: the payer's journal key BEFORE these rows (one chain, one root; only when an allocation message stands on it): the batch
+  // reversal and the bank-line reversal of a payment reach the claim's key holding them, while a GL reversal takes key, then row (40P01).
+  await withRowLockBudget(() => lockPayerJournalKey(companyId, journalId),
+    () => new JournalReversalLockTimeoutError(journalId, PAYER_JOURNAL_KEY_BUSY(journalId)));
   // ORDER BY id: two requests locking the same two journals take them in one order. Bounded (D8 round 9).
   await withRowLockBudget(() => sql`
     SELECT id FROM gl_journal_entries

@@ -29,7 +29,7 @@ export function Emp501ReturnSection({ taxYear, kind: held, onKindChange }: {
     <section aria-labelledby="emp501-return-title" className="space-y-3">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <h2 id="emp501-return-title" className="text-base font-semibold text-[var(--ff-text-primary)]">EMP501 return</h2>
-        <Select id="emp501-return-kind" label="Reconciliation" size="sm" className="min-w-[220px]"
+        <Select id="emp501-return-kind" label="Reconciliation" size="sm" touchTarget className="min-w-[220px]"
           value={kind} onChange={(v) => setKind(v === 'annual' ? 'annual' : 'interim')} options={KINDS} />
       </div>
       <ReturnLifecycleBar form="EMP501" periodStart={p.start} periodEnd={p.end} role={companyRole} />

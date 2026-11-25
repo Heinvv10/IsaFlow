@@ -151,7 +151,7 @@ export function ExchangeRatesPanel({ currencies, exchangeRates, onRefresh }: Pro
               <select
                 value={rateForm.fromCurrency}
                 onChange={e => setRateForm(f => ({ ...f, fromCurrency: e.target.value }))}
-                className="w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:border-violet-500"
+                className="w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:border-violet-500 max-lg:min-h-11"
               >
                 <option value="">Select...</option>
                 {currencies.map(c => <option key={c.code} value={c.code}>{c.code} — {c.name}</option>)}
@@ -162,7 +162,7 @@ export function ExchangeRatesPanel({ currencies, exchangeRates, onRefresh }: Pro
               <select
                 value={rateForm.toCurrency}
                 onChange={e => setRateForm(f => ({ ...f, toCurrency: e.target.value }))}
-                className="w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:border-violet-500"
+                className="w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:border-violet-500 max-lg:min-h-11"
               >
                 <option value="">Select...</option>
                 {currencies.map(c => <option key={c.code} value={c.code}>{c.code} — {c.name}</option>)}
@@ -177,7 +177,7 @@ export function ExchangeRatesPanel({ currencies, exchangeRates, onRefresh }: Pro
                 placeholder="e.g. 18.50"
                 value={rateForm.rate}
                 onChange={e => setRateForm(f => ({ ...f, rate: e.target.value }))}
-                className="w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:border-violet-500"
+                className="w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:border-violet-500 max-lg:min-h-11"
               />
             </div>
             <div>
@@ -188,7 +188,7 @@ export function ExchangeRatesPanel({ currencies, exchangeRates, onRefresh }: Pro
             <button
               onClick={handleSaveRate}
               disabled={savingRate || dateGate.blocked}
-              className="px-4 py-2 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white rounded-lg flex items-center gap-2 text-sm"
+              className="px-4 py-2 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white rounded-lg flex items-center gap-2 text-sm max-lg:min-h-11"
             >
               {savingRate ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
               Save Rate
@@ -211,7 +211,7 @@ export function ExchangeRatesPanel({ currencies, exchangeRates, onRefresh }: Pro
                 placeholder="100"
                 value={convertForm.amount}
                 onChange={e => { setConvertForm(f => ({ ...f, amount: e.target.value })); setConvertResult(null); }}
-                className="w-36 px-3 py-2 rounded-lg bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:border-violet-500"
+                className="w-36 px-3 py-2 rounded-lg bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:border-violet-500 max-lg:min-h-11"
               />
             </div>
             <div>
@@ -219,7 +219,7 @@ export function ExchangeRatesPanel({ currencies, exchangeRates, onRefresh }: Pro
               <select
                 value={convertForm.from}
                 onChange={e => { setConvertForm(f => ({ ...f, from: e.target.value })); setConvertResult(null); }}
-                className="px-3 py-2 rounded-lg bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:border-violet-500"
+                className="px-3 py-2 rounded-lg bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:border-violet-500 max-lg:min-h-11"
               >
                 {currencies.map(c => <option key={c.code} value={c.code}>{c.code}</option>)}
               </select>
@@ -230,7 +230,7 @@ export function ExchangeRatesPanel({ currencies, exchangeRates, onRefresh }: Pro
               <select
                 value={convertForm.to}
                 onChange={e => { setConvertForm(f => ({ ...f, to: e.target.value })); setConvertResult(null); }}
-                className="px-3 py-2 rounded-lg bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:border-violet-500"
+                className="px-3 py-2 rounded-lg bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:border-violet-500 max-lg:min-h-11"
               >
                 {currencies.map(c => <option key={c.code} value={c.code}>{c.code}</option>)}
               </select>
@@ -238,7 +238,7 @@ export function ExchangeRatesPanel({ currencies, exchangeRates, onRefresh }: Pro
             <button
               onClick={handleConvert}
               disabled={converting}
-              className="px-4 py-2 bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] hover:border-violet-500 text-[var(--ff-text-primary)] rounded-lg flex items-center gap-2 text-sm transition-colors"
+              className="px-4 py-2 bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] hover:border-violet-500 text-[var(--ff-text-primary)] rounded-lg flex items-center gap-2 text-sm transition-colors max-lg:min-h-11"
             >
               {converting ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Convert'}
             </button>
@@ -259,7 +259,7 @@ export function ExchangeRatesPanel({ currencies, exchangeRates, onRefresh }: Pro
           <p className="text-sm text-[var(--ff-text-secondary)] py-4">No exchange rates recorded yet.</p>
         ) : (
           <div className="rounded-xl border border-[var(--ff-border-light)] overflow-hidden">
-            <table className="w-full text-sm">
+            <table className="table-cards w-full text-sm">
               <thead>
                 <tr className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)]">
                   <th className="text-left px-4 py-2.5 text-xs font-semibold text-[var(--ff-text-secondary)] uppercase tracking-wider">Pair</th>
@@ -274,11 +274,11 @@ export function ExchangeRatesPanel({ currencies, exchangeRates, onRefresh }: Pro
                     <td className="px-4 py-3 font-mono font-semibold text-[var(--ff-text-primary)]">
                       {rate.fromCurrency} <span className="text-[var(--ff-text-tertiary)]">/</span> {rate.toCurrency}
                     </td>
-                    <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">
+                    <td data-label="Rate" className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">
                       {formatRate(rate.rate)}
                     </td>
-                    <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{formatDisplayDate(rate.effectiveDate)}</td>
-                    <td className="px-4 py-3">
+                    <td data-label="Effective" className="px-4 py-3 text-[var(--ff-text-secondary)]">{formatDisplayDate(rate.effectiveDate)}</td>
+                    <td data-label="Source" className="px-4 py-3">
                       <span className="px-2 py-0.5 rounded text-xs bg-[var(--ff-bg-primary)] text-[var(--ff-text-tertiary)] capitalize">
                         {rate.source}
                       </span>

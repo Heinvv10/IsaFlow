@@ -40,6 +40,15 @@ describe('SideForm', () => {
     });
   });
 
+  it('P4-D (M2): a stored loan account that is no loan class stays selectable as it is (a legacy side saves its other fields)', () => {
+    const legacy = connection({ settings: { settlementMode: 'loan', cutoverDate: null, interestRatePct: null },
+      side: { customerId: null, supplierId: null, loanAccountId: 'acc-2', defaultExpenseAccountId: null, autoAccept: false, customer: null, supplier: null, loanAccount: null, defaultExpenseAccount: null } });
+    render(<SideForm connection={legacy} options={OPTIONS} onSaved={vi.fn()} onError={vi.fn()} />);
+    const loan = screen.getByLabelText('Intercompany loan account') as HTMLSelectElement;
+    expect(loan.value).toBe('acc-2');
+    expect([...loan.options].map((o) => o.textContent)).toContain('6100 Cost of sales (current, not a loan account)');
+  });
+
   it('shows the loan account only while the pair settles through a loan, and never a settlement or cut-over field', () => {
     const { rerender } = render(<SideForm connection={connection()} options={OPTIONS} onSaved={vi.fn()} onError={vi.fn()} />);
     expect(screen.queryByLabelText('Intercompany loan account')).toBeNull();
@@ -47,6 +56,11 @@ describe('SideForm', () => {
     expect(screen.queryByLabelText(/Cut-over/)).toBeNull();
     rerender(<SideForm connection={connection({ settings: { settlementMode: 'loan', cutoverDate: null, interestRatePct: null } })} options={OPTIONS} onSaved={vi.fn()} onError={vi.fn()} />);
     expect(screen.getByLabelText('Intercompany loan account')).toBeInTheDocument();
+    // P4-D: the loan picker offers the loan class only, and says why
+    const loan = screen.getByLabelText('Intercompany loan account') as HTMLSelectElement;
+    expect([...loan.options].map((o) => o.value)).toEqual(['', 'acc-1']);
+    expect(screen.getByTestId('ic-loan-account-help')).toHaveTextContent(/Only loan or intercompany balance-sheet accounts are offered/);
+    expect(screen.getByTestId('ic-loan-account-help')).toHaveTextContent(/partner's loan reconciliation reads this account's balance/);
   });
 
   it('offers auto-accept on a group connection only, and does not send it for an external one', async () => {

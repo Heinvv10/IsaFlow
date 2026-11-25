@@ -22,9 +22,11 @@ const stored = (over: Partial<ExistingItem> & Pick<ExistingItem, 'id' | 'code'>)
 function ctxOf(items: ExistingItem[], movements: string[] = []): UpsertContext {
   const byId = new Map(items.map((i) => [i.id, i]));
   const byCode = new Map(items.map((i) => [i.code, i]));
+  const paddedByCode = new Map<string, ExistingItem[]>();
+  for (const i of items.filter((x) => x.code.trim() !== x.code)) paddedByCode.set(i.code.trim(), [...(paddedByCode.get(i.code.trim()) ?? []), i]);
   const byRef = new Map(items.filter((i) => i.externalSystem && i.externalRef).map((i) => [refKey(i.externalSystem!, i.externalRef!), i]));
   return {
-    byId, byCode, byRef,
+    byId, byCode, paddedByCode, byRef,
     categories: [
       { id: CAT_OPTICS, code: 'optics', name: 'Optics', isActive: true },
       { id: CAT_OLD, code: 'old', name: 'Old', isActive: false },
@@ -222,5 +224,104 @@ describe('planItemRows: a change of the (system, ref) identity is checked for un
     const ctx = ctxOf([a]);
     expect(planItemRows([row(0, { external_system: 'pastel', external_ref: 'R9' }, 'a')], ctx).planned[0]).toMatchObject({ outcome: 'updated', changed: ['external_system', 'external_ref'] });
     expect(planItemRows([row(0, { external_system: 'sage', external_ref: 'R1' }, 'a')], ctx).planned[0]).toMatchObject({ outcome: 'unchanged' });
+  });
+});
+
+describe('planItemRows — a code held by an item stored with surrounding whitespace', () => {
+  const legacy = stored({ id: 'L', code: 'FIB-0001 ' });
+
+  it('refuses the trimmed code as a create, naming the whitespace', () => {
+    const { planned, refusals } = planItemRows([row(0, { code: 'FIB-0001', description: 'New' })], ctxOf([legacy]));
+    expect(planned).toEqual([]);
+    expect(refusals).toEqual([{ index: 0, code: 'code_held_with_whitespace', reason: expect.stringMatching(/surrounding whitespace/) }]);
+  });
+
+  it('refuses it for an update_item that names another item by id', () => {
+    const other = stored({ id: 'O', code: 'OTHER' });
+    const { refusals } = planItemRows([row(0, { code: 'FIB-0001' }, 'O')], ctxOf([legacy, other]));
+    expect(refusals.map((r) => r.code)).toEqual(['code_held_with_whitespace']);
+  });
+
+  it('lets the legacy item itself take its trimmed code (update by id)', () => {
+    const { planned, refusals } = planItemRows([row(0, { code: 'FIB-0001' }, 'L')], ctxOf([legacy]));
+    expect(refusals).toEqual([]);
+    expect(planned[0]).toMatchObject({ outcome: 'updated', itemId: 'L', values: { code: 'FIB-0001' } });
+  });
+
+  it('leaves an unrelated code alone', () => {
+    const { refusals } = planItemRows([row(0, { code: 'FIB-0002', description: 'New' })], ctxOf([legacy]));
+    expect(refusals).toEqual([]);
+  });
+
+  it('a clean item sharing the trimmed code keeps working: update, unchanged and price change all pass', () => {
+    const clean = stored({ id: 'C', code: 'FIB-0001' });
+    const ctx = ctxOf([legacy, clean]);
+    const { planned, refusals } = planItemRows([row(0, { code: 'FIB-0001', description: 'Fibre 1km', purchase_price: 10 })], ctx);
+    expect(refusals).toEqual([]);
+    expect(planned[0]).toMatchObject({ outcome: 'unchanged', itemId: 'C' });
+    const upd = planItemRows([row(0, { code: 'FIB-0001', sales_price: 99 })], ctx);
+    expect(upd.refusals).toEqual([]);
+    expect(upd.planned[0]).toMatchObject({ outcome: 'updated', itemId: 'C' });
+  });
+
+  it('refuses when ANY of several legacy holders is another item, and lets only a holder rename itself if it is alone', () => {
+    const l1 = stored({ id: 'L1', code: 'X ' });
+    const l2 = stored({ id: 'L2', code: 'X\t' });
+    const ctx = ctxOf([l1, l2]);
+    expect(planItemRows([row(0, { code: 'X', description: 'New' })], ctx).refusals.map((r) => r.code)).toEqual(['code_held_with_whitespace']);
+    // L1 renaming itself to X is blocked by L2; L2 renaming is blocked by L1.
+    expect(planItemRows([row(0, { code: 'X' }, 'L1')], ctx).refusals.map((r) => r.code)).toEqual(['code_held_with_whitespace']);
+    expect(planItemRows([row(0, { code: 'X' }, 'L2')], ctx).refusals.map((r) => r.code)).toEqual(['code_held_with_whitespace']);
+  });
+
+  it('a soft-deleted legacy holder does not hold the exact key, so it does not refuse a create', () => {
+    const gone = stored({ id: 'D', code: 'FIB-0009 ', deleted: true });
+    const { planned, refusals } = planItemRows([row(0, { code: 'FIB-0009', description: 'New' })], ctxOf([gone]));
+    expect(refusals).toEqual([]);
+    expect(planned[0]).toMatchObject({ outcome: 'created' });
+  });
+
+  it('a row that renames a legacy holder away does not free its code for a later row in the same batch', () => {
+    const ctx = ctxOf([legacy]);
+    const { planned, refusals } = planItemRows([row(0, { code: 'FIB-0001-NEW' }, 'L'), row(1, { code: 'FIB-0001', description: 'New' })], ctx);
+    expect(planned.map((p) => p.index)).toEqual([0]);
+    expect(refusals).toEqual([{ index: 1, code: 'code_held_with_whitespace', reason: expect.any(String) }]);
+  });
+
+  it('a rename by external_ref onto a code another legacy item holds is refused; onto its own is allowed', () => {
+    const own = stored({ id: 'O', code: 'OWN ', externalSystem: 'sage', externalRef: 'R1' });
+    const other = stored({ id: 'P', code: 'TAKEN ' });
+    const ctx = ctxOf([own, other]);
+    const bad = planItemRows([row(0, { code: 'TAKEN', external_system: 'sage', external_ref: 'R1' })], ctx);
+    expect(bad.refusals.map((r) => r.code)).toEqual(['code_held_with_whitespace']);
+    const ok = planItemRows([row(0, { code: 'OWN', external_system: 'sage', external_ref: 'R1' })], ctx);
+    expect(ok.refusals).toEqual([]);
+    expect(ok.planned[0]).toMatchObject({ outcome: 'updated', itemId: 'O', values: { code: 'OWN' } });
+  });
+
+  it('a rename by id with two legacy holders plus a clean twin is refused (the exact twin answers first: code_in_use)', () => {
+    const l1 = stored({ id: 'L1', code: 'X ' });
+    const l2 = stored({ id: 'L2', code: 'X\t' });
+    const clean = stored({ id: 'C', code: 'X' });
+    const { refusals } = planItemRows([row(0, { code: 'X' }, 'L1')], ctxOf([l1, l2, clean]));
+    expect(refusals.map((r) => r.code)).toEqual(['code_in_use']);
+    // without the clean twin the other legacy holder refuses it
+    expect(planItemRows([row(0, { code: 'X' }, 'L1')], ctxOf([l1, l2])).refusals.map((r) => r.code)).toEqual(['code_held_with_whitespace']);
+  });
+
+  it('a soft-deleted and a live legacy holder on the same trimmed code: the live one still refuses (deleted listed first)', () => {
+    const gone = stored({ id: 'D', code: 'Y ', deleted: true });
+    const live = stored({ id: 'V', code: 'Y\t' });
+    const { refusals } = planItemRows([row(0, { code: 'Y', description: 'New' })], ctxOf([gone, live]));
+    expect(refusals.map((r) => r.code)).toEqual(['code_held_with_whitespace']);
+    expect(refusals[0]!.reason).toContain("'Y\t'");
+  });
+
+  it('a rename by id onto a code held only by a soft-deleted legacy row is allowed', () => {
+    const gone = stored({ id: 'D', code: 'Z ', deleted: true });
+    const mine = stored({ id: 'M', code: 'OLD' });
+    const { planned, refusals } = planItemRows([row(0, { code: 'Z' }, 'M')], ctxOf([gone, mine]));
+    expect(refusals).toEqual([]);
+    expect(planned[0]).toMatchObject({ outcome: 'updated', itemId: 'M', values: { code: 'Z' } });
   });
 });

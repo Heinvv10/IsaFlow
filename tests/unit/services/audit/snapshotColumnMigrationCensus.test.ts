@@ -87,6 +87,7 @@ const READ_BY_HAND = new Set([
   '499_gl_account_balances_status_trigger.sql', '500_widen_journal_entry_number.sql',
   '501_je_fiscal_period_autoresolve.sql', '653_soft_delete_journal_reversals.sql',
   '940_fiscal_years.sql', '941_journal_period_from_entry_date.sql', // EXECUTE FUNCTION in CREATE TRIGGER only; adds no column (2026-10-23)
+  '1019_intercompany_p2_mirror.sql', // EXECUTE FUNCTION in CREATE TRIGGER only; "journal" is intercompany_transactions' target_journal_entry_id and supplier_invoices.gl_journal_entry_id, read; it ALTERs no journal table (2026-11-19)
   '675_bank_feed_canonical_ingestion.sql', '701_vat_input_late_claim_account.sql',
   '708_approval_enforcement_infra.sql', '711_supplier_payment_settles_provisional.sql',
   '855_retire_data_archiving.sql', '862_credit_note_approval_enforcement.sql',
@@ -117,6 +118,35 @@ const READ_BY_HAND = new Set([
   // 1012 (2026-11-19, intercompany pairing): EXECUTE only as GRANT EXECUTE ON FUNCTION; "journal" is the read-only definer
   // intercompany_pairing_partner_loan_balance's SUM over gl_journal_entries / gl_journal_lines. No DDL on either table, no dynamic SQL.
   '1012_intercompany_pairing.sql',
+  // 1025 (2026-11-23, intercompany P4-B allocation sender): EXECUTE only as GRANT EXECUTE ON FUNCTION and has_function_privilege(..., 'EXECUTE');
+  // "journal" is the read-only definer intercompany_send_for_allocation's check that a payment's journal stands (intercompany_journal_chain_length)
+  // and the message's source_journal_entry_id. No DDL on gl_journal_entries / gl_journal_lines, no dynamic SQL.
+  '1025_intercompany_p4b_allocation_sender.sql',
+  // 1026 (2026-11-23, intercompany P4-C allocation liveness): EXECUTE only as GRANT EXECUTE ON FUNCTION and has_function_privilege(..., 'EXECUTE');
+  // "journal" is the read-only (STABLE) definer intercompany_allocation_message_live's check that the journal a message recorded still stands
+  // (intercompany_journal_chain_length) and the payment's gl_journal_entry_id. No DDL on gl_journal_entries / gl_journal_lines, no dynamic SQL.
+  '1026_intercompany_p4c_allocation_live.sql',
+  // 1027 (2026-11-23, intercompany P4-D allocation clearing): EXECUTE only as GRANT EXECUTE ON FUNCTION and has_function_privilege(..., 'EXECUTE');
+  // "journal" is the read-only liveness definer's SUM over the payer's gl_journal_lines (its loan credit) and the INVOKER guard helpers' reads of the
+  // receiver's own gl_journal_entries / gl_journal_lines (the clearing journal's two lines, its reversal). No DDL on either table, no dynamic SQL.
+  '1027_intercompany_p4d_allocation_clearing.sql',
+  // 1029 (2026-11-24, intercompany P4-E receiver readiness + connection hold): EXECUTE only as GRANT EXECUTE ON FUNCTION, has_function_privilege(...,
+  // 'EXECUTE') and the deploy-safe REVOKE loop's EXECUTE format('REVOKE ALL ON FUNCTION ...'); "journal" is the read-only payer-standing helper's
+  // check that a message's recorded journal stands (intercompany_journal_chain_length, the payment's gl_journal_entry_id) and a receipt's journal
+  // chain. No DDL on gl_journal_entries / gl_journal_lines.
+  '1029_intercompany_p4e_receiver_readiness.sql',
+  // 1030 (2026-11-24, intercompany P5 loan reconciliation, read only): EXECUTE only as GRANT EXECUTE ON FUNCTION, has_function_privilege(...,
+  // 'EXECUTE') and the deploy-safe REVOKE loop's EXECUTE format('REVOKE ALL ON FUNCTION ...'); "journal" is the STABLE readers' walk of
+  // gl_journal_entries (reversal chains) and their SUMs over gl_journal_lines on the loan accounts. No DDL on gl_journal_entries / gl_journal_lines.
+  '1030_intercompany_p5_loan_reconciliation.sql',
+  // 1031 (2026-11-24, intercompany F payment message): EXECUTE only as GRANT EXECUTE ON FUNCTION, has_function_privilege(..., 'EXECUTE') and a
+  // DO-block `EXECUTE format('REVOKE ALL ON FUNCTION %s FROM %I CASCADE', ...)` over its own functions (the 1029 pattern); "journal" is read only
+  // (gl_journal_entries / gl_journal_lines in definer bodies: the payment's standing journal, its chain, a loan-account credit). No DDL on either table.
+  '1031_intercompany_p6f_payment_messages.sql',
+  // 1018 (2026-11-20, ledger column immutability): EXECUTE only as EXECUTE FUNCTION in its CREATE TRIGGERs (on
+  // gl_journal_entries and the three document tables). One column added, document_cancelled_at (NOT_MATERIAL); none renamed
+  // or rebuilt, no dynamic SQL.
+  '1018_ledger_column_immutability.sql',
 ]);
 
 /** The columns a snapshot's canonical row freezes: what `je.` / `jl.` the row's jsonb_build_object reads. */

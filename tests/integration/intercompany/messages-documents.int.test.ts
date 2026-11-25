@@ -10,7 +10,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposable } from '../mfa-impersonation-postgres.helpers';
 import {
-  asAppUser, asOwner, cleanup, co, outcome, plantConnection, plantDocument, plantMessage, R, setup, U, wipeConnections, withoutTrigger,
+  asAppUser, asDefiner, asOwner, cleanup, co, outcome, plantAllocationRow, plantConnection, payloadFor, plantDocument, plantMessage, R, setup, U, wipeConnections, withoutTrigger,
 } from './intercompany.helpers';
 import { LINK, linkRow, mirrorArgs } from './links.helpers';
 
@@ -26,9 +26,11 @@ beforeEach(async () => {
 });
 
 const SEND = `INSERT INTO intercompany_messages(connection_id, from_company_id, to_company_id, kind, source_doc_type, source_doc_id, payload)
-              VALUES ($1, $2, $3, $4, $5, $6, '{}')`;
-const send = (user: string, from: string, to: string, kind: string, type: string, doc: string) =>
-  asAppUser(pool, user, from, (q) => outcome(q, SEND, [id, from, to, kind, type, doc]));
+              VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)`;
+// 1019: the DATABASE writes an invoice / credit-note message (app_user's own INSERT of one is refused: mirror-forged), so these send as the table
+// owner with the sender's claims; every other rule of the guard (the source, the connection, the group, the write role) runs as it does for anyone.
+const send = async (user: string, from: string, to: string, kind: string, type: string, doc: string) =>
+  asDefiner(pool, user, from, async (q) => outcome(q, SEND, [id, from, to, kind, type, doc, await payloadFor(pool, kind, doc, from)]));
 const handle = (user: string, company: string, m: string, set: string) =>
   asAppUser(pool, user, company, (q) => outcome(q, `UPDATE intercompany_messages SET ${set} WHERE id = $1`, [m]), true);
 const accepting = (type: string | null, doc: string | null) =>
@@ -70,10 +72,23 @@ describe('sending: the source document is the sender\'s and fits the kind', () =
     expect(await send(U.a, co.A, co.B, 'credit_note', 'credit_note', supplierSide)).toBe(R.msgSource);
   });
 
-  it('a kind that carries no document (payment, allocation, reject, credit_request) names a row id and is not checked', async () => {
-    for (const kind of ['payment', 'allocation', 'reject', 'credit_request']) {
+  it('a kind that carries no document (reject, credit_request) names a row id and is not checked; a payment message (1031) is the database\'s', async () => {
+    for (const kind of ['reject', 'credit_request']) {
       expect(await send(U.a, co.A, co.B, kind, 'payment', crypto.randomUUID()), kind).toBe('ok');
     }
+    // (`send` is the definers' owner: a payment message passes the writer check and must name the sender's own payment allocation)
+    expect(await send(U.a, co.A, co.B, 'payment', 'payment', crypto.randomUUID())).toBe(R.msgSource);
+  });
+
+  it('an allocation message (1025) names a payment allocation of the sender\'s OWN payment: a made-up row, another company\'s and the wrong type are refused', async () => {
+    const own = (await plantAllocationRow(pool, { paymentCompany: co.A })).allocation;
+    const thirds = (await plantAllocationRow(pool, { paymentCompany: co.C })).allocation;
+    const receivers = (await plantAllocationRow(pool, { paymentCompany: co.B })).allocation;
+    expect(await send(U.a, co.A, co.B, 'allocation', 'payment_allocation', crypto.randomUUID())).toBe(R.msgSource);
+    expect(await send(U.a, co.A, co.B, 'allocation', 'payment_allocation', thirds)).toBe(R.msgSource);
+    expect(await send(U.ab, co.A, co.B, 'allocation', 'payment_allocation', receivers)).toBe(R.msgSource);
+    expect(await send(U.a, co.A, co.B, 'allocation', 'payment', own)).toBe(R.msgSource);
+    expect(await send(U.a, co.A, co.B, 'allocation', 'payment_allocation', own)).toBe('ok');
   });
 });
 
@@ -115,7 +130,16 @@ describe('accepting: the target is the receiver\'s and fits the kind', () => {
     expect(await handle(U.b, co.B, m, "status = 'rejected', reason = 'wrong amount'")).toBe('ok');
   });
 
-  it.each([['payment'], ['allocation'], ['reject'], ['credit_request']])('%s creates no document: whatever target is sent is cleared, on accepting and on any other update', async (kind) => {
+  it("allocation (P4-D, 1027): accepted only with the clearing posted for it, a target on any other update refused, never cleared", async () => {
+    const m = await plantMessage(pool, id, co.A, co.B, { kind: 'allocation' });
+    const thirds = await plantDocument(pool, 'customer_invoice', co.C);                        // attack A
+    expect(await handle(U.b, co.B, m, accepting('customer_invoice', thirds))).toMatch(/^23514: an allocation message is accepted with the clearing posted for it/);
+    expect(await handle(U.b, co.B, m, `status = 'failed', error = 'x', target_doc_type = 'supplier_invoice', target_doc_id = '${thirds}'`))
+      .toMatch(/^23514: an allocation message names its clearing only when it is accepted/);
+    expect(await row(m)).toMatchObject({ status: 'pending', target_doc_type: null, target_doc_id: null });
+  });
+
+  it.each([['reject'], ['credit_request']])('%s creates no document: whatever target is sent is cleared, on accepting and on any other update', async (kind) => {
     const m = await plantMessage(pool, id, co.A, co.B, { kind });
     const thirds = await plantDocument(pool, 'customer_invoice', co.C);                        // attack A
     expect(await handle(U.b, co.B, m, accepting('customer_invoice', thirds))).toBe('ok');
@@ -218,15 +242,15 @@ describe('intercompany_message_documents_ok answers the receiver only', () => {
     expect(await ok(U.b, co.B, crypto.randomUUID())).toBe(false);
     const pending = await plantMessage(pool, id, co.A, co.B, { kind: 'interest_invoice' });      // no target yet
     expect(await ok(U.b, co.B, pending)).toBe(false);
-    const payment = await plantMessage(pool, id, co.A, co.B, { kind: 'payment' });               // a kind that carries no document
-    await handle(U.b, co.B, payment, "status = 'accepted'");
-    expect(await ok(U.b, co.B, payment)).toBe(false);
+    const request = await plantMessage(pool, id, co.A, co.B, { kind: 'credit_request' });       // a kind that carries no document
+    await handle(U.b, co.B, request, "status = 'accepted'");
+    expect(await ok(U.b, co.B, request)).toBe(false);
   });
 });
 
 describe('the mirror link re-checks, so neither attack reaches an ACTIVE link', () => {
-  it('attack A: a payment accepted with a third company\'s invoice as its target cannot be mirror-linked (kind refused, and nothing was stored)', async () => {
-    const m = await plantMessage(pool, id, co.A, co.B, { kind: 'payment' });
+  it('attack A: a credit request accepted with a third company\'s invoice as its target cannot be mirror-linked (kind refused, and nothing was stored)', async () => {
+    const m = await plantMessage(pool, id, co.A, co.B, { kind: 'credit_request' });
     const thirds = await plantDocument(pool, 'customer_invoice', co.C);
     await handle(U.b, co.B, m, accepting('customer_invoice', thirds));
     const src = (await row(m)).source_doc_id as string;
@@ -235,8 +259,8 @@ describe('the mirror link re-checks, so neither attack reaches an ACTIVE link', 
     });
   });
 
-  it('a payment message that somehow carries an accepted target (the message guard is off to plant it) is still refused by the kind', async () => {
-    const m = await plantMessage(pool, id, co.A, co.B, { kind: 'payment' });
+  it('a credit request that somehow carries an accepted target (the message guard is off to plant it) is still refused by the kind', async () => {
+    const m = await plantMessage(pool, id, co.A, co.B, { kind: 'credit_request' });
     const own = await plantDocument(pool, 'supplier_invoice', co.B);
     await withoutTrigger(pool, 'intercompany_messages', 'trg_intercompany_messages_guard', (q) =>
       q.query("UPDATE intercompany_messages SET status = 'accepted', target_doc_type = 'supplier_invoice', target_doc_id = $2 WHERE id = $1", [m, own]));

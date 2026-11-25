@@ -42,7 +42,7 @@ export function AccountLedgerTable({
   const b = ledgerPageBoundaries(normalBalance, rows, openingBalance, periodClosingBalance, page, totalPages);
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-sm">
+      <table className="table-cards w-full text-sm">
         <thead>
           <tr className="border-b border-[var(--ff-border-light)] text-left text-[var(--ff-text-secondary)] text-xs uppercase tracking-wide">
             <th className="px-4 py-2 w-28">Date</th>
@@ -60,14 +60,14 @@ export function AccountLedgerTable({
             <td colSpan={7} className="px-4 py-2 text-xs text-[var(--ff-text-tertiary)] font-medium">
               {b.openingLabel}
             </td>
-            <td className="px-4 py-2 text-right tabular-nums text-[var(--ff-text-secondary)]">
+            <td data-label="Balance" className="px-4 py-2 text-right tabular-nums text-[var(--ff-text-secondary)]">
               {fmt(b.opening)}
             </td>
           </tr>
 
           {rows.length === 0 ? (
             <tr>
-              <td colSpan={8} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)] text-sm">
+              <td colSpan={8} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)] text-sm max-lg:!py-8 max-lg:!text-center">
                 No transactions in this period
               </td>
             </tr>
@@ -77,18 +77,18 @@ export function AccountLedgerTable({
                 key={`${r.journalEntryId}-${i}`}
                 className={`border-b border-[var(--ff-border-light)]/50 hover:bg-[var(--ff-bg-primary)]/50${r.derived ? ' italic' : ''}`}
               >
-                <td className="px-4 py-2 text-[var(--ff-text-tertiary)]">{fmtDate(r.entryDate)}</td>
-                <td className="px-4 py-2 font-mono text-[var(--ff-text-secondary)]">{r.entryNumber}</td>
-                <td className="px-4 py-2 text-[var(--ff-text-secondary)] max-w-xs truncate">{r.description}</td>
-                <td className="px-4 py-2 text-[var(--ff-text-tertiary)] text-xs">{r.reference || '—'}</td>
-                <td className="px-4 py-2 text-[var(--ff-text-tertiary)] text-xs">{r.source}</td>
-                <td className="px-4 py-2 text-right tabular-nums text-[var(--ff-text-primary)]">
+                <td data-label="Date" className="px-4 py-2 text-[var(--ff-text-tertiary)]">{fmtDate(r.entryDate)}</td>
+                <td data-label="Entry #" className="px-4 py-2 font-mono text-[var(--ff-text-secondary)]">{r.entryNumber}</td>
+                <td data-label="Description" className="px-4 py-2 text-[var(--ff-text-secondary)] max-w-xs truncate max-lg:max-w-none max-lg:whitespace-normal">{r.description}</td>
+                <td data-label="Reference" className="px-4 py-2 text-[var(--ff-text-tertiary)] text-xs">{r.reference || '—'}</td>
+                <td data-label="Source" className="px-4 py-2 text-[var(--ff-text-tertiary)] text-xs">{r.source}</td>
+                <td data-label="Debit" className={`px-4 py-2 text-right tabular-nums text-[var(--ff-text-primary)]${r.debit > 0 ? '' : ' max-lg:!hidden'}`}>
                   {r.debit > 0 ? fmt(r.debit) : ''}
                 </td>
-                <td className="px-4 py-2 text-right tabular-nums text-[var(--ff-text-primary)]">
+                <td data-label="Credit" className={`px-4 py-2 text-right tabular-nums text-[var(--ff-text-primary)]${r.credit > 0 ? '' : ' max-lg:!hidden'}`}>
                   {r.credit > 0 ? fmt(r.credit) : ''}
                 </td>
-                <td className="px-4 py-2 text-right tabular-nums text-[var(--ff-text-secondary)]">
+                <td data-label="Balance" className="px-4 py-2 text-right tabular-nums text-[var(--ff-text-secondary)]">
                   {fmt(r.runningBalance)}
                 </td>
               </tr>
@@ -99,7 +99,7 @@ export function AccountLedgerTable({
             <td colSpan={7} className="px-4 py-2 text-xs text-[var(--ff-text-tertiary)]">
               {b.closingLabel}
             </td>
-            <td className="px-4 py-2 text-right tabular-nums text-[var(--ff-text-primary)]">
+            <td data-label="Balance" className="px-4 py-2 text-right tabular-nums text-[var(--ff-text-primary)]">
               {fmt(b.closing)}
             </td>
           </tr>
@@ -115,14 +115,14 @@ export function AccountLedgerTable({
             <button
               onClick={() => onPageChange(page - 1)}
               disabled={page <= 1}
-              className="p-1.5 rounded border border-[var(--ff-border-light)] text-[var(--ff-text-secondary)] hover:bg-[var(--ff-bg-tertiary)] disabled:opacity-40"
+              className="p-1.5 rounded border border-[var(--ff-border-light)] text-[var(--ff-text-secondary)] hover:bg-[var(--ff-bg-tertiary)] disabled:opacity-40 max-lg:min-h-11 max-lg:min-w-11 max-lg:inline-flex max-lg:items-center max-lg:justify-center"
             >
               <ChevronLeft className="h-4 w-4" />
             </button>
             <button
               onClick={() => onPageChange(page + 1)}
               disabled={page >= totalPages}
-              className="p-1.5 rounded border border-[var(--ff-border-light)] text-[var(--ff-text-secondary)] hover:bg-[var(--ff-bg-tertiary)] disabled:opacity-40"
+              className="p-1.5 rounded border border-[var(--ff-border-light)] text-[var(--ff-text-secondary)] hover:bg-[var(--ff-bg-tertiary)] disabled:opacity-40 max-lg:min-h-11 max-lg:min-w-11 max-lg:inline-flex max-lg:items-center max-lg:justify-center"
             >
               <ChevronRight className="h-4 w-4" />
             </button>

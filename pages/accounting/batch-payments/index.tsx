@@ -73,12 +73,12 @@ export default function BatchPaymentsPage() {
     <AppLayout>
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
         <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-6 py-4">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between max-lg:flex-wrap max-lg:gap-3">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-indigo-500/10"><Layers className="h-6 w-6 text-indigo-500" /></div>
               <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Batch Payments</h1>
             </div>
-            <Link href="/accounting/batch-payments/new" className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium">
+            <Link href="/accounting/batch-payments/new" className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium max-lg:min-h-11">
               <Plus className="h-4 w-4" /> New Batch
             </Link>
           </div>
@@ -86,7 +86,7 @@ export default function BatchPaymentsPage() {
 
         <div className="p-6">
           <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-hidden">
-            <table className="w-full text-sm">
+            <table className="w-full text-sm table-cards">
               <thead><tr className="border-b border-[var(--ff-border-light)] text-left text-[var(--ff-text-secondary)]">
                 <th className="px-4 py-3">Batch Number</th><th className="px-4 py-3">Date</th>
                 <th className="px-4 py-3">Payments</th><th className="px-4 py-3 text-right">Total</th>
@@ -94,30 +94,30 @@ export default function BatchPaymentsPage() {
                 <th className="px-4 py-3">Actions</th>
               </tr></thead>
               <tbody>
-                {loading && <tr><td colSpan={7} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)]">Loading...</td></tr>}
-                {error && <tr><td colSpan={7} className="px-4 py-3 text-center text-red-400">{error}</td></tr>}
-                {!loading && !error && items.length === 0 && <tr><td colSpan={7} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)]">No batch payments</td></tr>}
+                {loading && <tr><td colSpan={7} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)] max-lg:!py-8 max-lg:!text-center">Loading...</td></tr>}
+                {error && <tr><td colSpan={7} className="px-4 py-3 text-center text-red-400 max-lg:!py-3 max-lg:!text-center">{error}</td></tr>}
+                {!loading && !error && items.length === 0 && <tr><td colSpan={7} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)] max-lg:!py-8 max-lg:!text-center">No batch payments</td></tr>}
                 {items.map(item => (
                   <tr key={item.id} className="border-b border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-primary)]/50">
                     <td className="px-4 py-3 text-[var(--ff-text-primary)] font-medium">
-                      <Link href={`/accounting/batch-payments/${item.id}`} className="hover:text-indigo-400 transition-colors">
+                      <Link href={`/accounting/batch-payments/${item.id}`} className="hover:text-indigo-400 transition-colors max-lg:inline-flex max-lg:items-center max-lg:min-h-11">
                         {item.batchNumber}
                       </Link>
                     </td>
-                    <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{formatDisplayDate(item.batchDate)}</td>
-                    <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{item.paymentCount}</td>
-                    <td className="px-4 py-3 text-right text-[var(--ff-text-primary)]">{fmt(item.totalAmount)}</td>
-                    <td className="px-4 py-3 text-[var(--ff-text-secondary)] uppercase">{item.paymentMethod}</td>
-                    <td className="px-4 py-3"><span className={`px-2 py-0.5 rounded text-xs font-medium ${STATUS_BADGE[item.status] || ''}`}>{item.status}</span></td>
-                    <td className="px-4 py-3">
+                    <td data-label="Date" className="px-4 py-3 text-[var(--ff-text-secondary)]">{formatDisplayDate(item.batchDate)}</td>
+                    <td data-label="Payments" className="px-4 py-3 text-[var(--ff-text-secondary)]">{item.paymentCount}</td>
+                    <td data-label="Total" className="px-4 py-3 text-right text-[var(--ff-text-primary)]">{fmt(item.totalAmount)}</td>
+                    <td data-label="Method" className="px-4 py-3 text-[var(--ff-text-secondary)] uppercase">{item.paymentMethod}</td>
+                    <td data-label="Status" className="px-4 py-3"><span className={`px-2 py-0.5 rounded text-xs font-medium ${STATUS_BADGE[item.status] || ''}`}>{item.status}</span></td>
+                    <td className={`px-4 py-3${item.status !== 'draft' && item.status !== 'approved' ? ' max-lg:!hidden' : ''}`}>
                       <div className="flex items-center gap-1">
                         {item.status === 'draft' && (
-                          <button onClick={() => doAction('approve', item.id)} disabled={busy === item.id} className="p-1 text-blue-400 hover:text-blue-300" title="Approve">
+                          <button onClick={() => doAction('approve', item.id)} disabled={busy === item.id} className="p-1 text-blue-400 hover:text-blue-300 max-lg:min-h-11 max-lg:min-w-11 max-lg:inline-flex max-lg:items-center max-lg:justify-center" title="Approve">
                             {busy === item.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
                           </button>
                         )}
                         {item.status === 'approved' && (
-                          <button onClick={() => doAction('process', item.id)} disabled={busy === item.id} className="p-1 text-teal-400 hover:text-teal-300" title="Process">
+                          <button onClick={() => doAction('process', item.id)} disabled={busy === item.id} className="p-1 text-teal-400 hover:text-teal-300 max-lg:min-h-11 max-lg:min-w-11 max-lg:inline-flex max-lg:items-center max-lg:justify-center" title="Process">
                             {busy === item.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
                           </button>
                         )}

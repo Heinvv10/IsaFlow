@@ -8,6 +8,7 @@
 
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
+import { getMirroredEliminations, mirroredLinesReachBalanceSheet, type DroppedMirroredElimination } from './mirrorEliminations';
 
 type Row = DbRow;
 
@@ -116,36 +117,77 @@ export interface EliminationLineWithAccount {
   groupAccountId: string; groupAccountCode: string; groupAccountName: string;
   /** Group account type — decides whether an elimination accumulates or resets each year. */
   groupAccountType: string;
+  /** Group account subtype ('cost_of_sales' ...): where an elimination on an account with no member activity lands in the income statement. */
+  groupAccountSubtype?: string;
   debit: number; credit: number;
 }
 
-export async function getPostedEliminations(
-  groupId: string, periodStart: string, periodEnd: string
-): Promise<EliminationLineWithAccount[]> {
+/** The stored adjustments, but never one of a MIRRORED row: those eliminations are derived from the ledgers (mirrorEliminations.ts), so a stored one (an older release's generator) would count twice. */
+async function storedEliminations(groupId: string, periodStart: string, periodEnd: string): Promise<EliminationLineWithAccount[]> {
   const adjRows = (await sql`
     SELECT ca.lines FROM consolidation_adjustments ca
     WHERE ca.group_id = ${groupId}::UUID AND ca.status = 'posted'
       AND ca.period_start >= ${periodStart} AND ca.period_end <= ${periodEnd}
+      AND (ca.source_intercompany_id IS NULL OR NOT public.intercompany_is_mirrored_row(ca.source_intercompany_id))
   `) as Row[];
-
+  if (adjRows.length === 0) return [];
+  const accounts = new Map((await sql`
+    SELECT id, account_code, account_name, account_type, account_subtype FROM group_accounts WHERE group_id = ${groupId}::UUID
+  ` as Row[]).map((a) => [String(a.id), a]));
   const allLines: EliminationLineWithAccount[] = [];
   for (const adj of adjRows) {
     const lines = typeof adj.lines === 'string' ? JSON.parse(adj.lines) : adj.lines;
     for (const line of lines) {
-      const gaRows = (await sql`
-        SELECT id, account_code, account_name, account_type FROM group_accounts WHERE id = ${line.groupAccountId}::UUID
-      `) as Row[];
-      if (gaRows.length > 0) {
+      const ga = accounts.get(String(line.groupAccountId));
+      if (ga) {
         allLines.push({
-          groupAccountId: String(gaRows[0]!.id), groupAccountCode: String(gaRows[0]!.account_code),
-          groupAccountName: String(gaRows[0]!.account_name),
-          groupAccountType: String(gaRows[0]!.account_type ?? ''),
+          groupAccountId: String(ga.id), groupAccountCode: String(ga.account_code), groupAccountName: String(ga.account_name),
+          groupAccountType: String(ga.account_type ?? ''), groupAccountSubtype: String(ga.account_subtype ?? ''),
           debit: Number(line.debit || 0), credit: Number(line.credit || 0),
         });
       }
     }
   }
   return allLines;
+}
+
+const asLines = (m: Awaited<ReturnType<typeof getMirroredEliminations>>): EliminationLineWithAccount[] => m.flatMap((e) => e.lines.map((l) => ({
+  groupAccountId: l.groupAccountId, groupAccountCode: l.groupAccountCode, groupAccountName: l.groupAccountName,
+  groupAccountType: l.groupAccountType, groupAccountSubtype: l.groupAccountSubtype, debit: l.debit, credit: l.credit,
+})));
+
+/**
+ * Posted manual adjustments plus the derived (mirrored) eliminations, both for the period. `balanceSheetOnly`: the caller uses balance-sheet
+ * group accounts only (the balance sheet), so the derived ones are read only when one can land there (mirroredLinesReachBalanceSheet).
+ */
+export async function getPostedEliminations(
+  groupId: string, periodStart: string, periodEnd: string, opts: { balanceSheetOnly?: boolean; dropped?: DroppedMirroredElimination[] } = {},
+): Promise<EliminationLineWithAccount[]> {
+  const derive = !opts.balanceSheetOnly || await mirroredLinesReachBalanceSheet(groupId);
+  return [...await storedEliminations(groupId, periodStart, periodEnd), ...(derive ? asLines(await getMirroredEliminations(groupId, periodStart, periodEnd, opts.dropped)) : [])];
+}
+
+/**
+ * The cumulative (inception to the end; balance-sheet group accounts are all its caller reads, so its derived lines are read only when one
+ * can land on such an account) and the in-period eliminations a statement needs. The derived ones are dated events (an elimination,
+ * a counter-elimination), so each window is its own call: the cumulative window nets to what stands at the end, the in-period one is the
+ * events dated in the period (an event's netting depends on the window, so neither is a filter of the other).
+ */
+export async function getPostedEliminationsSplit(
+  groupId: string, periodStart: string, periodEnd: string, inception: string, dropped?: DroppedMirroredElimination[],
+): Promise<{ cumulative: EliminationLineWithAccount[]; inRange: EliminationLineWithAccount[] }> {
+  // the cumulative window is read for balance-sheet group accounts only: derived lines reach one only through an odd mapping, so the
+  // inception-to-end derivation (the group's whole mirrored history) runs only then
+  const reachBalanceSheet = await mirroredLinesReachBalanceSheet(groupId);
+  const [storedAll, storedRange, mirroredAll, mirroredRange] = await Promise.all([
+    storedEliminations(groupId, inception, periodEnd), storedEliminations(groupId, periodStart, periodEnd),
+    // (what the in-period derivation could not apply is what the page reports: the cumulative one repeats the same rows)
+    reachBalanceSheet ? getMirroredEliminations(groupId, inception, periodEnd) : Promise.resolve([]), getMirroredEliminations(groupId, periodStart, periodEnd, dropped),
+  ]);
+  return {
+    cumulative: [...storedAll, ...asLines(mirroredAll)],
+    inRange: [...storedRange, ...asLines(mirroredRange)],
+  };
 }
 
 // ── Consolidated Trial Balance ─────────────────────────────────────────────────

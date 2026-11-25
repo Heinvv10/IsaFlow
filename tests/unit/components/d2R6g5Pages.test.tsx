@@ -9,6 +9,7 @@ import { cleanup, configure, fireEvent, render, screen, waitFor } from '@testing
 import { apiFetch } from '@/lib/apiFetch';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import { MSG, bad, empty500, noRawText, ok, route } from '../helpers/d2R3a1Serve';
+import { companiesListSettled } from '../helpers/companiesListSettled';
 
 vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
@@ -35,9 +36,11 @@ describe('admin companies list', () => {
   const C = { id: 'c-1', name: 'D2 Acme Ltd', trading_name: null, plan_name: 'Starter', plan_code: 'starter', status: 'active', user_count: 1, mrr_cents: 0, created_at: '2026-01-01T00:00:00Z', last_active: null };
   it('a failed reload clears the rows, the total and the bulk selection', async () => {
     let gets = 0;
-    route(() => { gets += 1; return gets === 1 ? ok({ items: [C], total: 1, page: 1, limit: 25 }) : empty500(); });
+    // the page loads twice on mount (the second after a 300 ms debounce); the third load, from the search below, is the one that fails
+    route(() => { gets += 1; return gets <= 2 ? ok({ items: [C], total: 1, page: 1, limit: 25 }) : empty500(); });
     render(<CompaniesPage />);
     expect(await screen.findByText('D2 Acme Ltd')).toBeTruthy();
+    await companiesListSettled(apiFetch); // that second load clears ticked rows, so tick after it
     fireEvent.click(screen.getAllByRole('checkbox')[1]!);
     // The row's own Suspend button is also named "Suspend": the bulk bar's is "Bulk Suspend".
     expect(await screen.findByRole('button', { name: /bulk suspend/i })).toBeTruthy();

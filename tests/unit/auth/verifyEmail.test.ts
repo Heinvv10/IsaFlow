@@ -49,11 +49,10 @@ vi.mock('@/modules/onboarding/services/tenantProvisioningService', () => ({
   provisionTenant: provisionMock,
 }));
 vi.mock('@/modules/accounting/services/core/emailService', () => ({ sendEmail: sendEmailMock }));
+vi.mock('@/modules/onboarding/services/welcomeEmail', () => ({ sendWelcomeEmail: vi.fn() })); // its own suite: verifyEmailWelcome.test.ts
 vi.mock('@/lib/neon', () => ({ sql: sqlMock }));
 vi.mock('@/lib/rateLimit', () => ({ withRateLimit: (h: unknown) => h }));
-vi.mock('@/lib/logger', () => ({
-  log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
-}));
+vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 
 import handler from '@/../pages/api/auth/verify-email';
 

@@ -9,7 +9,7 @@ vi.mock('@/lib/neon', () => ({ sql: vi.fn(), withTransaction: vi.fn() }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 
 import { sql, withTransaction } from '@/lib/neon';
-import { IntercompanyMatchRefusedError, matchIntercompanyTransactions } from '@/modules/accounting/services/reports/intercompanyService';
+import { IntercompanyMatchRefusedError, IntercompanyMirroredRowError, matchIntercompanyTransactions } from '@/modules/accounting/services/reports/intercompanyService';
 import { log } from '@/lib/logger';
 
 const mockSql = sql as unknown as ReturnType<typeof vi.fn>;
@@ -29,7 +29,8 @@ beforeEach(() => {
   vi.mocked(withTransaction).mockImplementation((async (fn: (tx: unknown) => Promise<unknown>) => {
     try { return await fn(mockTx); } catch (e) { rolledBack = true; throw e; }
   }) as never);
-  mockSql.mockResolvedValueOnce([{ id: T1, amount: 10 }]).mockResolvedValueOnce([{ id: T2, amount: 10 }]);
+  // the two rows, then the mirrored-row check (neither is a row the mirror recorded)
+  mockSql.mockResolvedValueOnce([{ id: T1, amount: 10 }]).mockResolvedValueOnce([{ id: T2, amount: 10 }]).mockResolvedValueOnce([]);
   vi.mocked(log.info).mockClear();
 });
 
@@ -59,5 +60,17 @@ describe('matchIntercompanyTransactions: both rows or neither', () => {
     const [strings, ...values] = mockTx.mock.calls[0]! as [TemplateStringsArray, ...unknown[]];
     expect(strings.join('?')).toMatch(/RETURNING id/);
     expect(values).toEqual(expect.arrayContaining([T1, T2, G]));
+  });
+
+  it('a row the mirror recorded is refused before anything is written (the system matches it, from the receiving company\'s ledger)', async () => {
+    mockSql.mockReset();
+    mockSql.mockResolvedValueOnce([{ id: T1, amount: 10 }]).mockResolvedValueOnce([{ id: T2, amount: 10 }]).mockResolvedValueOnce([{ id: T1 }]);
+    const err = await matchIntercompanyTransactions(T1, T2, G, U).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(IntercompanyMirroredRowError);
+    expect(err).toMatchObject({ ids: [T1] });
+    expect((err as Error).message).toContain('eliminating a mirrored row by hand is not available yet');
+    expect((err as Error).message).not.toContain('make a manual elimination');   // (it is listed, and the listing says what puts the receiver's document right)
+    expect(mockTx).not.toHaveBeenCalled();
+    expect(log.info).not.toHaveBeenCalled();
   });
 });

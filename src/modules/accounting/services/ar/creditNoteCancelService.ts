@@ -9,6 +9,7 @@
  * Re-exported through creditNoteService — see creditNoteApproveService.ts.
  */
 
+import { syncGroupRowFor, withdrawForCancelledDocument } from '../intercompany/mirrorHooks';
 import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
@@ -28,6 +29,7 @@ import { round2 } from '../shared/autoAllocateStrategy';
 import { mapRow } from './creditNoteMapper';
 import { actorMeta, type PostingActorOpts } from '../gl/journalEntryMeta';
 import { lockStandingChainHead } from '../shared/journalChainHead';
+import { lockDocumentJournalAccounts } from '../shared/documentJournalAccountsLock';
 import { underFlowLockBudget } from '../core/rowLockBudget';
 
 /** The states that have something to reverse. A draft has posted nothing. */
@@ -53,6 +55,8 @@ async function cancelCreditNoteInner(
     // Same check-then-act window as approve: two concurrent cancellations would
     // each reverse the journal, leaving the note over-reversed and the invoice
     // credit removed twice.
+    // 1018 round 15 L1: the note journal's accounts before the note and the invoices it credited (shared/documentJournalAccountsLock).
+    await lockDocumentJournalAccounts(companyId, 'credit_notes', id);
     const cn = await lockCreditNoteForUpdate(companyId, id);
     if (!cn) throw new Error(`Credit note ${id} not found`);
     // 'applied' is cancellable too (PR #203 review HIGH): linked notes land
@@ -166,6 +170,10 @@ async function cancelCreditNoteInner(
         rowsMoved: -restored.reduce((t, l) => round2(t + l.amount), 0), paidMoved: restoredPaid, appliedAfter: 0,
       });
     }
+
+    // Intercompany P2: a customer note's message is withdrawn / flagged; a supplier note an accepted message created un-matches its group row.
+    if (String(updated.type) === 'customer') await withdrawForCancelledDocument(companyId, 'credit_note', id);
+    else await syncGroupRowFor(companyId, 'credit_note', id);
 
     log.info('Cancelled credit note', {
       id, reason, restoredDocuments: restored.length,

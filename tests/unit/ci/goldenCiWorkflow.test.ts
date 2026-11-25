@@ -95,3 +95,37 @@ describe('ci.yml runner to slot mapping', () => {
     });
   });
 });
+
+// TEXT GUARDS, as above: what the red-chunk evidence step is wired to, not that it uploads (that needs a red hosted chunk).
+describe('ci.yml golden failure evidence', () => {
+  const from = CI.indexOf('- name: Upload golden failure evidence');
+  const upload = CI.slice(from, CI.indexOf('# The required check.', from));
+
+  it('records traces only on a hosted runner, where nothing is a real secret', () => {
+    expect(CI).toContain("GOLDEN_EVIDENCE: ${{ runner.environment == 'github-hosted' && '1' || '' }}");
+  });
+
+  it('uploads only from a red, non-skipped hosted chunk, and keeps the current piece\'s dev log', () => {
+    expect(upload).toContain("if: ${{ failure() && runner.environment == 'github-hosted' && steps.mq.outputs.skip != 'true' }}");
+    expect(upload).toContain('uses: actions/upload-artifact@v4');
+    for (const p of ['test-results/', 'golden-dev.all.log', 'golden-dev.log', 'golden-samples.log']) expect(upload).toContain(`            ${p}\n`);
+  });
+});
+
+// TEXT GUARD: the dev server's heap limit, against what a hosted runner can hold.
+describe('ci.yml golden dev server memory', () => {
+  const limit = Number(/NODE_OPTIONS: --max-old-space-size=(\d+)/.exec(CI)?.[1]);
+  const RUNNER_MB = 16 * 1024; // ubuntu-24.04: 4 vCPU, 16 GB
+  const OUTSIDE_HEAP_MB = 1200; // next-server's own non-heap memory (RSS 1172 MB at boot)
+  const EVERYTHING_ELSE_MB = 2608; // chromium, postgres, gotrue at the peak of run 45310932416
+
+  it('sets a heap limit', () => { expect(Number.isInteger(limit)).toBe(true); });
+
+  it('is high enough to clear the 7.5-7.8 GB RSS the specs reached (its restart threshold is 80% of it)', () => {
+    expect(limit * 0.8 + OUTSIDE_HEAP_MB).toBeGreaterThan(7814 * 1.15);
+  });
+
+  it('still fits the runner when V8 uses all of it, with 2 GB left for the OS and spikes (an OOM kill would be worse than a restart)', () => {
+    expect(limit + OUTSIDE_HEAP_MB + EVERYTHING_ELSE_MB + 2048).toBeLessThan(RUNNER_MB);
+  });
+});

@@ -97,7 +97,7 @@ export function YearEndConfirmDialog({ year, busy, onConfirm, onCancel }: Props)
           onChange={e => setTyped(e.target.value)}
           disabled={!ready || busy}
           autoComplete="off"
-          className="mt-1 w-full rounded-md border border-zinc-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-2 py-1.5"
+          className="mt-1 w-full rounded-md border border-zinc-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-2 py-1.5 max-lg:min-h-11"
         />
       </label>
     </div>

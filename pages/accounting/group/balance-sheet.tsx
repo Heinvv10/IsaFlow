@@ -10,14 +10,13 @@ import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { DateField } from '@/components/ui/DateField';
+import { MirroredDroppedNotice, parseDroppedMirrored } from '@/components/accounting/group/MirroredDroppedNotice';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
 /* ------------------------------------------------------------------ */
 
-interface EntityAmount {
-  balance: number;
-}
+interface EntityAmount { balance: number }
 
 interface ConsolidatedBSRow {
   groupAccountCode: string;
@@ -280,6 +279,7 @@ export default function ConsolidatedBalanceSheetPage() {
         </div>
 
         <div className="p-6">
+          {!loading && data && <MirroredDroppedNotice rows={parseDroppedMirrored(data)} />}
           {/* Summary cards */}
           {!loading && data && data.totalAssets && (
             <div className="grid grid-cols-3 gap-4 mb-6">

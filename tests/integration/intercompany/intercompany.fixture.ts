@@ -7,6 +7,7 @@
  */
 import type { Pool } from 'pg';
 import { createUser } from '../r035-approval.helpers';
+import { dropFeatureOverrides, setLoanClearing } from './loan-clearing.helpers';
 
 export const U = { ab: '', a: '', b: '', c: '', ac: '', va: '', avb: '', mab: '', x: '', vc: '' };
 export const tokens: Record<string, string> = {};
@@ -50,6 +51,8 @@ export async function setup(pool: Pool): Promise<void> {
   await account(acct.aExpense, co.A, `ICE${tag}`, null);
   await account(acct.aInactive, co.A, `ICI${tag}`, null, false);
   await account(acct.bLoan, co.B, `ICL${co.B.slice(0, 5)}`, null);
+  // the two loan accounts are a loan class (P4-D round 1: the side form takes no other loan account)
+  await pool.query("UPDATE gl_accounts SET account_subtype = 'other_current_liability' WHERE id = ANY($1)", [[acct.aLoan, acct.bLoan]]);
   for (const k of Object.keys(party) as (keyof typeof party)[]) party[k] = crypto.randomUUID();
   await pool.query('INSERT INTO customers(id, company_id, name) VALUES ($1, $2, $3), ($4, $5, $6)',
     [party.aCustomer, co.A, 'IC A customer', party.bCustomer, co.B, 'IC B customer']);
@@ -62,6 +65,8 @@ export async function setup(pool: Pool): Promise<void> {
     [dim.aCc1, dim.bCc1, dim.aCc2, dim.bCc2, co.A, co.B]);
   await pool.query(`INSERT INTO business_units(id, company_id, code, name) VALUES ($1, $3, 'IC-BU', 'A bu'), ($2, $4, 'IC-BU', 'B bu')`,
     [dim.aBu, dim.bBu, co.A, co.B]);
+  // the dark loan-clearing flag (1028) ON for the three tenants: the suites that send or accept an allocation run as before
+  await setLoanClearing(pool, [co.A, co.B, co.C], true);
 }
 
 export async function cleanup(pool: Pool): Promise<void> {
@@ -70,6 +75,9 @@ export async function cleanup(pool: Pool): Promise<void> {
     try { await pool.query(text, params); } catch (err) { process.stderr.write(`cleanup: ${text}: ${String(err)}\n`); }
   };
   await wipeConnections(pool).catch((err: unknown) => process.stderr.write(`cleanup wipe: ${String(err)}\n`));
+  await del('UPDATE supplier_payments SET gl_journal_entry_id = NULL WHERE company_id = ANY($1)', [companies]);
+  await del('DELETE FROM payment_allocations WHERE payment_id IN (SELECT id FROM supplier_payments WHERE company_id = ANY($1))', [companies]);
+  await del('DELETE FROM supplier_payments WHERE company_id = ANY($1)', [companies]);
   await del('DELETE FROM customer_invoices WHERE id = ANY($1)', [invoices.cust]);
   await del('DELETE FROM supplier_invoices WHERE id = ANY($1)', [invoices.supp]);
   await del('DELETE FROM credit_notes WHERE id = ANY($1)', [invoices.credit]);
@@ -82,6 +90,7 @@ export async function cleanup(pool: Pool): Promise<void> {
   await del('DELETE FROM business_units WHERE company_id = ANY($1)', [companies]);
   await del('DELETE FROM company_group_members WHERE group_id = ANY($1)', [[co.G, co.H]]);
   await del('DELETE FROM company_groups WHERE id = ANY($1)', [[co.G, co.H]]);
+  await dropFeatureOverrides(pool, companies).catch((err: unknown) => process.stderr.write(`cleanup overrides: ${String(err)}\n`));
   await del('DELETE FROM company_users WHERE company_id = ANY($1)', [companies]);
   await del('DELETE FROM companies WHERE id = ANY($1)', [companies]);
   await del('DELETE FROM users WHERE id = ANY($1::text[])', [users]);

@@ -48,7 +48,7 @@ async function at(level: string, user: string | null, company: string, text: str
 }
 
 const CREATE = "INSERT INTO intercompany_connections(company_low_id, company_high_id, kind, status, invited_by_company_id) VALUES ($1, $2, 'group', 'active', $1)";
-const SEND = "INSERT INTO intercompany_messages(connection_id, from_company_id, to_company_id, kind, source_doc_type, source_doc_id, payload) VALUES ($1, $2, $3, 'payment', 'payment', gen_random_uuid(), '{}')";
+const SEND = "INSERT INTO intercompany_messages(connection_id, from_company_id, to_company_id, kind, source_doc_type, source_doc_id, payload) VALUES ($1, $2, $3, 'reject', 'payment', gen_random_uuid(), '{}')";
 const CHANGES: Record<string, string> = {
   'a leave': 'UPDATE company_group_members SET left_date = CURRENT_DATE WHERE group_id = $1 AND company_id = $2',
   'a bulk leave': 'UPDATE company_group_members SET left_date = CURRENT_DATE WHERE group_id = $1',

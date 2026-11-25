@@ -223,11 +223,21 @@ describe('updateConnectionSettings', () => {
     fakeDb(
       [/FROM intercompany_connections c/, view({ settlement_mode: 'loan', cutover_date: '2026-12-01', interest_rate_pct: 12 })],
       [/^UPDATE intercompany_connections/, (_t, v) => { written.push(v); return [{ id: CID }]; }],
+      // P4-E (j).8: a mode change asks the connection hold (migration 1029); nothing holds it here
+      [/intercompany_connection_allocation_held/, [{ held: false }]],
     );
     await updateConnectionSettings('u', A, CID, { interestRatePct: null });
     expect(written[0]).toEqual(['loan', '2026-12-01', null, CID]);
     await updateConnectionSettings('u', A, CID, { settlementMode: 'cash', cutoverDate: null });
     expect(written[1]).toEqual(['cash', null, 12, CID]);
+  });
+
+  it('P4-E (j).8: a mode change the hold definer does not clear (held, or NULL: not judged) is a 409 with no write (fail closed)', async () => {
+    for (const held of [[{ held: true }], [{ held: null }], []]) {
+      fakeDb([/FROM intercompany_connections c/, view({ settlement_mode: 'loan' })], [/intercompany_connection_allocation_held/, held]);
+      await expect(updateConnectionSettings('u', A, CID, { settlementMode: 'cash' })).rejects.toMatchObject({ status: 409 });
+      expect(writes()).toEqual([]);
+    }
   });
 
   it('a connection revoked between the read and the write is a 409', async () => {

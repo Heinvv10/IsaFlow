@@ -9,7 +9,7 @@ import { getPostedAccountBalance, holdsMoney, formatAccountBalance } from './glA
 import type { GLAccount, GLAccountType } from '../../types/gl.types';
 import { subtypeErrorFor, missingSubtypeError } from './accountSubtypeRules';
 import { isBankSubtype } from './accountSubtypes';
-import { assertParentUsable } from './accountParentRules';
+import { assertParentUsable, ParentAccountError } from './accountParentRules';
 import { boundedRowWait, ChartRefusal, clearSystemAccountCacheAfterCommit, guardActiveChange, lockBeforeChartWrite, refuseSystemAccountDelete, type ReactivationActor } from './systemRoleReactivation';
 
 export interface CreateAccountInput {
@@ -280,7 +280,9 @@ export async function createAccount(companyId: string, input: CreateAccountInput
     `);
     return mapRow((rows as { [key: string]: unknown }[])[0]);
   } catch (err) {
-    log.error('Failed to create account', { error: err }, 'accounting');
+    // A refusal is a validation answer, not a fault: warn keeps it out of Bugsink.
+    if (err instanceof ChartRefusal || err instanceof ParentAccountError) log.warn('Failed to create account', { error: err }, 'accounting');
+    else log.error('Failed to create account', { error: err }, 'accounting');
     throw err;
   }
 }
@@ -388,7 +390,8 @@ export async function updateAccount(companyId: string, id: string, input: Update
     `);
     return await finish(mapRow((rows as { [key: string]: unknown }[])[0]));
   } catch (err) {
-    log.error('Failed to update account', { id, error: err }, 'accounting');
+    if (err instanceof ChartRefusal) log.warn('Failed to update account', { id, error: err }, 'accounting');
+    else log.error('Failed to update account', { id, error: err }, 'accounting');
     throw err;
   }
 }
@@ -467,7 +470,8 @@ export async function deleteAccount(companyId: string, id: string): Promise<void
     if (deactivateResult.length === 0) throw new ChartRefusal(`GL account not found: ${id}`);
     await finish(undefined);
   } catch (err) {
-    log.error('Failed to delete account', { id, error: err }, 'accounting');
+    if (err instanceof ChartRefusal) log.warn('Failed to delete account', { id, error: err }, 'accounting');
+    else log.error('Failed to delete account', { id, error: err }, 'accounting');
     throw err;
   }
 }
