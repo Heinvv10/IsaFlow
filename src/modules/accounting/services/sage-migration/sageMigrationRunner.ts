@@ -10,7 +10,8 @@
  *      committed request through the real registry, under a key derived from its rows and salted with a hash of the state of the existing
  *      rows the batch touches (category, item and PO batches alike), so a re-run after a change in IsaFlow is a fresh call, not a replay of
  *      a stored answer; the batches whose rows are unchanged answer `unchanged` / already there. A run that stopped at batch k resumes by running again. A failed batch is reported with the tool's message and
- *      nothing of it is written; the other batches of its phase still run, and the next phase does not start.
+ *      nothing of it is written; the other batches of its phase still run, and the next phase does not start. A batch whose COMMIT did not
+ *      answer (it may still land) stops the run there: MigrationStopped, exit 4.
  *   4. The reconciliation is measured in the database before and after, not taken from what the tools said.
  */
 import type { Pool } from 'pg';
@@ -90,7 +91,7 @@ async function livePhase(pool: Pool, o: MigrationOptions, list: Send[], before: 
       b = await withToolSession(pool, o.companyId, o.userId, true, (session) => sendBatch(session, s, before, false));
     } catch (err) {
       // The request transaction failed as a whole (a lost connection, a failed COMMIT): the batch is reported failed. A COMMIT whose answer
-      // never came may still have landed, so the books are the judge: the run's final reconciliation reads them, and a re-run finds what landed.
+      // never came may still have landed, so the books are the judge: the run stops (below) and a re-run finds what landed.
       const message = err instanceof Error ? err.message : String(err);
       log.error('sage migration: batch failed', { entity: s.entity, n: s.n, message }, 'sage-migration');
       b = { entity: s.entity, n: s.n, size: s.size, key: keyFor(s, before, false), status: 'failed', allRowsAlreadyPresent: false, rowsAbsent: 0, toolReported: null, error: message,
@@ -99,6 +100,11 @@ async function livePhase(pool: Pool, o: MigrationOptions, list: Send[], before: 
     p.batches.push(b);
     if (b.status === 'failed') p.failed++;
     if (b.status === 'ok' || b.commitUnconfirmed) committed.push(b); // what an error later in the run can still say was (or may have been) committed
+    // A COMMIT that did not answer may still land: the next batch would be checked (its budget, the rows it builds on) against books that
+    // may not hold it yet. The run stops here, in any phase (MigrationStopped, exit 4), the batch listed as "commit unconfirmed".
+    if (b.commitUnconfirmed) {
+      throw new Error(`the COMMIT of ${b.entity} batch ${b.n} (${b.key}) did not answer (${b.error ?? 'no detail'}): it may still land, so no further batch is sent. Check the books; a re-run resumes`);
+    }
   }
   return p;
 }

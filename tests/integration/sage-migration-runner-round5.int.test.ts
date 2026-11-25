@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { cleanupWorld } from './helpers/itemsWorld';
-import { afterCommitOf, booked, cleanupSageWorld, exportFile, failingCommitPool, parsedExport, sageWorld, type SageWorld } from './helpers/sageMigrationWorld';
+import { afterCommitOf, booked, cleanupSageWorld, exportFile, failingBatchPool, parsedExport, sageWorld, type SageWorld } from './helpers/sageMigrationWorld';
 import { runSageMigration } from '@/modules/accounting/services/sage-migration/sageMigrationRunner';
 import { migrationLockKey } from '@/modules/accounting/services/sage-migration/sageRunLock';
 import { MigrationStopped } from '@/modules/accounting/services/sage-migration/sageMigrationStopped';
@@ -91,8 +91,8 @@ describe('L4: after a live run only POs that are in the books are listed', () =>
   it('a failed PO batch: its POs are not in the not-linked list or the PDF list', async () => {
     const f = exportFile();
     rowsOf(f)[0] = { ...rowsOf(f)[0], Active: false }; // lines naming 50001 (PO0000197 and PO0000202) go in unlinked
-    // Commits: 1-4 categories, 5 items, 6-9 the PO batches of 3 (197-199, 200-202, 203-205, 206): batch 2 holds PO0000202.
-    const r = await run({ poBatchSize: 3 }, f, failingCommitPool(pool, [7]));
+    // The PO batches of 3 (197-199, 200-202, 203-205, 206): batch 2 holds PO0000202, and fails.
+    const r = await run({ poBatchSize: 3 }, f, failingBatchPool(pool, 'sage-mig-purchase_order-0002-'));
     expect(r.status).toBe('failed');
     expect(r.lineLinks.notLinked.map((x) => x.poNumber)).toEqual(['PO0000197']);
     expect(r.reconciliation.attachments.posWithPdf).toBe(7);

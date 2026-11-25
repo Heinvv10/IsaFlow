@@ -1,6 +1,6 @@
 /**
  * Round-7 review findings on a real database:
- *   - M1: a run finishing normally with a batch whose COMMIT did not answer says so and exits 4;
+ *   - M1: a batch whose COMMIT did not answer is named and the exit is 4 (since round 10 the run stops at that batch: MigrationStopped);
  *   - M2: POs already booked are not refused on a re-run when their supplier was renamed, deleted or lost its reference: they are sent
  *     (the tool replays them) and the supplier problem is listed as a difference;
  *   - L1: the lock is asked before EVERY batch: a lock connection that stops answering stops the run before the next batch;
@@ -14,7 +14,8 @@ import { cleanupWorld } from './helpers/itemsWorld';
 import { afterCommitOf, booked, cleanupSageWorld, exportFile, failingCommitPool, parsedExport, sageWorld, type SageWorld } from './helpers/sageMigrationWorld';
 import { runSageMigration } from '@/modules/accounting/services/sage-migration/sageMigrationRunner';
 import { MigrationStopped } from '@/modules/accounting/services/sage-migration/sageMigrationStopped';
-import { exitCodeFor, summaryLines } from '@/modules/accounting/services/sage-migration/sageReportSummary';
+import { exitCodeFor } from '@/modules/accounting/services/sage-migration/sageReportSummary';
+import { exitCodeForError, stopMessage } from '@/modules/accounting/services/sage-migration/sageStopMessage';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 10 });
@@ -26,12 +27,12 @@ type Row = Record<string, unknown>;
 const run = (over: Record<string, unknown> = {}, p: Pool = pool) =>
   runSageMigration(p, parsedExport(exportFile()), { companyId: s.companyId, userId: s.userId, live: true, liveWithoutCounts: true, allowRefusals: false, allowDifferences: false, ...over });
 
-describe('M1: a COMMIT that did not answer, in a run that otherwise finishes', () => {
-  it('the summary names the batch and the exit code is 4, not 1', async () => {
-    const r = await run({ allowRefusals: true, allowDifferences: true }, failingCommitPool(pool, [5])); // 4 categories, then the item batch
-    expect(r.status).toBe('failed');
-    expect(summaryLines(r).join('\n')).toMatch(/COMMIT UNCONFIRMED: item batch 1 \(sage-mig-item-0001-[0-9a-f]+\): it may have been committed; check the books/);
-    expect(exitCodeFor(r, true, true)).toBe(4);
+describe('M1: a COMMIT that did not answer', () => {
+  it('the stop names the batch and the exit code is 4, not 1', async () => {
+    const err = await run({ allowRefusals: true, allowDifferences: true }, failingCommitPool(pool, [5])).then(() => null, (e: unknown) => e); // 4 categories, then the item batch
+    expect(err).toBeInstanceOf(MigrationStopped);
+    expect(stopMessage(err)).toMatch(/commit unconfirmed: item batch 1 \(sage-mig-item-0001-[0-9a-f]+\)/);
+    expect(exitCodeForError(err)).toBe(4);
   });
 });
 

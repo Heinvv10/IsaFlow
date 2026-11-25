@@ -3,7 +3,7 @@
  *   - H1: an unchanged re-run lists no PO difference for lines the PO tool stores at net / quantity (a discount line, a 3-dp price, a repeating price);
  *   - M1: a PO already booked is still sent on a re-run after its supplier was deactivated or the budget policy became block;
  *   - L1: a lock lost before the live phase is a refused start (not "may have committed"), nothing written;
- *   - L2: a batch whose COMMIT failed is flagged commitUnconfirmed in the report, and one the tool refused is not.
+ *   - L2: a batch whose COMMIT failed is flagged commitUnconfirmed (and, since round 10, stops the run there), and one the tool refused is not.
  * Fixture route: isaflow_schema_fixture (assertDisposable). Never skips.
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -14,7 +14,7 @@ import { afterCommitOf, booked, cleanupSageWorld, exportFile, failingCommitPool,
 import { runSageMigration } from '@/modules/accounting/services/sage-migration/sageMigrationRunner';
 import { migrationLockKey } from '@/modules/accounting/services/sage-migration/sageRunLock';
 import { MigrationStopped } from '@/modules/accounting/services/sage-migration/sageMigrationStopped';
-import { stopMessage } from '@/modules/accounting/services/sage-migration/sageStopMessage';
+import { exitCodeForError, stopMessage } from '@/modules/accounting/services/sage-migration/sageStopMessage';
 import { exitCodeFor } from '@/modules/accounting/services/sage-migration/sageReportSummary';
 
 assertDisposable();
@@ -129,14 +129,16 @@ describe('L1: a lock lost before the live phase', () => {
 });
 
 describe('L2: a batch whose COMMIT failed', () => {
-  it('is flagged commitUnconfirmed in the report; the other batches are not', async () => {
-    const r = await run(exportFile(), {}, failingCommitPool(pool, [5])); // 4 categories, then the item batch
-    expect(r.status).toBe('failed');
-    const item = r.live!.items.batches[0]!;
+  it('is flagged commitUnconfirmed where the stop lists it (the run stops there, exit 4); the batches before it are not', async () => {
+    const err = await run(exportFile(), {}, failingCommitPool(pool, [5])).then(() => null, (e: unknown) => e); // 4 categories, then the item batch
+    expect(err).toBeInstanceOf(MigrationStopped);
+    expect(exitCodeForError(err)).toBe(4);
+    const listed = (err as MigrationStopped).committed;
+    const item = listed.find((b) => b.entity === 'item')!;
     expect(item.status).toBe('failed');
     expect(item.commitUnconfirmed).toBe(true);
     expect(item.error).toMatch(/COMMIT 5 failed/);
-    expect(r.live!.categories.batches.every((b) => !b.commitUnconfirmed)).toBe(true);
+    expect(listed.filter((b) => b.entity === 'category').every((b) => !b.commitUnconfirmed)).toBe(true);
   });
   it('a batch the tool refuses is a failure with nothing committed, and is not flagged', async () => {
     const f = exportFile();
@@ -144,21 +146,14 @@ describe('L2: a batch whose COMMIT failed', () => {
     const r = await run(f, { allowRefusals: true });
     expect(r.live!.purchaseOrders.batches.every((b) => !b.commitUnconfirmed)).toBe(true);
   });
-  it('a later stop lists it as "commit unconfirmed", next to the batches that did commit', async () => {
-    const [k1, k2] = migrationLockKey(s.companyId);
-    // The 1st category COMMIT fails; after the 2nd category batch commits, the lock connection is killed: the run stops at the next boundary.
-    const base = failingCommitPool(pool, [1]);
-    const hooked = afterCommitOf(base, 'upsert_item_category', {
-      after: async () => {
-        await pool.query(`SELECT pg_terminate_backend(pid) FROM pg_locks WHERE locktype = 'advisory' AND classid = $1::oid AND objid = $2::oid AND granted`,
-          [String(BigInt.asUintN(32, BigInt(k1))), String(BigInt.asUintN(32, BigInt(k2)))]);
-        await new Promise((r) => setTimeout(r, 150));
-      },
-    });
-    const err = await run(exportFile(), {}, hooked).then(() => null, (e: unknown) => e);
+  it('the stop lists it as "commit unconfirmed", next to the batches that did commit', async () => {
+    // The 1st category batch commits; the 2nd one's COMMIT fails: the run stops there (categories 3 and 4 are never sent).
+    const err = await run(exportFile(), {}, failingCommitPool(pool, [2])).then(() => null, (e: unknown) => e);
     expect(err).toBeInstanceOf(MigrationStopped);
     const message = stopMessage(err);
-    expect(message).toMatch(/commit unconfirmed: category batch 1 \(/);
-    expect(message).toMatch(/committed: category batch 2 \(/);
+    expect(message).toMatch(/committed: category batch 1 \(/);
+    expect(message).toMatch(/commit unconfirmed: category batch 2 \(/);
+    expect((err as MigrationStopped).committed.map((b) => b.n)).toEqual([1, 2]);
+    expect(await booked(pool, s.companyId)).toMatchObject({ categories: 1, items: 0 });
   });
 });

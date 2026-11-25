@@ -2,7 +2,7 @@
  * Round-9 review findings on a real database:
  *   - L2: a phase that never started is "not run" in the summary;
  *   - L3: every live phase's batches are checked against the books, a failed sibling or not (a replay whose rows are gone reads failed);
- *   - L4: a COMMIT that never answers is bounded and is a CommitUnconfirmedError batch, not a hung run;
+ *   - L4: a COMMIT that never answers is bounded and is a commitUnconfirmed batch that stops the run (round 10), not a hung run;
  *   - L5: the runner itself refuses --live without expect.items and expect.purchaseOrders.
  * Fixture route: isaflow_schema_fixture (assertDisposable). Never skips.
  */
@@ -10,7 +10,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { cleanupWorld } from './helpers/itemsWorld';
-import { cleanupSageWorld, exportFile, failingCommitPool, parsedExport, sageWorld, type SageWorld } from './helpers/sageMigrationWorld';
+import { afterCommitOf, cleanupSageWorld, exportFile, failingBatchPool, parsedExport, sageWorld, type SageWorld } from './helpers/sageMigrationWorld';
+import { MigrationStopped } from '@/modules/accounting/services/sage-migration/sageMigrationStopped';
 import { runSageMigration } from '@/modules/accounting/services/sage-migration/sageMigrationRunner';
 import { setCommitBoundForTests } from '@/modules/accounting/services/sage-migration/sageToolSession';
 import { summaryLines } from '@/modules/accounting/services/sage-migration/sageReportSummary';
@@ -26,7 +27,10 @@ const run = (over: Record<string, unknown> = {}, p: Pool = pool) =>
 
 describe('L2: a phase that never started', () => {
   it('a failed category batch: the items and PO phases read "not run" in the summary, not "0 batches, 0 failed"', async () => {
-    const r = await run({}, failingCommitPool(pool, [1]));
+    // Category batch 1 is renamed right after it committed: it fails the check against the books, and the items do not start.
+    const r = await run({}, afterCommitOf(pool, 'upsert_item_category', {
+      after: async () => { await pool.query(`UPDATE item_categories SET name = name || ' X' WHERE company_id = $1`, [s.companyId]); },
+    }));
     expect(r.status).toBe('failed');
     expect(summaryLines(r).join('\n')).toMatch(/live: categories: 4 batches, 1 failed; items: not run; purchase orders: not run/);
     expect(summaryLines(r).join('\n')).toMatch(/dry run: categories: 4 batches, 0 failed; items: 1 batches, 0 failed; purchase orders: 1 batches, 0 failed/);
@@ -40,16 +44,16 @@ describe('L3: a failed sibling does not skip the rows-present check of the other
     await pool.query('DELETE FROM purchase_orders WHERE company_id = $1', [s.companyId]);
     await pool.query('DELETE FROM items WHERE company_id = $1', [s.companyId]);
     await pool.query('DELETE FROM item_categories WHERE company_id = $1', [s.companyId]);
-    const r = await run({}, failingCommitPool(pool, [1])); // category batch 1's COMMIT fails; 2-4 answer from their stored answers
+    const r = await run({}, failingBatchPool(pool, 'sage-mig-category-0001-')); // category batch 1 fails; 2-4 answer from their stored answers
     const cats = r.live!.categories.batches;
-    expect(cats[0]!.commitUnconfirmed).toBe(true);
+    expect(cats[0]!.error).toMatch(/injected: batch sage-mig-category-0001- failed/);
     expect(cats.slice(1).map((b) => [b.status, b.rowsAbsent])).toEqual([['failed', 1], ['failed', 1], ['failed', 1]]);
     expect(cats[1]!.error).toMatch(/replayed, rows absent/);
   });
 });
 
 describe('L4: a COMMIT that never answers', () => {
-  it('is bounded: the batch is reported failed and commitUnconfirmed, and the run ends instead of hanging', async () => {
+  it('is bounded: the batch is listed failed and commitUnconfirmed, and the run stops instead of hanging', async () => {
     const restore = setCommitBoundForTests(400);
     let commits = 0;
     const hanging = {
@@ -66,9 +70,9 @@ describe('L4: a COMMIT that never answers', () => {
       },
     } as unknown as Pool;
     try {
-      const r = await Promise.race([run({}, hanging), new Promise<string>((res) => setTimeout(() => res('HUNG'), 30_000))]);
-      expect(r).not.toBe('HUNG');
-      const item = (r as Awaited<ReturnType<typeof run>>).live!.items.batches[0]!;
+      const r = await Promise.race([run({}, hanging).then(() => 'NOT STOPPED', (e: unknown) => e), new Promise<string>((res) => setTimeout(() => res('HUNG'), 30_000))]);
+      expect(r).toBeInstanceOf(MigrationStopped);
+      const item = (r as MigrationStopped).committed.find((b) => b.entity === 'item')!;
       expect(item.status).toBe('failed');
       expect(item.commitUnconfirmed).toBe(true);
       expect(item.error).toMatch(/COMMIT did not answer within 400/);

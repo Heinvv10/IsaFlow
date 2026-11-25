@@ -12,7 +12,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { cleanupWorld } from './helpers/itemsWorld';
-import { booked, cleanupSageWorld, exportFile, failingCommitPool, parsedExport, sageWorld, stamps, type SageWorld } from './helpers/sageMigrationWorld';
+import { booked, cleanupSageWorld, exportFile, failingBatchPool, parsedExport, sageWorld, stamps, type SageWorld } from './helpers/sageMigrationWorld';
 import { runSageMigration } from '@/modules/accounting/services/sage-migration/sageMigrationRunner';
 import { exitCodeFor, summaryLines } from '@/modules/accounting/services/sage-migration/sageReportSummary';
 
@@ -114,12 +114,13 @@ describe('M2: a re-run that finds the books different from Sage', () => {
 });
 
 describe('a failed batch', () => {
-  it('a PO batch whose COMMIT fails is not booked; its neighbours are; running again finishes it', async () => {
-    // Commits: 1-4 categories, 5 the one item batch, 6-9 the PO batches of 3 (197-199, 200-202, 203-205, 206).
-    const first = await run({ poBatchSize: 3 }, exportFile(), failingCommitPool(pool, [7]));
+  it('a PO batch that fails (its request lost before COMMIT) is not booked; its neighbours are; running again finishes it', async () => {
+    // PO batches of 3 (197-199, 200-202, 203-205, 206); batch 2 fails. (A COMMIT that does not answer stops the run instead: round 13.)
+    const first = await run({ poBatchSize: 3 }, exportFile(), failingBatchPool(pool, 'sage-mig-purchase_order-0002-'));
     expect(first.status).toBe('failed');
     expect(first.live!.purchaseOrders.batches.map((b) => b.status)).toEqual(['ok', 'failed', 'ok', 'ok']);
-    expect(first.live!.purchaseOrders.batches[1]!.error).toMatch(/injected: COMMIT 7 failed/);
+    expect(first.live!.purchaseOrders.batches[1]!.error).toMatch(/injected: batch sage-mig-purchase_order-0002- failed/);
+    expect(first.live!.purchaseOrders.batches[1]!.commitUnconfirmed).toBeUndefined();
     const poNumbers = (await pool.query('SELECT po_number FROM purchase_orders WHERE company_id = $1 ORDER BY po_number', [s.companyId])).rows.map((r) => r.po_number);
     expect(poNumbers).toEqual(['PO0000197', 'PO0000198', 'PO0000199', 'PO0000203', 'PO0000204', 'PO0000205', 'PO0000206']);
     expect(first.reconciliation).toMatchObject({ allSentBooked: false, purchaseOrders: { presentAfter: 7, addedByRun: 7 } });
@@ -139,7 +140,7 @@ describe('a failed batch', () => {
   });
 
   it('a failed item batch keeps the purchase orders from starting; categories stay; running again finishes', async () => {
-    const first = await run({}, exportFile(), failingCommitPool(pool, [5]));
+    const first = await run({}, exportFile(), failingBatchPool(pool, 'sage-mig-item-0001-'));
     expect(first.status).toBe('failed');
     expect(first.live!.categories.failed).toBe(0);
     expect(first.live!.items.batches.map((b) => b.status)).toEqual(['failed']);
@@ -151,7 +152,7 @@ describe('a failed batch', () => {
   });
 
   it('a failed category keeps the items from starting, the other categories still run', async () => {
-    const first = await run({}, exportFile(), failingCommitPool(pool, [2]));
+    const first = await run({}, exportFile(), failingBatchPool(pool, 'sage-mig-category-0002-'));
     expect(first.status).toBe('failed');
     expect(first.live!.categories.batches.map((b) => b.status)).toEqual(['ok', 'failed', 'ok', 'ok']);
     expect(first.live!.items.batches).toEqual([]);

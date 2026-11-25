@@ -70,6 +70,8 @@ export async function cleanupSageWorld(pool: Pool, s: SageWorld): Promise<void> 
  * A pool whose Nth COMMIT (counted from 1 across every client it hands out) throws before it reaches the server: the request
  * transaction stays open and the runner's own ROLLBACK ends it, so the batch is not in the books. Dry runs and reads never
  * COMMIT (they roll back), so the count is the live batches in order: 4 categories, the item batches, then the PO batches.
+ * The runner cannot tell this from a COMMIT that landed without answering: the batch is `commitUnconfirmed` and the run STOPS there
+ * (MigrationStopped). For a batch that fails and lets the run go on, use failingBatchPool.
  */
 export function failingCommitPool(pool: Pool, failOn: readonly number[]): Pool {
   let commits = 0;
@@ -82,6 +84,35 @@ export function failingCommitPool(pool: Pool, failOn: readonly number[]): Pool {
           if (prop === 'query') {
             return (...args: unknown[]) => {
               if (args[0] === 'COMMIT' && failOn.includes(++commits)) return Promise.reject(new Error(`injected: COMMIT ${commits} failed`));
+              return (target.query as (...a: unknown[]) => Promise<unknown>)(...args);
+            };
+          }
+          const value = Reflect.get(target, prop, target) as unknown;
+          return typeof value === 'function' ? value.bind(target) : value;
+        },
+      });
+    },
+  } as unknown as Pool;
+}
+
+/**
+ * A pool on which ONE live batch fails before its COMMIT: the first query whose parameters name the batch's idempotency key (the registry's
+ * idempotency lock, `mcp:<company>:<tool>:<key>`) starting with `keyPrefix` (e.g. 'sage-mig-purchase_order-0002-') rejects. The dry run's keys
+ * end in "-dry" and are let through. The request transaction rolls back: the batch is failed, nothing of it written, and its COMMIT is never
+ * sent (not `commitUnconfirmed`), so the run goes on as it does after a batch the tool refused.
+ */
+export function failingBatchPool(pool: Pool, keyPrefix: string): Pool {
+  let fired = false;
+  const names = (p: unknown): boolean => typeof p === 'string' && p.includes(`:${keyPrefix}`) && !p.endsWith('-dry');
+  return {
+    options: pool.options,
+    connect: async () => {
+      const client = await pool.connect();
+      return new Proxy(client, {
+        get(target, prop) {
+          if (prop === 'query') {
+            return (...args: unknown[]) => {
+              if (!fired && Array.isArray(args[1]) && args[1].some(names)) { fired = true; return Promise.reject(new Error(`injected: batch ${keyPrefix} failed`)); }
               return (target.query as (...a: unknown[]) => Promise<unknown>)(...args);
             };
           }

@@ -208,8 +208,8 @@ describe('scripts/sage-migration/run.ts', () => {
         '--report', join(dir, 'no-such-dir', 'report.json')];
       const r = spawnSync('bun', ['--no-env-file', '--preload', join(process.cwd(), 'tests/integration/helpers/sageFailCommitPreload.ts'), 'scripts/sage-migration/run.ts', ...args],
         { encoding: 'utf8', timeout: 170_000, env: { ...process.env, DATABASE_SSL: 'disable', SAGE_FAIL_COMMIT: '5' } }); // 4 categories, then the item batch
-      expect(r.stdout).toContain('COMMIT UNCONFIRMED: item batch 1');
-      expect(r.stderr).toMatch(/the report could not be written to .*no-such-dir.*ENOENT.*the exit code stays 4/s);
+      // Since round 10 an unconfirmed COMMIT STOPS the run at that batch: the stop message names it, exit 4 (no summary, no report).
+      expect(r.stderr).toMatch(/sage migration stopped: the COMMIT of item batch 1 .*commit unconfirmed: item batch 1 \(/s);
       expect(r.status).toBe(4);
       // not ok (1): a wrong expectation, the same unwritable report
       const wrong = cli(['--company', world.companyId, '--user', world.userId, '--file', 'tests/fixtures/sage-export/sage-export.json', '--live', '--expect-items', '20', '--expect-pos', '999',
