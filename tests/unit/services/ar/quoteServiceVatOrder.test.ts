@@ -2,6 +2,8 @@
  * Per-line VAT on quotes, review round 13: the standard-only ORDER of decision for an edit's line with no id
  * (quoteEditLines.standardOnly: content, place, unique, renamed, else ambiguous), ids that are not this quote's, and no
  * item inherited by an unmatched line (quoteLineTax.quoteEditItemLines passes itemEditLines no identical-line pool).
+ * Round 14: a line unchanged in its own place keeps it first (cases from the reviewer's brute-force sweep), an explicit
+ * null item at a place, and a unique line resent at another rate.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -123,9 +125,25 @@ describe('L6: an unmatched line inherits no item from an identical stored line',
 });
 
 describe('each step\'s edges (mutation-checked)', () => {
-  it('content: identical twins of different items, moved, with no itemIds, are not paired by content: refused', async () => {
+  it('content: identical twins of different items shifted by an insert (no itemIds): saved, both twins\' items and accounts kept', async () => {
+    // Round 14 (as M4): nothing tells identical twins apart, so their order among themselves is accepted (L3); neither is lost.
     world.stored = [storedLine('s0', 1, X, GX, '10.00'), storedLine('s1', 2, Y, GY, '10.00')];
-    await expect(put([{ description: 'New', quantity: 1, unitPrice: 5 }, svc(10), svc(10)])).rejects.toThrow(AMBIGUOUS);
+    await put([{ description: 'New', quantity: 1, unitPrice: 5 }, svc(10), svc(10)]);
+    const [first, ...twins] = rows();
+    expect(first).toEqual([null, null]);
+    expect(twins.map((r) => r.join('|')).sort()).toEqual([`${X}|${GX}`, `${Y}|${GY}`].sort());
+  });
+
+  it('content: two lines inserted above identical twins of different items and one twin deleted (which?): refused', async () => {
+    world.stored = [storedLine('s0', 1, X, GX, '10.00'), storedLine('s1', 2, Y, GY, '10.00')];
+    await expect(put([{ description: 'New', quantity: 1, unitPrice: 5 }, { description: 'Other', quantity: 1, unitPrice: 6 }, svc(10)]))
+      .rejects.toThrow(AMBIGUOUS);
+    expect(wrote()).toBe(false);
+  });
+
+  it('content: identical twins of different items, one re-priced after an insert above them: refused', async () => {
+    world.stored = [storedLine('s0', 1, X, GX, '10.00'), storedLine('s1', 2, Y, GY, '10.00')];
+    await expect(put([{ description: 'New', quantity: 1, unitPrice: 5 }, svc(10), svc(15)])).rejects.toThrow(AMBIGUOUS);
     expect(wrote()).toBe(false);
   });
 
@@ -151,5 +169,52 @@ describe('each step\'s edges (mutation-checked)', () => {
     world.stored = [named('l0', 1, 'A', X, GX, '10.00'), named('l1', 2, 'B', X, GY, '10.00')];
     await put([{ description: 'B', quantity: 1, unitPrice: 12, itemId: X }, { id: 'l1', description: 'B', quantity: 1, unitPrice: 10 }]);
     expect(rows()).toEqual([[X, null], [X, GY]]);
+  });
+});
+
+describe('round 14: a line unchanged in its own place keeps it (an edit making another line identical never takes it)', () => {
+  it('H1: A renamed to B while B stays unchanged in place: B keeps its item and account, the renamed line is new', async () => {
+    world.stored = [named('l0', 1, 'A', X, GX, '10.00'), named('l1', 2, 'B', Y, GY, '10.00')];
+    await put([{ description: 'B', quantity: 1, unitPrice: 10 }, { description: 'B', quantity: 1, unitPrice: 10 }]);
+    expect(rows()).toEqual([[null, null], [Y, GY]]);
+    again();
+    world.stored = [named('l0', 1, 'A', X, GX, '10.00'), named('l1', 2, 'B', X, GY, '10.00')];
+    await put([{ description: 'B', quantity: 1, unitPrice: 10, itemId: X }, { description: 'B', quantity: 1, unitPrice: 10, itemId: X }]);
+    expect(rows()).toEqual([[X, null], [X, GY]]);
+  });
+
+  it('M1: identical twins and a third, the first re-priced in place: saved, each keeps its own account', async () => {
+    world.stored = [storedLine('s0', 1, X, GX, '10.00'), storedLine('s1', 2, X, GX, '10.00'), storedLine('s2', 3, X, GY, '20.00')];
+    await put([svc(15, { itemId: X }), svc(10, { itemId: X }), svc(20, { itemId: X })]);
+    expect(rows()).toEqual([[X, GX], [X, GX], [X, GY]]);
+  });
+
+  it('M2: the first line\'s item changed so it is identical to the third: saved, the third keeps its own', async () => {
+    world.stored = [storedLine('s0', 1, X, GX, '10.00'), storedLine('s1', 2, X, GX, '20.00'), storedLine('s2', 3, Y, GY, '10.00')];
+    await put([svc(10, { itemId: Y }), svc(20, { itemId: X }), svc(10, { itemId: Y })]);
+    expect(rows()).toEqual([[Y, GX], [X, GX], [Y, GY]]);
+  });
+
+  it('M3: the first re-priced onto its twin\'s price: saved, each keeps its own item and account', async () => {
+    world.stored = [storedLine('s0', 1, X, GX, '10.00'), storedLine('s1', 2, Y, GY, '20.00')];
+    await put([svc(20), svc(20)]);
+    expect(rows()).toEqual([[X, GX], [Y, GY]]);
+  });
+
+  it('L1: an explicit null item at a place where a twin with no item and another account is free: refused; same account: saved', async () => {
+    world.stored = [storedLine('s0', 1, X, GX, '10.00'), storedLine('s1', 2, X, GX, '20.00'), storedLine('s2', 3, null, GY, '10.00')];
+    await expect(put([svc(10, { itemId: X }), svc(15, { itemId: null })])).rejects.toThrow(AMBIGUOUS);
+    await expect(put([svc(10, { itemId: X }), svc(15, { itemId: '' })])).rejects.toThrow(AMBIGUOUS);
+    expect(wrote()).toBe(false);
+    world.stored = [storedLine('s0', 1, X, GX, '10.00'), storedLine('s1', 2, X, GX, '20.00'), storedLine('s2', 3, null, GX, '10.00')];
+    await put([svc(10, { itemId: X }), svc(15, { itemId: null })]);
+    expect(rows()).toEqual([[X, GX], [null, GX]]);
+  });
+
+  it('L2: a unique legacy line resent at another rate keeps its item and account, and is re-priced at that rate', async () => {
+    world.stored = [{ ...storedLine('s0', 1, X, GX, '100.00'), vat_type: null, tax_amount: null }];
+    await put([{ description: 'Svc', quantity: 1, unitPrice: 100, taxRate: 0 }]);
+    expect(rows()).toEqual([[X, GX]]);
+    expect(inserted('customer_quote_lines').map((l) => Number(l.tax_amount))).toEqual([0]);
   });
 });

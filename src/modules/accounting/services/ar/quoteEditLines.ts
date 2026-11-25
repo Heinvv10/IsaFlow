@@ -5,17 +5,24 @@
  * A line with an `id` takes that stored line; an `id` this quote does not hold (another quote's, or one sent twice) is
  * never guessed: refused (unknownIdProblem, a 400). Otherwise one rule decides, by what the saved quote holds:
  *
- *   ONLY STANDARD lines saved (the VAT type is not at risk; the item and account are), round 13's ORDER of decision for
- *     a line with no id (descriptions trimmed, case-insensitive; every step needs a free stored line of a compatible rate):
- *       1. CONTENT: identical (description, quantity, price, the item if sent) to exactly one free stored line, or to
- *          twins all carrying one item and account (interchangeable, paired in order): that line;
- *       2. PLACE: the same description as the stored line at its own place: that line, unless it names an item that
- *          another same-description stored line (free before this step) carries: moved or re-itemed, AMBIGUOUS;
+ *   ONLY STANDARD lines saved (the VAT type is not at risk; the item and account are), the ORDER of decision for a
+ *     line with no id (descriptions trimmed, case-insensitive; every step needs a free stored line of a compatible rate,
+ *     but for step 3's unique line):
+ *       0. UNCHANGED IN PLACE: identical (description, quantity, price, the item if sent) to the stored line at its
+ *          own place: that line (round 14: an edit that makes another line identical to it never takes it away);
+ *       1. CONTENT: identical to exactly one free stored line, or to twins all carrying one item and account
+ *          (interchangeable, paired in order): that line;
+ *       2. PLACE: the same description as the stored line at its own place: that line, unless it names an item
+ *          (an explicit null or '' names "no item") that another same-description stored line, free before this
+ *          step, carries: moved or re-itemed, AMBIGUOUS;
  *       3. UNIQUE: a description held by one stored line, or by twins all carrying one item and account: that line;
+ *          one unique stored line is kept even at another legacy rate (the rate sent re-types the line);
  *       4. RENAMED: a description NO stored line holds, naming the item of the stored line at its own place: that line;
  *       5. otherwise a line whose description has stored twins of different items or accounts, one of them still free,
  *          is AMBIGUOUS and refused (unmatchedItemProblem: a 400 asking for the saved line's id, or an explicit itemId
  *          and accountId); any other line is a new line.
+ *     ACCEPTED (round 14, L3): an edit that changes TWO things among twins nothing tells apart (identical content, or
+ *     the same description with items the edit does not name) can pair them the other way; send ids to be exact.
  *   A ZERO-RATED or EXEMPT line saved (a legacy 0% line counts): a typeless line inherits a saved type ONLY from a
  *     POSITIONAL resend: the same number of lines, each identical to the saved line in its own place and of a
  *     compatible rate, except at most one changed in place (its price, quantity, or its description or its item, not
@@ -161,6 +168,10 @@ function standardOnly(sent: readonly SentQuoteLine[], stored: readonly StoredQuo
   const itemAccount = (j: number) => `${normalItem(stored[j]!.itemId)}|${stored[j]!.accountId ?? ''}`;
   const oneKind = (js: readonly number[]) => js.length > 0 && new Set(js.map(itemAccount)).size === 1;
   const fits = (l: SentQuoteLine, j: number) => free(j) && compatible(l, stored[j]!);
+  // 0. Unchanged in its own place: an edit that makes another line identical to this one must not take it away.
+  sent.forEach((l, i) => {
+    if (open(i) && i < stored.length && fits(l, i) && identical(l, stored[i]!)) take(i, i);
+  });
   // 1. Content: identical to exactly one free stored line, or to interchangeable twins (the first free one).
   sent.forEach((l, i) => {
     if (!open(i)) return;
@@ -168,20 +179,25 @@ function standardOnly(sent: readonly SentQuoteLine[], stored: readonly StoredQuo
     if (oneKind(js)) take(i, js[0]!);
   });
   // 2. Place: the same description at its own place, unless it names an item another free twin of that place carries.
+  // An explicit null or '' names the empty item, carried by a twin with no item; it only matters when that twin's
+  // account differs (either way the line is written with no item and the matched line's account).
   const freeBefore = stored.map((_, j) => free(j));
   sent.forEach((l, i) => {
     if (!open(i) || i >= stored.length || !fits(l, i) || !sameDescription(l, stored[i]!)) return;
     const named = itemOf(l);
-    const elsewhere = named !== null && named !== normalItem(stored[i]!.itemId)
-      && twinsOf(stored[i]!).some((j) => j !== i && freeBefore[j] && normalItem(stored[j]!.itemId) === named);
+    const elsewhere = l.itemId !== undefined && named !== normalItem(stored[i]!.itemId)
+      && twinsOf(stored[i]!).some((j) => j !== i && freeBefore[j] && normalItem(stored[j]!.itemId) === named
+        && (named !== null || (stored[j]!.accountId ?? null) !== (stored[i]!.accountId ?? null)));
     if (elsewhere) ambiguous.push(i);
     else take(i, i);
   });
-  // 3. Unique (or interchangeable twins); 5. twins of different items or accounts with one still free: ambiguous.
+  // 3. Unique (or interchangeable twins); 5. twins of different items or accounts with one still free: ambiguous. A
+  // unique line resent at another rate still keeps its item and account: the rate it names re-types it anyway
+  // (invoiceLineVatTypes: a kept type stands only at the header's rate) and it is never "unchanged" (take).
   sent.forEach((l, i) => {
     if (!open(i)) return;
     const js = twinsOf(l);
-    const j = js.find((k) => fits(l, k));
+    const j = js.find((k) => fits(l, k)) ?? (js.length === 1 && free(js[0]!) ? js[0] : undefined);
     if (oneKind(js)) { if (j !== undefined) take(i, j); }
     else if (js.length > 0 && js.some(free)) ambiguous.push(i);
   });

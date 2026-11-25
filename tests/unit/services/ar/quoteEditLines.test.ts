@@ -227,15 +227,35 @@ describe('a standard-only quote: a match needs a compatible rate and a free stor
   const other = stored('o', { description: 'Other', unitPrice: 1, amount: 1 });
   const w = stored('w', { itemId: A });
 
-  it('a line resent at a legacy rate its stored line does not have matches nothing, at its place or by content', () => {
-    expect(run([line({ taxRate: 0 })], [w]).ids).toEqual([null]);
-    expect(run([line({ taxRate: 0 })], [other, w]).ids).toEqual([null]);
+  it('L2 (round 14): a line resent at another legacy rate keeps a UNIQUE stored line (never unchanged); twins it does not', () => {
+    const m = matchQuoteLines([line({ taxRate: 0 })], [w], D);
+    expect([m.matches[0]?.stored.id, m.matches[0]?.identical]).toEqual(['w', false]);
+    expect(run([line({ taxRate: 0 })], [other, w]).ids).toEqual(['w']);
     expect(run([line({ taxRate: 15 })], [other, w]).ids).toEqual(['w']);
+    expect(run([line({ taxRate: 0 })], [w, stored('w2', { itemId: A })]).ids).toEqual([null]);
   });
 
-  it('two sent lines of a unique stored description: the identical one pairs (content before place), the other is new', () => {
+  it('a moved UNCHANGED line takes its stored line from a CHANGED line now at that line\'s place (content before place)', () => {
     expect(run([line({}), line({ unitPrice: 120 })], [other, w]).ids).toEqual(['w', null]);
     expect(run([line({ unitPrice: 120 }), line({})], [w, other]).ids).toEqual([null, 'w']);
+  });
+
+  it('H1 (round 14): an UNCHANGED line in its own place keeps it when another line is edited to be identical to it', () => {
+    const a0 = stored('a', { description: 'A', itemId: A, accountId: 'x' });
+    const b1 = stored('b', { description: 'B', itemId: B, accountId: 'y' });
+    expect(run([line({ description: 'B' }), line({ description: 'B' })], [a0, b1]).ids).toEqual([null, 'b']);
+    expect(run([line({ description: 'B', itemId: A }), line({ description: 'B', itemId: B })], [a0, b1]).ids).toEqual([null, 'b']);
+  });
+
+  it('M4 (round 14): legacy [A p, A q, B] resent [B, A, A] with no itemIds is accepted and unchanged (never re-priced)', () => {
+    const lg = (id: string, description: string, itemId: string | null, accountId: string, unitPrice: number) =>
+      stored(id, { description, unitPrice, amount: unitPrice, itemId, accountId, vatType: null, taxAmount: null });
+    const st = [lg('l0', 'A', A, 'x', 10), lg('l1', 'A', B, 'y', 10), lg('l2', 'B', null, 'z', 20)];
+    const sent = [line({ description: 'B', unitPrice: 20, taxRate: 15 }), line({ description: 'A', unitPrice: 10, taxRate: 15 }), line({ description: 'A', unitPrice: 10, taxRate: 15 })];
+    const m = matchQuoteLines(sent, st, D);
+    expect(m.ambiguous).toEqual([]);
+    expect(m.matches.map((x) => x?.stored.id)).toEqual(['l2', 'l1', 'l0']);
+    expect(legacyLinesUnchanged(sent, st, m.matches, undefined)).toBe(true);
   });
 
   it('M3: legacy twins of one item and account resent reordered but unchanged stay unchanged (content, never re-priced)', () => {
