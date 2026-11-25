@@ -68,6 +68,8 @@ const DEV_ONLY_SPECS = [
   'z32-bank-tx-layout',
   'z33-off-cycle-run',
   'z34-settings-dirty-state',
+  // Wave 7 EA1: the employee address card and the portal's read-only details; it writes an employee's address.
+  'z37-employee-address',
   'z38-portal-payslip-periods',
   'z4-employee-pay-on-create',
   'z5-employee-bank-details',
