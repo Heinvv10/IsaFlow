@@ -3,7 +3,8 @@
  * (the route refuses the rest, and refuses a Login-as session). The run deducts each active order from net pay after
  * tax; emoluments attachment orders together stop at 25% of basic salary (Magistrates' Courts Act s65J(1A)(a)) and
  * maintenance orders are outside that limit and taken first (Maintenance Act s28, s29(3)). The balance moves only when
- * a run that deducted is approved. Paying the creditor is not done here.
+ * a run that deducted is approved. The creditor's bank details are entered per order (GarnisheeCreditorBank, wave 7 GC1);
+ * paying the creditor is not done here.
  */
 import { useCallback, useEffect, useState } from 'react';
 import { AlertCircle, Gavel, Loader2 } from 'lucide-react';
@@ -11,6 +12,7 @@ import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { DateField, Input, MoneyField, Select } from '@/components/ui';
 import { todayInSast } from '@/lib/saDateParser';
 import { formatCurrency } from '@/utils/formatters';
+import { GarnisheeCreditorBank } from './GarnisheeCreditorBank';
 import type { GarnisheeKind } from '@/modules/accounting/services/payroll/payrollGarnishee';
 import type { GarnisheeOrder } from '@/modules/accounting/services/payroll/payrollGarnisheeOrders';
 
@@ -116,6 +118,7 @@ export function GarnisheeOrdersCard({ employeeId }: { employeeId: string }) {
                   {o.totalDebt !== null && ` · owes ${formatCurrency(o.balance ?? 0)} of ${formatCurrency(o.totalDebt)}`}
                   {o.pending > 0 && ` · ${formatCurrency(o.pending)} on runs not yet approved`}
                 </span>
+                <GarnisheeCreditorBank url={url} orderId={o.id} bank={o.creditorBank} onSaved={load} />
               </span>
               {o.status !== 'ended' && (ending?.id === o.id ? (
                 <span className="flex w-full flex-wrap items-end gap-2">
