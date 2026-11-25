@@ -18,6 +18,34 @@ export class BillSupplierDeletedError extends Error {
   }
 }
 
+/**
+ * A draft bill edit whose bill moved to another supplier between its read and its lock (a supplier merge, or another edit; #1882
+ * L-a). Nothing was written; the same edit on a reloaded bill goes through. 409, retryable.
+ */
+export class DraftBillChangedError extends Error {
+  readonly code = 'SUPPLIER_INVOICE_CHANGED';
+  constructor() {
+    super('The bill changed meanwhile (another edit or a supplier merge moved it to another supplier). Reload it and save again.');
+    this.name = 'DraftBillChangedError';
+  }
+}
+
+/** A supplier payment written onto a soft-deleted supplier: migration 1023's trg_supplier_payments_supplier_live (#1699 H1). */
+export class PaymentSupplierDeletedError extends Error {
+  readonly code = 'SUPPLIER_PAYMENT_SUPPLIER_DELETED';
+  constructor() {
+    super('The supplier has been merged into another or deleted, so this payment was not saved. '
+      + 'Enter it again for the supplier it was merged into, or another live supplier.');
+    this.name = 'PaymentSupplierDeletedError';
+  }
+}
+
+/** The typed refusal for 1023's trigger error, or null for anything else. */
+export function asPaymentSupplierDeleted(err: unknown): PaymentSupplierDeletedError | null {
+  const e = err as { code?: unknown; constraint?: unknown } | null;
+  return e && e.code === '23503' && e.constraint === 'supplier_payments_supplier_live' ? new PaymentSupplierDeletedError() : null;
+}
+
 /** The typed refusal for the trigger's error, or null for anything else. */
 export function asBillSupplierDeleted(err: unknown): BillSupplierDeletedError | null {
   const e = err as { code?: unknown; constraint?: unknown } | null;

@@ -33,14 +33,6 @@ export function CodeDrawer({ code, onClose, onToggleStatus }: {
           <Field label="Category">{CATEGORY_LABELS[code.category] ?? code.category}</Field>
           {code.code_pair && <Field label="Code pair">{code.code_pair}</Field>}
           {code.applicability_note && <Field label="Applicability">{code.applicability_note}</Field>}
-          {code.official_excerpt && (
-            <div>
-              <div className="text-xs text-[var(--ff-text-tertiary)] mb-1">Official SARS guide excerpt</div>
-              <div className="text-xs text-[var(--ff-text-secondary)] whitespace-pre-wrap p-3 rounded bg-[var(--ff-bg-tertiary)] max-h-64 overflow-y-auto">
-                {code.official_excerpt}
-              </div>
-            </div>
-          )}
           {code.source_url && (
             <Field label="Source">
               <a href={code.source_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-teal-400 hover:underline break-all">

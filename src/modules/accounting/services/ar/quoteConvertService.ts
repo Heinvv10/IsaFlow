@@ -24,7 +24,7 @@ import { assertLineAccountIds } from './invoiceLineCodingGuard';
 import { revenueLineDefaults } from '../gl/dimensions/dimensionDerivation';
 import { dueDateForContact } from '../core/paymentTermsResolver';
 import { todayInSast } from '@/lib/saDateParser';
-import { STANDARD_VAT_RATE } from './quoteLineTax';
+import { assertOrderableVat, quoteInvoiceVat, type QuoteConvertWarning } from './quoteInvoiceVat';
 
 type Row = DbRow;
 
@@ -45,6 +45,8 @@ export class QuoteNotConvertibleError extends Error {
   constructor(
     readonly quoteStatus: string,
     readonly existingOrderId: string | null,
+    /** A quote already invoiced: the invoice it was converted to (the route answers it too). */
+    readonly existingInvoiceId: string | null = null,
   ) {
     super(`A quote with status '${quoteStatus}' cannot be converted to a sales order`);
     this.name = 'QuoteNotConvertibleError';
@@ -62,10 +64,35 @@ export class QuoteNotInvoiceableError extends Error {
   constructor(
     readonly quoteStatus: string,
     readonly existingInvoiceId: string | null,
+    /** A quote already turned into a sales order: that order (the route answers it too). */
+    readonly existingOrderId: string | null = null,
   ) {
     super(`A quote with status '${quoteStatus}' cannot be converted to an invoice`);
     this.name = 'QuoteNotInvoiceableError';
   }
+}
+
+/**
+ * The refusal of a quote that cannot be claimed, from the row as it is NOW: the loser of a double-click needs the
+ * winner's order / invoice id, which did not exist when the quote was first read.
+ */
+async function linksNow(companyId: string, id: string, readStatus: string): Promise<{ status: string; invoiceId: string | null; orderId: string | null }> {
+  const [current] = (await sql`
+    SELECT status, converted_invoice_id, converted_order_id FROM customer_quotes
+    WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID
+  `) as Row[];
+  const idOf = (v: unknown) => (v ? String(v) : null);
+  return { status: String(current?.status ?? readStatus), invoiceId: idOf(current?.converted_invoice_id), orderId: idOf(current?.converted_order_id) };
+}
+
+async function refuseOrder(companyId: string, id: string, readStatus: string): Promise<never> {
+  const now = await linksNow(companyId, id, readStatus);
+  throw new QuoteNotConvertibleError(now.status, now.orderId, now.invoiceId);
+}
+
+async function refuseInvoice(companyId: string, id: string, readStatus: string): Promise<never> {
+  const now = await linksNow(companyId, id, readStatus);
+  throw new QuoteNotInvoiceableError(now.status, now.invoiceId, now.orderId);
 }
 
 export async function convertToSalesOrder(
@@ -75,6 +102,10 @@ export async function convertToSalesOrder(
 ): Promise<{ quote: Quote; salesOrderId: string } | null> {
   const quote = await getQuote(companyId, id);
   if (!quote) return null;
+  // A quote its status already refuses answers that (409, the winner's order id) before any VAT refusal.
+  if (!CONVERTIBLE_TO_ORDER.includes(quote.status) || quote.convertedInvoiceId || quote.convertedOrderId) await refuseOrder(companyId, id, quote.status);
+  // What a sales order cannot carry yet (an inclusive quote, an exempt line), refused before the claim.
+  assertOrderableVat(quote);
 
   // CLAIM THE QUOTE BEFORE ANYTHING IS MINTED. The existence check above is a
   // check-then-act: a double-click or a client retry used to reserve a second
@@ -92,18 +123,7 @@ export async function convertToSalesOrder(
       AND converted_invoice_id IS NULL AND converted_order_id IS NULL
     RETURNING id
   `) as Row[]);
-  if (claimed.length === 0) {
-    // Re-read rather than trusting the row read before the UPDATE: the loser of
-    // a double-click needs the winner's order id, which did not exist yet then.
-    const [current] = (await sql`
-      SELECT status, converted_order_id FROM customer_quotes
-      WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID
-    `) as Row[];
-    throw new QuoteNotConvertibleError(
-      String(current?.status ?? quote.status),
-      current?.converted_order_id ? String(current.converted_order_id) : null,
-    );
-  }
+  if (claimed.length === 0) await refuseOrder(companyId, id, quote.status);
 
   const numRows = (await sql`
     INSERT INTO company_document_numbers (company_id, document_type, prefix, next_number)
@@ -155,9 +175,11 @@ export async function convertToInvoice(
   companyId: string,
   id: string,
   userId?: string,
-): Promise<{ quote: Quote; invoiceId: string } | null> {
+): Promise<{ quote: Quote; invoiceId: string; warnings: QuoteConvertWarning[] } | null> {
   const quote = await getQuote(companyId, id);
   if (!quote) return null;
+  // A quote its status already refuses answers that (409, the winner's invoice id) before any line or VAT refusal.
+  if (quote.status !== 'accepted' || quote.convertedInvoiceId || quote.convertedOrderId) await refuseInvoice(companyId, id, quote.status);
   // The lines' accounts are copied onto the invoice, and posting credits them
   // (migration 874): re-checked against the chart as it is now, before the
   // claim below writes anything. A quote saved before 874 was never checked.
@@ -165,6 +187,10 @@ export async function convertToInvoice(
   // Migration 1005: the invoice's lines are NEW lines, so an item they name must still be this company's and active (an item
   // deactivated since the quote was written refuses the conversion, as a new invoice line naming it would be refused).
   await applyItemLineDefaults(companyId, (quote.lines ?? []).map((l) => ({ itemId: l.itemId, glAccountId: l.accountId })), 'sales', (i) => `quote line ${i + 1}`);
+  // The invoice is dated the day it is raised, editable while it is a draft; the quote keeps the date it was given (Hein, 2026-11-06).
+  const invoiceDate = todayInSast();
+  // Migration 1024: each line's VAT type, net and VAT, priced as the invoice's own (quoteInvoiceVat), refused before the claim.
+  const vat = await quoteInvoiceVat(companyId, quote, invoiceDate);
 
   // CLAIM THE QUOTE BEFORE ANYTHING IS MINTED — the same guard convertToSalesOrder
   // takes above, for the same reason. `quote.status !== 'accepted'` was a
@@ -188,18 +214,7 @@ export async function convertToInvoice(
       AND converted_invoice_id IS NULL AND converted_order_id IS NULL
     RETURNING id
   `) as Row[]);
-  if (claimed.length === 0) {
-    // Re-read rather than trusting the row read before the UPDATE: the loser of
-    // a double-click needs the winner's invoice id, which did not exist then.
-    const [current] = (await sql`
-      SELECT status, converted_invoice_id FROM customer_quotes
-      WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID
-    `) as Row[];
-    throw new QuoteNotInvoiceableError(
-      String(current?.status ?? quote.status),
-      current?.converted_invoice_id ? String(current.converted_invoice_id) : null,
-    );
-  }
+  if (claimed.length === 0) await refuseInvoice(companyId, id, quote.status);
 
   // Use the SAME sequence as customer-invoices-create ('customer_invoice').
   // The old inline counter used a SEPARATE document_type ('invoice', 'INV-'
@@ -207,25 +222,19 @@ export async function convertToInvoice(
   // walked straight into historical INV-xxxxx rows (uq violation, found live
   // 2026-07-05). Same savepoint-isolated retry as the create path: a clash
   // with a legacy number must not poison the request transaction.
-  // The invoice is dated the day it is raised, editable while it is a draft; the quote keeps the date it was given (Hein, 2026-11-06).
-  const invoiceDate = todayInSast();
   // The customer's terms, else the company default (migration 960): not the quote's expiry, which is how long the offer stands.
   const dueDate = (await dueDateForContact(companyId, 'customer', quote.clientId || null, invoiceDate)) ?? invoiceDate;
-  // The invoice's one rate, when every line shares it: the draft edit re-taxes at the header rate, so a 0% quote must not
-  // come back at the column default of 15%. A mixed-rate quote gets 15% as before (its lines keep their own rates).
-  const rates = new Set((quote.lines || []).map((l) => Number(l.taxRate)));
-  const headerRate = rates.size === 1 ? [...rates][0]! : null;
   const invoiceId = await insertWithReservedNumber(
     companyId, 'customer_invoice', 'quote_conv_inv_', 'uq_customer_invoices_company_number', async (invoiceNumber) => {
       const invRows = (await sql`
         INSERT INTO customer_invoices (
           company_id, invoice_number, client_id, customer_id,
-          invoice_date, due_date, due_date_source, subtotal, tax_amount, total_amount, tax_rate,
+          invoice_date, due_date, due_date_source, subtotal, tax_amount, total_amount, tax_rate, amounts_are,
           notes, status, created_by
         ) VALUES (
           ${companyId}::UUID, ${invoiceNumber}, ${quote.clientId || null}, ${quote.clientId || null},
           ${invoiceDate}, ${dueDate}, 'terms',
-          ${quote.subtotal}, ${quote.taxAmount}, ${quote.total}, ${headerRate ?? STANDARD_VAT_RATE},
+          ${vat.subtotal}, ${vat.tax}, ${vat.total}, ${vat.taxRate}, ${vat.amountsAre},
           ${'Converted from ' + quote.quoteNumber}, 'draft', ${userId || null}
         ) RETURNING id
       `) as Row[];
@@ -234,11 +243,13 @@ export async function convertToInvoice(
 
   // The customer's FNO is stored on each line, so it is what posts and what an approval covers (dimensionStoredPosting).
   const dims = await revenueLineDefaults(companyId, quote.clientId || null);
-  for (const line of quote.lines || []) {
+  for (const [i, line] of (quote.lines || []).entries()) {
+    const v = vat.lines[i]!;
     await sql`
-      INSERT INTO customer_invoice_items (invoice_id, description, quantity, unit_price, tax_rate, amount, gl_account_id, cc1_id, item_id)
-      VALUES (${invoiceId}::UUID, ${line.description}, ${line.quantity}, ${line.unitPrice}, ${line.taxRate}, ${line.lineTotal}, ${line.accountId},
-        ${dims.cc1Id ?? null}::UUID, ${line.itemId}::UUID)
+      INSERT INTO customer_invoice_items (invoice_id, description, quantity, unit_price, tax_rate, amount, gl_account_id, cc1_id, item_id,
+        tax_amount, vat_type, line_position)
+      VALUES (${invoiceId}::UUID, ${line.description}, ${v.qty}, ${v.price}, ${v.taxRate}, ${v.amount}, ${line.accountId},
+        ${dims.cc1Id ?? null}::UUID, ${line.itemId}::UUID, ${v.taxAmount}, ${v.vatType}, ${i}) -- 1024: the quote's type and VAT; line_position = the quote's order (956, 0-based)
     `;
   }
 
@@ -246,6 +257,7 @@ export async function convertToInvoice(
   await sql`UPDATE customer_quotes SET converted_invoice_id = ${invoiceId}::UUID, updated_at = NOW() WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID`;
 
   log.info('Quote converted to invoice', { quoteId: id, invoiceId });
-  return { quote: (await getQuote(companyId, id))!, invoiceId };
+  // The invoice's total when it is not the quote's (the VAT rate moved): in the response, for the caller to see.
+  return { quote: (await getQuote(companyId, id))!, invoiceId, warnings: vat.warnings };
 }
 

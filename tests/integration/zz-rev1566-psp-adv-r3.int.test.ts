@@ -7,7 +7,6 @@ import { assertDisposable, request } from './mfa-impersonation-postgres.helpers'
 import { cleanSeveranceFixtures, type SeveranceFixture } from './p3-severance.helpers';
 import { seedEmployee } from './p4fu-cumulative.helpers';
 import { addEmployee, lineOf, newRun } from './ts-b.helpers';
-import yearEndStatus from '../../pages/api/payroll/year-end/status';
 import emp501Recon from '../../pages/api/payroll/emp501/reconciliation';
 import { calculatePayrollRun } from '@/modules/accounting/services/payroll/payrollRunService';
 import { updatePayrollEmployee } from '@/modules/accounting/services/payroll/payrollEmployeeService';

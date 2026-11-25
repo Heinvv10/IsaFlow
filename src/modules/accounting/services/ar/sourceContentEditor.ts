@@ -8,7 +8,9 @@
  * The creator is created_by; editors are `content_authors`, stamped here by
  * the edit itself and ONLY when it changed what the document bills: the
  * customer, the date the invoice will carry, the totals and every line's
- * description, quantity, price, VAT rate, amount and account. A notes-only
+ * description, quantity, price, VAT rate, amount and account (and on a quote,
+ * migration 1024: each line's VAT type and VAT, and amounts_are, which the
+ * converted invoice carries as approval content, 1009). A notes-only
  * edit stamps nobody. Nothing is written at creation, so creating and
  * converting a quote (golden path a) touches no column migration 865 adds.
  *
@@ -28,9 +30,9 @@ async function fingerprint(companyId: string, source: PricedSource): Promise<str
   const rows = source.kind === 'quote'
     ? (await sql`
         SELECT md5(jsonb_build_array(q.client_id, q.quote_date, trim_scale(q.subtotal), trim_scale(q.tax_amount),
-          trim_scale(q.total), COALESCE((
+          trim_scale(q.total), q.amounts_are, COALESCE((
             SELECT jsonb_agg(jsonb_build_array(l.description, trim_scale(l.quantity), trim_scale(l.unit_price),
-                     trim_scale(l.tax_rate), trim_scale(l.amount), l.gl_account_id)
+                     trim_scale(l.tax_rate), trim_scale(l.amount), l.gl_account_id, l.vat_type, trim_scale(l.tax_amount))
                      ORDER BY l.sort_order, l.description, l.quantity, l.unit_price, l.tax_rate, l.amount, l.gl_account_id, l.id)
             FROM customer_quote_lines l WHERE l.quote_id = q.id), '[]'::jsonb))::TEXT) AS f
         FROM customer_quotes q WHERE q.id = ${source.id}::UUID AND q.company_id = ${companyId}::UUID

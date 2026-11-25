@@ -7,7 +7,8 @@
  * details frozen at that approval (PS3's snapshot of the run's CURRENT approval; payslipModel `detailsAsAt`), the
  * rule PE's email follows (DETAILS_NOT_FROZEN): a run approved before PS3 went live is not shown. A reopened run is
  * not final, so its slip leaves the list and its PDF is 404 at once; after re-approval the new slip shows.
- * Regular monthly runs only, and each listed run must pass the same run-kind guard the PDF render runs
+ * Every final run kind and frequency (wave 7 PP, W14: an off-cycle bonus and a weekly or fortnightly slip are the
+ * employee's too), newest pay first (payrollRunOrder), and each listed run must pass the same run-kind guard the PDF render runs
  * (assertRunKindSupported 'payslip'; review #1576 L1), so the list never shows a slip whose download would 404.
  */
 import { sql } from '@/lib/neon';
@@ -17,17 +18,26 @@ import { buildPayslipPdf, payslipFilename } from './payslipPdf';
 import { assertRunKindSupported, isRunKindUnsupported, RunKindUnsupportedError } from './payrollRunKindGuard';
 import { snapshotIsThisApproval } from './payslipSnapshot';
 import { todaySast } from './employeePortalWindow';
+import { runOrderKeySql } from './payrollRunOrder';
+import { payslipPeriodTitle } from './payslipPeriod';
+import { dateColumnOf } from './payrollFrequency';
 
-export interface OwnPayslip { runId: string; periodYear: number; periodMonth: number; runDate: string | null; netPay: number }
+export interface OwnPayslip {
+  runId: string; periodYear: number; periodMonth: number; runDate: string | null; netPay: number;
+  /** 'November 2026', 'Week 16–22 Nov 2026', 'Bonus, Nov 2026' (payslipPeriodTitle). */
+  periodLabel: string;
+}
 
 interface ListRow {
   run_id: string; period_year: number; period_month: number; run_date: string | null; net_pay: string | number;
+  period_start: string | Date | null; period_end: string | Date | null; pay_frequency: string; run_kind: string; off_cycle_reason: string | null;
   snapshot_approved_at: string | null; approved_at_us: string | null;
 }
 
 export async function listOwnPayslips(companyId: string, employeeId: string): Promise<OwnPayslip[]> {
   const rows = (await sql`
     SELECT h.id::text AS run_id, h.period_year, h.period_month, h.run_date, prl.net_pay,
+           h.period_start, h.period_end, h.pay_frequency, h.run_kind, h.off_cycle_reason,
            prl.payslip_snapshot->>'approvedAt' AS snapshot_approved_at,
            (extract(epoch FROM h.approved_at) * 1000000)::bigint::text AS approved_at_us
       FROM payroll_run_lines prl
@@ -35,9 +45,7 @@ export async function listOwnPayslips(companyId: string, employeeId: string): Pr
       JOIN payroll_employees e ON e.id = prl.employee_id AND e.company_id = h.company_id
      WHERE prl.employee_id = ${employeeId}::uuid AND h.company_id = ${companyId}::uuid
        AND ${sql.unsafe(payRunFinalSql('h'))}
-       -- Off-cycle payslips are deliberately not listed in the portal yet (SS scope: monthly regular runs; wave 7).
-       AND h.run_kind = 'regular' AND h.pay_frequency = 'monthly'
-     ORDER BY h.period_year DESC, h.period_month DESC
+     ORDER BY ${runOrderKeySql('h')} DESC
   `) as ListRow[];
   const shown: OwnPayslip[] = [];
   for (const r of rows.filter((x) => snapshotIsThisApproval(x.snapshot_approved_at, x.approved_at_us))) {
@@ -45,6 +53,11 @@ export async function listOwnPayslips(companyId: string, employeeId: string): Pr
     shown.push({
       runId: r.run_id, periodYear: Number(r.period_year), periodMonth: Number(r.period_month),
       runDate: r.run_date == null ? null : String(r.run_date).slice(0, 10), netPay: Number(r.net_pay),
+      periodLabel: payslipPeriodTitle({
+        periodYear: Number(r.period_year), periodMonth: Number(r.period_month), payFrequency: String(r.pay_frequency),
+        runKind: String(r.run_kind), offCycleReason: r.off_cycle_reason,
+        periodStart: dateColumnOf(r.period_start), periodEnd: dateColumnOf(r.period_end),
+      }),
     });
   }
   return shown;

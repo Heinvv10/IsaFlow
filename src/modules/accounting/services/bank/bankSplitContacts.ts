@@ -46,6 +46,7 @@ import { insertCustomerBankReceipt } from '../ar/customerBankReceipt';
 import { DEFAULT_AUTO_APPLY, type AutoApplyMode } from '../shared/autoAllocateStrategy';
 import { assertImporterMayAllocateAs } from './bankLineImporterGate';
 import { BankAllocationRefusal } from './bankAllocationRefusal';
+import { lockSupplierIfLive, SUPPLIER_NOT_LIVE_REFUSAL } from '../core/supplierLiveLock';
 import type { SplitLine } from './bankAllocationTypes';
 
 export type SplitContactKind = 'supplier' | 'customer';
@@ -151,6 +152,11 @@ export async function planSplitContacts(
     });
   }
 
+  // The suppliers this line PAYS, FOR KEY SHARE and live, in id order, before the journal (supplierLiveLock): a merge waits, and a
+  // supplier merged away meanwhile is refused here, not by the payment trigger after the journal (#1882 L1). Refunds: below.
+  for (const id of [...paymentTotals.keys()].sort()) {
+    if (!(await lockSupplierIfLive(companyId, id))) throw new BankAllocationRefusal(SUPPLIER_NOT_LIVE_REFUSAL);
+  }
   // ONE supplier_payment judgment at the sum of what the line pays suppliers: R100k split as ten suppliers at R10k is
   // still one R100k payment instruction from this line, and each part under the rule must not slip under it.
   if (paymentTotals.size > 0) {
