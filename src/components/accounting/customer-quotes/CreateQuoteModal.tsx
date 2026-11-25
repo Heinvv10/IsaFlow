@@ -131,7 +131,7 @@ export function CreateQuoteModal({ customers, onClose, onCreated }: Props) {
       </Modal.Body>
       <Modal.Footer>
         <button type="button" onClick={onClose} className="px-4 py-2 min-h-11 sm:min-h-0 text-sm text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors">Cancel</button>
-        <button type="button" onClick={() => { void handleCreate(); }} disabled={busy || !form.clientId || lines.every(l => !l.description)} className="px-5 py-2 text-sm font-semibold bg-brand-600 hover:bg-brand-700 text-white rounded-lg transition-colors disabled:opacity-40 flex items-center gap-2">
+        <button type="button" onClick={() => { void handleCreate(); }} disabled={busy || !form.clientId} className="px-5 py-2 text-sm font-semibold bg-brand-600 hover:bg-brand-700 text-white rounded-lg transition-colors disabled:opacity-40 flex items-center gap-2">
           {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
           {saving ? 'Creating…' : 'Create Quote'}
         </button>

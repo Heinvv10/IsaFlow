@@ -61,6 +61,13 @@ describe('quoteBody', () => {
     expect(quoteBody({ ...form, quoteDate: '1990-01-01' }, [line({})], 'none', [null])).toMatchObject({ body: expect.anything() });
   });
 
+  it('L2: spaces alone are no description, for every hold and for what is sent', () => {
+    const b = body([line({ description: '   ', unitPrice: 0 }), line({ key: 'k2' })]);
+    expect('body' in b && b.body.lines.map((l) => [l.description, l.lineNo])).toEqual([['Widget', 2]]);
+    expect(body([line({ description: '  ', unitPrice: 0 })])).toEqual({ problem: 'Add at least one line item' });
+    expect(body([line({ description: ' ', unitPrice: 0.001 })])).toEqual({ problem: 'Line 1 needs a description' });
+  });
+
   it('L13: a priced line without a description is held, not silently dropped (a blank line still is dropped)', () => {
     expect(body([line({}), line({ key: 'k2', description: '  ', unitPrice: 50 })])).toEqual({ problem: 'Line 2 needs a description' });
     expect(body([line({}), line({ key: 'k2', description: '', unitPrice: 0 })])).toMatchObject({ body: expect.anything() });

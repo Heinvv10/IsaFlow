@@ -176,3 +176,13 @@ it('L3: the price headers follow the effective mode: inclusive picked, then the 
   await waitFor(() => expect(screen.queryByRole('combobox', { name: 'Amounts are' })).toBeNull());
   expect(screen.queryByText(/\(incl\. VAT\)|\(excl\. VAT\)/)).toBeNull();
 });
+
+it('L1: a price typed with no description anywhere: Create stays enabled and says why, nothing is sent', async () => {
+  renderPage('bi-monthly');
+  await openAndFill('100');
+  fireEvent.change(screen.getAllByPlaceholderText('Item description')[0]!, { target: { value: '' } });
+  expect(createButton().disabled).toBe(false);
+  create();
+  expect((await screen.findByRole('alert')).textContent).toBe('Line 1 needs a description');
+  expect(posts()).toHaveLength(0);
+});

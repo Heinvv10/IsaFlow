@@ -69,6 +69,9 @@ export function useSelectKeyboard(a: Args) {
   }
 
   function onTriggerKeyDown(e: KeyboardEvent<HTMLElement>) {
+    // Escape on an open list closes it from ANY focus inside the trigger: a press on the clear button released off it
+    // leaves focus there with the list open, and the key must not reach a Modal around the select.
+    if (e.key === 'Escape' && a.open) { e.stopPropagation(); a.closeDropdown(); return; }
     if (e.target !== e.currentTarget || e.ctrlKey || e.metaKey || e.altKey) return; // the clear button handles its own keys
     const k = e.key;
     if (k === ' ' && prefixIsLive()) { e.preventDefault(); typeAhead(' '); }
@@ -77,7 +80,6 @@ export function useSelectKeyboard(a: Args) {
     else if (k === 'ArrowUp') { e.preventDefault(); if (a.open) a.setActiveIndex((i) => (i < 0 ? first() : nextEnabled(a.options, i, -1))); else openOn(selectedIndex); }
     else if (k === 'Home') { e.preventDefault(); if (a.open) a.setActiveIndex(first()); else openOn(first()); }
     else if (k === 'End') { e.preventDefault(); if (a.open) a.setActiveIndex(last()); else openOn(last()); }
-    else if (k === 'Escape' && a.open) { e.stopPropagation(); a.closeDropdown(); } // closes the list, not the dialog around it
     else if (k === 'Tab' || k === 'Escape') a.closeDropdown();
     else if (k.length === 1) {
       e.preventDefault();

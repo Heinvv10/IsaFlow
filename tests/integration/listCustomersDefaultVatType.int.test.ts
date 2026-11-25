@@ -32,8 +32,8 @@ describeIfDb('listCustomers returns default_vat_type', () => {
       const rows = await als.run({ client: c, userId: USER, companyId: COMPANY, claims: {} } as never, () => listCustomers(COMPANY));
       expect(rows.map((r) => [r.name, r.default_vat_type])).toEqual([['Exempt Trust', 'exempt'], ['Plain Ltd', null]]);
     } finally {
-      await c.query('ROLLBACK').catch(() => {});
-      c.release();
+      // A failed ROLLBACK is thrown, never swallowed; the connection is released either way.
+      try { await c.query('ROLLBACK'); } finally { c.release(); }
     }
   });
 });
