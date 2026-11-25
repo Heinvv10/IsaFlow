@@ -10,12 +10,32 @@
  * #1728 review M1: confirm now refuses ANY draft invoice under its lock, before the journal (assertInvoiceTakesReceipts,
  * the create path's rule), so the route answers that 400 first, rule or no rule, and the backstop is a line behind it.
  */
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Pool } from 'pg';
+/**
+ * #1728 follow-up L1: confirm can no longer reach the backstop — its under-lock refusal answers a draft invoice first
+ * and its apply CASE keeps a non-derived status — so the route's `respondIfBackstopRefused` is a line behind both.
+ * `backstop.invoice` swaps confirm for the write the backstop exists to refuse (the draft invoice to 'paid', in confirm's
+ * own savepoint), so the REAL trigger error reaches the route's catch.
+ */
+const backstop = vi.hoisted(() => ({ invoice: null as string | null }));
+vi.mock('@/modules/accounting/services/ar/customerPaymentAllocationService', async (orig) => {
+  const real = await orig<typeof import('@/modules/accounting/services/ar/customerPaymentAllocationService')>();
+  const { sql, withSavepoint } = await import('@/lib/neon');
+  return {
+    ...real,
+    confirmCustomerPayment: (...a: Parameters<typeof real.confirmCustomerPayment>) => (backstop.invoice
+      ? withSavepoint('confirm_customer_payment', async () => {
+        await sql`UPDATE customer_invoices SET status = 'paid' WHERE id = ${backstop.invoice}::UUID AND company_id = ${a[0]}::UUID`;
+        throw new Error('unreachable: the backstop let a draft invoice become paid');
+      })
+      : real.confirmCustomerPayment(...a)),
+  };
+});
 import customerPaymentsAction from '../../pages/api/accounting/customer-payments-action';
 import { clearSystemAccountCache } from '../../src/modules/accounting/services/gl/systemAccountResolver';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
-import { callRoute, createUser, plantRule } from './r035-approval.helpers';
+import { callRoute, createUser, plantRule, reasonOf } from './r035-approval.helpers';
 import { messageOf } from './r035-pr2.helpers';
 import { cleanupPr4, enforceInvoices, invoiceCompany, invoiceState, plantInvoice } from './r035-pr4.helpers';
 
@@ -56,6 +76,29 @@ describe('customer-payments-action confirm on a gated draft invoice', () => {
     expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(400);
     expect(messageOf(res)).not.toMatch(/R035_|customer_invoice_approval_gate|AR population/);
     expect(messageOf(res)).toMatch(/is draft and cannot take this receipt/);
+    const { rows: [p] } = await pool.query('SELECT status, gl_journal_entry_id FROM customer_payments WHERE id = $1', [paymentId]);
+    expect(p).toEqual({ status: 'draft', gl_journal_entry_id: null });
+    expect(await invoiceState(pool, inv.id)).toMatchObject({ status: 'draft', gl_journal_entry_id: null });
+    const { rows: [n] } = await pool.query(
+      `SELECT (SELECT count(*)::INT FROM gl_journal_entries WHERE company_id = $1) AS journals,
+              (SELECT amount_paid::FLOAT8 FROM customer_invoices WHERE id = $2) AS paid`, [c, inv.id]);
+    expect(n).toEqual({ journals: 0, paid: 0 });
+  });
+
+  // The backstop (migration 865) behind both: the route answers its refusal 409 APPROVAL_REQUIRED in plain words
+  // (respondIfBackstopRefused), and the savepoint has rolled the write back.
+  it('behind the refusal: the backstop answers 409 APPROVAL_REQUIRED and commits nothing', async () => {
+    const { c, inv, paymentId } = await fixture(true);
+    backstop.invoice = inv.id;
+    try {
+      const res = await confirm(c, paymentId);
+      expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(409);
+      expect(reasonOf(res)).toBe('APPROVAL_REQUIRED');
+      expect(messageOf(res)).not.toMatch(/R035_|customer_invoice_approval_gate|AR population/);
+      expect(messageOf(res)).toMatch(/needs approval before it can enter accounts receivable/);
+    } finally {
+      backstop.invoice = null;
+    }
     const { rows: [p] } = await pool.query('SELECT status, gl_journal_entry_id FROM customer_payments WHERE id = $1', [paymentId]);
     expect(p).toEqual({ status: 'draft', gl_journal_entry_id: null });
     expect(await invoiceState(pool, inv.id)).toMatchObject({ status: 'draft', gl_journal_entry_id: null });
