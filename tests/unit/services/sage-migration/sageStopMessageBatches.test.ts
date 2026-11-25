@@ -29,13 +29,32 @@ describe('B11-3: the overwrites of the committed batches', () => {
     const replayed = base('item', 2, { status: 'failed', rowsAbsent: 1, error: 'replayed', toolReported: itemsAnswer(['FIB-0016', 'updated', ['description']]) });
     expect(stopMessage(new MigrationStopped(new Error('boom'), true, [none, replayed]))).not.toContain('overwritten');
   });
-  it('a batch whose COMMIT is unconfirmed names what it MAY have updated, from the dry run\'s answer for that batch', () => {
+  it('B12-1 (round 12): an unconfirmed batch names what its LIVE answer says it may have updated, not the dry run\'s', () => {
+    const lost = base('item', 2, { status: 'failed', commitUnconfirmed: true, error: 'COMMIT failed', toolReported: itemsAnswer(['FIB-0016', 'updated', ['description']], ['FIB-0017', 'updated', ['name']]) });
+    const dry = [base('item', 2, { key: 'dry-2', toolReported: itemsAnswer(['FIB-0011', 'updated', ['description']]) })];
+    const m = stopMessage(new MigrationStopped(new Error('boom'), true, [lost], { failed: [], dryRun: dry }));
+    expect(m).toContain("commit unconfirmed: item batch 2 (key-item-2)\n  may have been updated to Sage's values (check the books): item FIB-0016 (description)\n  may have been updated to Sage's values (check the books): item FIB-0017 (name)");
+    expect(m).not.toContain('FIB-0011');
+  });
+  it('only without a live answer: the dry run\'s answer for the SAME entity and position, said to be the dry run\'s', () => {
     const lost = base('item', 2, { status: 'failed', commitUnconfirmed: true, error: 'COMMIT failed' });
     const dry = [base('item', 1, { key: 'dry-1', toolReported: itemsAnswer(['FIB-0002', 'updated', ['description']]) }),
+      base('category', 2, { key: 'dry-c2', toolReported: { outcome: 'updated', name: 'Tools', changed: ['name'] } }),
       base('item', 2, { key: 'dry-2', toolReported: itemsAnswer(['FIB-0016', 'updated', ['description', 'sales_price']]) })];
     const m = stopMessage(new MigrationStopped(new Error('boom'), true, [lost], { failed: [], dryRun: dry }));
-    expect(m).toContain("commit unconfirmed: item batch 2 (key-item-2)\n  may have been updated to Sage's values (check the books): item FIB-0016 (description, sales_price)");
-    expect(m).not.toContain('FIB-0002');
+    expect(m).toContain("commit unconfirmed: item batch 2 (key-item-2)\n  may have been updated to Sage's values (from the dry run's answer: check the books): item FIB-0016 (description, sales_price)");
+    expect(m).not.toMatch(/FIB-0002|Tools/);
+    const lostCat = base('category', 2, { status: 'failed', commitUnconfirmed: true, error: 'COMMIT failed' });
+    expect(stopMessage(new MigrationStopped(new Error('boom'), true, [lostCat], { failed: [], dryRun: dry }))).toMatch(/category Tools \(name\)$/);
+  });
+  it('B12-2/3 + R1 (round 12): a committed batch the books check found changed is "committed", every overwrite named, only the changed rows "then changed"', () => {
+    const b = base('item', 1, { status: 'failed', rowsAbsent: 1, changedAfterCommit: true, changedRows: ['FIB-0003'], error: 'committed, but ...',
+      toolReported: itemsAnswer(['FIB-0002', 'updated', ['description']], ['FIB-0003', 'updated', ['is_active']]) });
+    const m = stopMessage(new MigrationStopped(new Error('boom'), true, [b]));
+    expect(m).toContain('committed: item batch 1 (key-item-1) (then changed or removed in the books by another writer: FIB-0003: check)');
+    expect(m).toContain("  was updated to Sage's values (another row of its batch changed since: check): item FIB-0002 (description)");
+    expect(m).toContain("  was updated to Sage's values, then changed in the books since (check): item FIB-0003 (is_active)");
+    expect(m).not.toMatch(/nothing written|--run-tag|replayed/);
   });
 });
 

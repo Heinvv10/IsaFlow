@@ -23,6 +23,8 @@ export interface ToolOutcome {
   text: string;
   /** The parsed JSON of a successful call; null when the call was refused or the text is not JSON. */
   body: Record<string, unknown> | null;
+  /** The registry served a STORED answer for the key (ctx.onIdempotentReplay): the tool did not run, this call wrote nothing. */
+  replayed?: true;
 }
 
 export interface ToolSession {
@@ -41,8 +43,14 @@ export function setCommitBoundForTests(ms: number): () => void {
   return () => { commitBoundMs = COMMIT_TIMEOUT_MS; };
 }
 
-/** The COMMIT of a request transaction did not answer (or failed): whether it landed is unknown. Any other failure rolled the batch back. */
-export class CommitUnconfirmedError extends Error {}
+/**
+ * The COMMIT of a request transaction did not answer (or failed): whether it landed is unknown. Any other failure rolled the batch back.
+ * `result` is what the request's work returned before the COMMIT (a live batch: the tool's own answer), so a caller can say what the batch
+ * did if the COMMIT landed, never falling back on the dry run's answer.
+ */
+export class CommitUnconfirmedError extends Error {
+  constructor(message: string, readonly result: unknown) { super(message); }
+}
 
 const WRITE_TOOLS = new Set(mcpRegistry.listTools().filter((t) => t.write).map((t) => t.name));
 
@@ -94,8 +102,13 @@ export async function withToolSession<T>(
         // The registry's company guard only COMPARES this with the context's company (it selects nothing); the tenant is held by the
         // membership check above, app_user under RLS and the tools' own ownership checks.
         const sent = WRITE_TOOLS.has(name) ? { ...args, company_id: companyId } : args;
-        const r = await mcpRegistry.call(name, sent, ctx);
-        return toolOutcome(r.content[0]?.text ?? '', r.isError === true);
+        let replayed = false;
+        const r = await mcpRegistry.call(name, sent, { ...ctx, onIdempotentReplay: () => { replayed = true; } });
+        const outcome = toolOutcome(r.content[0]?.text ?? '', r.isError === true);
+        // A SUCCESS nobody can read must not commit what it wrote and then be listed "failed, nothing written" (B12-4): in a committed
+        // request it throws, so the request rolls back and the batch really wrote nothing. (The dry run rolls back anyway.)
+        if (commit && r.isError !== true && outcome.isError) throw new Error(outcome.text);
+        return replayed ? { ...outcome, replayed: true } : outcome;
       },
     };
     const result = await runOwnedContext(txCtx, () => fn(session));
@@ -112,7 +125,7 @@ export async function withToolSession<T>(
         new Promise<never>((_, reject) => { commitTimer = setTimeout(() => reject(new Error(`COMMIT did not answer within ${commitBoundMs}ms`)), commitBoundMs); commitTimer.unref?.(); }),
       ]);
     } catch (err) {
-      throw new CommitUnconfirmedError(err instanceof Error ? err.message : String(err));
+      throw new CommitUnconfirmedError(err instanceof Error ? err.message : String(err), result);
     } finally {
       clearTimeout(commitTimer);
     }

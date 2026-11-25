@@ -1,6 +1,7 @@
 /** The few lines a person reads at the end of a run; the full report is the JSON file. PURE. */
 import { formatCents } from '@/lib/money/formatMoney';
-import type { BatchReport, MigrationReport, PhaseReport } from './sageMigrationTypes';
+import type { MigrationReport, PhaseReport } from './sageMigrationTypes';
+import { liveRowWording } from './sageRowWording';
 
 const money = formatCents;
 /** The console shows the start of a tool's refusal; the JSON report keeps all of it. */
@@ -10,28 +11,10 @@ const shown = (text: string | null): string =>
 const phase = (name: string, p: PhaseReport | undefined): string =>
   p && !p.skipped ? `${name}: ${p.batches.length} batches, ${p.failed} failed` : `${name}: not run`;
 
-/**
- * What became of an owned item's / category's update (a difference the tool answered `updated`). A dry run writes nothing: "would be".
- * After a live run it "was updated" ONLY when the live batch that carried it is ok (the phases are checked against the books before
- * they are reported); a phase that never ran or a batch that rolled back wrote nothing; a batch that committed and was then changed by
- * another writer did write. (An unconfirmed COMMIT stops the run, so no report has one: the stop message says what it may have done.)
- * The batch is found by its position, from the answers of the dry run (always run before a live one) or of the live run.
- */
+/** What became of an owned item's / category's update: "would be" before a live run; after one, from its live batch (sageRowWording). */
 function updateWording(r: MigrationReport, entity: 'category' | 'item', name: string): string {
-  const would = "would be updated to Sage's values";
-  if (r.live === null) return would;
-  const [live, dry, phaseName] = entity === 'category' ? [r.live.categories, r.dryRun.categories, 'categories'] : [r.live.items, r.dryRun.items, 'items'];
-  if (live.skipped) return `${would} (not written: the ${phaseName} phase did not run)`;
-  const names = (b: BatchReport): boolean => (entity === 'category'
-    ? b.toolReported?.name === name
-    : Array.isArray(b.toolReported?.rows) && (b.toolReported.rows as Array<{ code?: unknown }>).some((x) => x.code === name));
-  const n = [...live.batches, ...dry.batches].find(names)?.n;
-  const b = n === undefined ? undefined : live.batches.find((x) => x.n === n);
-  // The fallback the types ask for (every live batch of a phase that ran is in it, and the dry run named the row): never "was updated".
-  if (!b) return "may have been updated to Sage's values (its batch is not in the report: check the books)";
-  if (b.changedAfterCommit) return "was updated to Sage's values, then changed in the books since (check)";
-  if (b.status !== 'ok') return `${would} (not in the books: ${entity} batch ${b.n} failed)`;
-  return "was updated to Sage's values (an IsaFlow edit of these fields was overwritten)";
+  if (r.live === null) return "would be updated to Sage's values";
+  return entity === 'category' ? liveRowWording(r.live.categories, r.dryRun.categories, entity, name) : liveRowWording(r.live.items, r.dryRun.items, entity, name);
 }
 
 export function summaryLines(r: MigrationReport): string[] {

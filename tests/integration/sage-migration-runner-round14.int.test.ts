@@ -2,7 +2,7 @@
  * Round-11 breaker findings on a real database (b11-a probes B11-A1, B11-A3 and the legit multi-page export, ported), and review R3:
  *   - B11-1: a whole export in Sage's own pages ($next on every page but the last) runs, dry and live;
  *   - B11-2: an item batch that COMMITTED and then failed the check against the books (a writer changed one of its rows) says the owned
- *     item "was updated ..., then changed in the books since", not "not in the books" (the overwrite happened);
+ *     item "was updated ..." (with "another row of its batch changed since", R1 round 12), not "not in the books" (the overwrite happened);
  *   - B11-3: a stop names the owned rows its committed batches overwrote (a dry run after it no longer shows them), and what an unconfirmed
  *     batch may have updated;
  *   - R3: a batch refused before the stop is listed "failed, nothing written" with its reason.
@@ -62,7 +62,7 @@ describe('B11-1: a whole export in Sage\'s pages', () => {
 });
 
 describe('B11-2 (B11-A1): an item batch that committed, then failed the check against the books', () => {
-  it('the overwritten item reads "was updated ..., then changed in the books since (check)"; the edit is gone', async () => {
+  it('the overwritten item reads "was updated ... (another row of its batch changed since)"; the edit is gone', async () => {
     expect((await run()).status).toBe('completed');
     await edit('50002');
     const hooked = afterCommitOf(pool, 'bulk_upsert_items', {
@@ -70,8 +70,9 @@ describe('B11-2 (B11-A1): an item batch that committed, then failed the check ag
     });
     const r = await run({}, hooked);
     expect(r.status).toBe('failed');
-    expect(r.live!.items.batches[0]).toMatchObject({ status: 'failed', changedAfterCommit: true });
-    expect(summaryLines(r).find((l) => /item FIB-0002/.test(l))).toBe("DIFFERS: item FIB-0002 was updated to Sage's values, then changed in the books since (check): description");
+    // FIB-0003 is the row the writer changed (R1, round 12: only it reads "then changed"); FIB-0002 was overwritten, its batch changed since.
+    expect(r.live!.items.batches[0]).toMatchObject({ status: 'failed', changedAfterCommit: true, changedRows: ['FIB-0003'] });
+    expect(summaryLines(r).find((l) => /item FIB-0002/.test(l))).toBe("DIFFERS: item FIB-0002 was updated to Sage's values (another row of its batch changed since: check): description");
     expect(await desc('50002')).not.toBe('edited');
   });
 });

@@ -124,6 +124,33 @@ export function failingBatchPool(pool: Pool, keyPrefix: string): Pool {
   } as unknown as Pool;
 }
 
+/**
+ * A pool whose Nth COMMIT (counted as failingCommitPool counts) LANDS on the server and then "does not answer" (rejects): the real shape
+ * of an unconfirmed COMMIT, where the batch IS in the books. failingCommitPool's COMMIT never reaches the server.
+ */
+export function landedCommitPool(pool: Pool, failOn: readonly number[]): Pool {
+  let commits = 0;
+  return {
+    options: pool.options,
+    connect: async () => {
+      const client = await pool.connect();
+      return new Proxy(client, {
+        get(target, prop) {
+          if (prop === 'query') {
+            return async (...args: unknown[]) => {
+              const out = await (target.query as (...a: unknown[]) => Promise<unknown>)(...args);
+              if (args[0] === 'COMMIT' && failOn.includes(++commits)) throw new Error(`injected: COMMIT ${commits} landed, its answer lost`);
+              return out;
+            };
+          }
+          const value = Reflect.get(target, prop, target) as unknown;
+          return typeof value === 'function' ? value.bind(target) : value;
+        },
+      });
+    },
+  } as unknown as Pool;
+}
+
 /** Row stamps: a row nothing touched keeps its xmin. */
 export async function stamps(pool: Pool, company: string): Promise<Record<string, string>> {
   const rows = (await pool.query(

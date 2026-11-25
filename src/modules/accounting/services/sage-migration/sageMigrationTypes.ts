@@ -23,10 +23,14 @@ export interface BatchReport {
   /** The batch's COMMIT failed or never answered: it may have landed. The books are the judge (the final reconciliation reads them; a re-run finds what landed). */
   commitUnconfirmed?: true;
   /**
-   * The batch COMMITTED (the tool answered ok) and then failed the check against the books: another writer changed one of its rows since.
-   * Unlike a batch that rolled back, what it put back to Sage's values was written (the summary says "was updated ..., then changed").
+   * The batch COMMITTED (the tool ran and answered ok, no stored answer) and then failed the check against the books: another writer
+   * changed or removed rows of it since. Unlike a batch that rolled back, what it wrote was written (the live answer says what).
    */
   changedAfterCommit?: true;
+  /** With changedAfterCommit: the rows the books check found changed or absent (item code, category name, PO number). Only they read "then changed". */
+  changedRows?: string[];
+  /** The registry served a STORED answer for the key (it said so: ctx.onIdempotentReplay): the tool did not run, this call wrote nothing. */
+  replayed?: true;
 }
 
 /** `skipped`: the phase never started (an earlier phase failed): "not run", not an empty phase. */

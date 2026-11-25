@@ -20,6 +20,8 @@ export interface Send {
   present: (before: Snapshot) => boolean;
   /** The Sage ids of this batch's rows that are not in `after` (none for a category). */
   absent: (after: Snapshot) => string[];
+  /** How a person knows a row of this batch (item code, category name, PO number), by its Sage id. */
+  labelOf: (sageId: string) => string;
   runTag?: string;
   /** The items of an item batch, in order (`index` of the tool's answer): for the ownership check of the dry run. */
   itemRows?: Array<{ sageId: string; code: string }>;
@@ -73,12 +75,14 @@ export function planBatches(plan: MigrationPlan, opts: Pick<MigrationOptions, 'i
   const categories = plan.categories.map((args, i): Send => ({
     entity: 'category', n: i + 1, tool: 'upsert_item_category', args, size: 1, present: () => false, runTag: opts.runTag,
     absent: (after) => (after.categories.some((c) => c.system === 'sage' && c.ref === String(args.external_ref)) ? [] : [String(args.external_ref)]),
+    labelOf: () => String(args.name),
     categoryRef: String(args.external_ref), categorySent: { sageId: String(args.external_ref), name: String(args.name), isActive: args.is_active !== false },
   }));
   const items = chunk(plan.items, itemSize).map((rows, i): Send => ({
     entity: 'item', n: i + 1, tool: 'bulk_upsert_items', args: { items: rows.map((r) => r.row) }, size: rows.length,
     present: (before) => rows.every((r) => before.itemRefs.has(r.sageId)),
     absent: (after) => rows.map((r) => r.sageId).filter((id) => !after.itemRefs.has(id)), runTag: opts.runTag,
+    labelOf: (id) => String(rows.find((r) => r.sageId === id)?.row.code ?? id),
     itemRows: rows.map((r) => ({ sageId: r.sageId, code: String(r.row.code) })),
     itemSent: rows.map((r) => ({ sageId: r.sageId, code: String(r.row.code), isActive: r.row.is_active !== false, itemType: String(r.row.item_type), inventoryTracked: r.row.inventory_tracked === true })),
   }));
@@ -87,6 +91,7 @@ export function planBatches(plan: MigrationPlan, opts: Pick<MigrationOptions, 'i
     args: { purchase_orders: rows.map((r) => r.element), ...(opts.skipBudgetCheck ? { skip_budget_check_for_import: true } : {}) },
     present: (before) => rows.every((r) => before.poTotals.has(r.sageId)),
     absent: (after) => rows.map((r) => r.sageId).filter((id) => !after.poTotals.has(id)), runTag: opts.runTag,
+    labelOf: (id) => rows.find((r) => r.sageId === id)?.documentNumber ?? id,
     poRefs: rows.map((r) => r.sageId),
   }));
   return { categories, items, purchaseOrders };
@@ -114,18 +119,31 @@ export async function sendBatch(session: ToolSession, s: Send, before: Snapshot,
     toolReported: r.isError ? null : r.body,
     // The tool's whole message: the JSON report keeps it; only the console summary is cut.
     error: r.isError ? r.text : null,
+    ...(r.replayed ? { replayed: true as const } : {}),
   };
 }
 
 /**
- * After a LIVE run: a batch the tool answered "ok" whose rows are not in the books is a replayed answer (the registry keeps the
- * answer of an earlier run under the batch's key, and that run's rows have since been deleted). It is marked failed, with the
- * remedy, rather than reported as done. Returns the batch as reported.
+ * After a LIVE batch: rows it answered for that are not in the books. Which of two things happened is what the REGISTRY said, never
+ * inferred from the absent rows:
+ *   - it served a STORED answer (`replayed`: an earlier run's rows since deleted): nothing was written, failed with the remedy (--run-tag);
+ *   - the tool RAN and committed, and another writer removed rows since: what it wrote was written; failed (the next phase must not build
+ *     on it) as `changedAfterCommit`, the absent rows named in `changedRows`.
+ * Returns the batch as reported.
  */
 export function checkRowsPresent(b: BatchReport, s: Send, after: Snapshot): BatchReport {
   if (b.status !== 'ok') return b;
-  const absent = s.absent(after).length;
+  const missing = s.absent(after);
+  const absent = missing.length;
   if (absent === 0) return b;
+  if (!b.replayed) {
+    const names = missing.map(s.labelOf);
+    return {
+      ...b, status: 'failed', rowsAbsent: absent, changedAfterCommit: true, changedRows: [...(b.changedRows ?? []), ...names],
+      error: `committed, but ${absent} of ${b.size} rows of this batch are not in the books now (another writer removed them since): ${names.slice(0, 10).join(', ')}. `
+        + 'What the batch wrote was written; the next phase is not started. Check the books, then run again.',
+    };
+  }
   return {
     ...b, status: 'failed', rowsAbsent: absent,
     error: `replayed, rows absent: ${absent} of ${b.size} rows of this batch are not in the books, although the tool answered. If an earlier run of this file `

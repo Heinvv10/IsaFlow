@@ -39,7 +39,12 @@ export interface SentItem { sageId: string; code: string; isActive: boolean; ite
  * PO phase, which names these items, is not started. A row missing from the books is the rows-absent check's business, not this one's.
  */
 export function itemsMismatch(sent: readonly SentItem[], after: { items: readonly ExistingItem[] }): string[] {
-  const out: string[] = [];
+  return itemsMismatchRows(sent, after).map((r) => r.text);
+}
+
+/** itemsMismatch, with the code of each item found different (the rows a "then changed in the books" note belongs to). */
+export function itemsMismatchRows(sent: readonly SentItem[], after: { items: readonly ExistingItem[] }): Array<{ code: string; text: string }> {
+  const out: Array<{ code: string; text: string }> = [];
   for (const row of sent) {
     const item = after.items.find((i) => i.system === 'sage' && i.ref === row.sageId && !i.deleted);
     if (!item) continue;
@@ -48,7 +53,7 @@ export function itemsMismatch(sent: readonly SentItem[], after: { items: readonl
     if (item.isActive !== row.isActive) diffs.push(`is_active is ${item.isActive}, sent ${row.isActive}`);
     if (item.itemType !== row.itemType) diffs.push(`item_type is ${item.itemType}, sent ${row.itemType}`);
     if (item.inventoryTracked !== row.inventoryTracked) diffs.push(`inventory_tracked is ${item.inventoryTracked}, sent ${row.inventoryTracked}`);
-    if (diffs.length > 0) out.push(`${row.code} (Sage id ${row.sageId}): ${diffs.join('; ')}`);
+    if (diffs.length > 0) out.push({ code: row.code, text: `${row.code} (Sage id ${row.sageId}): ${diffs.join('; ')}` });
   }
   return out;
 }

@@ -22,7 +22,8 @@ import type { BatchReport, MigrationOptions, MigrationReport, PhaseReport } from
 import { RUN_TAG } from './sageBatches';
 import { assertPoGlAccount } from './sageAccountCheck';
 import { checkRowsPresent, keyFor, planBatches, sendBatch, type PlannedBatches, type Send } from './sageBatchRun';
-import { categoriesMismatch, itemsMismatch, ownershipProblem } from './sageOwnership';
+import { ownershipProblem } from './sageOwnership';
+import { recordSent, stoppedBatches, verified, verifiedCategories, verifiedItems, type Sent } from './sageVerify';
 import { MigrationStopped } from './sageMigrationStopped';
 import { CommitUnconfirmedError } from './sageToolSession';
 import { budgetWouldHaveFailed } from './sageBudgetReport';
@@ -79,9 +80,6 @@ async function dryRun(pool: Pool, o: MigrationOptions, all: PlannedBatches, befo
   });
 }
 
-/** What the live phases sent so far, for a stop to list: the batches that committed (or may have), and those that failed (nothing written). */
-interface Sent { committed: BatchReport[]; failed: BatchReport[] }
-
 async function livePhase(pool: Pool, o: MigrationOptions, list: Send[], before: Snapshot, sent: Sent, lockHeld: () => Promise<void>): Promise<PhaseReport> {
   const p = emptyPhase();
   for (const s of list) {
@@ -97,14 +95,17 @@ async function livePhase(pool: Pool, o: MigrationOptions, list: Send[], before: 
       // never came may still have landed, so the books are the judge: the run stops (below) and a re-run finds what landed.
       const message = err instanceof Error ? err.message : String(err);
       log.error('sage migration: batch failed', { entity: s.entity, n: s.n, message }, 'sage-migration');
-      b = { entity: s.entity, n: s.n, size: s.size, key: keyFor(s, before, false), status: 'failed', allRowsAlreadyPresent: false, rowsAbsent: 0, toolReported: null, error: message,
-        ...(err instanceof CommitUnconfirmedError ? { commitUnconfirmed: true as const } : {}) };
+      b = { entity: s.entity, n: s.n, size: s.size, key: keyFor(s, before, false), status: 'failed', allRowsAlreadyPresent: false, rowsAbsent: 0, toolReported: null, error: message };
+      // An unconfirmed COMMIT may have landed: keep the LIVE tool answer the request had before its COMMIT (what the batch did if it landed).
+      if (err instanceof CommitUnconfirmedError) {
+        const live = err.result as BatchReport | undefined;
+        b = { ...b, commitUnconfirmed: true, toolReported: live?.toolReported ?? null, ...(live?.replayed ? { replayed: true as const } : {}) };
+      }
     }
     p.batches.push(b);
     if (b.status === 'failed') p.failed++;
     // What an error later in the run can still say was (or may have been) committed, and what failed before it with its reason.
-    if (b.status === 'ok' || b.commitUnconfirmed) sent.committed.push(b);
-    else sent.failed.push(b);
+    recordSent(sent, b);
     // A COMMIT that did not answer may still land: the next batch would be checked (its budget, the rows it builds on) against books that
     // may not hold it yet. The run stops here, in any phase (MigrationStopped, exit 4), the batch listed as "commit unconfirmed".
     if (b.commitUnconfirmed) {
@@ -179,40 +180,14 @@ async function runLocked(pool: Pool, parsed: ParsedExport, opts: MigrationOption
   const sent: Sent = { committed: [], failed: [] };
   try {
     const readAfter = () => withToolSession(pool, opts.companyId, opts.userId, false, () => readSnapshot(opts.companyId));
-    // A batch the tool answered whose rows are not in the books is a replayed answer of rows since deleted: failed, with the remedy. It is
-    // checked BETWEEN the phases, so the next phase does not start behind absent rows (an item batch replayed "ok" with its rows gone would
-    // otherwise fail every PO naming those items, a misleading cascade).
-    const verified = (phase: PhaseReport, sends: Send[], snapshot: Snapshot): PhaseReport => {
-      const batches = phase.batches.map((b) => checkRowsPresent(b, sends.find((x) => x.n === b.n)!, snapshot));
-      return { batches, failed: batches.filter((b) => b.status === 'failed').length };
-    };
-    // After the items phase the books must also hold what was SENT (code, active flag, type, tracking): the PO phase names these items, and
-    // a batch answered "ok" that left them otherwise (an answer replayed from an earlier run, a writer in between) must not be built on.
-    const verifiedItems = async (phase: PhaseReport, snapshot: Snapshot): Promise<PhaseReport> => {
-      const present = verified(phase, all.items, snapshot);
-      const batches = present.batches.map((b) => {
-        const send = all.items.find((x) => x.n === b.n);
-        const wrong = b.status === 'ok' && send?.itemSent ? itemsMismatch(send.itemSent, snapshot) : [];
-        // It committed: what it put back to Sage's values was written, then changed by another writer (changedAfterCommit), not rolled back.
-        return wrong.length === 0 ? b : { ...b, status: 'failed' as const, changedAfterCommit: true as const, error: `the items in the books are not what this batch sent (${wrong.length}): ${wrong.slice(0, 5).join(' | ')}. The PO phase is not started. Run again.` };
-      });
-      return { batches, failed: batches.filter((b) => b.status === 'failed').length };
-    };
-    // The same for the categories: renamed or deactivated right after its batch committed, the items would fail on a category that is gone.
-    const verifiedCategories = (phase: PhaseReport, snapshot: Snapshot): PhaseReport => {
-      const batches = verified(phase, all.categories, snapshot).batches.map((b) => {
-        const send = all.categories.find((x) => x.n === b.n);
-        const wrong = b.status === 'ok' && send?.categorySent ? categoriesMismatch([send.categorySent], snapshot) : [];
-        return wrong.length === 0 ? b : { ...b, status: 'failed' as const, changedAfterCommit: true as const, error: `the category in the books is not what this batch sent: ${wrong.join(' | ')}. The items phase is not started. Run again.` };
-      });
-      return { batches, failed: batches.filter((b) => b.status === 'failed').length };
-    };
+    // Every phase is checked against the books BETWEEN the phases (sageVerify), so the next phase does not start behind absent rows or rows
+    // other than what was sent (an item batch with its rows gone would otherwise fail every PO naming those items, a misleading cascade).
     const liveCategories = await livePhase(pool, opts, all.categories, before, sent, lock.check);
     // Every phase's batches are checked against the books, a failed sibling or not: a replay whose rows are gone must not read ok.
-    const categoriesVerified = verifiedCategories(liveCategories, await readAfter());
+    const categoriesVerified = verifiedCategories(liveCategories, all.categories, await readAfter());
     await lockHeld();
     const liveItems = categoriesVerified.failed === 0 ? await livePhase(pool, opts, all.items, before, sent, lock.check) : skippedPhase();
-    const items = categoriesVerified.failed === 0 ? await verifiedItems(liveItems, await readAfter()) : liveItems;
+    const items = categoriesVerified.failed === 0 ? verifiedItems(liveItems, all.items, await readAfter()) : liveItems;
     await lockHeld();
     const livePos = categoriesVerified.failed + items.failed === 0 ? await livePhase(pool, opts, all.purchaseOrders, before, sent, lock.check) : skippedPhase();
     await lockHeld();
@@ -234,6 +209,6 @@ async function runLocked(pool: Pool, parsed: ParsedExport, opts: MigrationOption
     };
   } catch (err) {
     const committed = await settled(sent.committed, [...all.categories, ...all.items, ...all.purchaseOrders], () => withToolSession(pool, opts.companyId, opts.userId, false, () => readSnapshot(opts.companyId)));
-    throw new MigrationStopped(err, true, committed, { failed: sent.failed, dryRun: [...dry.categories.batches, ...dry.items.batches] });
+    throw new MigrationStopped(err, true, committed, stoppedBatches(sent, dry));
   }
 }

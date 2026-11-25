@@ -50,7 +50,7 @@ describe('L4 (round 7): an "ok" batch that wrote nothing is not called committed
 
 describe('B7-E (round 7): a replayed batch whose rows are absent is not "committed"', () => {
   it('is named with the remedy', () => {
-    const replayed: BatchReport = { ...batch('item', 1, 'failed'), rowsAbsent: 20, error: 'replayed, rows absent' };
+    const replayed: BatchReport = { ...batch('item', 1, 'failed'), rowsAbsent: 20, error: 'replayed, rows absent', replayed: true };
     const m = stopMessage(new MigrationStopped(new Error('boom'), true, [batch('category', 1), replayed]));
     expect(m).toContain('replayed: rows absent, nothing written (use --run-tag for a fresh import): item batch 1 (key-item-1)');
     expect(m).not.toContain('committed: item batch 1');

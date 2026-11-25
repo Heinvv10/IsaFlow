@@ -54,17 +54,32 @@ describe('the wording of an owned row Sage\'s values change, after a live run', 
     expect(line(r, 'item FIB-1')).toBe("DIFFERS: item FIB-1 would be updated to Sage's values (not in the books: item batch 1 failed): description");
     expect(line(r, 'item FIB-2')).toContain(WAS);
   });
-  it('a batch answered ok whose rows are absent (failed by the check against the books) is not "was updated"', () => {
-    const r = report({ categories: phase([categoryBatch(1, 'Optics')]), items: phase([{ ...itemBatch(1, ['FIB-1']), status: 'failed', rowsAbsent: 1 }, itemBatch(2, ['FIB-2'])]), purchaseOrders: phase([]) });
-    expect(line(r, 'item FIB-1')).toMatch(/would be updated to Sage's values \(not in the books: item batch 1 failed\)/);
+  it('a batch the registry answered from a STORED answer (rows absent) is "would be ... nothing written", never "was updated"', () => {
+    const r = report({ categories: phase([categoryBatch(1, 'Optics')]), items: phase([{ ...itemBatch(1, ['FIB-1']), status: 'failed', rowsAbsent: 1, replayed: true }, itemBatch(2, ['FIB-2'])]), purchaseOrders: phase([]) });
+    expect(line(r, 'item FIB-1')).toMatch(/would be updated to Sage's values \(not in the books: item batch 1 was answered from a stored answer, nothing written\)/);
   });
   it('B11-2 (round 11): a batch that COMMITTED and then failed the check against the books: "was updated ..., then changed in the books since"', () => {
-    const changed = (b: BatchReport): BatchReport => ({ ...b, status: 'failed', changedAfterCommit: true, error: 'the items in the books are not what this batch sent' });
-    const r = report({ categories: phase([changed(categoryBatch(1, 'Optics'))]), items: NOT_RUN, purchaseOrders: NOT_RUN });
+    const changed = (b: BatchReport, rows: string[]): BatchReport => ({ ...b, status: 'failed', changedAfterCommit: true, changedRows: rows, error: 'the items in the books are not what this batch sent' });
+    const r = report({ categories: phase([changed(categoryBatch(1, 'Optics'), ['Optics'])]), items: NOT_RUN, purchaseOrders: NOT_RUN });
     expect(line(r, 'category Optics')).toBe("DIFFERS: category Optics was updated to Sage's values, then changed in the books since (check): name");
-    const i = report({ categories: phase([categoryBatch(1, 'Optics')]), items: phase([changed(itemBatch(1, ['FIB-1'])), failed(itemBatch(2, ['FIB-2']))]), purchaseOrders: NOT_RUN });
+    const i = report({ categories: phase([categoryBatch(1, 'Optics')]), items: phase([changed(itemBatch(1, ['FIB-1']), ['FIB-1']), failed(itemBatch(2, ['FIB-2']))]), purchaseOrders: NOT_RUN });
     expect(line(i, 'item FIB-1')).toBe("DIFFERS: item FIB-1 was updated to Sage's values, then changed in the books since (check): description");
     expect(line(i, 'item FIB-2')).toMatch(/would be updated to Sage's values \(not in the books: item batch 2 failed\)/); // rolled back: as before
+  });
+  it('R1 (round 12): only the rows the books check named read "then changed"; the other rows of that batch read "another row of its batch changed"', () => {
+    const b = { ...itemBatch(1, ['FIB-1', 'FIB-2']), status: 'failed' as const, changedAfterCommit: true as const, changedRows: ['FIB-0003'], error: 'x' };
+    const r = report({ categories: phase([categoryBatch(1, 'Optics')]), items: phase([b]), purchaseOrders: NOT_RUN });
+    expect(line(r, 'item FIB-1')).toBe("DIFFERS: item FIB-1 was updated to Sage's values (another row of its batch changed since: check): description");
+    expect(line(r, 'item FIB-2')).toBe("DIFFERS: item FIB-2 was updated to Sage's values (another row of its batch changed since: check): description");
+  });
+  it('the structural rule: a live answer is read before the dry run\'s; a live "unchanged" is never worded from the dry run\'s "updated"', () => {
+    const unchanged = { ...itemBatch(1, []), toolReported: { rows: [{ code: 'FIB-1', outcome: 'unchanged' }, { code: 'FIB-2', outcome: 'updated', changed: ['description'] }] } };
+    const r = report({ categories: phase([categoryBatch(1, 'Optics')]), items: phase([unchanged, itemBatch(2, [])]), purchaseOrders: NOT_RUN });
+    expect(line(r, 'item FIB-1')).toBe("DIFFERS: item FIB-1 not updated by the live run (item batch 1 answered unchanged for it: check the books): description");
+    // FIB-2: the dry run put it in batch 2, the LIVE answer of batch 1 updated it: worded from batch 1's answer
+    expect(line(r, 'item FIB-2')).toContain("was updated to Sage's values (an IsaFlow edit of these fields was overwritten)");
+    const cat = report({ categories: phase([{ ...categoryBatch(1, 'Optics'), toolReported: { outcome: 'unchanged', name: 'Optics' } }]), items: NOT_RUN, purchaseOrders: NOT_RUN });
+    expect(line(cat, 'category Optics')).toMatch(/not updated by the live run \(category batch 1 answered unchanged/);
   });
   it('a row whose batch is not in the report is never "was updated"', () => {
     const r = report({ categories: phase([]), items: phase([]), purchaseOrders: phase([]) });

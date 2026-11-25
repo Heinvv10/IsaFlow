@@ -143,13 +143,21 @@ describe('F5: --run-tag and rows absent after a replay', () => {
     const after = { ...empty(), itemRefs: new Set(['1', '2']) };
     expect(checkRowsPresent(ok(2), batch(2).items[0]!, after)).toEqual(ok(2));
   });
-  it('a batch the tool answered whose rows are gone fails, counts them, and names the remedy', () => {
+  it('a batch the registry answered from a STORED answer whose rows are gone fails, counts them, and names the remedy', () => {
     const after = { ...empty(), itemRefs: new Set(['1']) };
-    const r = checkRowsPresent(ok(2), batch(2).items[0]!, after);
+    const r = checkRowsPresent({ ...ok(2), replayed: true }, batch(2).items[0]!, after);
     expect(r).toMatchObject({ status: 'failed', rowsAbsent: 1 });
+    expect(r.changedAfterCommit).toBeUndefined();
     expect(r.error).toMatch(/replayed, rows absent: 1 of 2 rows/);
     expect(r.error).toMatch(/--run-tag/);
     expect(r.error).toContain('k');
+  });
+  it('B12-2 (round 12): a batch the tool RAN whose rows are gone since committed: changedAfterCommit naming the rows, never "nothing written" or --run-tag', () => {
+    const after = { ...empty(), itemRefs: new Set(['1']) };
+    const r = checkRowsPresent(ok(2), batch(2).items[0]!, after);
+    expect(r).toMatchObject({ status: 'failed', rowsAbsent: 1, changedAfterCommit: true, changedRows: [batch(2).items[0]!.labelOf('2')] });
+    expect(r.error).toMatch(/committed, but 1 of 2 rows of this batch are not in the books now .*What the batch wrote was written/);
+    expect(r.error).not.toMatch(/replayed|--run-tag|nothing/);
   });
   it('a batch that already failed is left as it was, and a PO batch is read by PO reference', () => {
     const failed = { ...ok(2), status: 'failed' as const, error: 'the tool said no' };
