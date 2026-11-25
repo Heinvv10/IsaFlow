@@ -5,7 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const push = vi.fn(() => Promise.resolve(true));
 const beforePopState = vi.fn();
 // The shared router every public instance delegates to; push/replace are prototype-style (not own) like Next's.
-class Shared { push = push; replace = vi.fn(() => Promise.resolve(true)); }
+const sharedPush = vi.fn(() => Promise.resolve(true));
+class Shared { push = sharedPush; replace = vi.fn(() => Promise.resolve(true)); }
 const shared = new Shared();
 vi.mock('next/router', () => ({
   useRouter: () => ({ query: {}, asPath: '/accounting/company-settings', push, beforePopState }),
@@ -57,7 +58,7 @@ describe('useUnsavedChangesGuard', () => {
     act(() => { click(a); });
     await Promise.resolve();
     expect(onReact).not.toHaveBeenCalled();
-    expect(push).not.toHaveBeenCalled();
+    expect(push).not.toHaveBeenCalled(); expect(sharedPush).not.toHaveBeenCalled();
     expect(rejections).toEqual([]);
     expect(result.current.pending).toBe('/accounting');
   });
@@ -94,7 +95,7 @@ describe('useUnsavedChangesGuard', () => {
     expect(result.current.pending).toBeNull();
     act(() => result.current.push('/accounting'));
     act(() => result.current.leave());
-    expect(push).toHaveBeenCalledWith('/accounting');
+    expect(sharedPush).toHaveBeenCalledWith('/accounting'); // the original shared push, not the wrapped one
   });
 
   it('an anchor marked data-no-guard is never intercepted', () => {
@@ -145,7 +146,7 @@ describe('useUnsavedChangesGuard', () => {
     const theirs = vi.fn(); shared.push = theirs as never;
     unmount();
     expect(shared.push).toBe(theirs);
-    shared.push = push;
+    shared.push = sharedPush;
   });
 
   it('unmount (or going clean) removes the listeners', () => {
