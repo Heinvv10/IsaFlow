@@ -11,6 +11,7 @@ import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withNoStore } from '@/lib/auth/withNoStore';
 import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
+import { timed } from '@/lib/serverTiming';
 import { log } from '@/lib/logger';
 import { checkReportRateLimit, INTERACTIVE_REPORT_LIMIT } from '@/lib/rateLimit';
 import { requireUuidParam } from '@/lib/schemas/common';
@@ -25,16 +26,16 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const employeeId = requireUuidParam(req, res, 'id');
   if (!employeeId) return;
   try {
-    await assertHumanSession('read employee readiness');
+    await timed(res, 'f-human', () => assertHumanSession('read employee readiness'));
   } catch (err) {
     if (respondIfBankControlRefused(res, err)) return;
     throw err;
   }
-  if (!(await checkReportRateLimit(companyId, `employee-readiness:u:${user.id}`, INTERACTIVE_REPORT_LIMIT))) {
+  if (!(await timed(res, 'g-ratelimit', () => checkReportRateLimit(companyId, `employee-readiness:u:${user.id}`, INTERACTIVE_REPORT_LIMIT)))) {
     log.warn('Readiness read rate limit exceeded', { companyId, userId: user.id }, 'employee-readiness');
     return apiResponse.tooManyRequests(res, 'Too many requests. Please try again shortly.');
   }
-  const read = await readEmployeeReadiness(companyId, employeeId);
+  const read = await timed(res, 'h-query', () => readEmployeeReadiness(companyId, employeeId));
   if (!read) return apiResponse.notFound(res, 'Employee');
   return apiResponse.success(res, read);
 }

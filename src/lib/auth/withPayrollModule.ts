@@ -10,6 +10,7 @@
 import type { NextApiRequest, NextApiResponse, NextApiHandler } from 'next';
 import { apiResponse } from '@/lib/apiResponse';
 import type { CompanyAuthedRequest } from './withAuth';
+import { timed } from '@/lib/serverTiming';
 import { checkPermission } from './permissionService';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -32,7 +33,7 @@ export function withPayrollModule(handler: Handler): NextApiHandler {
     if ((req.method ?? '').toUpperCase() === 'OPTIONS') return res.status(200).end();
     const { companyId, user } = req as CompanyAuthedRequest;
     const action = READS.has((req.method ?? 'GET').toUpperCase()) ? 'read' : 'write';
-    if (!companyId || !user?.id || !(await checkPermission(companyId, user.id, 'payroll', action))) {
+    if (!companyId || !user?.id || !(await timed(res, 'i-permission', () => checkPermission(companyId, user.id, 'payroll', action)))) {
       return apiResponse.forbidden(res, `Your permissions do not include Payroll ${action}. An owner or admin can grant it in User Access.`);
     }
     if (action === 'read') readGranted.add(req);
