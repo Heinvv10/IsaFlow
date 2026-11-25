@@ -2,13 +2,9 @@
 import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-type Handler = (url: string, opts?: { shallow?: boolean }) => void;
-const handlers = new Set<Handler>();
-const emit = vi.fn();
 const push = vi.fn(() => Promise.resolve(true));
-vi.mock('next/router', () => ({
-  useRouter: () => ({ query: {}, push, events: { on: (_e: string, h: Handler) => handlers.add(h), off: (_e: string, h: Handler) => handlers.delete(h), emit } }),
-}));
+const beforePopState = vi.fn();
+vi.mock('next/router', () => ({ useRouter: () => ({ query: {}, push, beforePopState }) }));
 const apiFetch = vi.fn();
 vi.mock('@/lib/apiFetch', async (orig) => ({ ...(await orig<typeof import('@/lib/apiFetch')>()), apiFetch: (...a: unknown[]) => apiFetch(...a) }));
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
@@ -27,48 +23,82 @@ import { useUnsavedChangesGuard } from '../../../src/components/accounting/setti
 import { formSnapshot } from '../../../src/components/accounting/settings/settingsSnapshot';
 import CompanySettingsPage from '../../../pages/accounting/company-settings';
 
-afterEach(() => { cleanup(); handlers.clear(); vi.clearAllMocks(); });
-const route = (url: string, shallow = false) => [...handlers].forEach((h) => h(url, { shallow }));
+afterEach(() => { cleanup(); vi.clearAllMocks(); document.querySelectorAll('a').forEach((a) => a.remove()); });
+const rejections: unknown[] = [];
+const onRej = (e: PromiseRejectionEvent) => rejections.push(e.reason);
+beforeEach(() => { rejections.length = 0; window.addEventListener('unhandledrejection', onRej); });
+afterEach(() => window.removeEventListener('unhandledrejection', onRej));
+const link = (href: string, attrs: Record<string, string> = {}) => {
+  const a = document.body.appendChild(document.createElement('a')); a.href = href;
+  Object.entries(attrs).forEach(([k, v]) => a.setAttribute(k, v));
+  const onReact = vi.fn(); a.addEventListener('click', (e) => { onReact(); e.preventDefault(); }); // stands in for next/link
+  return { a, onReact };
+};
+const click = (a: Element, init: MouseEventInit = {}) => a.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, button: 0, ...init }));
 
 describe('useUnsavedChangesGuard', () => {
-  it('clean: registers nothing', () => {
+  it('clean: a link click goes through and the pop-state handler is untouched', () => {
     renderHook(() => useUnsavedChangesGuard(false));
-    expect(handlers.size).toBe(0);
+    const { a, onReact } = link('/accounting');
+    click(a);
+    expect(onReact).toHaveBeenCalled();
+    expect(beforePopState).not.toHaveBeenCalled();
   });
 
-  it('dirty: cancels an in-app route change with a cancelled error, reports it, and offers it as pending', () => {
+  it('dirty: a click on another page stops before the router (no push, no rejection) and is offered as pending', async () => {
     const { result } = renderHook(() => useUnsavedChangesGuard(true));
-    let thrown: unknown;
-    act(() => { try { route('/accounting'); } catch (e) { thrown = e; } });
-    expect((thrown as { cancelled?: boolean }).cancelled).toBe(true);
-    expect(emit).toHaveBeenCalledWith('routeChangeError', thrown, '/accounting', { shallow: false });
+    const { a, onReact } = link('/accounting');
+    act(() => { click(a); });
+    await Promise.resolve();
+    expect(onReact).not.toHaveBeenCalled();
+    expect(push).not.toHaveBeenCalled();
+    expect(rejections).toEqual([]);
     expect(result.current.pending).toBe('/accounting');
   });
 
-  it('a shallow change (?tab=) is not leaving', () => {
+  it('leaves alone: the same page (?tab=, #hash), new tab, modified click, download, other origin', () => {
     const { result } = renderHook(() => useUnsavedChangesGuard(true));
-    expect(() => route('/accounting/company-settings?tab=vat', true)).not.toThrow();
+    const same = link(`${window.location.pathname}?tab=vat`);
+    const blank = link('/accounting', { target: '_blank' });
+    const mod = link('/accounting');
+    const dl = link('/x.pdf', { download: '' });
+    const ext = link('https://example.invalid/x');
+    act(() => { click(same.a); click(blank.a); click(mod.a, { ctrlKey: true }); click(dl.a); click(ext.a); });
+    for (const l of [same, blank, mod, dl, ext]) expect(l.onReact).toHaveBeenCalled();
     expect(result.current.pending).toBeNull();
   });
 
-  it('Leave pushes the pending url and lets it through; Stay clears it', async () => {
+  it('Back/Forward: the pop-state handler refuses and offers the target; unmount restores the default', () => {
+    const { result, unmount } = renderHook(() => useUnsavedChangesGuard(true));
+    const handler = beforePopState.mock.calls[0]![0] as (s: { as: string }) => boolean;
+    let allowed = true;
+    act(() => { allowed = handler({ as: '/accounting/bank' }); });
+    expect(allowed).toBe(false);
+    expect(result.current.pending).toBe('/accounting/bank');
+    unmount();
+    expect((beforePopState.mock.calls.at(-1)![0] as () => boolean)()).toBe(true);
+  });
+
+  it('Leave pushes the pending url; Stay clears it; push() is guarded while dirty', () => {
     const { result } = renderHook(() => useUnsavedChangesGuard(true));
-    act(() => { try { route('/accounting'); } catch { /* cancelled */ } });
+    act(() => result.current.push('/accounting'));
+    expect(push).not.toHaveBeenCalled();
+    expect(result.current.pending).toBe('/accounting');
     act(() => result.current.stay());
     expect(result.current.pending).toBeNull();
-    expect(push).not.toHaveBeenCalled();
-    act(() => { try { route('/accounting'); } catch { /* cancelled */ } });
+    act(() => result.current.push('/accounting'));
     act(() => result.current.leave());
     expect(push).toHaveBeenCalledWith('/accounting');
-    expect(() => route('/accounting')).not.toThrow(); // bypass while the push runs
   });
 
-  it('unmount (or going clean) removes both listeners', () => {
-    const add = vi.spyOn(window, 'addEventListener'); const rem = vi.spyOn(window, 'removeEventListener');
+  it('unmount (or going clean) removes the listeners', () => {
+    const rem = vi.spyOn(window, 'removeEventListener');
     const { unmount } = renderHook(() => useUnsavedChangesGuard(true));
-    expect(handlers.size).toBe(1); expect(add).toHaveBeenCalledWith('beforeunload', expect.any(Function));
     unmount();
-    expect(handlers.size).toBe(0); expect(rem).toHaveBeenCalledWith('beforeunload', expect.any(Function));
+    expect(rem).toHaveBeenCalledWith('beforeunload', expect.any(Function));
+    const { a, onReact } = link('/accounting');
+    click(a);
+    expect(onReact).toHaveBeenCalled();
   });
 });
 
@@ -97,7 +127,6 @@ function serve(opts: { putCompany: () => Response; reread?: () => Response }) {
 }
 const saveBtn = () => screen.getByRole('button', { name: /Save Changes|No changes/ });
 const phone = () => screen.getByLabelText('phone') as HTMLInputElement;
-beforeEach(() => { handlers.clear(); });
 
 describe('Company Settings Save wiring', () => {
   it('is disabled until loaded and clean; edit enables; a save that moves the year start (server re-read changes derived fields) ends clean', async () => {

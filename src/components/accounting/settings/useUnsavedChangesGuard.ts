@@ -1,32 +1,43 @@
 /**
- * While `dirty`: the browser asks before the tab closes or reloads, and an
- * in-app route change is cancelled and handed back as `pending` so the page can
- * show a confirm. Shallow changes (the ?tab= query) are not leaving the page.
+ * While `dirty`: the browser asks before the tab closes or reloads; a click on an
+ * in-app link to another page, and browser Back/Forward, are stopped before the
+ * router sees them and handed back as `pending` so the page can show a confirm.
+ * Nothing is thrown (a throw from routeChangeStart is an unhandled rejection
+ * through next/link). Same-page links (?tab=, #hash), new-tab and modified clicks,
+ * and other origins are left alone. `push` is the guarded router.push.
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
+
+function internalTarget(e: MouseEvent): string | null {
+  if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return null;
+  const a = e.target instanceof Element ? e.target.closest('a[href]') : null;
+  if (!a || (a.getAttribute('target') ?? '_self') !== '_self' || a.hasAttribute('download')) return null;
+  const url = new URL((a as HTMLAnchorElement).href, window.location.href);
+  if (url.origin !== window.location.origin || url.pathname === window.location.pathname) return null;
+  return url.pathname + url.search + url.hash;
+}
 
 export function useUnsavedChangesGuard(dirty: boolean) {
   const router = useRouter();
   const [pending, setPending] = useState<string | null>(null);
-  const bypass = useRef(false);
 
   useEffect(() => {
     if (!dirty) return;
     const onUnload = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ''; };
-    const onRoute = (url: string, opts?: { shallow?: boolean }) => {
-      if (bypass.current || opts?.shallow) return;
-      setPending(url);
-      // `cancelled` is what Next's router recognises: the push resolves false instead of rejecting.
-      const err = Object.assign(new Error('Route change aborted: unsaved company settings'), { cancelled: true });
-      router.events.emit('routeChangeError', err, url, { shallow: false });
-      throw err;
+    const onClick = (e: MouseEvent) => {
+      const href = internalTarget(e);
+      if (!href) return;
+      e.preventDefault(); e.stopPropagation();
+      setPending(href);
     };
     window.addEventListener('beforeunload', onUnload);
-    router.events.on('routeChangeStart', onRoute);
+    document.addEventListener('click', onClick, true);
+    router.beforePopState(({ as }) => { setPending(as); return false; });
     return () => {
       window.removeEventListener('beforeunload', onUnload);
-      router.events.off('routeChangeStart', onRoute);
+      document.removeEventListener('click', onClick, true);
+      router.beforePopState(() => true); // Next's default
     };
   }, [dirty, router]);
 
@@ -34,9 +45,8 @@ export function useUnsavedChangesGuard(dirty: boolean) {
   const leave = useCallback(() => {
     const url = pending;
     setPending(null);
-    if (!url) return;
-    bypass.current = true;
-    void router.push(url).finally(() => { bypass.current = false; });
+    if (url) void router.push(url);
   }, [pending, router]);
-  return { pending, stay, leave };
+  const push = useCallback((url: string) => { if (dirty) setPending(url); else void router.push(url); }, [dirty, router]);
+  return { pending, stay, leave, push };
 }
