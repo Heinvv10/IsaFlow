@@ -26,7 +26,9 @@
  * chain nets to zero the payment is undone (cancel and re-apply follow from
  * that, taxDirectivePaidGuard), so reversing the reversal is refused rather
  * than re-booking a payment the directive no longer records (recognised by its
- * narrative). UIF-declaration journals are not judged.
+ * narrative). UIF-declaration journals are not judged. A salary bank file's creditor journal (wave 7 GC2: it clears
+ * the garnishee payable when the file is confirmed) is refused outright: a confirmed file is final, so the payment it
+ * records is too.
  */
 import { RUN_KEYED_JOURNAL } from './payrollJournalDescription';
 import { runOrderKeySql } from './payrollRunOrder';
@@ -74,6 +76,17 @@ async function directiveRevival(companyId: string, rootId: string, description: 
   return `Journal ${chain.journals[0]!.entryNumber} paid a SARS directive outside payroll and has been reversed `
     + `(${chain.journals.map((j) => j.entryNumber).join(', ')} net to zero), so the payment is undone. Reversing its reversal is refused: `
     + 'to pay the directive again, apply it again.';
+}
+
+/** GC2: the journal is the creditor journal of a confirmed salary bank file (payroll_bank_files.creditor_journal_id). */
+async function bankFileCreditorRefusal(companyId: string, rootId: string, db: TxSql): Promise<string | null> {
+  const rows = (await db`
+    SELECT f.action_date::text AS action_date FROM payroll_bank_files f
+     WHERE f.company_id = ${companyId}::uuid AND f.creditor_journal_id = ${rootId}::uuid
+  `) as DbRow[];
+  if (!rows[0]) return null;
+  return `This journal records the payment of garnishee creditors by a salary bank file the bank accepted (action date ${String(rows[0].action_date)}). `
+    + 'A confirmed bank file is final, so its payment is not reversed here: correct a wrong payment with a manual journal.';
 }
 
 /** The reference a month's ETI journal carries (etiBooking.etiJournalReference): ETI-YYYY-MM. */
@@ -139,7 +152,10 @@ async function judge(companyId: string, rootId: string, db: TxSql): Promise<stri
   const root = chain?.journals[0];
   if (!chain || !root) return null;
   const run = await payRunOf(companyId, rootId, root.description, db);
-  if (!run) return (await directiveRevival(companyId, rootId, root.description, db)) ?? etiPeriodReversalRefusal(companyId, root);
+  if (!run) {
+    return (await bankFileCreditorRefusal(companyId, rootId, db)) ?? (await directiveRevival(companyId, rootId, root.description, db))
+      ?? etiPeriodReversalRefusal(companyId, root);
+  }
   const numbers = chain.journals.map((j) => j.entryNumber).join(', ');
   if (chain.broken) return brokenChain(numbers);
 
@@ -195,7 +211,8 @@ export async function refuseReversalAgainstPayRun(
   const run = await payRunOf(companyId, rootId, root.description, sql);
   if (!run) {
     // No run lock to take: a directive payment's chain only ever goes from in force to out.
-    const refusal = (await directiveRevival(companyId, rootId, root.description, sql)) ?? await etiPeriodReversalRefusal(companyId, root);
+    const refusal = (await bankFileCreditorRefusal(companyId, rootId, sql)) ?? (await directiveRevival(companyId, rootId, root.description, sql))
+      ?? await etiPeriodReversalRefusal(companyId, root);
     if (refusal) throw new PayrollJournalReversalRefusedError(refusal);
     return null;
   }

@@ -7,7 +7,10 @@
  * was paid already, BANK_HAS_PAID); the run-kind guard; the run's files (payrollBankFileJudge: paid, already made, or
  * an earlier file nobody has settled); the action date; the paying account; every employee (bank details unchanged
  * since approval, valid, net not below zero; nil net is left out and named); the lines against the approved totals;
- * the writer's own field rules. The one write after that is the insert, then the audit row.
+ * the garnishee creditors (payrollBankFileCreditors: wave 7 GC2, one credit record per order the run deducted, after
+ * the employees'; an order without payable creditor details is refused by name); the writer's own field rules. The
+ * writes after that: the file, its items (employees' nets and creditors' deductions, each creditor line with the
+ * order's account snapshot and version, 1057), then the audit row.
  *
  * LOCKS. The run's advisory lock (payroll_bank_file:<run>) and the header FOR SHARE are taken inside
  * withBoundedLockWait's savepoint. A transaction-level lock survives the savepoint's RELEASE, so both hold to the end
@@ -18,8 +21,9 @@
  * Audit cycle: each generate writes one `export` row (sha256, employees); each confirm or void one `update` row
  * (payrollBankFileConfirm), so a generate / void / generate cycle leaves a row per step.
  *
- * Nothing posts to the ledger: the payroll journal already credits the bank (or the net-pay clearing account) at
- * approval (payrollJournalBank.ts), and nothing here writes the run header.
+ * Nothing posts to the ledger here: the payroll journal already credits the bank (or the net-pay clearing account) at
+ * approval (payrollJournalBank.ts), and the creditor lines' journal (DR garnishee payable) is posted at confirm, when
+ * the bank's acceptance is recorded (payrollBankFileCreditorJournal). Nothing here writes the run header.
  */
 import { createHash } from 'crypto';
 import { sql, withSavepoint } from '@/lib/neon';
@@ -33,6 +37,7 @@ import { assertRunKindSupported } from './payrollRunKindGuard';
 import { ACB_LAYOUT, AcbFileInputError, buildAcbPaymentFile, type AcbFile } from './payrollAcbFile';
 import { PayrollBankFileRefusal, SALARY_BANK_FILE_FLAG } from './payrollBankFileStatus';
 import { judgeApprovedTotals, judgeExistingFiles, payingAccount, readPayments, type RunPayments } from './payrollBankFileJudge';
+import { creditorItemArrays, readCreditorPayments, type CreditorLine } from './payrollBankFileCreditors';
 
 export interface BankFileActor {
   userId: string;
@@ -73,16 +78,21 @@ function judgeActionDate(actionDate: string): void {
   if (actionDate < todayInSast()) throw new PayrollBankFileRefusal('INVALID_ACTION_DATE', 'The action date cannot be in the past.');
 }
 
-/** The writer's field rules, mapped to whose field it was: the paying account, or the named employee. */
-function build(from: Awaited<ReturnType<typeof payingAccount>>, actionDate: string, pay: RunPayments): AcbFile {
+/** The writer's field rules, mapped to whose field it was: the paying account, the named employee, or the named creditor. */
+function build(from: Awaited<ReturnType<typeof payingAccount>>, actionDate: string, pay: RunPayments, creditors: readonly CreditorLine[]): AcbFile {
   try {
-    return buildAcbPaymentFile({ from, actionDate, payments: pay.payments });
+    return buildAcbPaymentFile({ from, actionDate, payments: [...pay.payments, ...creditors.map((c) => c.payment)] });
   } catch (err) {
     if (!(err instanceof AcbFileInputError)) throw err;
     if (err.owner.kind === 'from') {
       throw new PayrollBankFileRefusal('NO_PAYING_ACCOUNT', `The paying bank account: ${err.message}. Fix it on Bank Accounts.`);
     }
-    const who = err.owner.kind === 'payment' ? `${pay.who[err.owner.index]}: ` : '';
+    const index = err.owner.kind === 'payment' ? err.owner.index : -1;
+    if (index >= pay.payments.length) {
+      const what = `${creditors[index - pay.payments.length]!.label}: ${err.message}`;
+      throw new PayrollBankFileRefusal('CREDITORS_NOT_PAYABLE', what, [what]);
+    }
+    const who = index >= 0 ? `${pay.who[index]}: ` : '';
     throw new PayrollBankFileRefusal('EMPLOYEES_NOT_PAYABLE', `${who}${err.message}`, [`${who}${err.message}`]);
   }
 }
@@ -112,7 +122,8 @@ export async function generateSalaryBankFile(opts: {
   const from = await payingAccount(companyId);
   const pay = await readPayments(companyId, runId);
   await judgeApprovedTotals(companyId, runId, run, pay.linesCents);
-  const file = build(from, actionDate, pay);
+  const creditors = await readCreditorPayments(companyId, runId);
+  const file = build(from, actionDate, pay, creditors.lines);
   const sha256 = createHash('sha256').update(file.content, 'latin1').digest('hex');
 
   // The writes, all judged above. created_by is restamped by the table's trigger from the session user (999h).
@@ -129,15 +140,27 @@ export async function generateSalaryBankFile(opts: {
     if (isLiveFileClash(err)) throw new PayrollBankFileRefusal('FILE_EXISTS', 'A salary bank file was just generated for this run by another request.');
     throw err;
   }
-  // What the file pays each employee (999h payroll_bank_file_items; footed against the file at COMMIT).
+  // What the file pays each employee (999h) and, GC2, each garnishee creditor with the account as paid and the order's
+  // details version (1057's guard refuses a snapshot that is not the order's current one). ONE statement: 999h foots
+  // the file after each items statement, so the employees' rows alone would not foot a file that pays creditors too.
+  const c = creditorItemArrays(creditors.lines);
   await sql`
-    INSERT INTO payroll_bank_file_items (company_id, file_id, employee_id, amount_cents)
-    SELECT ${companyId}::uuid, ${id}::uuid, t.employee_id, t.amount_cents
+    INSERT INTO payroll_bank_file_items (company_id, file_id, employee_id, amount_cents, garnishee_order_id, creditor_account_holder,
+                                         creditor_bank_name, creditor_branch_code, creditor_account_number, creditor_account_type, creditor_bank_set_at)
+    SELECT ${companyId}::uuid, ${id}::uuid, t.employee_id, t.amount_cents, NULL, NULL, NULL, NULL, NULL, NULL, NULL
       FROM unnest(${pay.employeeIds}::uuid[], ${pay.payments.map((p) => String(p.amountCents))}::bigint[]) AS t(employee_id, amount_cents)
+    UNION ALL
+    SELECT ${companyId}::uuid, ${id}::uuid, g.employee_id, g.cents, g.order_id, g.holder, g.bank, g.branch, g.account, g.type, g.set_at
+      FROM unnest(${c.employeeIds}::uuid[], ${c.cents}::bigint[], ${c.orderIds}::uuid[], ${c.holders}::text[], ${c.bankNames}::text[],
+                  ${c.branches}::text[], ${c.accounts}::text[], ${c.types}::text[], ${c.setAts}::timestamptz[])
+           AS g(employee_id, cents, order_id, holder, bank, branch, account, type, set_at)
   `;
   await logAuditOrThrow({
     companyId, userId: actor.userId, userEmail: actor.userEmail, action: 'export', entityType: 'payroll_bank_file', entityId: id,
-    changes: { fields: [], metadata: { revealed: 'account_number', runId, sha256, employeeIds: pay.employeeIds.join(',') } },
+    changes: { fields: [], metadata: {
+      revealed: 'account_number', runId, sha256, employeeIds: pay.employeeIds.join(','),
+      ...(creditors.lines.length > 0 ? { garnisheeOrderIds: creditors.lines.map((l) => l.orderId).join(',') } : {}),
+    } },
     ip: actor.ip, userAgent: actor.userAgent, sessionId: actor.sessionId ?? undefined,
   });
   log.info('Salary bank file generated', { companyId, runId, fileId: id, lines: file.lineCount }, 'payroll-bank-file');
@@ -145,6 +168,6 @@ export async function generateSalaryBankFile(opts: {
   const period = `${String(run.period_year)}-${String(run.period_month).padStart(2, '0')}`;
   return {
     id, filename: `salaries-${period}-${actionDate}.acb.txt`, content: file.content, sha256,
-    lineCount: file.lineCount, totalCents: file.totalCents, actionDate, warnings: [...pay.warnings, ...file.warnings],
+    lineCount: file.lineCount, totalCents: file.totalCents, actionDate, warnings: [...pay.warnings, ...creditors.warnings, ...file.warnings],
   };
 }

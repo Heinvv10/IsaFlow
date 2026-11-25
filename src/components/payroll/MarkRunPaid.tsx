@@ -4,6 +4,8 @@
  * MarkRunPaidButton (the run's title bar): owner, admin or manager, an approved run with its journal. A dialog asks how
  * the run was paid: by its confirmed salary bank file (POST {}), or another way, with the bank payment reference and the
  * payment date (POST { reference, paidOn }). The server judges everything (payrollRunMarkPaid); its refusal is shown.
+ * Wave 7 GC2 (F13c): when the answer warns that the garnishee payable is still open (paid by reference, so no bank file
+ * paid the creditors), the dialog stays open on those warnings until closed, then the page re-reads the run.
  * RunPaidNote: who recorded the payment, when, and its date and reference. A paid run cannot be reopened.
  */
 import { useRef, useState } from 'react';
@@ -42,11 +44,19 @@ export function MarkRunPaidButton({ runId, run, companyRole, onPaid }: {
   const [paidOn, setPaidOn] = useState<string | null>(todayInSast());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [warnings, setWarnings] = useState<string[] | null>(null);
   const trigger = useRef<HTMLButtonElement>(null);
-  if (!canMarkPaid(run, companyRole)) return null;
+  if (!canMarkPaid(run, companyRole) && warnings === null) return null;
 
+  const done = () => {
+    setWarnings(null);
+    setOpen(false);
+    announcePayrollRunChanged(); // the period bar re-reads the run's status
+    onPaid();
+  };
   const close = () => {
     if (busy) return;
+    if (warnings !== null) { done(); return; }
     setOpen(false);
     setError('');
     requestAnimationFrame(() => trigger.current?.focus());
@@ -59,9 +69,11 @@ export function MarkRunPaidButton({ runId, run, companyRole, onPaid }: {
       const body = byFile ? {} : { reference: reference.trim(), paidOn };
       const res = await apiFetch(`/api/payroll/runs/${runId}/mark-paid`, { method: 'POST', body: JSON.stringify(body) });
       await assertOk(res, FAILED);
-      setOpen(false);
-      announcePayrollRunChanged(); // the period bar re-reads the run's status
-      onPaid();
+      // GC2 (F13c): the answer's warnings name a garnishee payable still open; an unreadable body warns of nothing.
+      const paid = await res.json().catch(() => null) as { data?: { warnings?: string[] } } | null;
+      const owed = (paid?.data?.warnings ?? []).map((w) => w.replace(/^GARNISHEE_PAYABLE_OPEN: /, ''));
+      if (owed.length > 0) setWarnings(owed);
+      else done();
     } catch (err) {
       setError(apiErrorMessage(err, FAILED));
     } finally {
@@ -88,6 +100,14 @@ export function MarkRunPaidButton({ runId, run, companyRole, onPaid }: {
       </button>
       <Modal open={open} onClose={close} title="Mark this pay run paid?" size="sm">
         <Modal.Body className="space-y-3 text-sm text-[var(--ff-text-secondary)]">
+          {warnings !== null ? (
+            <div role="status" className="space-y-2 text-amber-800 dark:text-amber-300">
+              <p className="font-medium">The run is marked paid. The garnishee creditors are still owed:</p>
+              <ul aria-label="Garnishee payable still open" className="list-disc pl-5 space-y-1">
+                {warnings.map((w) => <li key={w}>{w}</li>)}
+              </ul>
+            </div>
+          ) : (<>
           <p>Once paid, the run cannot be reopened: a correction is made with an off-cycle run.</p>
           <div role="radiogroup" aria-label="How was it paid?" className="flex flex-col gap-2">
             {choice(false, 'Paid another way: I have the bank payment reference')}
@@ -102,14 +122,19 @@ export function MarkRunPaidButton({ runId, run, companyRole, onPaid }: {
             </div>
           )}
           {error && <p role="alert" className="text-red-700 dark:text-red-400">{error}</p>}
+          </>)}
         </Modal.Body>
         <Modal.Footer>
+          {warnings !== null ? (
+            <button type="button" onClick={done} className={`${BTN} bg-brand-600 hover:bg-brand-700 text-white`}>Close</button>
+          ) : (<>
           <button type="button" onClick={close} disabled={busy}
             className={`${BTN} border border-[var(--ff-border-primary)] text-[var(--ff-text-secondary)]`}>Not yet</button>
           <button type="button" onClick={() => void submit()} disabled={busy || (!byFile && !typedReady)}
             className={`${BTN} flex items-center gap-2 bg-success-700 hover:bg-success-800 text-white`}>
             {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <BadgeCheck className="h-4 w-4" aria-hidden="true" />} Mark paid
           </button>
+          </>)}
         </Modal.Footer>
       </Modal>
     </>

@@ -22,12 +22,15 @@ export const SALARY_BANK_FILE_FLAG = 'payroll_salary_bank_file';
 export type BankFileRefusalReason =
   | 'FEATURE_DISABLED' | 'NOT_FOUND' | 'NOT_FINAL' | 'BANK_HAS_PAID' | 'FILE_EXISTS' | 'INVALID_ACTION_DATE'
   | 'NO_PAYING_ACCOUNT' | 'EMPLOYEES_NOT_PAYABLE' | 'NOT_GENERATED' | 'UNSETTLED_FILE' | 'BANK_DETAILS_CHANGED'
-  | 'RUN_CHANGED_SINCE_APPROVAL' | 'NOT_SENT_REQUIRED' | 'JOURNAL_NOT_POSTED';
+  | 'RUN_CHANGED_SINCE_APPROVAL' | 'NOT_SENT_REQUIRED' | 'JOURNAL_NOT_POSTED'
+  // Wave 7 GC2 (1057): garnishee creditors paid from the file.
+  | 'CREDITORS_NOT_PAYABLE' | 'CREDITOR_DETAILS_CHANGED' | 'PERIOD_CLOSED';
 
 const STATUS: Record<BankFileRefusalReason, 400 | 403 | 404 | 409> = {
   FEATURE_DISABLED: 403, NOT_FOUND: 404, INVALID_ACTION_DATE: 400, NOT_FINAL: 409, BANK_HAS_PAID: 409, FILE_EXISTS: 409,
   NO_PAYING_ACCOUNT: 409, EMPLOYEES_NOT_PAYABLE: 409, NOT_GENERATED: 409, UNSETTLED_FILE: 409,
   BANK_DETAILS_CHANGED: 409, RUN_CHANGED_SINCE_APPROVAL: 409, NOT_SENT_REQUIRED: 400, JOURNAL_NOT_POSTED: 409,
+  CREDITORS_NOT_PAYABLE: 409, CREDITOR_DETAILS_CHANGED: 409, PERIOD_CLOSED: 409,
 };
 
 /** Raised before any write of the request; the route answers it with `status` and `reason`. */
@@ -58,6 +61,11 @@ export interface PayrollBankFile {
   createdAt: string;
   confirmedAt: string | null;
   voidedAt: string | null;
+  /** Of lineCount / totalCents: what the file pays garnishee creditors (wave 7 GC2). */
+  creditorLineCount: number;
+  creditorCents: number;
+  /** The journal its confirm posted to clear the garnishee payable (null: unconfirmed, or no creditor lines). */
+  creditorJournalId: string | null;
   /** The run was reopened since this file was made: it pays an approval that has ended. */
   stale: boolean;
   /**
@@ -73,7 +81,11 @@ const iso = (v: unknown): string | null => (v == null ? null : v instanceof Date
 export async function listRunBankFiles(companyId: string, runId: string): Promise<PayrollBankFile[]> {
   const rows = (await sql`
     SELECT f.id, f.status, f.layout, f.sha256, f.line_count, f.total_cents::text AS total_cents, f.action_date::text AS action_date,
-           f.created_at, f.confirmed_at, f.voided_at,
+           f.created_at, f.confirmed_at, f.voided_at, f.creditor_journal_id,
+           (SELECT count(*) FROM payroll_bank_file_items i WHERE i.file_id = f.id AND i.company_id = f.company_id
+               AND i.garnishee_order_id IS NOT NULL)::int AS creditor_lines,
+           (SELECT COALESCE(sum(i.amount_cents), 0) FROM payroll_bank_file_items i WHERE i.file_id = f.id AND i.company_id = f.company_id
+               AND i.garnishee_order_id IS NOT NULL)::text AS creditor_cents,
            NOT COALESCE(h.status IN ('approved', 'paid') AND f.run_approved_at = COALESCE(h.approved_at, h.approval_grandfathered_at), false) AS stale,
            (f.status = 'confirmed' AND h.status IN ('approved', 'paid')
              AND f.run_approved_at IS DISTINCT FROM COALESCE(h.approved_at, h.approval_grandfathered_at)) AS needs_settlement
@@ -89,6 +101,8 @@ export async function listRunBankFiles(companyId: string, runId: string): Promis
       id: String(r.id), status: r.status as BankFileStatus, layout: String(r.layout), sha256: String(r.sha256),
       lineCount: Number(r.line_count), totalCents: Number(r.total_cents), actionDate: String(r.action_date),
       createdAt: iso(r.created_at)!, confirmedAt: iso(r.confirmed_at), voidedAt: iso(r.voided_at), stale: r.stale === true,
+      creditorLineCount: Number(r.creditor_lines), creditorCents: Number(r.creditor_cents),
+      creditorJournalId: r.creditor_journal_id == null ? null : String(r.creditor_journal_id),
       settlement: r.needs_settlement === true ? await fileSettlement(companyId, runId, String(r.id)) : null,
     });
   }
