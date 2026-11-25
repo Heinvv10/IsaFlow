@@ -82,10 +82,14 @@ describe('the employed window (ruling 19; review H1)', () => {
     expect(recurringShareOf('monthly', july, row('2020-01-01', '2026-07-10'), leaver)).toMatchObject({ days: 8, of: 20 });
   });
 
-  it("a row starting after a leaver's last day is outside employment: whole (today's pay kept)", () => {
+  it("a row starting after a leaver's last day is outside employment and is not paid (review round 3 decision)", () => {
     const leaver = { startDate: local('2020-01-01'), endDate: local('2026-07-15') };
     expect(recurringShareOf('monthly', july, row('2026-07-16'), leaver)).toBeNull();
     expect(recurringShareOf('monthly', july, row('2026-07-15'), leaver)).toMatchObject({ days: 1, of: 11 });
+    expect(apportionRecurringRows([earn('sal', 10000, '2020-01-01', '2026-07-15'), earn('sal', 12000, '2026-07-20')], { ...leaver, payFrequency: 'monthly' }, july)
+      .map((c) => c.amount)).toEqual([10000]);
+    const ded = { ...earn('d', 100, '2026-07-20'), component: { id: 'd', name: 'd', sarsSourceCode: '4018', componentType: 'deduction' as const, isTaxable: false, isUifApplicable: false, isSdlApplicable: false } };
+    expect(apportionRecurringRows([ded], { ...leaver, payFrequency: 'monthly' }, july).map((c) => c.amount)).toEqual([100]);
   });
 
   it('a row outside the period is not apportioned', () => {
@@ -208,6 +212,21 @@ describe('review #1901 round 2', () => {
     const rows = apportionRecurringRows([earn('s', 9000, '2026-03-28', '2026-03-28'), earn('s', 9000, '2026-03-29')], starter, mar);
     expect(rows.map((r) => r.share && `${r.share.days}/${r.share.of} ${r.share.basis}`)).toEqual(['1/2 calendar_days', '1/2 calendar_days']);
     expect(gross(rows)).toBe(9000);
+  });
+});
+
+// Breaker round 3 (unit): the remainder only for a true tiling.
+describe('review #1901 round 3: the remainder is only for rows that tile the window', () => {
+  const employee = { ...longServing, payFrequency: 'monthly' as const };
+  const d = (n: number) => `2026-07-${String(n).padStart(2, '0')}`;
+  it('a gap: no row is topped up past its own share', () => {
+    const gap = apportionRecurringRows([earn('s', 10000.01, '2020-01-01', d(9)), earn('s', 10000.01, d(15))], employee, july);
+    expect(gap.map((r) => r.amount)).toEqual([r2(10000.01 * 7 / 23), r2(10000.01 * 13 / 23)]);
+    expect(gross(gap)).toBeLessThan(10000.01);
+  });
+  it('an overlap that makes up a gap (days add up to the month) is not a tiling: each row is its own share', () => {
+    const rows = apportionRecurringRows([earn('s', 10000, '2020-01-01', d(9)), earn('s', 10000, d(13)), earn('s', 10000, d(6), d(6))], employee, july);
+    expect(rows.map((r) => r.amount)).toEqual([r2(10000 * 7 / 23), r2(10000 * 15 / 23), r2(10000 * 1 / 23)]);
   });
 });
 

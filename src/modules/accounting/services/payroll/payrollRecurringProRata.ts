@@ -34,8 +34,11 @@ export interface ProRataRow {
   employeeId: string;
   employeeNumber: string;
   componentName: string;
-  /** starts after the 27th (paid in full) | ends from the 27th to the day before the last day (not paid) | both (not paid). */
-  edge: 'starts' | 'ends' | 'within';
+  /**
+   * starts after the 27th (paid in full) | ends from the 27th to the day before the last day (not paid) | both (not paid) |
+   * after_end: a recurring earning starting after the employee's last day (not paid; review #1901 round 3).
+   */
+  edge: 'starts' | 'ends' | 'within' | 'after_end';
   from: string;
   to: string | null;
   /** A pay package replaced it (superseded_at): Edit dates refuses it, so the flag points at End. */
@@ -45,6 +48,7 @@ export interface ProRataRow {
 /** "starts on 2026-03-28", "ends on 2026-03-30", "starts on 2026-03-28 and ends on 2026-03-29". */
 export function describeProRataRow(row: ProRataRow): string {
   if (row.edge === 'starts') return `starts on ${row.from}`;
+  if (row.edge === 'after_end') return `starts on ${row.from}, after the employee's last day`;
   if (row.edge === 'ends') return `ends on ${row.to}`;
   return `starts on ${row.from} and ends on ${row.to}`;
 }
@@ -66,6 +70,7 @@ export async function recurringRowsNeedingProRata(
   // it reads on its own last day and does not apportion either: a row starting after its first day is paid in full, one
   // ending before its last day is not paid.
   const day27 = period.start ?? `${last.slice(0, 8)}27`;
+  const { start: periodStart } = periodBoundsOf(period);
   const rows = (await sql`
     SELECT pec.id, pec.employee_id, e.employee_number, pc.name, pec.effective_from, pec.effective_to, pec.superseded_at,
            pec.effective_from > ${day27}::date AS starts,
@@ -80,6 +85,10 @@ export async function recurringRowsNeedingProRata(
       AND (
         (pec.effective_from > ${day27}::date AND pec.effective_from <= ${last}::date)
         OR (pec.effective_to >= ${day27}::date AND pec.effective_to < ${last}::date)
+        -- Review #1901 round 3: a leaver's own row ending on their end date anywhere in the period (both readers judge it
+        -- by one successor predicate), and a row starting after their last day inside the period.
+        OR (e.end_date IS NOT NULL AND pec.effective_to = e.end_date AND pec.effective_to >= ${periodStart}::date AND pec.effective_to < ${last}::date)
+        OR (e.end_date IS NOT NULL AND pec.effective_from > e.end_date AND pec.effective_from >= ${periodStart}::date AND pec.effective_from <= ${last}::date)
       )
     ORDER BY e.employee_number, pc.name, pec.effective_from
   `) as DbRow[];
@@ -87,7 +96,6 @@ export async function recurringRowsNeedingProRata(
   // W29: the rows the run reads as having ended inside employment (payrollRecurringShareRead), so the guard and the pay
   // agree on which rows the share pays: a package-cut row replaced by a once-off is not among them, and stays flagged.
   const endedIds = new Set<string>();
-  const { start: periodStart } = periodBoundsOf(period);
   for (const employeeId of new Set(rows.map((r) => String(r.employee_id)))) {
     for (const c of await getEmployeeComponents(employeeId, companyId, last)) if (c.assignmentId) paidIds.add(c.assignmentId);
     for (const c of await recurringEarningsEndedInPeriod(employeeId, companyId, periodStart, last)) if (c.assignmentId) endedIds.add(c.assignmentId);
@@ -96,7 +104,13 @@ export async function recurringRowsNeedingProRata(
   for (const r of rows) {
     // W29: a recurring earning starting or ending inside employment is paid its share (payrollRecurringShare): not flagged.
     if ((paidIds.has(String(r.id)) || endedIds.has(String(r.id))) && sharePays(period, r)) continue;
-    const paid = paidIds.has(String(r.id));
+    // A row either reader reads is paid (review #1901 round 3: a weekly leaver row the ended-rows reader pays whole).
+    const paid = (paidIds.has(String(r.id)) || endedIds.has(String(r.id))) && !startsAfterEnd(r);
+    if (startsAfterEnd(r)) {
+      out.push({ employeeId: String(r.employee_id), employeeNumber: String(r.employee_number), componentName: String(r.name), edge: 'after_end',
+        from: fmtDate(r.effective_from), to: r.effective_to ? fmtDate(r.effective_to) : null, superseded: r.superseded_at != null });
+      continue;
+    }
     // Read in full and ending in the band: a leaver's last month (Hein), exempt. Starting in the band and read: paid in
     // full, flagged as starting. Not read: flagged as ending (also when it starts in the band too).
     if (paid && !r.starts) continue;
@@ -113,6 +127,13 @@ export async function recurringRowsNeedingProRata(
   return out;
 }
 
+/** A recurring earning (plain amount) that starts after the employee's last day: the run does not pay it (apportionRecurringRows). */
+function startsAfterEnd(r: DbRow): boolean {
+  return r.end_date != null && fmtDate(r.effective_from) > fmtDate(r.end_date) && isApportionable({ component: { componentType: String(r.component_type) },
+    isRecurring: true, quantity: r.quantity == null ? null : Number(r.quantity), percentOfRfi: r.percent_of_rfi == null ? null : Number(r.percent_of_rfi),
+    dbMemberCategoryFactor: r.db_member_category_factor == null ? null : Number(r.db_member_category_factor) });
+}
+
 /** The run apportions this row when it reads it (W29): the same predicate the run's reading applies (payrollRecurringShareRead). */
 export function sharePays(period: PayrollPeriod, r: DbRow): boolean {
   const component = { componentType: String(r.component_type) };
@@ -126,7 +147,11 @@ export function sharePays(period: PayrollPeriod, r: DbRow): boolean {
 /** The line's flag for one such row. A row starting in the band and one ending there are fixed differently. */
 export function proRataValidation(row: ProRataRow): ValidationResult {
   const what = `${row.componentName} ${describeProRataRow(row)}`;
-  const message = row.edge === 'starts'
+  const message = row.edge === 'after_end'
+    ? `${what}: this recurring earning starts after the employee left, so this run does not pay it. Use Edit dates or End `
+      + 'on the employee\'s Pay Components to correct or remove it (pay anything due as a once-off), then recalculate. '
+      + 'Approval is refused until then.'
+    : row.edge === 'starts'
     ? `${what}: this recurring component is paid in full in this run and needs a manual pro-rata. Use Edit dates on the `
       + 'employee\'s Pay Components (for example, start it on the 1st of next month and assign the part month as a '
       + 'once-off), then recalculate. Approval is refused until then.'

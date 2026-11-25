@@ -81,7 +81,10 @@ describe('every fixture input reaches the calculator, or has a named owner', () 
     '%s: the end date and each dated row reach the calculator, at their share', (_id, c) => {
       const { employee, components } = buildCaseInput(c);
       expect(employee.endDate ? isoOfDate(employee.endDate) : undefined).toBe(c.input.employee.endDate);
-      c.input.components.forEach((x, i) => {
+      // A recurring row starting after the leaver's last day is dropped (round 3): the rest keep their order.
+      const lastDay = c.input.employee.endDate;
+      const kept = c.input.components.filter(x => !(lastDay && x.effectiveFrom !== undefined && x.effectiveFrom > lastDay && x.type === 'earning'));
+      kept.forEach((x, i) => {
         const got = components[i]!;
         if (x.effectiveFrom === undefined) { expect(got.share).toBeUndefined(); expect(got.amount).toBe(x.amount); return; }
         expect(got).toMatchObject({ isRecurring: true, effectiveFrom: x.effectiveFrom, effectiveTo: x.effectiveTo ?? null });
@@ -107,6 +110,7 @@ describe('every fixture input reaches the calculator, or has a named owner', () 
     expect(shareOf('starter-raise-mid-month-sums-to-window')).toEqual(['8/18', '10/18']);
     expect(shareOf('weekly-split-same-amount-sums-to-whole')).toEqual(['3/7', '4/7']);
     expect(shareOf('leaver-row-ends-on-end-date-mid-month-full')).toEqual(['whole']);
+    expect(shareOf('leaver-row-after-end-not-paid')).toEqual(['whole']); // the later row is dropped: not paid
     expect(shareOf('three-rows-one-amount-sums-to-month')).toEqual(['7/23', '8/23', '8/23']);
   });
 

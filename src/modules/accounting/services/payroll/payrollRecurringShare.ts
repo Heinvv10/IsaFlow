@@ -23,7 +23,7 @@
  * the pro-rata guard still flags those. A row whose window has no working day (a raise from the last weekend) pays
  * nothing and is dropped from the line, not given employedShareOfMonth's one-day floor (which would pay those days twice).
  */
-import { dayNumber, isoOfDate } from './payFrequencyPeriods';
+import { dayNumber, isoOfDate, isoOfDay as isoOfDayNumber } from './payFrequencyPeriods';
 import type { EmployeeComponent, PayFrequency, PayrollPeriod, RecurringShare, UnsupportedValue, ValidationResult } from './payrollTypes';
 
 export interface ShareRow { effectiveFrom: string; effectiveTo: string | null }
@@ -104,8 +104,13 @@ export function apportionRecurringRows(
   components: EmployeeComponent[], employee: ShareEmployee & { payFrequency: PayFrequency | UnsupportedValue }, period: PayrollPeriod,
 ): EmployeeComponent[] {
   const out: EmployeeComponent[] = [];
-  const tiles = new Map<string, { full: number; days: number; of: number; rounded: number; last: number; same: boolean }>();
+  const tiles = new Map<string, { full: number; days: number; of: number; rounded: number; last: number; same: boolean; spans: Array<[string, string]> }>();
+  const window = employedWindowOf(period, employee);
+  const lastDay = employee.endDate ? isoOfDate(employee.endDate) : null;
   for (const c of components) {
+    // Review #1901 round 3 (coordinator decision): a recurring earning starting after the employee's last day is not paid;
+    // the pro-rata guard flags it (edge 'after_end') so approval is refused naming the row.
+    if (isApportionable(c) && c.effectiveFrom !== undefined && lastDay != null && c.effectiveFrom > lastDay) continue;
     const share = isApportionable(c) && c.effectiveFrom !== undefined
       ? recurringShareOf(employee.payFrequency, period, { effectiveFrom: c.effectiveFrom, effectiveTo: c.effectiveTo ?? null }, employee)
       : null;
@@ -116,14 +121,26 @@ export function apportionRecurringRows(
     tiles.set(c.component.id, {
       full: c.amount, days: (t?.days ?? 0) + share.days, of: share.of, rounded: (t?.rounded ?? 0) + amount, last: out.length,
       same: (t?.same ?? true) && (t == null || t.full === c.amount),
+      spans: [...(t?.spans ?? []), [later(window!.start, c.effectiveFrom!), earlier(window!.end, c.effectiveTo ?? window!.end)]],
     });
     out.push({ ...c, amount, share: { ...share, fullAmount: c.amount } });
   }
   for (const t of tiles.values()) {
     const diff = round2(t.full - t.rounded);
-    if (t.same && t.days === t.of && diff !== 0) out[t.last] = { ...out[t.last]!, amount: round2(out[t.last]!.amount + diff) };
+    if (t.same && t.days === t.of && diff !== 0 && window && tilesWindow(t.spans, window)) out[t.last] = { ...out[t.last]!, amount: round2(out[t.last]!.amount + diff) };
   }
   return out;
+}
+
+/** The spans cover the window end to end with no gap and no overlap (review #1901 round 3: an overlap that makes up a gap is not a tiling). */
+function tilesWindow(spans: Array<[string, string]>, w: { start: string; end: string }): boolean {
+  const sorted = [...spans].sort((a, b) => (a[0] < b[0] ? -1 : 1));
+  let next = w.start;
+  for (const [from, to] of sorted) {
+    if (from !== next) return false;
+    next = isoOfDayNumber(dayNumber(to) + 1);
+  }
+  return next === isoOfDayNumber(dayNumber(w.end) + 1);
 }
 
 /**

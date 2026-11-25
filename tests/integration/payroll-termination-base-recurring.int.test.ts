@@ -87,8 +87,12 @@ describe.each([['plain', 0, 0], ['bonus', 2167, 0], ['laterAllowance', 0, 5000]]
     expect(paidAs(line, 'Leave Pay-Out (Termination)')).toBe(10_000);
     expect(paidAs(line, 'Notice Pay (Termination)')).toBe(20_000);
     expect(paidAs(line, 'Bonus')).toBe(bonus || undefined);
-    expect(paidAs(line, 'Allowance')).toBe(later || undefined);
-    expect(line.gross).toBeCloseTo(MONTHLY + bonus + later + 30_000, 2);
+    // W29 review #1901 round 3 (coordinator decision): a recurring earning starting after the leaver's last day is not
+    // paid (it was paid in full before), and the pro-rata guard flags it so approval is refused naming the row.
+    expect(paidAs(line, 'Allowance')).toBeUndefined();
+    expect(line.gross).toBeCloseTo(MONTHLY + bonus + 30_000, 2);
+    const flags = (line.validation_results as Array<{ code: string; message: string }>).filter(v => v.code === 'RECURRING_NEEDS_PRO_RATA');
+    expect(flags.map(v => v.message.includes('starts after the employee left'))).toEqual(later ? [true] : []);
     const awaiting = (line.validation_results as Array<{ code: string; message: string }>).find(v => v.code === 'SEVERANCE_AWAITING_DIRECTIVE');
     expect(awaiting?.message).toContain(severanceOn(MONTHLY).toFixed(2));
   });

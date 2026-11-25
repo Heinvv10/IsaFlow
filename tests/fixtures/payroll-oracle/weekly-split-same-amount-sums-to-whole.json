@@ -37,7 +37,7 @@
       },
       {
         "code": "3601",
-        "name": "Basic salary (re-dated)",
+        "name": "Basic salary",
         "type": "earning",
         "amount": 1000,
         "taxable": true,

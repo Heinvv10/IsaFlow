@@ -121,8 +121,9 @@ export function buildCaseInput(c: OracleCase): PayrollLineInput {
   };
   const base: EmployeeComponent[] = input.components.map((x, i) => ({
     component: {
-      // W29: dated rows of one code are one component's assignments, as a re-dated row is in a run (R2-L1 rounds them together).
-      id: x.effectiveFrom !== undefined ? `${c.id}-${x.code}` : `${c.id}-${i}`, name: x.name, sarsSourceCode: x.code, componentType: x.type,
+      // W29: dated rows of one code AND name are one component's assignments, as a re-dated row is in a run (R2-L1 rounds them
+      // together; review round 3: keyed by code + name, so two components of one SARS code stay apart).
+      id: x.effectiveFrom !== undefined ? `${c.id}-${x.code}-${x.name}` : `${c.id}-${i}`, name: x.name, sarsSourceCode: x.code, componentType: x.type,
       isTaxable: x.taxable, isUifApplicable: x.uif, isSdlApplicable: x.sdl,
     },
     amount: x.amount,

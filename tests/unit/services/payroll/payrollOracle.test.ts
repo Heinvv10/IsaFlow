@@ -50,6 +50,7 @@ const EXPECTED_CASE_IDS = [
   'ga-maintenance-outside-cap',
   'leaver-mid-month-full-salary', // W29 (wave 7 PRA): ruling 19 pinned
   'leaver-raise-mid-month-sums-to-window', // W29 review #1901 H1
+  'leaver-row-after-end-not-paid', // W29 review round 3
   'leaver-row-ends-on-end-date-mid-month-full', // W29 review R2-M1
   'monthly-raise-averaged-with-priors',
   'offcycle-bonus-after-regular-g21',
