@@ -21,11 +21,18 @@ describe('the rules list names a rule\'s supplier and what became of it', () => 
       const survivor = await seedSupplier(pool, fx, 'Kite Holdings');
       const merged = await seedSupplier(pool, fx, 'Kite Metals');
       const deleted = await seedSupplier(pool, fx, 'Gone Couriers');
+      const blankCo = await seedSupplier(pool, fx, 'Blank Co Name');
+      await pool.query("UPDATE suppliers SET company_name = '' WHERE id = $1", [blankCo]); // an empty company_name falls back to name
+      // merged_into_id set, deleted_at not (written by hand): still "merged", as the rule sweep reads it.
+      const mergedOnly = await seedSupplier(pool, fx, 'Half Merged');
+      await pool.query('UPDATE suppliers SET merged_into_id = $2 WHERE id = $1', [mergedOnly, survivor]);
       await pool.query('UPDATE suppliers SET deleted_at = now(), merged_into_id = $2 WHERE id = $1', [merged, survivor]);
       await pool.query('UPDATE suppliers SET deleted_at = now() WHERE id = $1', [deleted]);
       await pool.query(`INSERT INTO bank_categorisation_rules (company_id, rule_name, match_field, match_type, match_pattern, supplier_id, priority)
                         VALUES ($1, 'r1 live', 'description', 'contains', 'A', $2, 1), ($1, 'r2 merged', 'description', 'contains', 'B', $3, 2),
-                               ($1, 'r3 deleted', 'description', 'contains', 'C', $4, 3)`, [fx.co, survivor, merged, deleted]);
+                               ($1, 'r3 deleted', 'description', 'contains', 'C', $4, 3),
+                               ($1, 'r4 blank company name', 'description', 'contains', 'D', $5, 4),
+                               ($1, 'r5 merged only', 'description', 'contains', 'E', $6, 5)`, [fx.co, survivor, merged, deleted, blankCo, mergedOnly]);
       const r = await openRequest(pool, fx, fx.owner);
       try {
         const rules = await r.run(() => getRules(fx.co));
@@ -33,6 +40,8 @@ describe('the rules list names a rule\'s supplier and what became of it', () => 
           ['r1 live', 'Kite Holdings'],
           ['r2 merged', 'Kite Metals (merged into Kite Holdings)'],
           ['r3 deleted', 'Gone Couriers (deleted)'],
+          ['r4 blank company name', 'Blank Co Name'],
+          ['r5 merged only', 'Half Merged (merged into Kite Holdings)'],
         ]);
       } finally { await r.rollback(); }
     } finally {

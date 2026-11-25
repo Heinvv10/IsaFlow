@@ -111,4 +111,3 @@ describe('fix-verify L1: a bill that is not this company\'s (or none) is Not fou
     });
   }, 30_000);
 });
-
