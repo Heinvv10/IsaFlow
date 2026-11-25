@@ -23,12 +23,12 @@
 import type { NextApiResponse } from 'next';
 import { apiResponse } from '@/lib/apiResponse';
 import {
-  BillSupplierDeletedError, PaymentSupplierDeletedError, asBillSupplierDeleted, asPaymentSupplierDeleted,
+  BillSupplierDeletedError, DraftBillChangedError, PaymentSupplierDeletedError, asBillSupplierDeleted, asPaymentSupplierDeleted,
 } from '@/modules/accounting/services/ap/billSupplierLive';
 import { asBillGrnRefused } from '@/modules/accounting/services/ap/billGoodsReceivedLink';
 
 export function respondIfBillSupplierDeleted(res: NextApiResponse, err: unknown): boolean {
-  const typed = err instanceof BillSupplierDeletedError || err instanceof PaymentSupplierDeletedError ? err
+  const typed = err instanceof BillSupplierDeletedError || err instanceof PaymentSupplierDeletedError || err instanceof DraftBillChangedError ? err
     : asBillSupplierDeleted(err) ?? asPaymentSupplierDeleted(err) ?? asBillGrnRefused(err);
   if (!typed) return false;
   apiResponse.conflict(res, typed.message, { code: typed.code });

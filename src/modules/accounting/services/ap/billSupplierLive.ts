@@ -18,6 +18,18 @@ export class BillSupplierDeletedError extends Error {
   }
 }
 
+/**
+ * A draft bill edit whose bill moved to another supplier between its read and its lock (a supplier merge, or another edit; #1882
+ * L-a). Nothing was written; the same edit on a reloaded bill goes through. 409, retryable.
+ */
+export class DraftBillChangedError extends Error {
+  readonly code = 'SUPPLIER_INVOICE_CHANGED';
+  constructor() {
+    super('The bill changed meanwhile (another edit or a supplier merge moved it to another supplier). Reload it and save again.');
+    this.name = 'DraftBillChangedError';
+  }
+}
+
 /** A supplier payment written onto a soft-deleted supplier: migration 1023's trg_supplier_payments_supplier_live (#1699 H1). */
 export class PaymentSupplierDeletedError extends Error {
   readonly code = 'SUPPLIER_PAYMENT_SUPPLIER_DELETED';

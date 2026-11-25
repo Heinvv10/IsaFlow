@@ -25,7 +25,7 @@ import { defaultVatClassification, type SupplierInvoiceTotals } from './supplier
 import { billEditDueDate } from './draftBillDueDate';
 import { refreshAppBillLinks } from './billPurchaseOrderLinks';
 import { applyDraftGrn, planDraftGrn, type DraftGrnPlan } from './supplierInvoiceDraftGrn';
-import { asBillSupplierDeleted, BillSupplierDeletedError } from './billSupplierLive';
+import { asBillSupplierDeleted, BillSupplierDeletedError, DraftBillChangedError } from './billSupplierLive';
 import { lockSupplierIfLive } from '../core/supplierLiveLock';
 import { lockSuppliersBeforeBill } from './draftBillSupplierLocks';
 import { asBillGrnRefused, lockNotePo } from './billGoodsReceivedLink';
@@ -104,8 +104,10 @@ export async function lockAndPlanSupplierInvoiceDraftUpdate(
   // A supplier change takes BOTH suppliers, old and new, FOR KEY SHARE in id order BEFORE the bill (lockSuppliersBeforeBill): a merge
   // holds both suppliers and then waits on the bill, so a bill lock first was a 40P01 when the new supplier is the merge's survivor.
   const lockedSuppliers = await withSavepoint('usi_supplier_lock', () => lockSuppliersBeforeBill(companyId, invoiceId, patch.supplierId));
+  if (lockedSuppliers === 'not_found') throw new SupplierInvoiceDraftUpdateRefusal('Not found'); // another company's, or none (L-c)
   const row = await withSavepoint('usi_bill_lock', () => lockSupplierInvoiceForUpdate(companyId, invoiceId));
-  if (row && lockedSuppliers && !lockedSuppliers.includes(String(row.supplier_id))) throw new BillSupplierDeletedError();
+  // Moved meanwhile (a merge, or another edit) to a supplier this edit does not hold: a retryable 409, not "merged" (L-a).
+  if (row && lockedSuppliers && !lockedSuppliers.includes(String(row.supplier_id))) throw new DraftBillChangedError();
   // One reply for absent, foreign and soft-deleted: no existence oracle.
   if (!row || row.deleted_at) throw new SupplierInvoiceDraftUpdateRefusal('Not found');
   const number = String(row.invoice_number);

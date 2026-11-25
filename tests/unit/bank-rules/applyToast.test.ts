@@ -169,3 +169,15 @@ describe('supplier rules on a merged-away supplier (#1882 fix-verify M1)', () =>
     expect(t.message).not.toContain('allocated by another request');
   });
 });
+
+describe('the merged-rule banner heading, by cause (#1882 L-d)', () => {
+  it('says merged, deleted, or both', async () => {
+    const { mergedRuleHeading } = await import('@/components/accounting/bank-rules/applyToast');
+    const merged = { ruleName: 'a', supplierName: 'A', survivorName: 'B', lines: 2 };
+    const deleted = { ruleName: 'c', supplierName: 'C', survivorName: null, lines: 1 };
+    expect(mergedRuleHeading([merged], 2)).toBe('2 transactions were skipped — the rule names a supplier that was merged into another.');
+    expect(mergedRuleHeading([deleted], 1)).toBe('1 transaction was skipped — the rule names a supplier that was deleted.');
+    expect(mergedRuleHeading([merged, deleted], 3)).toBe('3 transactions were skipped — the rule names a supplier that was merged into another or deleted.');
+  });
+});
+

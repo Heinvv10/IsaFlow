@@ -28,6 +28,16 @@ export interface ApplyResultParts {
   autoPostSupplierMergedRules?: Array<{ ruleName: string; supplierName: string; survivorName: string | null; lines: number }>;
 }
 
+/** The banner's heading for those skips, by cause: merged into another supplier, deleted, or some of each (#1882 L-d). */
+export function mergedRuleHeading(rules: ApplyResultParts['autoPostSupplierMergedRules'], skipped: number): string {
+  const list = rules ?? [];
+  const merged = list.some((r) => r.survivorName);
+  const deleted = list.some((r) => !r.survivorName);
+  const cause = merged && deleted ? 'names a supplier that was merged into another or deleted'
+    : deleted ? 'names a supplier that was deleted' : 'names a supplier that was merged into another';
+  return `${skipped} transaction${skipped > 1 ? 's were' : ' was'} skipped — the rule ${cause}.`;
+}
+
 /** One sentence per supplier rule that names a merged-away supplier: which rule, which supplier, where to re-point it (#1882 M1). */
 export function mergedRuleSentences(rules: ApplyResultParts['autoPostSupplierMergedRules']): string[] {
   return (rules ?? []).map((r) => {

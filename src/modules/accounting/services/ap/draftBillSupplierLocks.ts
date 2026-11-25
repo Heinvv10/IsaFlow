@@ -14,19 +14,25 @@ import { lockSupplierIfLive } from '../core/supplierLiveLock';
 import { BillSupplierDeletedError } from './billSupplierLive';
 
 /**
- * Null when the edit names no other supplier (nothing locked here). Otherwise the live suppliers it now holds; the caller checks the
- * bill, once locked, still names one of them (a merge committed meanwhile moved it: a retry). A new supplier that is not live is the
- * typed refusal; an old one merged away is simply not held (the bill moved to its survivor, which the caller's check then sees).
+ * Null when the edit names no supplier (nothing locked here); 'not_found' when the named supplier is not this company's (or does not
+ * exist: #1882 L-c, the caller's "Not found"). Otherwise the live suppliers it now holds, the new one ALWAYS, even when the unlocked
+ * read already shows the bill on it (L-b: a merge of it must not slip between that read and the bill lock), and the bill's current
+ * one when it differs. The caller checks the bill, once locked, still names one of them (a merge or another edit moved it: L-a, a
+ * retry). A new supplier that is not live is the typed refusal; an old one merged away is simply not held.
  */
-export async function lockSuppliersBeforeBill(companyId: string, invoiceId: string, newSupplierId: string | undefined): Promise<string[] | null> {
+export async function lockSuppliersBeforeBill(companyId: string, invoiceId: string, newSupplierId: string | undefined): Promise<string[] | null | 'not_found'> {
   if (!newSupplierId) return null;
+  const [named] = (await sql`
+    SELECT 1 AS ok FROM suppliers WHERE id = ${newSupplierId}::UUID AND company_id = ${companyId}::UUID
+  `) as DbRow[];
+  if (!named) return 'not_found';
   const [bill] = (await sql`
     SELECT supplier_id::TEXT AS supplier_id FROM supplier_invoices
      WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID
   `) as DbRow[];
-  if (!bill || String(bill.supplier_id) === newSupplierId) return null;
+  const ids = [...new Set([newSupplierId, ...(bill ? [String(bill.supplier_id)] : [])])].sort();
   const held: string[] = [];
-  for (const id of [String(bill.supplier_id), newSupplierId].sort()) {
+  for (const id of ids) {
     const live = await lockSupplierIfLive(companyId, id);
     if (live) held.push(id);
     else if (id === newSupplierId) throw new BillSupplierDeletedError();
