@@ -88,9 +88,9 @@ export async function loadPayeYearToDate(
              r.periodic_before_deductions,
              r.annual_before_deductions,
              b.annual_3605, b.original_taxable, b.donations,
-             h.period_year, h.period_month, h.run_kind, h.pay_frequency, ${runOrderKeySql('h')} AS run_key, l.created_at AS line_created_at, l.retirement_deduction, l.sdl,
+             h.period_year, h.period_month, h.run_kind, ${runOrderKeySql('h')} AS run_key, l.created_at AS line_created_at, l.retirement_deduction, l.sdl,
              l.sdl_applicable AS stored_sdl_applicable, l.sdl_leviable, l.sdl_exempt, b.sdl_applicable AS rebuilt_sdl_applicable,
-             l.donation_receipted, l.donation_base, l.donation_deduction,
+             l.donation_receipted, l.donation_base, l.donation_deduction, h.pay_frequency,
              -- A month whose PAYE was not taken from the tables (a flat 25% or a contractor; taxStatusTreatment) is no table period.
              NOT COALESCE(l.validation_results @> ${outsideTablesFlag}::jsonb, false) AS on_tables,
              -- The share of the period employed (FQc; payFrequencyPeriods.periodShareOf, four decimals truncated): 1 a month.
