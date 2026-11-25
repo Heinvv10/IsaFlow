@@ -149,7 +149,7 @@ export default function CaseWareExportPage() {
         {/* Header */}
         <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)]">
           <div className="px-6 py-4">
-            <Link href="/accounting/reports" className="inline-flex items-center gap-1 text-sm text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] mb-2">
+            <Link href="/accounting/reports" className="inline-flex items-center gap-1 text-sm text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] mb-2 max-lg:min-h-11 max-lg:inline-flex max-lg:items-center">
               <ArrowLeft className="h-4 w-4" /> Back to Reports
             </Link>
             <div className="flex items-center justify-between">
@@ -178,7 +178,7 @@ export default function CaseWareExportPage() {
                 <GatedDateField gate={dates} gateKey="to" label="Period To" value={periodEnd || null} onValue={setPeriodEnd} />
               </div>
               <button onClick={handleExport} disabled={dates.blocked}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 text-sm font-medium disabled:opacity-50">
+                className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 text-sm font-medium disabled:opacity-50 max-lg:min-h-11">
                 <Download className="h-4 w-4" /> Export CSV
               </button>
             </div>
@@ -196,18 +196,18 @@ export default function CaseWareExportPage() {
 
           {/* Mapping Table */}
           <div className="bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] rounded-lg overflow-hidden">
-            <div className="px-4 py-3 border-b border-[var(--ff-border-light)] flex items-center justify-between gap-3">
+            <div className="px-4 py-3 border-b border-[var(--ff-border-light)] flex items-center justify-between gap-3 max-lg:flex-wrap">
               <h3 className="text-sm font-semibold text-[var(--ff-text-primary)]">Account Mappings</h3>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 max-lg:flex-wrap max-lg:w-full">
                 <input type="text" value={search} onChange={e => setSearch(e.target.value)}
-                  placeholder="Search accounts..." className="ff-input text-xs py-1 w-48" />
+                  placeholder="Search accounts..." className="ff-input text-xs py-1 w-48 max-lg:min-h-11 max-lg:w-full" />
                 <button onClick={() => void handleAutoSuggest()} disabled={isAutoSuggesting}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-[var(--ff-border-light)] text-[var(--ff-text-secondary)] rounded hover:text-[var(--ff-text-primary)] text-xs disabled:opacity-50">
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-[var(--ff-border-light)] text-[var(--ff-text-secondary)] rounded hover:text-[var(--ff-text-primary)] text-xs disabled:opacity-50 max-lg:min-h-11">
                   {isAutoSuggesting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Wand2 className="h-3 w-3" />}
                   Auto-Suggest
                 </button>
                 <button onClick={() => void handleSaveAll()} disabled={isSaving}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-brand-600 text-white rounded hover:bg-brand-700 text-xs disabled:opacity-50">
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-brand-600 text-white rounded hover:bg-brand-700 text-xs disabled:opacity-50 max-lg:min-h-11">
                   {isSaving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
                   Save All
                 </button>
@@ -220,7 +220,7 @@ export default function CaseWareExportPage() {
               </div>
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full text-xs">
+                <table className="w-full text-xs table-cards">
                   <thead>
                     <tr className="bg-[var(--ff-bg-tertiary)]">
                       <th className="text-left px-3 py-2 text-[var(--ff-text-secondary)] font-medium">Code</th>
@@ -237,28 +237,28 @@ export default function CaseWareExportPage() {
                       return (
                         <tr key={m.glAccountId} className={idx % 2 === 0 ? '' : 'bg-[var(--ff-bg-tertiary)]/30'}>
                           <td className="px-3 py-1.5 font-mono text-[var(--ff-text-secondary)]">{m.accountCode}</td>
-                          <td className={`px-3 py-1.5 ${dirty ? 'text-amber-400' : 'text-[var(--ff-text-primary)]'}`}>
+                          <td data-label="Account Name" className={`px-3 py-1.5 ${dirty ? 'text-amber-400' : 'text-[var(--ff-text-primary)]'}`}>
                             {m.accountName}
                           </td>
-                          <td className="px-3 py-1.5 text-[var(--ff-text-tertiary)] capitalize">
+                          <td data-label="Type" className="px-3 py-1.5 text-[var(--ff-text-tertiary)] capitalize">
                             {m.accountType}{m.accountSubtype ? ` / ${m.accountSubtype}` : ''}
                           </td>
-                          <td className="px-3 py-1">
+                          <td data-label="CaseWare Code" className="px-3 py-1 max-lg:flex-col max-lg:items-stretch max-lg:!gap-1">
                             <input type="text" value={edit.code}
                               onChange={e => updateEdit(m.glAccountId, 'code', e.target.value)}
-                              className="ff-input text-xs py-0.5 w-28 font-mono" maxLength={20} />
+                              className="ff-input text-xs py-0.5 w-28 font-mono max-lg:min-h-11 max-lg:w-full" maxLength={20} />
                           </td>
-                          <td className="px-3 py-1">
+                          <td data-label="CaseWare Label" className="px-3 py-1 max-lg:flex-col max-lg:items-stretch max-lg:!gap-1">
                             <input type="text" value={edit.label}
                               onChange={e => updateEdit(m.glAccountId, 'label', e.target.value)}
-                              className="ff-input text-xs py-0.5 w-48" maxLength={100} />
+                              className="ff-input text-xs py-0.5 w-48 max-lg:min-h-11 max-lg:w-full" maxLength={100} />
                           </td>
                         </tr>
                       );
                     })}
                     {filtered.length === 0 && (
                       <tr>
-                        <td colSpan={5} className="px-3 py-8 text-center text-[var(--ff-text-secondary)]">
+                        <td colSpan={5} className="px-3 py-8 text-center text-[var(--ff-text-secondary)] max-lg:!py-8 max-lg:!text-center">
                           No accounts found
                         </td>
                       </tr>

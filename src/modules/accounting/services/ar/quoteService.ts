@@ -10,11 +10,10 @@ import { log } from '@/lib/logger';
 import { assertCustomerInCompany } from '../core/contactDirectoryService';
 import { insertWithReservedNumber } from '../core/documentNumberRetry';
 import { withSourceEditorStamp } from './sourceContentEditor';
-import { priceQuoteLines, type PricedQuote } from './quoteLineTax';
+import { priceQuoteLines, quoteEditItemLines, type PricedQuote } from './quoteLineTax';
 import { storedQuoteOf } from './quoteEditLines';
 import { LineValidationError, assertValidLines } from './quoteLineChecks';
 import { applyItemDefaultsToAccountIdLines } from '../items/itemLineDefaults';
-import { resolveEditLineItemsAccountId } from '../items/itemEditLines';
 
 type Row = DbRow;
 
@@ -231,10 +230,8 @@ export async function updateQuote(companyId: string, id: string, input: QuoteInp
   const existing = await getQuote(companyId, id);
   if (!existing || existing.status !== 'draft') return null;
   await assertCustomerInCompany(companyId, input.clientId);
-  // Migration 1005: a NEW item on a line is checked and defaults the sales account; a line without one keeps an identical stored line's.
-  const stored = existing.lines ?? [];
-  const lines = await resolveEditLineItemsAccountId(companyId, 'sales', input.lines, stored.map((l) => ({
-    itemId: l.itemId, description: l.description, quantity: l.quantity, unitPrice: l.unitPrice })), (i) => `items[${i}]`);
+  // Migration 1005: a NEW item on a line (new to its matched stored line) is checked and defaults the sales account.
+  const lines = await quoteEditItemLines(companyId, input.lines, storedQuoteOf(existing), input.quoteDate || existing.quoteDate);
   await assertValidLines(companyId, lines);
   const qd = input.quoteDate || existing.quoteDate;
   // Every line is re-priced at the quote's date; a line sent without a type keeps its stored match's (quoteLineTax). A
