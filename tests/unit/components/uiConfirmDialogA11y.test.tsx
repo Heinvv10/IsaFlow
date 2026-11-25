@@ -28,23 +28,27 @@ describe('ui ConfirmDialog semantics', () => {
   it('Escape cancels, but not while loading', () => {
     const onCancel = vi.fn();
     const { rerender } = render(<ConfirmDialog open {...props} onCancel={onCancel} />);
-    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
+    fireEvent.keyDown(document.body, { key: 'Escape' });
     expect(onCancel).toHaveBeenCalledTimes(1);
     rerender(<ConfirmDialog open loading {...props} onCancel={onCancel} />);
-    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
+    fireEvent.keyDown(document.body, { key: 'Escape' });
     expect(onCancel).toHaveBeenCalledTimes(1);
   });
 
-  it('Tab and Shift+Tab wrap inside the dialog', () => {
+  it('Tab and Shift+Tab wrap inside the dialog, and pull focus back in when it sits outside', () => {
     render(<ConfirmDialog open {...props} onCancel={vi.fn()} />);
-    const dlg = screen.getByRole('dialog');
     const cancel = screen.getByRole('button', { name: 'Cancel' });
     const accept = screen.getByRole('button', { name: /Revoke/ });
     accept.focus();
-    fireEvent.keyDown(dlg, { key: 'Tab' });
+    fireEvent.keyDown(document.body, { key: 'Tab' });
     expect(document.activeElement).toBe(cancel);
-    fireEvent.keyDown(dlg, { key: 'Tab', shiftKey: true });
+    fireEvent.keyDown(document.body, { key: 'Tab', shiftKey: true });
     expect(document.activeElement).toBe(accept);
+    const outside = document.body.appendChild(document.createElement('button'));
+    outside.focus();
+    fireEvent.keyDown(document.body, { key: 'Tab' });
+    expect(document.activeElement).toBe(cancel);
+    outside.remove();
   });
 
   it('focus returns to the opener when it closes', () => {
