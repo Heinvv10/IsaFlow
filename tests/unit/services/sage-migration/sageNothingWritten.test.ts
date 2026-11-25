@@ -57,3 +57,13 @@ describe('stopMessage and the stop report of a batch that wrote nothing, then ch
     expect([wrote, nothing, lost, refused, b('item', 4, { replayed: true })].map(batchOutcome)).toEqual(['committed', 'nothing_written', 'commit_unconfirmed', 'commit_unconfirmed', 'replayed']);
   });
 });
+
+describe('R15-L2 (round 15): a replayed batch in the stop report', () => {
+  it('is listed under nothingWritten (no tool ran), also when its COMMIT is unconfirmed; never under committed', () => {
+    const replayed = b('item', 1, { replayed: true });
+    const replayedLost = b('item', 2, { replayed: true, status: 'failed', commitUnconfirmed: true });
+    const r = stopReportBatches(new MigrationStopped(new Error('x'), true, [replayed, replayedLost], { failed: [], dryRun: [] }));
+    expect(r.nothingWritten.map((x) => x.n)).toEqual([1, 2]);
+    expect([r.committed, r.commitUnconfirmed]).toEqual([[], []]);
+  });
+});

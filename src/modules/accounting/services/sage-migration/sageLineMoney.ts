@@ -45,7 +45,9 @@ export function lineMoneyReasons(raw: Raw, f: LineFigures, why: string[]): strin
   const inclusive = readNumber(raw, 'UnitPriceInclusive', why, { cents: 'any' });
   if (num(inclusive) && num(f.unit) && num(f.vatPct)) {
     const expected = cents(f.unit * (1 + f.vatPct / 100));
-    if (cents(inclusive) !== expected) why.push(`UnitPriceInclusive ${inclusive} is not UnitPriceExclusive ${f.unit} at ${f.vatPct}% (${expected / 100})`);
+    // Per unit, 1 cent either way (R15-M1): a price ex VAT whose VAT-inclusive figure is a half cent (8.70 -> 10.005) is rounded either
+    // way by a source; the line's booked gross (below) stays exact.
+    if (Math.abs(cents(inclusive) - expected) > 1) why.push(`UnitPriceInclusive ${inclusive} is not UnitPriceExclusive ${f.unit} at ${f.vatPct}% (${expected / 100})`);
     // With no line Tax the tool computes the tax itself: what it books must be Sage's gross for the line (B14-1).
     else if (!num(f.tax) && num(f.quantity)) {
       const m = lineCents({ quantity: f.quantity, unitPrice: f.unit, taxRate: f.vatPct, ...(num(f.exclusive) ? { lineTotal: f.exclusive } : {}) }, false);

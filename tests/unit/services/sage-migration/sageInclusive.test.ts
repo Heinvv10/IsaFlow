@@ -77,3 +77,17 @@ describe('R14-L5', () => {
     expect(['-0.01', '0.1', '-1'].map(isZeroish)).toEqual([false, false, false]);
   });
 });
+
+describe('R15-M1 (round 15): the per-unit UnitPriceInclusive check allows 1 cent; the line gross stays exact', () => {
+  const line = (x: R) => po([L({ UnitPriceExclusive: 8.7, TaxTypeId: 1, ...x })], { Exclusive: 8.7, Tax: 1.3, Total: 10 });
+  it('8.70 ex VAT at 15% is 10.005: a Sage UnitPriceInclusive of 10.00 (with the line\'s own Tax) passes; 2 cents off does not', () => {
+    expect(read(line({ Exclusive: 8.7, Tax: 1.3, Total: 10, UnitPriceInclusive: 10 })).ok).toBe(true);
+    expect(read(line({ Exclusive: 8.7, Tax: 1.3, Total: 10, UnitPriceInclusive: 9.99 })).why).toContain('UnitPriceInclusive 9.99 is not UnitPriceExclusive 8.7 at 15% (10.01)');
+  });
+  it('without the line Tax, the booked gross must be Quantity x UnitPriceInclusive to the cent', () => {
+    expect(read(line({ UnitPriceInclusive: 10 })).why).toContain('Lines[0] would be booked at 10.01 (8.7 + 1.31), but Quantity 1 x UnitPriceInclusive 10 is 10');
+  });
+  it('R15-L2: the gross is Quantity x UnitPriceInclusive (2 x 115 = 230 agrees; it is not one unit)', () => {
+    expect(read(po([L({ Quantity: 2, UnitPriceExclusive: 100, UnitPriceInclusive: 115 })], { Exclusive: 200, Tax: 30, Total: 230 })).ok).toBe(true);
+  });
+});
