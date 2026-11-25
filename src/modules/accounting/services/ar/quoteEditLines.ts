@@ -23,8 +23,15 @@
  *       5. otherwise a line whose description has stored twins of different items or accounts, one of them still free,
  *          is AMBIGUOUS and refused (unmatchedItemProblem: a 400 asking for the saved line's id, or an explicit itemId
  *          and accountId); any other line is a new line.
- *     ACCEPTED (round 14, L3): an edit that changes TWO things among twins nothing tells apart (identical content, or
- *     the same description with items the edit does not name) can pair them the other way; send ids to be exact.
+ *     ACCEPTED LIMITS (send ids to be exact; review rounds 14-15):
+ *       - an edit that changes TWO things among twins nothing tells apart (identical content, or the same description
+ *         with items the edit does not name) can pair them the other way;
+ *       - L1: an INSERTED line identical to a stored line except that it omits itemId, in a body where every other line
+ *         names its item, reads as that stored line's resend plus a new line naming the item (indistinguishable);
+ *       - L2 (fails safe): an insert or delete that shifts places among content-identical twins with different accounts
+ *         is refused (400);
+ *       - L3: a line resent at another taxRate whose description has stored twins is a new line (only a unique
+ *         description keeps its match across a rate change).
  *   A ZERO-RATED or EXEMPT line saved (a legacy 0% line counts): a typeless line inherits a saved type ONLY from a
  *     POSITIONAL resend: the same number of lines, each identical to the saved line in its own place and of a
  *     compatible rate, except at most one changed in place (its price, quantity, or its description or its item, not
