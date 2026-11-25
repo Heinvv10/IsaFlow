@@ -4,6 +4,9 @@
  * imported data; but where it exists both rows are read and both paid for the shared days (e.g. a successor starting ON a
  * leaver's end date pays the whole month plus its own share). The pro-rata guard flags it (edge 'overlap'), so approval
  * is refused naming the rows. Read-only; company-scoped; each pair once (the later-starting row is named).
+ * It deliberately covers EVERY recurring row type, not only the earnings W29 apportions: two overlapping deductions,
+ * hours, percent-of-RFI or defined-benefit rows are read and taken twice as well. Do not narrow it to apportionable
+ * rows: it refuses more, never less.
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
