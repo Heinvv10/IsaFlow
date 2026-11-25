@@ -226,6 +226,13 @@ describe('a PSP trust in March, an employee from April', () => {
     expect((await toPsp(f, fresh, 'company'))?.warnings).toBeUndefined();
   });
 
+  it('W31 review: a PSP payee ALSO paid as an employee (March PSP, April employee) with no tax number still raises IRP5_MISSING_TAX_NUMBER on the IRP5 summary', async () => {
+    await pool.query('UPDATE payroll_employees SET tax_number = NULL WHERE id = $1', [who]);
+    const out = await f.call(irp5SummaryRoute as Route, 'GET', '/api/payroll/irp5/summary?taxYear=2027', undefined, { query: { taxYear: '2027' } });
+    const row = (out.body as unknown as { data: { employees: Array<{ employeeId: string; messages: Array<{ code: string; severity: string }> }> } }).data.employees.find((e) => e.employeeId === who)!;
+    expect(row.messages.filter((m) => m.code === 'IRP5_MISSING_TAX_NUMBER').map((m) => m.severity)).toEqual(['error']);
+  });
+
   it('L1: March\'s payslip states the PSP basis; April\'s does not', async () => {
     const slip = (await getPayslips(f.company, march, [who])).payslips[0]!;
     expect(slip.taxBasis).toBe('Personal service provider (trust): PAYE at 45%, no UIF');
