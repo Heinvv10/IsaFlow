@@ -53,8 +53,9 @@ afterEach(() => { vi.restoreAllMocks(); });
 
 async function openDrawer() {
   render(<IntercompanyPaymentsPage />);
+  // the section and its heading render before the list has loaded: wait for the row's own button, not for the region
   const list = await screen.findByRole('region', { name: 'Payments from your group' });
-  fireEvent.click(within(list).getByRole('button', { name: 'Details for payment SP-7' }));
+  fireEvent.click(await within(list).findByRole('button', { name: 'Details for payment SP-7' }));
   return screen.findByRole('dialog');
 }
 

@@ -35,6 +35,7 @@ describe('compareMigrationNames', () => {
   it.each([
     ['999_a.sql', '999b_a.sql'],
     ['999b_a.sql', '1000_a.sql'],
+    ['999z_a.sql', '1000_a.sql'], // the highest letter suffix still sorts before the next 4-digit prefix
     ['100_a.sql', '1000_a.sql'],
     ['999_a.sql', '1000_a.sql'],
     ['244_a.sql', '244b_a.sql'],
@@ -86,6 +87,14 @@ describe('planApply (the runner)', () => {
     const applied = files.filter((f) => !f.name.startsWith('100')).map((f) => ({ ...f }));
     const plan = planApply(files, applied);
     expect(plan.toApply.map((f) => f.name)).toEqual(['100_old.sql', '1000_next.sql', '1001_after.sql']);
+  });
+});
+
+describe('planApply with 999z_ and 1000_ both pending', () => {
+  it('applies 999z_ first, whatever order the files arrive in', () => {
+    const pair = ['1000_a.sql', '999z_a.sql'].map(mf);
+    expect(planApply(pair, []).toApply.map((f) => f.name)).toEqual(['999z_a.sql', '1000_a.sql']);
+    expect(planApply([...pair].reverse(), []).toApply.map((f) => f.name)).toEqual(['999z_a.sql', '1000_a.sql']);
   });
 });
 

@@ -4,6 +4,8 @@ export type AutoPostOutcome =
   | { kind: 'posted'; journalEntryId: string; vatDenied: boolean; nonSupplyCoerced: boolean }
   /** The row was allocated (or removed) between the candidate query and the lock. */
   | { kind: 'raced' }
+  /** A supplier rule whose supplier was merged away (or deleted): the rule must be re-pointed (bankRuleSupplierMerged). */
+  | { kind: 'supplier_merged' }
   /** Its date falls in a closed/locked period - re-open the period to post it. */
   | { kind: 'closed_period' }
   /** No fiscal period covers its date - the year has not been created. */

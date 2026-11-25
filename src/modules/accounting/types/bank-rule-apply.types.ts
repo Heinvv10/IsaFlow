@@ -118,4 +118,11 @@ export interface RuleApplyResult {
    * other bank's leg, or a transfer typed on the Transfers page. Remedy: match the line to that journal.
    */
   autoPostSkippedDuplicateTransfer?: number;
+  /**
+   * #1882 M1: lines of a SUPPLIER rule whose supplier was merged into another (or deleted) — a merge leaves the source's rules on
+   * it. Remedy: re-point the rule to the survivor, which `autoPostSupplierMergedRules` names per rule.
+   */
+  autoPostSkippedSupplierMerged?: number;
+  /** Per rule skipped as above: its name, the supplier it names, merged (merged_into_id) or deleted, the survivor's name, and lines. */
+  autoPostSupplierMergedRules?: Array<{ ruleName: string; supplierName: string; merged: boolean; survivorName: string | null; lines: number }>;
 }

@@ -5,7 +5,7 @@ export const fmtDate = (d: string) => {
   return formatDisplayDateTime(d);
 };
 
-export const EMAIL_TYPES = ['invoice', 'statement', 'quote', 'payment_receipt', 'invite', 'welcome', 'other'] as const;
+export const EMAIL_TYPES = ['invoice', 'statement', 'quote', 'payment_receipt', 'invite', 'welcome', 'trial_lifecycle', 'other'] as const;
 
 export const STATUS_COLORS: Record<string, string> = {
   sent:    'bg-teal-500/10 text-teal-400 border border-teal-500/30',
@@ -20,6 +20,7 @@ export const TYPE_LABELS: Record<string, string> = {
   payment_receipt: 'Payment Receipt',
   invite:          'Invite',
   welcome:         'Welcome',
+  trial_lifecycle: 'Trial email',
   other:           'Other',
 };
 

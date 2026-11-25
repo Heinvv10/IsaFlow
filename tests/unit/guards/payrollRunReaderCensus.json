@@ -578,12 +578,6 @@
    {"line":83,"text":"SELECT * FROM uif_declarations","class":"S","owner":"FQb1","why":"declaration by id"},
    {"line":107,"text":"UPDATE uif_declarations SET journal_entry_id = ${entry.id}::uuid, updated_at = NOW()","class":"S","owner":"FQb1","why":"write by id"}
   ],
-  "src/modules/accounting/services/payroll/yearEndStatusReads.ts": [
-   {"line":46,"text":"JOIN payroll_run_headers prh ON prh.id = prl.run_id","class":"S","owner":"FQb1","why":"tax-year sum per employee"},
-   {"line":58,"text":"FROM   payroll_run_headers","class":"S","owner":"FQb1","why":"DISTINCT months that have a declarable run"},
-   {"line":60,"text":"AND  ${sql.unsafe(payRunFinalSql('payroll_run_headers'))}","class":"S","owner":"FQb1","why":"the final-run filter of the DISTINCT-months query above (the alias argument names the table)"},
-   {"line":75,"text":"FROM   payroll_employee_components pec","class":"S","owner":"FQb1","why":"employee components; no run"}
-  ],
   "src/modules/accounting/services/reports/emp201FieldDrill.ts": [
    {"line":101,"text":"FROM payroll_run_headers prh","class":"S","owner":"FQb2/EF","why":"every line of every run in the window"}
   ],
