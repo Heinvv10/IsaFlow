@@ -17,6 +17,16 @@ import { storedVatType } from './invoiceVatLegs';
 import { vatTotalLabel } from '../shared/vatLineAmounts';
 import type { InvoicePdfLine } from './invoicePdfModel';
 
+/** The typed table's autoTable columns (the invoice and quote PDFs): the legacy five with the VAT type before the VAT. */
+export const TYPED_PDF_COLUMNS = {
+  0: { cellWidth: 'auto' },
+  1: { halign: 'right', cellWidth: 18 },
+  2: { halign: 'right', cellWidth: 26 },
+  3: { cellWidth: 30 },
+  4: { halign: 'right', cellWidth: 24 },
+  5: { halign: 'right', cellWidth: 28, fontStyle: 'bold' },
+} as const;
+
 export interface TypedPdfTable {
   head: string[];
   body: string[][];

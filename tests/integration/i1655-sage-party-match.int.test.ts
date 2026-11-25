@@ -140,6 +140,22 @@ describe('the Sage commit brings every Sage supplier across (#1655)', () => {
     ]);
   });
 
+  it('a live row carrying another system\'s reference does not hide a merged-away alias the party can claim (breaker M3)', async () => {
+    const c = await newCompany(pool, [[admin, 'admin']], companies);
+    await pool.query("INSERT INTO suppliers(company_id, name, external_system, external_ref) VALUES($1, 'Kite Metals', 'xero', 'X-5')", [c]);
+    const survivor = String((await pool.query("INSERT INTO suppliers(company_id, name) VALUES($1, 'Kite Holdings') RETURNING id", [c])).rows[0].id);
+    const alias = String((await pool.query(
+      "INSERT INTO suppliers(company_id, name, deleted_at, merged_into_id) VALUES($1, 'Kite Metals', now(), $2) RETURNING id", [c, survivor])).rows[0].id);
+    const s = await commit(c, { suppliers: { records: [party(511, 'Kite Metals')] } });
+    expect(s.suppliers).toEqual({ created: 0, skipped: 1, failed: [] });
+    // The alias carries the Sage id (the next sync finds it by id); no third Kite Metals was created.
+    expect((await pool.query('SELECT external_system, external_ref FROM suppliers WHERE id = $1', [alias])).rows[0]).toEqual({ external_system: 'sage', external_ref: '511' });
+    expect(await live('suppliers', c)).toEqual([
+      { name: 'Kite Metals', external_system: 'xero', external_ref: 'X-5' },
+      { name: 'Kite Holdings', external_system: null, external_ref: null },
+    ]);
+  });
+
   it('customers: an older row carrying another system\'s reference does not hide a newer unstamped one either', async () => {
     const c = await newCompany(pool, [[admin, 'admin']], companies);
     await pool.query("INSERT INTO customers(company_id, name, external_system, external_ref, created_at) VALUES($1, 'Jade Retail', 'xero', 'X-4', now() - interval '1 day')", [c]);

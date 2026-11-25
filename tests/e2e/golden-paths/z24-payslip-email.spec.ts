@@ -147,7 +147,9 @@ async function flow(page: Page, runId: string, employeeId: string, theme: string
   if (await on.isVisible()) await on.click();
   await card.getByRole('button', { name: 'Email payslips' }).click();
   const dialog = page.getByRole('dialog', { name: 'Email payslips?' });
-  await expect(dialog).toContainText('40-bit RC4');
+  await expect(dialog).toContainText('AES-256'); // wave 7 PX (W15)
+  await expect(dialog).toContainText('can guess the employee\'s date of birth'); // ruling 21: the truth about the password
+  await expect(dialog).toContainText('cracked in hours');
   await settleAnimations(page); // axe mid-fade-in reads blended colours (the Cancel button at 1.12:1)
   if (EVIDENCE_DIR) await page.screenshot({ path: `${EVIDENCE_DIR}/payslip-email-confirm-${theme}.png` });
   expect(await seriousAxe(page), `axe ${theme} confirm`).toEqual([]);

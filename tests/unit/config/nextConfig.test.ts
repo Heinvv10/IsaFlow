@@ -1,5 +1,7 @@
 import { createRequire } from 'node:module';
 import { describe, expect, it } from 'vitest';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 
 const require = createRequire(import.meta.url);
 const nextConfig = require('../../../next.config.js') as {
@@ -46,5 +48,17 @@ describe('Supplier purchase orders retired into purchase orders (migration 1022)
       { source: '/accounting/supplier-purchase-orders', destination: '/accounting/purchase-orders', permanent: false },
       { source: '/accounting/supplier-purchase-orders/:poId', destination: '/accounting/purchase-orders/:poId', permanent: false },
     ]);
+  });
+});
+
+describe('Payroll year-end workflow retired (W31)', () => {
+  it('redirects /payroll/year-end to /accounting/year-end with a 307 (permanent: false), and no page or status API sits behind it', async () => {
+    const redirects = await withRedirects.redirects();
+    expect(redirects.filter((x) => x.source === '/payroll/year-end')).toEqual([
+      { source: '/payroll/year-end', destination: '/accounting/year-end', permanent: false },
+    ]);
+    const root = join(__dirname, '../../..');
+    expect(existsSync(join(root, 'pages/payroll/year-end'))).toBe(false);
+    expect(existsSync(join(root, 'pages/api/payroll/year-end'))).toBe(false);
   });
 });

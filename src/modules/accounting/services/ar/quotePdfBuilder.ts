@@ -12,6 +12,9 @@ import {
   hexToRgb, renderPremiumHeader, renderPartySection, renderRefStrip,
   renderTotalsBlock, renderNotesBlock,
 } from '../core/pdfShared';
+import { quotePdfVat } from './quotePdfVat';
+import { TYPED_PDF_COLUMNS } from './invoicePdfTypedLines';
+
 
 
 export async function generateQuotePdf(companyId: string, quoteId: string): Promise<Buffer> {
@@ -126,53 +129,24 @@ export async function generateQuotePdf(companyId: string, quoteId: string): Prom
   ]);
 
   // ── Line Items Table ───────────────────────────────────────────────────────
-  // customer_quote_lines carries a per-line tax_rate and the table below prints
-  // it, so the totals block must not claim a single rate the lines contradict.
-  const headerTaxRate = Number(q.tax_rate ?? 15);
-  const lineRate = (line: DbRow): number =>
-    line.tax_rate != null ? Number(line.tax_rate) : headerTaxRate;
-  // As in invoicePdfBuilder: state the rate the LINES carry. Uniform zero-rated
-  // lines under a header still holding the 15.00 column default must not be
-  // labelled 'VAT (15%)'.
-  const distinctRates = [...new Set(lines.map(lineRate))];
-  const totalsVatLabel = distinctRates.length === 1
-    ? `VAT (${distinctRates[0]}%)`
-    : distinctRates.length === 0 ? `VAT (${headerTaxRate}%)` : 'VAT';
-  // The table prints a RATE per line, not a VAT amount, so there is no column to
-  // foot. What can still disagree is the stored header aggregate: a quote whose
-  // lines are all zero-rated but whose `tax_amount` still holds a 15% figure
-  // prints 'VAT (0%) R150.00'. It is printed and logged, not left for the
-  // customer to find. The tolerance is a HALF CENT, not `lines.length / 100`:
-  // nothing on this page rounds per line, so a line-scaled tolerance only
-  // silenced up to R0.20 of real disagreement on a 20-line quote.
-  const headerVat = Number(q.tax_amount || 0);
-  const linesVat = lines.reduce(
-    (sum, line) => sum + Number(line.amount || 0) * (lineRate(line) / 100),
-    0,
-  );
-  const vatDisagreement = Math.round((headerVat - linesVat) * 100) / 100;
-  // A quote with NO lines and a non-zero header VAT is a disagreement of the
-  // whole amount, not an exemption from the check: nothing on the page can
-  // account for it, and `lines.length > 0` suppressed the note in exactly that
-  // case.
+  // The table and the VAT rows as stored: a typed quote (migration 1024) prints each line's type and VAT and one VAT row
+  // per type; a legacy one its rates, with the header's disagreement from them printed and logged (quotePdfVat).
+  const vat = quotePdfVat(q, lines);
+  const vatDisagreement = vat.disagreement;
+  // A quote with NO lines and a non-zero header VAT is a disagreement of the whole amount, not an exemption from the
+  // check: nothing on the page can account for it.
   const vatDisagrees = Math.abs(vatDisagreement) > 0.005;
   if (vatDisagrees) {
-    log.warn('Quote VAT total disagrees with the rates its lines carry', {
-      quoteId, headerVat, linesVat: Math.round(linesVat * 100) / 100, vatDisagreement,
+    log.warn('Quote VAT total disagrees with its lines', {
+      quoteId, headerVat: Number(q.tax_amount || 0), vatDisagreement, typed: vat.typed,
     }, 'quotePdfBuilder');
   }
 
   if (lines.length > 0) {
     autoTable(doc, {
       startY: y,
-      head: [['Description', 'Qty', 'Unit Price', 'VAT Rate', 'Amount']],
-      body: lines.map((line: DbRow) => [
-        line.description || '—',
-        Number(line.quantity || 0).toFixed(2),
-        fmtZAR(Number(line.unit_price || 0)),
-        `${lineRate(line).toFixed(0)}%`,
-        fmtZAR(Number(line.amount || 0)),
-      ]),
+      head: [vat.head],
+      body: vat.body,
       styles: {
         fontSize: 8,
         cellPadding: { top: 4, bottom: 4, left: 4, right: 4 },
@@ -186,7 +160,7 @@ export async function generateQuotePdf(companyId: string, quoteId: string): Prom
         cellPadding: { top: 5, bottom: 5, left: 4, right: 4 },
       },
       alternateRowStyles: { fillColor: COLORS.SURFACE },
-      columnStyles: {
+      columnStyles: vat.typed ? TYPED_PDF_COLUMNS : {
         0: { cellWidth: 'auto' },
         1: { halign: 'right', cellWidth: 18 },
         2: { halign: 'right', cellWidth: 28 },
@@ -212,7 +186,7 @@ export async function generateQuotePdf(companyId: string, quoteId: string): Prom
     doc.setTextColor(...COLORS.DANGER);
     doc.text(
       lines.length > 0
-        ? `The VAT total differs by ${fmtZAR(vatDisagreement)} from the rates the lines above carry.`
+        ? `The VAT total differs by ${fmtZAR(vatDisagreement)} from ${vat.typed ? 'the VAT on the lines above' : 'the rates the lines above carry'}.`
         : `The VAT total of ${fmtZAR(vatDisagreement)} is not accounted for by any line item.`,
       MARGIN, y,
     );
@@ -222,12 +196,11 @@ export async function generateQuotePdf(companyId: string, quoteId: string): Prom
 
   // ── Totals ────────────────────────────────────────────────────────────────
   const subtotal = Number(q.subtotal || 0);
-  const taxAmount = headerVat;
   const total = Number(q.total || 0);
 
   y = renderTotalsBlock(doc, y, PAGE_W, MARGIN, accent, [
     { label: 'Subtotal (excl. VAT)', value: fmtZAR(subtotal) },
-    { label: totalsVatLabel, value: fmtZAR(taxAmount) },
+    ...vat.vatRows,
     { label: 'QUOTATION TOTAL', value: fmtZAR(total), isTotal: true },
   ]);
 

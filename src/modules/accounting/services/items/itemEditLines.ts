@@ -7,7 +7,9 @@
  *  - a line sent WITHOUT an item inherits the item of an identical stored line (description, quantity, unit price; each
  *    stored line is used once, in order) and is NOT re-checked: like a stored account, an item deactivated since must not
  *    refuse every save of the draft (the document's approval re-checks what it posts);
- *  - `item_id: null` clears the link; a line whose description, quantity or price changed loses it;
+ *  - `item_id: null` clears the link; a line whose description, quantity or price changed loses it HERE. A quote edit
+ *    passes NO stored pool (ar/quoteLineTax.quoteEditItemLines): its lines take an item only from the stored line they
+ *    matched (lineRefs, which also keeps that line's account) or by naming one, so an unmatched line inherits nothing;
  *  - with `deriveTax`, such a kept line sent with no rate keeps the rate its stored line carries (when the caller passes it):
  *    the rate was settled when the line was written, by the item or by a rate the caller named then.
  * Reads only (the item read of the lines that need a check); every refusal is an `ItemLineRefusal` before any write.

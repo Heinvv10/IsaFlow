@@ -26,9 +26,8 @@
  *   pull's: that row belongs to another Sage party. A conflict row is kept whatever its chain passes, so the
  *   same-survivor check above still sees it.
  * - A 'sage' row with no external_ref is unstamped, never a conflict.
- * - Among name hits of one kind (live, or merged-away), one the claim can stamp (no external_ref) ranks before an older one
- *   carrying another system's ref, which the claim refuses: else that row hides the claimable one and the party gets a third
- *   row (Codex gate at ecc452ea6b, finding 5).
+ * - A name hit the claim can stamp (no external_ref) outranks one carrying another system's ref, which the claim refuses, live
+ *   or merged-away: else that row hides the claimable one and the party gets a third row (Codex gate at ecc452ea6b, 5; M3).
  * - A pull without a Sage id still reaches the survivor by name and stamps nothing.
  *
  * Concurrent imports: resolveSageSupplier / resolveSageCustomer first take a transaction advisory lock on (company, kind, Sage id)
@@ -40,7 +39,6 @@
  */
 
 import { sql } from '@/lib/neon';
-import { lockSupplierIfLive } from '@/modules/accounting/services/core/supplierLiveLock';
 import type { Row } from './sageMigrationTypes';
 
 /** The Sage id as stored in external_ref, or null when the pull carried none. */
@@ -117,13 +115,18 @@ export async function matchSageSupplier(
   // Merged-away rows of this name already stamped with ANOTHER Sage id: matched only to spot a conflict.
   const conflicts = rows.filter((r) => r.conflict === true);
   const matches = rows.filter((r) => r.conflict !== true);
-  const first = matches[0];
+  // Only a row the claim can stamp (unstamped, a Sage-id hit, or any row when the pull has no Sage id) is eligible, and an eligible
+  // one always wins, live or merged-away: a live row holding another system's ref no longer hides a merged-away alias the party can
+  // claim (breaker of aad49a02, M3). With none eligible the best other row stands, so the claim refuses it and says why.
+  const eligible = matches.filter((r) => r.by_ref === true || ref === null || r.hit_ref == null);
+  const ranked = eligible.length > 0 ? eligible : matches;
+  const first = ranked[0];
   if (!first) return null;
   const viaMerge = first.via_merge === true;
   const byRef = first.by_ref === true;
-  // Ranked first, a name-only merged hit means no Sage-id hit and no live hit exist: every row is a
-  // name-only merged hit. They must all lead to one survivor, or the party matches none of them.
-  if (viaMerge && !byRef && new Set(matches.map((r) => String(r.id))).size > 1) return null;
+  // Ranked first, a name-only merged hit means no Sage-id hit and no live eligible hit exist: every eligible row is
+  // a name-only merged hit. They must all lead to one survivor, or the party matches none of them.
+  if (viaMerge && !byRef && new Set(ranked.map((r) => String(r.id))).size > 1) return null;
   // Another Sage party already has a same-name row that was merged into this supplier: the remaining name
   // match (an unstamped alias, or the live survivor itself) could be either party's, so it is not this one's
   // (two Sage parties never share one supplier by name). A Sage-id hit is never refused.
@@ -184,22 +187,6 @@ export async function resolveSageSupplier(
   }
   if (match) throw new Error(`Sage supplier ${party.name}: concurrent imports kept claiming its match; retry`);
   return null;
-}
-
-/**
- * resolveSageSupplier for a writer filing a bill (commitAPInvoice): the match is locked FOR KEY SHARE and re-checked live
- * (supplierLiveLock; Codex gate at ecc452ea6b, finding 4). A merge that soft-deleted it after the match is waited for, and the party
- * is matched again (it then reaches the survivor); no merge can move it before the caller's transaction ends.
- */
-export async function resolveLockedSageSupplier(
-  companyId: string, party: { name: string; sageId?: number | string | null },
-): Promise<SageSupplierMatch | null> {
-  let match = await resolveSageSupplier(companyId, party);
-  for (let attempt = 0; match && !(await lockSupplierIfLive(companyId, match.id)); attempt++) {
-    if (attempt >= 2) throw new Error(`Sage supplier ${party.name}: merged again while importing; retry`);
-    match = await resolveSageSupplier(companyId, party);
-  }
-  return match;
 }
 
 export async function findSageSupplier(

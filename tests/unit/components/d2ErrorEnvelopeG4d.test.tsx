@@ -20,7 +20,7 @@ const json = (body: unknown, status = 200) => new Response(JSON.stringify(body),
 const refuse = (msg: string) => json({ success: false, error: { code: 'CONFLICT', message: msg } }, 409);
 const RELEASE = { effective_year: 2027, brs_version: 'v25.2.0', released_at: '2026-09-01T00:00:00Z', is_current: false, notes: null, code_count: 1 };
 const CODE = { code: '3601', effective_year: 2027, category: 'income', description: 'Salary', status: 'active', foreign_code: null,
-  code_pair: null, applicability_note: null, source_document: null, source_url: null, official_excerpt: null, brs_version: 'v25.2.0',
+  code_pair: null, applicability_note: null, source_document: null, source_url: null, brs_version: 'v25.2.0',
   imported_at: '2026-09-01T00:00:00Z', used_by_companies: 0 };
 
 /** The list answers; the one write path under test is refused. */
