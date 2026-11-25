@@ -40,7 +40,9 @@ export function EmployeeAddressCard({ employeeId }: { employeeId: string }) {
       await assertOk(res, LOAD_FAILED);
       const json = (await res.json()) as { data?: EmployeeAddress | null };
       if (isStale()) return;
-      setAddress(json.data ?? null);
+      // Anything but an address object is none: a malformed answer must not take the employee page down with it.
+      const data = json.data as Partial<EmployeeAddress> | null | undefined;
+      setAddress(data && typeof data === 'object' && data.residential && data.postal ? data as EmployeeAddress : null);
       setError('');
     } catch (err) {
       if (isStale()) return;
