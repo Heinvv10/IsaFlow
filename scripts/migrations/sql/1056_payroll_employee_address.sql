@@ -20,7 +20,7 @@
 --   The e@syFile writer (wave 7 EA2) writes these codes; until then UNWRITTEN_MANDATORY_CODES still lists them.
 --
 -- RLS and grants unchanged: payroll_employees' tenant_isolation and app_service policies cover the new columns, and
--- app_user's table-level SELECT / INSERT / UPDATE reaches them. 888's entity_change_capture records them (the
+-- app_user's table-level SELECT / INSERT / UPDATE reaches them. 888's change-history capture records them (the
 -- payroll_employee projection is the whole row); entityChangeMasking.ts masks them in the history.
 --
 -- OLD COLOUR (the release before this one, running against this schema while the deploy switches colours):
@@ -38,7 +38,7 @@
 -- Rollback (down SQL; roll the code back first, to a release that never reads or writes the columns):
 --   ALTER TABLE public.payroll_employees DROP CONSTRAINT IF EXISTS payroll_employees_<column>_check;  -- each below
 --   ALTER TABLE public.payroll_employees DROP COLUMN IF EXISTS <column>;                              -- each below
--- entity_changes rows written since keep the address keys in before / after (masked when read).
+-- Change-history rows written since keep the address keys in before / after (masked when read).
 
 SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '60s';
