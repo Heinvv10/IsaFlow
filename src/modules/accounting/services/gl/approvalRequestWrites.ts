@@ -19,6 +19,10 @@
  * never sends one — and surfaces as a 500. RA010 (a stricter rule governs
  * now) is ApprovalRequestStaleError, which requestApproval retries once.
  *
+ * The actor id is sent lower-cased (W18): every stored id is lower case, and
+ * 1050's raise and decide lower it again, so its spelling never decides who
+ * the actor is.
+ *
  * tests/unit/services/gl/approvalRequestWriteCensus.test.ts fails when any
  * other file writes the table or calls these functions.
  */
@@ -75,7 +79,7 @@ export async function insertRequestRow(companyId: string, documentType: string, 
   ruleId: string, requestedBy: string): Promise<Row[]> {
   return (await sql`
     SELECT * FROM approval_request_raise(${companyId}::UUID, ${documentType}::TEXT, ${documentId}::UUID,
-                                         ${ruleId}::UUID, ${requestedBy}::TEXT)
+                                         ${ruleId}::UUID, ${requestedBy.toLowerCase()}::TEXT)
   `) as Row[];
 }
 
@@ -84,7 +88,7 @@ export async function rebindRequestRow(companyId: string, requestId: string, rul
   requestedBy: string, document: { type: string; id: string }): Promise<Row[]> {
   try {
     return await withSavepoint('approval_request_rebind', async () => (await sql`
-      SELECT * FROM approval_request_rebind(${companyId}::UUID, ${requestId}::UUID, ${ruleId}::UUID, ${requestedBy}::TEXT)
+      SELECT * FROM approval_request_rebind(${companyId}::UUID, ${requestId}::UUID, ${ruleId}::UUID, ${requestedBy.toLowerCase()}::TEXT)
     `) as Row[]);
   } catch (error) {
     throw raiseRefusal(error, document.type, document.id);
@@ -97,7 +101,7 @@ export async function decideRequestRow(companyId: string, requestId: string, dec
   try {
     return await withSavepoint('approval_request_decide', async () => (await sql`
       SELECT * FROM approval_request_decide(${companyId}::UUID, ${requestId}::UUID, ${decision}::TEXT,
-                                            ${decidedBy}::TEXT, ${notes}::TEXT, ${expectedDigest ?? null}::TEXT)
+                                            ${decidedBy.toLowerCase()}::TEXT, ${notes}::TEXT, ${expectedDigest ?? null}::TEXT)
     `) as Row[]);
   } catch (error) {
     throw decideRefusal(error, requestId);
