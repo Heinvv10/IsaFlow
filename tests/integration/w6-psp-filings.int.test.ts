@@ -323,6 +323,7 @@ describe('round 2: IRP3(c), a reopened month, the year-end checklist', () => {
   it('M1 (W31: moved from the deleted year-end checklist): the EMP501 reconciliation leaves PSP PAYE off the IRP5 total and names it apart; the IRP5 summary does not certify the PSP', async () => {
     const f = await seedEmployee(pool, fixtures, 'psp yearend', 30_000);
     const who = await addEmployee(pool, f, 'psp-ye', PAY);
+    await pool.query('UPDATE payroll_employees SET tax_number = NULL WHERE id = $1', [who]); // an error for an employee
     await toPsp(f, who, 'company');
     const march = await newRun(pool, f, 3);
     await calculatePayrollRun(march, f.company);
@@ -336,6 +337,9 @@ describe('round 2: IRP3(c), a reopened month, the year-end checklist', () => {
     const rows = (summary.body as unknown as { data: { employees: Array<{ employeeId: string; totalGross: number; messages: Array<{ code: string }> }> } }).data.employees;
     const pspRow = rows.find((e) => e.employeeId === who)!;
     expect([pspRow.totalGross, pspRow.messages.some((m) => m.code === 'IRP5_PSP_NOT_CERTIFIED')]).toEqual([0, true]);
+    // Live-path proof (W31 review LOW): a PSP with no tax number raises no natural-person error, only the not-certified warning.
+    expect(pspRow.messages.filter((m) => m.code !== 'IRP5_PSP_NOT_CERTIFIED').map((m) => m.severity)).not.toContain('error');
+    expect(pspRow.messages.some((m) => m.code === 'IRP5_MISSING_TAX_NUMBER')).toBe(false);
     await expectViewerSeesNoPspSplit(f);
   });
 });
