@@ -12,6 +12,7 @@ import { fmtDate } from '@/lib/fmtDate';
 import { num, r2, str, type IntegrityCheckContext, type IntegrityCheckResult, type IntegritySampleRow } from './types';
 import { documentInLedgerAsAtFragment } from '../../shared/softDeleteLedgerPresence';
 import { rewindAmount, effectivePaidExpr } from '../../shared/agingRewind';
+import { withJitOff } from '../dimensions/boundedStatements';
 import { documentInPopulationExpr } from '@/modules/accounting/services/shared/documentPopulation';
 
 function sample(rows: DbRow[]): IntegritySampleRow[] {
@@ -54,13 +55,12 @@ export async function invoicesNullDueDate(ctx: IntegrityCheckContext): Promise<I
       AND ${sql.unsafe(documentInPopulationExpr('ci'))}
       AND (ci.total_amount - ${sql.unsafe(paid)}) > 0`;
 
-  const totals = (await sql`
+  // JIT off (withJitOff): the rewound population's plan cost is past jit_above_cost (W8).
+  const [totals, rows] = await withJitOff(async () => [(await sql`
     SELECT COUNT(*)::INT AS count,
            COALESCE(SUM(ci.total_amount - ${sql.unsafe(paid)}), 0) AS amount
     ${from}
-  `) as DbRow[];
-
-  const rows = (await sql`
+  `) as DbRow[], (await sql`
     SELECT ci.id::TEXT AS id,
            COALESCE(ci.invoice_number, ci.id::TEXT) AS label,
            ci.total_amount - ${sql.unsafe(paid)} AS amount,
@@ -68,7 +68,7 @@ export async function invoicesNullDueDate(ctx: IntegrityCheckContext): Promise<I
     ${from}
     ORDER BY (ci.total_amount - ${sql.unsafe(paid)}) DESC
     LIMIT ${ctx.limit}
-  `) as DbRow[];
+  `) as DbRow[]]);
 
   return {
     id: 'invoices_null_due_date',
@@ -165,11 +165,10 @@ export async function invoicesWithoutRevenueLine(ctx: IntegrityCheckContext): Pr
       )
   `;
 
-  const totals = (await sql`
+  // JIT off (withJitOff): the NOT EXISTS over every journal's lines is past jit_above_cost (W8).
+  const [totals, rows] = await withJitOff(async () => [(await sql`
     SELECT COUNT(*)::INT AS count, COALESCE(SUM(ci.total_amount), 0) AS amount ${where}
-  `) as DbRow[];
-
-  const rows = (await sql`
+  `) as DbRow[], (await sql`
     SELECT ci.id::TEXT AS id,
            COALESCE(ci.invoice_number, ci.id::TEXT) AS label,
            ci.total_amount AS amount,
@@ -177,7 +176,7 @@ export async function invoicesWithoutRevenueLine(ctx: IntegrityCheckContext): Pr
     ${where}
     ORDER BY ci.total_amount DESC
     LIMIT ${ctx.limit}
-  `) as DbRow[];
+  `) as DbRow[]]);
 
   return {
     id: 'invoices_without_revenue_line',
