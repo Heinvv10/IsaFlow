@@ -11,6 +11,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { parseSageExport } from '@/modules/accounting/services/sage-migration/sageExportParser';
+import { isZeroish } from '@/modules/accounting/services/sage-migration/sageMoneyFields';
 
 const item = (extra: Record<string, unknown> = {}) => ({ ID: 50, Code: 'C50', Description: 'a', Active: true, Physical: true, ...extra });
 const po = (line: Record<string, unknown> = {}, extra: Record<string, unknown> = {}) => ({ ID: 1, DocumentNumber: 'P1', Date: '2026-02-01', Status: 'Pending', SupplierId: 3,
@@ -79,7 +80,7 @@ describe('R2 (round 13): discount spellings, by word inside the key', () => {
     for (const key of ['Disc%', 'MarkdownValue', 'Allowance', 'PercentOff', 'Rebate', 'LineDiscountAmount', 'Disc\u00f6unt', 'R\u00e9bate']) {
       const r = refused({ PurchaseOrders: [po({ [key]: 5 })] });
       expect(r.codes, key).toEqual(['po_discount_unsupported']);
-      expect(r.why, key).toContain(`Lines[0].${key} is 5: a discount is not imported`);
+      expect(r.why, key).toMatch(new RegExp(`Lines\\[0\\]\\.${key.replace(/[%]/g, '%')} is 5: (a discount is not imported|a field named like a discount)`));
     }
   });
   it('on an item, by word too (ItemDiscountPercent, TradeRebate), not only the exact key', () => {
@@ -87,5 +88,20 @@ describe('R2 (round 13): discount spellings, by word inside the key', () => {
   });
   it('the description and other plain fields are not discounts', () => {
     expect(refused({ Items: [item({ Description: 'Disc brake' })], PurchaseOrders: [po({ Description: 'discount rack' })] }).codes).toEqual([]);
+  });
+});
+
+describe('R15-L4 (round 15): zero as people write it, and the wording of a key only named like a discount', () => {
+  it('"0%", "0,00", "0,0 %" are zero (no refusal); "5%", "0,01" are not', () => {
+    expect(['0%', '0,00', '0,0 %', ' 0.00% '].map(isZeroish)).toEqual([true, true, true, true]);
+    expect(['5%', '0,01', '%', ','].map(isZeroish)).toEqual([false, false, false, false]);
+    expect(refused({ PurchaseOrders: [po({ DiscountPercentage: '0%', Discount: '0,00' })] }).codes).toEqual([]);
+  });
+  it('Discount / DiscountPercentage / DiscountAmount say "a discount is not imported"; a key only named like one says it is not read', () => {
+    expect(refused({ PurchaseOrders: [po({ DiscountAmount: 3 })] }).why).toContain('Lines[0].DiscountAmount is 3: a discount is not imported');
+    const r = refused({ Items: [item({ Discontinued: true })] });
+    expect(r.codes).toEqual(['item_discount_unsupported']);
+    expect(r.why).toContain('Discontinued is true: a field named like a discount (Discontinued) is not read; it is refused, never dropped');
+    expect(r.why).not.toContain('undiscounted');
   });
 });

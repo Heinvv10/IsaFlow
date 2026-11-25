@@ -79,7 +79,7 @@ export function parseSageItem(raw: unknown, index: number): RowResult<SageItem> 
       id: id as string, code: code as string, description: description as string, active: active as boolean,
       physical: physical as boolean, priceExclusive: priceExclusive ?? null, lastCost: lastCost ?? null,
       averageCost: averageCost ?? null, taxSales: taxSales ?? null, taxPurchases: taxPurchases ?? null, category: cat ?? null,
-      hadQuantityOnHand: typeof o.QuantityOnHand === 'number',
+      hadQuantityOnHand: o.QuantityOnHand !== undefined && o.QuantityOnHand !== null,
     },
   };
 }

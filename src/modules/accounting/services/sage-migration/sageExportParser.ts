@@ -196,7 +196,9 @@ export function parseSageExport(file: unknown): ParsedExport {
   const items: SageItem[] = [];
   itemRows.forEach((raw, i) => {
     const r = parseSageItem(raw, i);
-    if (r.ok) { items.push(r.value); knownIds.add(r.value.id); itemCodes[r.value.id] ??= r.value.code; if (r.value.hadQuantityOnHand) itemsWithQuantityOnHand++; }
+    // Every row carrying a QuantityOnHand is counted, a refused one and a text quantity included (R15-L5): none is ever imported.
+    if (isRaw(raw) && raw.QuantityOnHand !== undefined && raw.QuantityOnHand !== null) itemsWithQuantityOnHand++;
+    if (r.ok) { items.push(r.value); knownIds.add(r.value.id); itemCodes[r.value.id] ??= r.value.code; }
     else {
       refusals.push(r.refusal);
       note(badItemIds, r.refusal.sageId);

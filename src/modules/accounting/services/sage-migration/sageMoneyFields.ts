@@ -21,17 +21,23 @@ const DISCOUNT_WORDS = ['disc', 'markdown', 'allowance', 'percentoff', 'rebate']
 const MONEY_WORDS = ['amount', 'price', 'total', 'charge'];
 const isDiscountKey = (key: string): boolean => DISCOUNT_WORDS.some((w) => key.includes(w));
 
-/** Absent, null, false, blank, or a number / numeric text that is zero: nothing to drop. */
+/** Absent, null, false, blank, or a number / numeric text that is zero ("0", "-0.00", "0%", "0,00" as South Africans write it): nothing to drop. */
 export function isZeroish(v: unknown): boolean {
   if (v === undefined || v === null || v === false) return true;
   if (typeof v === 'number') return v === 0;
-  return typeof v === 'string' && /^\s*([+-]?(0+(\.0*)?|\.0+))?\s*$/.test(v);
+  return typeof v === 'string' && /^\s*(?:[+-]?(?:0+(?:[.,]0*)?|[.,]0+)\s*%?)?\s*$/.test(v);
 }
+
+/** The exact names of a discount (by fieldKey): worded as a discount; any other key holding a discount word is only named like one. */
+const DISCOUNT_NAMES = new Set(['discount', 'discountpercentage', 'discountamount']);
 
 /** The discounts of a row that are not zero, worded with `mark`. */
 export function discountReasons(o: Raw, mark: string): string[] {
   return Object.keys(o).filter((k) => isDiscountKey(fieldKey(k)) && !isZeroish(o[k]))
-    .map((k) => `${k} is ${JSON.stringify(o[k])}: a discount is not imported (the row would be booked at its undiscounted figures) ${mark}`);
+    .map((k) => (DISCOUNT_NAMES.has(fieldKey(k))
+      ? `${k} is ${JSON.stringify(o[k])}: a discount is not imported (the row would be booked at its undiscounted figures) ${mark}`
+      // A key only NAMED like a discount (Disc%, TradeRebate, Discontinued) is not claimed to be one (R15-L4).
+      : `${k} is ${JSON.stringify(o[k])}: a field named like a discount (${k}) is not read; it is refused, never dropped ${mark}`));
 }
 
 /** The money-like keys of a PO or a line, outside the fields read (and the discounts, reasoned above), whose value is not zero. */
