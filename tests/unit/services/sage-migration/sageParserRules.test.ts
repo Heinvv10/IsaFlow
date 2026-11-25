@@ -222,7 +222,7 @@ describe('F4 more: a page that is not the whole export', () => {
     expect(shape({ Items: { $back: null, $resources: rows() } })).toBe('accepted');
   });
   it('an array of pages is the whole export only if each page starts where the one before ended: later pages may carry $startIndex and $back', () => {
-    const ok = [{ $startIndex: 0, $resources: rows().slice(0, 10) }, { $startIndex: 10, $back: 'x', $resources: rows().slice(10) }];
+    const ok = [{ $startIndex: 0, $next: 'n', $resources: rows().slice(0, 10) }, { $startIndex: 10, $back: 'x', $resources: rows().slice(10) }];
     expect(shape({ Items: ok })).toBe('accepted');
     expect(shape({ Items: [{ $startIndex: 10, $resources: rows().slice(10) }, ok[0]] })).toMatch(/\$startIndex 10/);
     expect(shape({ Items: [{ $startIndex: 0, $resources: rows().slice(0, 10) }, { $startIndex: 12, $resources: rows().slice(10) }] })).toMatch(/\$startIndex 12, but 10 rows came before/);

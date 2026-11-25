@@ -34,9 +34,42 @@ function assertPlainRows(rows: readonly unknown[], key: string): void {
   });
 }
 
+const present = (v: unknown): boolean => v !== undefined && v !== null && v !== '';
+const whole = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 0;
+
+/** The row position a $next link names ($skip / skip / $startIndex / startIndex in its query, any case), or null when it names none. */
+export function nextLinkPosition(next: unknown): number | null {
+  if (typeof next !== 'string' || !URL.canParse(next)) return null;
+  for (const [k, v] of new URL(next).searchParams) {
+    if (['$skip', 'skip', '$startindex', 'startindex'].includes(k.toLowerCase()) && /^\d+$/.test(v)) return Number(v);
+  }
+  return null;
+}
+
+/**
+ * An array of pages must show it is one whole chain, or a page could be missing without a trace (B12-5, R3, round 12): every page but the
+ * last carries a $next link (and, where the link names a position, it is where the rows read so far end) and is full ($itemsPerPage rows,
+ * when given); every page carries $totalResults or $startIndex, which the checks in rowsOf then compare with the rows read.
+ */
+function assertPageChain(pages: ReadonlyArray<Record<string, unknown> & { $resources: unknown[] }>, key: string): void {
+  if (pages.length < 2) return;
+  let read = 0;
+  pages.forEach((p, n) => {
+    read += p.$resources.length;
+    if (!present(p.$totalResults) && !present(p.$startIndex)) throw new SageExportShapeError(`${key}: page ${n + 1} of ${pages.length} carries neither $totalResults nor $startIndex, so a missing page could not be told`);
+    if (present(p.$itemsPerPage) && !whole(p.$itemsPerPage)) throw new SageExportShapeError(`${key}: $itemsPerPage must be a whole number (got ${JSON.stringify(p.$itemsPerPage)})`);
+    if (n === pages.length - 1) return;
+    if (!present(p.$next)) throw new SageExportShapeError(`${key}: page ${n + 1} of ${pages.length} has no $next link, so the pages after it are not shown to follow it`);
+    if (whole(p.$itemsPerPage) && p.$resources.length < p.$itemsPerPage) throw new SageExportShapeError(`${key}: page ${n + 1} holds ${p.$resources.length} rows of its $itemsPerPage ${p.$itemsPerPage} but is not the last page, so rows are missing`);
+    const at = nextLinkPosition(p.$next);
+    if (at !== null && at !== read) throw new SageExportShapeError(`${key}: page ${n + 1}'s $next link continues at row ${at}, but ${read} rows were read up to it, so the export is not whole`);
+  });
+}
+
 /**
  * The rows of one top-level key: an array of rows, a page, or an array of pages. A page that says the export is not what was read
- * ($totalResults other than the rows read across ALL pages, a $next link, an unknown $-key) is a PARTIAL export and refuses the whole file.
+ * ($totalResults other than the rows read across ALL pages, a $next link on the last page, an unknown $-key) is a PARTIAL export and
+ * refuses the whole file, and so does an array of pages that does not show it is one whole chain (assertPageChain).
  */
 export function rowsOf(value: unknown, key: string): unknown[] {
   if (value === undefined || value === null) return [];
@@ -55,7 +88,6 @@ export function rowsOf(value: unknown, key: string): unknown[] {
   }
   const rows = pages.flatMap((p) => p.$resources);
   assertPlainRows(rows, key);
-  const whole = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 0;
   let before = 0;
   pages.forEach((p, n) => {
     const unknownKey = Object.keys(p).find((k) => k.startsWith('$') && !PAGE_KEYS.has(k));
@@ -75,6 +107,7 @@ export function rowsOf(value: unknown, key: string): unknown[] {
     }
     before += p.$resources.length;
   });
+  assertPageChain(pages, key);
   return rows;
 }
 

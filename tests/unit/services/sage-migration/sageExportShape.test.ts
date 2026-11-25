@@ -39,7 +39,7 @@ describe('B10-2: a nested page or an array among the rows', () => {
   it('plain rows and pages of plain rows still read', () => {
     expect(rowsOf(rows(3), 'PurchaseOrders')).toHaveLength(3);
     expect(rowsOf({ $resources: rows(3) }, 'PurchaseOrders')).toHaveLength(3);
-    expect(rowsOf([{ $resources: rows(2) }, { $resources: rows(1, 5) }], 'PurchaseOrders')).toHaveLength(3);
+    expect(rowsOf([{ $startIndex: 0, $next: 'n', $resources: rows(2) }, { $startIndex: 2, $resources: rows(1, 5) }], 'PurchaseOrders')).toHaveLength(3);
   });
 });
 
@@ -52,7 +52,7 @@ describe('B10-3a: $totalResults against the rows read across all pages', () => {
     expect(shape({ PurchaseOrders: [{ $startIndex: 0, $resources: rows(3) }, { $startIndex: 3, $totalResults: 4, $resources: rows(3, 10) }] })).toMatch(/\$totalResults is 4 but 6 rows/);
   });
   it('the total of the whole export on every page is accepted', () => {
-    expect(shape({ PurchaseOrders: [{ $totalResults: 6, $startIndex: 0, $resources: rows(3) }, { $totalResults: 6, $startIndex: 3, $resources: rows(3, 10) }] })).toBe('accepted');
+    expect(shape({ PurchaseOrders: [{ $totalResults: 6, $startIndex: 0, $next: 'n', $resources: rows(3) }, { $totalResults: 6, $startIndex: 3, $resources: rows(3, 10) }] })).toBe('accepted');
   });
 });
 
@@ -63,7 +63,7 @@ describe('B10-3b: an unknown $-key on a page', () => {
     expect(shape({ PurchaseOrders: [{ $resources: rows(3) }, { $skip: 3, $resources: rows(3, 10) }] })).toMatch(/"\$skip"/);
   });
   it('the known keys ($resources, $totalResults, $startIndex, $itemsPerPage, $next, $back) are accepted', () => {
-    expect(shape({ PurchaseOrders: [{ $totalResults: 6, $startIndex: 0, $itemsPerPage: 3, $next: null, $resources: rows(3) },
+    expect(shape({ PurchaseOrders: [{ $totalResults: 6, $startIndex: 0, $itemsPerPage: 3, $next: 'n', $resources: rows(3) },
       { $totalResults: 6, $startIndex: 3, $itemsPerPage: 3, $back: 'x', $resources: rows(3, 10) }] })).toBe('accepted');
   });
 });

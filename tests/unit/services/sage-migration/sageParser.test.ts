@@ -63,7 +63,7 @@ describe('F4: an empty or partial export is refused as a whole', () => {
     expect(shape({ Items: { $totalResults: 383, $resources: rows } })).toMatch(/Items: \$totalResults is 383 but 20 rows were read/);
     expect(shape({ Items: [{ $totalResults: 30, $resources: rows.slice(0, 10) }, { $totalResults: 30, $resources: rows.slice(10) }] })).toMatch(/\$totalResults is 30 but 20 rows/);
     expect(shape({ Items: { $totalResults: 20, $resources: rows } })).toBe('accepted');
-    expect(shape({ Items: [{ $totalResults: 20, $resources: rows.slice(0, 10) }, { $totalResults: 20, $resources: rows.slice(10) }] })).toBe('accepted');
+    expect(shape({ Items: [{ $totalResults: 20, $next: 'n', $resources: rows.slice(0, 10) }, { $totalResults: 20, $resources: rows.slice(10) }] })).toBe('accepted');
   });
   it('a page that has a $next link', () => {
     const rows = fixture().Items.$resources;
@@ -77,7 +77,7 @@ describe('container shapes', () => {
     const rows = fixture().Items.$resources;
     expect(rowsOf(rows, 'Items')).toHaveLength(20);
     expect(rowsOf({ $resources: rows }, 'Items')).toHaveLength(20);
-    expect(rowsOf([{ $resources: rows.slice(0, 5) }, { $resources: rows.slice(5) }], 'Items')).toHaveLength(20);
+    expect(rowsOf([{ $startIndex: 0, $next: 'n', $resources: rows.slice(0, 5) }, { $startIndex: 5, $resources: rows.slice(5) }], 'Items')).toHaveLength(20);
     expect(rowsOf(undefined, 'Items')).toEqual([]);
   });
   it('B9-D (round 9): an array mixing a page and plain rows is refused as a whole (the page must not be read as one bad row)', () => {
@@ -89,7 +89,7 @@ describe('container shapes', () => {
     expect(() => parseSageExport(f)).toThrow(SageExportShapeError);
     // a plain array of rows, and an array of pages, still read
     expect(rowsOf(rows, 'Items')).toHaveLength(20);
-    expect(rowsOf([{ $resources: rows.slice(0, 5) }, { $resources: rows.slice(5) }], 'Items')).toHaveLength(20);
+    expect(rowsOf([{ $startIndex: 0, $next: 'n', $resources: rows.slice(0, 5) }, { $startIndex: 5, $resources: rows.slice(5) }], 'Items')).toHaveLength(20);
   });
   it('B9 (round 9): a Sage "none" id of 0 or an empty Category is refused (fail closed), the reason says it is unknown whether Sage means none', () => {
     const item = { ID: 1, Code: 'A', Description: 'a', Active: true, Physical: true };
