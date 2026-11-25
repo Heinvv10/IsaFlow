@@ -14,7 +14,7 @@ import { readNumber, type Raw } from './sageValues';
 type Figure = number | null | undefined;
 const num = (v: Figure): v is number => typeof v === 'number';
 
-export interface LineFigures { quantity: Figure; unit: Figure; exclusive: Figure; tax: Figure; total: Figure; rate: Figure }
+export interface LineFigures { quantity: Figure; unit: Figure; exclusive: Figure; tax: Figure; total: Figure; vatPct: Figure }
 
 /** The reasons a line's money is not what the tool would book (pushed into `why`, unprefixed). Reads UnitPriceInclusive. */
 export function lineMoneyReasons(raw: Raw, f: LineFigures, why: string[]): void {
@@ -26,15 +26,15 @@ export function lineMoneyReasons(raw: Raw, f: LineFigures, why: string[]): void 
   if (num(f.exclusive) && num(f.total)) {
     if (num(f.tax)) {
       if (cents(f.exclusive) + cents(f.tax) !== cents(f.total)) why.push(`Total ${f.total} is not Exclusive ${f.exclusive} + Tax ${f.tax}`);
-    } else if (num(f.rate) && num(f.quantity) && num(f.unit)) {
-      const m = lineCents({ quantity: f.quantity, unitPrice: f.unit, taxRate: f.rate, lineTotal: f.exclusive }, false);
-      if (typeof m !== 'string' && m.net + m.tax !== cents(f.total)) why.push(`Total ${f.total} is not Exclusive ${f.exclusive} + its tax at ${f.rate}% (${(m.net + m.tax) / 100})`);
+    } else if (num(f.vatPct) && num(f.quantity) && num(f.unit)) {
+      const m = lineCents({ quantity: f.quantity, unitPrice: f.unit, taxRate: f.vatPct, lineTotal: f.exclusive }, false);
+      if (typeof m !== 'string' && m.net + m.tax !== cents(f.total)) why.push(`Total ${f.total} is not Exclusive ${f.exclusive} + its tax at ${f.vatPct}% (${(m.net + m.tax) / 100})`);
     }
   }
   const inclusive = readNumber(raw, 'UnitPriceInclusive', why, { cents: 'any' });
-  if (num(inclusive) && num(f.unit) && num(f.rate)) {
-    const expected = cents(f.unit * (1 + f.rate / 100));
-    if (cents(inclusive) !== expected) why.push(`UnitPriceInclusive ${inclusive} is not UnitPriceExclusive ${f.unit} at ${f.rate}% (${expected / 100})`);
+  if (num(inclusive) && num(f.unit) && num(f.vatPct)) {
+    const expected = cents(f.unit * (1 + f.vatPct / 100));
+    if (cents(inclusive) !== expected) why.push(`UnitPriceInclusive ${inclusive} is not UnitPriceExclusive ${f.unit} at ${f.vatPct}% (${expected / 100})`);
   }
 }
 

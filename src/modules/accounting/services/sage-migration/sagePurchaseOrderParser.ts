@@ -110,7 +110,7 @@ function parseLine(raw: unknown, i: number, why: string[], date: string): SagePo
   // Read so it cannot carry a figure the tool would not book (sageLineMoney).
   const total = readNumber(raw, 'Total', sub, { cents: 'whole' });
   const rate = lineRate(raw, sub, date);
-  lineMoneyReasons(raw, { quantity, unit, exclusive, tax, total, rate }, sub);
+  lineMoneyReasons(raw, { quantity, unit, exclusive, tax, total, vatPct: rate }, sub);
   const itemId = readId(raw, 'ItemId', sub, false, true);
   const selection = readId(raw, 'SelectionId', sub, false, true);
   if (typeof itemId === 'string' && typeof selection === 'string' && itemId !== selection) sub.push('ItemId and SelectionId name different items');
