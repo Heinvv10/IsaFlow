@@ -44,6 +44,8 @@ const NON_ACTOR_UUID_BINDS: ReadonlySet<string> = new Set([
   'entry.id', 'je.id', 'documentId', 'invoiceId', 'rootId', 'id', 'ids', 'l.id', 'p.id', 'prior.id', 'mapped',
   // wave 6 BF: salary bank files, the paying GL account, the file's employees
   'fileId', 'holder.account.id', 'pay.employeeIds',
+  // wave 7 GC2: the creditor journal a confirm posts, the creditor lines' employees and orders
+  'creditorJournalId', 'c.employeeIds', 'c.orderIds',
   // wave 6 GA: garnishee orders, their payable account, a run's deductions
   'orderId', 'payable.id', 'rows.map((r) => r.orderId)', 'rows.map((r) => r.employeeId)',
   // wave 6 EFa: a tax return version's row id
@@ -105,16 +107,16 @@ const SITES: Readonly<Record<string, Readonly<Record<number, string>>>> = {
   [`${S}payroll/payrollRunLock.ts`]: { 239: 'prepared_by     = ${preparedBy},' },
   // Wave 7 MP (1053): payroll_run_headers.paid_by is TEXT; the marker's id is bound as text, never cast.
   [`${S}payroll/payrollRunMarkPaid.ts`]: {
-    77: "SET status = 'paid', paid_by = ${actor.userId}, paid_reference = ${evidence.reference}, paid_on = ${evidence.paidOn}::date,",
-    80: 'RETURNING paid_at, paid_by, paid_reference, paid_on::text AS paid_on',
-    102: 'paidBy: written.paid_by == null ? null : String(written.paid_by),',
+    83: "SET status = 'paid', paid_by = ${actor.userId}, paid_reference = ${evidence.reference}, paid_on = ${evidence.paidOn}::date,",
+    86: 'RETURNING paid_at, paid_by, paid_reference, paid_on::text AS paid_on',
+    109: 'paidBy: written.paid_by == null ? null : String(written.paid_by),',
   },
   // The IRP5 lump sum's payer (a tax directive payment's paid_by), an output key: not a header column.
   ['src/lib/mcp/tools/payrollSars.ts']: { 201: 'amount: l.amount, paye: l.paye, paye_code: l.payeCode, paid_by: l.paidBy,' },
   [`${S}payroll/payrollRunReopen.ts`]: { 113: 'approved_by = NULL,          -- no longer approved; lines_confirmed_at stays (migration 718)' },
   // Wave 6 BF: payroll_bank_files.created_by is TEXT, restamped by its trigger from the session user (999h).
   [`${S}payroll/payrollBankFileService.ts`]: {
-    122: 'INSERT INTO payroll_bank_files (company_id, run_id, format, layout, sha256, line_count, total_cents, action_date, run_approved_at, created_by)',
+    133: 'INSERT INTO payroll_bank_files (company_id, run_id, format, layout, sha256, line_count, total_cents, action_date, run_approved_at, created_by)',
   },
   [`${S}payroll/taxDirectiveApprover.ts`]: {
     32: 'SELECT requested_by::text AS requested_by, approvers_at_create FROM tax_directives WHERE company_id = ${companyId}::uuid AND id = ${id}::uuid',
