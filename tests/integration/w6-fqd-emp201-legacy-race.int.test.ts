@@ -65,8 +65,10 @@ describe('L-J: a reopen racing the legacy mark_submitted', () => {
     const [m, r] = await Promise.all([mark, reopen]);
     expect(m.statusCode).toBe(200);
     expect(order[0]).toBe('mark');
-    // The reopen then runs (200) or gave up on its lock bound (503): never before the mark.
-    expect([200, 503]).toContain(r.statusCode);
+    // The reopen then runs (200), gave up on its lock bound (503), or (wave 7 EL, W25) is refused 409 EMP201_FILED: it
+    // judges the month after the mark committed, so it sees the month's EMP201 submitted and names it. Never before the mark.
+    expect([200, 409, 503]).toContain(r.statusCode);
+    if (r.statusCode === 409) expect(JSON.stringify(r.body)).toContain('EMP201_FILED');
     expect((await a.pool.query('SELECT status FROM sars_submissions WHERE id = $1', [draft])).rows[0]!.status).toBe('submitted');
   }, 60_000);
 });
