@@ -15,7 +15,7 @@ function Lines({ lines }: { lines: string[] }) {
   return <dd className="text-sm">{lines.map((l, i) => <span key={i} className="block">{l}</span>)}</dd>;
 }
 
-export function DetailsSection({ address, bank }: { address: EmployeeAddress | null; bank: PortalBankSummary | null }) {
+export function DetailsSection({ address, bank, bankUnavailable = false }: { address: EmployeeAddress | null; bank: PortalBankSummary | null; bankUnavailable?: boolean }) {
   return (
     <section aria-labelledby="details" className="mb-8">
       <h2 id="details" className="mb-2 text-lg font-semibold">Your details</h2>
@@ -34,7 +34,7 @@ export function DetailsSection({ address, bank }: { address: EmployeeAddress | n
           <dt className={term}>Bank account</dt>
           {bank
             ? <dd className="text-sm">{bank.bankName}<span className="block">Account ending {bank.accountLast4}</span></dd>
-            : <dd className={muted}>Not on record</dd>}
+            : <dd className={muted}>{bankUnavailable ? 'Could not be shown right now' : 'Not on record'}</dd>}
         </div>
       </dl>
       <p className={`mt-3 ${muted}`}>These are the details your employer holds for you. To change them, ask your employer.</p>

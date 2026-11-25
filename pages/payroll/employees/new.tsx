@@ -22,6 +22,10 @@ import {
   type BankErrors, type BankForm, type BankKey,
 } from '@/components/payroll/employeeCreate/bankDetails';
 import {
+  addressIsBlank, emptyAddressForm, saveEmployeeAddress, validateAddressForm,
+  type AddressErrors, type AddressFieldKey, type AddressForm,
+} from '@/components/payroll/addressForm';
+import {
   FIELD_ORDER, buildBody, initialForm, validateForm,
   type DateKey, type FieldKey, type FormErrors, type FormState, type RefusedKey,
 } from '@/components/payroll/employeeCreate/types';
@@ -35,8 +39,11 @@ export default function NewEmployeePage() {
   const [error, setError] = useState('');
   const [bank, setBank] = useState<BankForm>(emptyBank);
   const [bankErrors, setBankErrors] = useState<BankErrors>({});
-  /** The employee exists but the bank call failed: the form stays, as a notice with the way on, and cannot create twice. */
-  const [bankFailure, setBankFailure] = useState<{ id: string; message: string } | null>(null);
+  const [address, setAddress] = useState<AddressForm>(emptyAddressForm);
+  const [addressErrors, setAddressErrors] = useState<AddressErrors>({});
+  const addressFields = useRef<Partial<Record<AddressFieldKey, HTMLInputElement | null>>>({});
+  /** The employee exists but the address or bank call failed: the form stays, as a notice with the way on, and cannot create twice. */
+  const [bankFailure, setBankFailure] = useState<{ id: string; what: string; message: string } | null>(null);
   const bankFields = useRef<Partial<Record<BankKey, HTMLElement | null>>>({});
   const fields = useRef<Partial<Record<FieldKey, HTMLElement | null>>>({});
   // State only reaches the disabled button on the next render; a second submit can arrive before that.
@@ -78,6 +85,13 @@ export default function NewEmployeePage() {
       fields.current[first]?.focus();
       return;
     }
+    // The address is optional too, but once typed it must pass the server's own checks (wave 7 EA1).
+    const foundAddress = addressIsBlank(address) ? { errors: {}, first: null } : validateAddressForm(address);
+    setAddressErrors(foundAddress.errors);
+    if (foundAddress.first) {
+      addressFields.current[foundAddress.first]?.focus();
+      return;
+    }
     const firstBank = BANK_FIELD_ORDER.find(k => foundBank[k]);
     if (firstBank) {
       bankFields.current[firstBank]?.focus();
@@ -95,11 +109,20 @@ export default function NewEmployeePage() {
       const json = await res.json();
       const created = json.data ?? json;
       target = `/payroll/employees/${created.id}`;
+      if (!addressIsBlank(address)) {
+        try {
+          await saveEmployeeAddress(created.id, address);
+        } catch (addressErr) {
+          setBankFailure({ id: created.id, what: 'address', message: apiErrorMessage(addressErr, 'Could not save the address') });
+          setSubmitting(false); // inFlight stays set: the employee exists, and this form does not create a second
+          return;
+        }
+      }
       if (!bankIsBlank(bank)) {
         try {
           await saveBankDetails(created.id, bank);
         } catch (bankErr) {
-          setBankFailure({ id: created.id, message: apiErrorMessage(bankErr, 'Could not save the bank details') });
+          setBankFailure({ id: created.id, what: 'bank details', message: apiErrorMessage(bankErr, 'Could not save the bank details') });
           setSubmitting(false); // inFlight stays set: the employee exists, and this form does not create a second
           return;
         }
@@ -127,7 +150,7 @@ export default function NewEmployeePage() {
         <form onSubmit={handleSubmit} noValidate className="p-6 max-w-3xl space-y-2">
           {bankFailure && (
             <div role="alert" className="px-4 py-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-800 dark:text-amber-300 text-sm">
-              Employee saved; bank details not saved: {bankFailure.message.replace(/[.\s]+$/, '')}. Add them on the profile.
+              Employee saved; {bankFailure.what} not saved: {bankFailure.message.replace(/[.\s]+$/, '')}. Add {bankFailure.what === 'address' ? 'it' : 'them'} on the profile.
             </div>
           )}
           {error && (
@@ -135,7 +158,11 @@ export default function NewEmployeePage() {
           )}
           {/* The employee exists once the bank call has failed: a field edited now would be discarded, so the form is read-only. */}
           <fieldset disabled={bankFailure !== null} className="contents">
-            <PersonalSection {...section} />
+            <PersonalSection {...section} address={{
+              form: address, errors: addressErrors, fieldRef: (k) => (el) => { addressFields.current[k] = el; },
+              onChange: (k, path, v) => { setAddress(prev => ({ ...prev, [k]: v })); setAddressErrors(prev => (prev[path] ? { ...prev, [path]: [] } : prev)); },
+              onSameChange: (same) => setAddress(prev => ({ ...prev, sameAsResidential: same })),
+            }} />
             <EmploymentSection {...section} />
             <TaxAndMedicalSection {...section} />
             <PaySection {...section} setSalary={setSalary} />

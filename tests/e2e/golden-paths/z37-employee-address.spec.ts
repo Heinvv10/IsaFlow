@@ -5,6 +5,9 @@
  *  - Staff side, in a sandbox company: the profile's Address card. A bad ZA postal code is refused on its field with the
  *    BRS message (code 3217) and nothing is sent; a good address is saved through the real PUT and the card shows the
  *    residential and postal lines; the "Record changes" timeline shows the address keys masked (no street in plain text).
+ *  - Create form: the address typed on /payroll/employees/new (optional section in Personal details) is refused on its
+ *    field when the BRS rules refuse it (nothing is created), then saved through the same PUT once the employee exists;
+ *    the new profile's card shows it.
  *  - Portal side: "Your details" renders the address and the bank as name + last four, with no edit control, against
  *    page.route'd portal answers (the server side, own-employee only and the masks, is proven by
  *    tests/integration/w7-ea1-portal-details.int.test.ts). Nothing is sent or invited.
@@ -105,6 +108,35 @@ for (const theme of THEMES) {
     await expect(history.getByText(/Residential street/).first()).toBeVisible({ timeout: 60_000 });
     expect(await history.innerText()).not.toContain(street);
     await checkWidths(page, 'z37-address-profile', theme, [card, history]);
+  });
+
+  test(`create form: the address on New Employee is checked, then saved to the new profile (${theme})`, async ({ page, context }) => {
+    await switchBrowserCompany(context, sandboxId);
+    const puts: string[] = [];
+    page.on('request', (r) => { if (r.method() === 'PUT' && r.url().endsWith('/address')) puts.push(r.url()); });
+    await seedTheme(page, theme);
+    await page.goto('/payroll/employees/new');
+    await expect(page.getByRole('heading', { name: 'New Employee', exact: true })).toBeVisible({ timeout: 90_000 });
+    await page.getByLabel('First name *').fill('Zinhle');
+    await page.getByLabel('Last name *').fill('Create');
+    await page.getByLabel('Employee number *').fill(`Z37-${theme}-${Date.now()}`);
+    const section = page.getByTestId('create-address');
+    await section.getByLabel('Street or farm name').fill('Weaver Street');
+    await section.getByLabel('Street number').fill('9');
+    await section.getByLabel('City or town').fill('Pretoria');
+    await section.getByLabel('Postal code', { exact: true }).fill('0000');
+    await page.getByRole('button', { name: 'Create Employee' }).click();
+    await expect(section.getByText('A South African postal code is four digits and not 0000 (code 3217)')).toBeVisible();
+    expect(page.url()).toMatch(/\/payroll\/employees\/new$/);
+    await checkWidths(page, 'z37-create-address-error', theme, [section]);
+    await section.getByLabel('Postal code', { exact: true }).fill('0181');
+    await page.getByRole('button', { name: 'Create Employee' }).click();
+    await page.waitForURL(/\/payroll\/employees\/[0-9a-f-]{36}$/, { timeout: 60_000 });
+    const card = page.getByTestId('employee-address-card');
+    await expect(card.getByText('9 Weaver Street')).toBeVisible({ timeout: 60_000 });
+    await expect(card.getByText('Pretoria 0181')).toBeVisible();
+    expect(puts).toHaveLength(1);
+    await checkWidths(page, 'z37-create-address-saved', theme, [card]);
   });
 
   test(`portal: "Your details" shows the address and bank last four, read-only (${theme})`, async ({ page }) => {

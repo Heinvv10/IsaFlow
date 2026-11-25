@@ -90,7 +90,7 @@ export default function EmployeePortalHome() {
         )}
       </section>
       <Irp5Section />
-      {me && <DetailsSection address={me.address ?? null} bank={me.bank ?? null} />}
+      {me && <DetailsSection address={me.address ?? null} bank={me.bank ?? null} bankUnavailable={me.bankUnavailable === true} />}
       <section aria-labelledby="leave">
         <h2 id="leave" className="mb-2 text-lg font-semibold">Leave balances</h2>
         {leave?.length === 0 && <p className="text-sm text-gray-600 dark:text-gray-300">No leave balances recorded for this year.</p>}

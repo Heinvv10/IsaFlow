@@ -12,6 +12,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { migrationAdminTx } from '@/lib/auth/migrationAdminPool';
+import { log } from '@/lib/logger';
 import { addressFromRow } from './payrollEmployeeAddress';
 import type { EmployeeAddress } from './payrollEmployeeAddressInput';
 
@@ -23,6 +24,8 @@ export interface PortalDetails {
   employer: string;
   address: EmployeeAddress | null;
   bank: PortalBankSummary | null;
+  /** True when the bank line could not be read (migration_admin unreachable): `bank` is then null for that reason, not "none on record". */
+  bankUnavailable: boolean;
 }
 
 /** The employee's own details, or null when the session's employee is not that company's. */
@@ -37,16 +40,28 @@ export async function readPortalDetails(companyId: string, employeeId: string): 
      WHERE e.id = ${employeeId}::uuid AND e.company_id = ${companyId}::uuid
   `) as DbRow[])[0];
   if (!row) return null;
-  const bank = await migrationAdminTx('employee portal bank summary', async (client) => (await client.query<{ bank_name: string; last4: string }>(
-    `SELECT bank_name, right(account_number, 4) AS last4
-       FROM payroll_bank_details
-      WHERE company_id = $1::uuid AND employee_id = $2::uuid AND is_active`,
-    [companyId, employeeId],
-  )).rows[0]);
+  // Review #1932 M2: the bank line is the one read on migration_admin. If that pool cannot answer (URL unset, pool or
+  // query error), the rest of the page still shows: logged by ids only, and said as unavailable, not as "none".
+  let bank: { bank_name: string; last4: string } | undefined;
+  let bankUnavailable = false;
+  try {
+    bank = await migrationAdminTx('employee portal bank summary', async (client) => (await client.query<{ bank_name: string; last4: string }>(
+      `SELECT bank_name, right(account_number, 4) AS last4
+         FROM payroll_bank_details
+        WHERE company_id = $1::uuid AND employee_id = $2::uuid AND is_active`,
+      [companyId, employeeId],
+    )).rows[0]);
+  } catch (err) {
+    bankUnavailable = true;
+    log.warn('Employee portal: bank line unavailable', {
+      companyId, employeeId, error: err instanceof Error ? err.name : 'unknown',
+    }, 'employeePortalDetails');
+  }
   return {
     employeeName: `${String(row.first_name ?? '')} ${String(row.last_name ?? '')}`.trim(),
     employeeNumber: String(row.employee_number), employer: String(row.employer),
     address: addressFromRow(row),
     bank: bank ? { bankName: bank.bank_name, accountLast4: bank.last4 } : null,
+    bankUnavailable,
   };
 }
