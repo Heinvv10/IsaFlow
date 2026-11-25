@@ -7,7 +7,7 @@
  * Needs /usr/bin/qpdf (velo and both hosted CI apt steps install it).
  */
 import { spawn as realSpawn, type ChildProcess } from 'child_process';
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'fs';
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'fs';
 import path from 'path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
@@ -127,6 +127,35 @@ describe('encryptPayslipPdf', () => {
     expect(Buffer.compare(a, b)).not.toBe(0);
   });
 
+  it('S2 (#1904 breaker): an UNENCRYPTED PDF whose text carries the markers is refused, structurally and by qpdf', async () => {
+    const { jsPDF } = await import('jspdf');
+    const doc = new jsPDF();
+    doc.text('Employee: /Encrypt 9 0 R /V 5 /R 6 /AESV3 /Filter /Standard salary R 45 000.00', 10, 10);
+    const spoof = Buffer.from(doc.output('arraybuffer'));
+    expect(isAes256Pdf(spoof)).toBe(false);
+    // A "qpdf" that just copies its input file (stdin line 9 is the input path) back out.
+    const copying = ((_c: string, _a: readonly string[], opts: object) =>
+      realSpawn('/bin/bash', ['-c', 'f=$(sed -n 9p); cat "$f"'], opts)) as unknown as typeof realSpawn;
+    await expect(encryptPayslipPdf(spoof, ID_NUMBER, { tmpRoot: root, spawn: copying })).rejects.toBeInstanceOf(PayslipEncryptionFailed);
+    expect(readdirSync(root)).toEqual([]);
+  });
+
+  it('S2: even a file that passes the structural check is refused unless qpdf says it needs a password', async () => {
+    // A real AES-256 file, but encrypted with an EMPTY user password: structurally R 6 / AESV3, opens without one.
+    const realAes = await encryptPayslipPdf(plaintext, ID_NUMBER, { tmpRoot: root });
+    expect(isAes256Pdf(realAes)).toBe(true);
+    const emptyUser = ((_c: string, args: readonly string[], opts: object) => {
+      const child = realSpawn('/usr/bin/qpdf', args as string[], opts);
+      const write = child.stdin!.end.bind(child.stdin!);
+      // Rewrite the argument list on its way in: user password empty, owner password kept.
+      (child.stdin as unknown as { end: (s: string) => void }).end = (stdin: string) =>
+        write(stdin.replace(/--user-password=[^\n]*/, '--user-password='));
+      return child;
+    }) as unknown as typeof realSpawn;
+    await expect(encryptPayslipPdf(plaintext, ID_NUMBER, { tmpRoot: root, spawn: emptyUser })).rejects.toThrow(/needs a password/);
+    expect(readdirSync(root)).toEqual([]);
+  });
+
   it('an output that is not AES-256 (R 6, AESV3) is refused, never returned', async () => {
     // A "qpdf" that writes a plain, unencrypted PDF and exits 0.
     const spawn = ((_c: string, _a: readonly string[], opts: object) =>
@@ -143,16 +172,25 @@ describe('sweepStalePayslipDirs (a render killed mid-way cannot run finally)', (
     const sweepRoot = mkdtempSync('/dev/shm/px-sweep-test-');
     try {
       const old = (Date.now() - STALE_AFTER_MS - 5_000) / 1000;
-      mkdirSync(path.join(sweepRoot, 'isaflow-payslip-stale'));
+      mkdirSync(path.join(sweepRoot, 'isaflow-payslip-stale'), { mode: 0o700 });
       writeFileSync(path.join(sweepRoot, 'isaflow-payslip-stale', 'in.pdf'), 'plaintext');
       utimesSync(path.join(sweepRoot, 'isaflow-payslip-stale'), old, old);
-      mkdirSync(path.join(sweepRoot, 'isaflow-payslip-fresh'));
+      mkdirSync(path.join(sweepRoot, 'isaflow-payslip-fresh'), { mode: 0o700 });
       mkdirSync(path.join(sweepRoot, 'someone-else'));
       utimesSync(path.join(sweepRoot, 'someone-else'), old, old);
       const target = mkdtempSync('/dev/shm/px-sweep-target-');
       symlinkSync(target, path.join(sweepRoot, 'isaflow-payslip-link'));
+      // S1 (#1904 breaker): a stale dir that group or others can write into is not ours as mkdtemp makes it: left alone.
+      for (const mode of [0o770, 0o707, 0o755]) {
+        const d = path.join(sweepRoot, `isaflow-payslip-open-${mode.toString(8)}`);
+        mkdirSync(d);
+        chmodSync(d, mode);
+        utimesSync(d, old, old);
+      }
       expect(await sweepStalePayslipDirs(sweepRoot)).toBe(1);
-      expect(readdirSync(sweepRoot).sort()).toEqual(['isaflow-payslip-fresh', 'isaflow-payslip-link', 'someone-else']);
+      expect(readdirSync(sweepRoot).sort()).toEqual([
+        'isaflow-payslip-fresh', 'isaflow-payslip-link', 'isaflow-payslip-open-707', 'isaflow-payslip-open-755', 'isaflow-payslip-open-770',
+        'someone-else']);
       expect(statSync(target).isDirectory()).toBe(true);
       rmSync(target, { recursive: true, force: true });
     } finally {
@@ -162,7 +200,7 @@ describe('sweepStalePayslipDirs (a render killed mid-way cannot run finally)', (
 
   it('every render sweeps first: a crashed render\'s plaintext is gone after the next one', async () => {
     const old = (Date.now() - STALE_AFTER_MS - 5_000) / 1000;
-    mkdirSync(path.join(root, 'isaflow-payslip-crashed'));
+    mkdirSync(path.join(root, 'isaflow-payslip-crashed'), { mode: 0o700 });
     writeFileSync(path.join(root, 'isaflow-payslip-crashed', 'in.pdf'), 'salary R 45 000.00');
     utimesSync(path.join(root, 'isaflow-payslip-crashed'), old, old);
     await encryptPayslipPdf(plaintext, ID_NUMBER, { tmpRoot: root });
