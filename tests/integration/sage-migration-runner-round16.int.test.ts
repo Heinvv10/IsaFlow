@@ -2,10 +2,11 @@
  * Round-13 breaker findings on a real database (b13-a probes B13-A4 and B13-A1, ported):
  *   - B13-1: a PO whose lines carry Totals but no Exclusive (offsetting each other, so the header adds up) is refused, never booked at
  *     quantity x price; the rest of the file is booked;
- *   - B13-2: a PO batch that re-created a deleted PO is never "answered ok, nothing new written" in a stop.
+ *   - B13-2: a PO batch that re-created a deleted PO is never "answered ok, nothing new written" in a stop;
+ *   - L3: a batch the tool refused whose COMMIT did not answer is said to be refused, with the reason.
  * Fixture route: isaflow_schema_fixture (assertDisposable). Never skips.
  */
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { cleanupWorld } from './helpers/itemsWorld';
@@ -13,6 +14,7 @@ import { afterCommitOf, booked, cleanupSageWorld, exportFile, landedCommitPool, 
 import { runSageMigration } from '@/modules/accounting/services/sage-migration/sageMigrationRunner';
 import type { MigrationStopped } from '@/modules/accounting/services/sage-migration/sageMigrationStopped';
 import { exitCodeForError, stopMessage } from '@/modules/accounting/services/sage-migration/sageStopMessage';
+import { mcpRegistry } from '@/lib/mcp/toolIndex';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 8 });
@@ -58,5 +60,25 @@ describe('B13-2 (B13-A1): a re-run whose PO batch 1 re-creates a PO deleted afte
     expect(po1.allRowsAlreadyPresent).toBe(false);
     expect(stopMessage(err)).toMatch(/\ncommitted: purchase_order batch 1 \(/);
     expect(stopMessage(err)).not.toMatch(/nothing new written \(its rows were already there\): purchase_order batch 1/);
+  });
+});
+
+describe('L3 (round 13): a live batch the tool refused, whose COMMIT (of the refusal audit) does not answer', () => {
+  it('the stop says the tool refused it, with the reason; no "may have been updated"; nothing of it is in the books', async () => {
+    const real = mcpRegistry.call.bind(mcpRegistry);
+    vi.spyOn(mcpRegistry, 'call').mockImplementation(async (name, args, ctx) => {
+      const key = String(args.idempotency_key ?? '');
+      if (name === 'bulk_upsert_items' && key.startsWith('sage-mig-item-0002-') && !key.endsWith('-dry')) return { content: [{ type: 'text', text: 'code_in_use: injected refusal' }], isError: true };
+      return real(name, args, ctx);
+    });
+    try {
+      // Commits: 1-4 categories, 5 item batch 1, 6 item batch 2 (the refusal's request) lands, its answer lost.
+      const err = await stopped(run({ itemBatchSize: 10 }, landedCommitPool(pool, [6])));
+      const m = stopMessage(err);
+      expect(exitCodeForError(err)).toBe(4);
+      expect(m).toMatch(/commit unconfirmed: item batch 2 \([^)]*\)\n {2}the tool refused this batch \(code_in_use: injected refusal\); its COMMIT was not confirmed/);
+      expect(m).not.toMatch(/may have been updated/);
+      expect(await booked(pool, s.companyId)).toMatchObject({ items: 10 });
+    } finally { vi.restoreAllMocks(); }
   });
 });

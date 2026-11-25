@@ -23,7 +23,7 @@ import { RUN_TAG } from './sageBatches';
 import { assertPoGlAccount } from './sageAccountCheck';
 import { checkRowsPresent, keyFor, planBatches, sendBatch, type PlannedBatches, type Send } from './sageBatchRun';
 import { ownershipProblem } from './sageOwnership';
-import { recordSent, stoppedBatches, verified, verifiedCategories, verifiedItems, type Sent } from './sageVerify';
+import { recordSent, stoppedBatches, unconfirmedBatch, verified, verifiedCategories, verifiedItems, type Sent } from './sageVerify';
 import { MigrationStopped } from './sageMigrationStopped';
 import { CommitUnconfirmedError } from './sageToolSession';
 import { budgetWouldHaveFailed } from './sageBudgetReport';
@@ -97,10 +97,7 @@ async function livePhase(pool: Pool, o: MigrationOptions, list: Send[], before: 
       log.error('sage migration: batch failed', { entity: s.entity, n: s.n, message }, 'sage-migration');
       b = { entity: s.entity, n: s.n, size: s.size, key: keyFor(s, before, false), status: 'failed', allRowsAlreadyPresent: false, rowsAbsent: 0, toolReported: null, error: message };
       // An unconfirmed COMMIT may have landed: keep the LIVE tool answer the request had before its COMMIT (what the batch did if it landed).
-      if (err instanceof CommitUnconfirmedError) {
-        const live = err.result as BatchReport | undefined;
-        b = { ...b, commitUnconfirmed: true, toolReported: live?.toolReported ?? null, ...(live?.replayed ? { replayed: true as const } : {}) };
-      }
+      if (err instanceof CommitUnconfirmedError) b = unconfirmedBatch(b, err.result as BatchReport | undefined);
     }
     p.batches.push(b);
     if (b.status === 'failed') p.failed++;

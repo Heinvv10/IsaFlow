@@ -41,6 +41,17 @@ export function verifiedCategories(phase: PhaseReport, sends: readonly Send[], s
   }));
 }
 
+/**
+ * The batch report of a live batch whose COMMIT did not answer, from what the request had before its COMMIT (`live`, the batch as sent):
+ * its live answer (B12-1), or, when the tool REFUSED the batch, that refusal (round-13 L3: it wrote nothing, landed or not).
+ */
+export function unconfirmedBatch(failed: BatchReport, live: BatchReport | undefined): BatchReport {
+  if (live?.status === 'failed' && !live.commitUnconfirmed) {
+    return { ...failed, commitUnconfirmed: true, toolRefused: true, toolReported: null, error: `the tool refused this batch (${live.error ?? 'no reason given'}); its COMMIT was not confirmed (${failed.error ?? 'no detail'})` };
+  }
+  return { ...failed, commitUnconfirmed: true, toolReported: live?.toolReported ?? null, ...(live?.replayed ? { replayed: true as const } : {}) };
+}
+
 /** What the live phases sent so far, for a stop: the batches that committed (or may have), and those that failed (nothing written). */
 export interface Sent { committed: BatchReport[]; failed: BatchReport[] }
 

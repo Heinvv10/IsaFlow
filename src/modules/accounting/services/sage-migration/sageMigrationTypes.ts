@@ -31,6 +31,8 @@ export interface BatchReport {
   changedRows?: string[];
   /** The registry served a STORED answer for the key (it said so: ctx.onIdempotentReplay): the tool did not run, this call wrote nothing. */
   replayed?: true;
+  /** With commitUnconfirmed: the tool REFUSED the batch (its refusal is `error`), so it wrote nothing whether or not its COMMIT landed. */
+  toolRefused?: true;
 }
 
 /** `skipped`: the phase never started (an earlier phase failed): "not run", not an empty phase. */

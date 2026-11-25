@@ -3,7 +3,7 @@
  * integration suites). sageVerify is PURE: a hand-built Send list and snapshot.
  */
 import { describe, expect, it } from 'vitest';
-import { recordSent, stoppedBatches, verifiedCategories, verifiedItems, type Sent } from '@/modules/accounting/services/sage-migration/sageVerify';
+import { recordSent, stoppedBatches, unconfirmedBatch, verifiedCategories, verifiedItems, type Sent } from '@/modules/accounting/services/sage-migration/sageVerify';
 import type { Send } from '@/modules/accounting/services/sage-migration/sageBatchRun';
 import type { BatchReport, PhaseReport } from '@/modules/accounting/services/sage-migration/sageMigrationTypes';
 import type { Snapshot } from '@/modules/accounting/services/sage-migration/sageSnapshot';
@@ -68,5 +68,22 @@ describe('recordSent and stoppedBatches', () => {
     expect(sent).toEqual({ committed: [ok, lost], failed: [refused] });
     const dry = { categories: phase(batch('category', 1)), items: phase(batch('item', 1), batch('item', 2)) };
     expect(stoppedBatches(sent, dry)).toEqual({ failed: [refused], dryRun: [batch('category', 1), batch('item', 1), batch('item', 2)] });
+  });
+});
+
+describe('unconfirmedBatch (B12-1, L3 round 13)', () => {
+  const failed = batch('item', 2, { status: 'failed', toolReported: null, error: 'COMMIT did not answer' });
+  it('keeps the live answer the request had', () => {
+    const live = batch('item', 2, { toolReported: { rows: [{ code: 'FIB-1', outcome: 'updated' }] } });
+    expect(unconfirmedBatch(failed, live)).toMatchObject({ commitUnconfirmed: true, toolReported: live.toolReported, error: 'COMMIT did not answer' });
+    expect(unconfirmedBatch(failed, { ...live, replayed: true }).replayed).toBe(true);
+  });
+  it('a batch the tool REFUSED keeps the refusal: toolRefused, its reason, no answer', () => {
+    const refused = batch('item', 2, { status: 'failed', toolReported: null, error: 'code_in_use: FIB-1' });
+    expect(unconfirmedBatch(failed, refused)).toMatchObject({ commitUnconfirmed: true, toolRefused: true, toolReported: null,
+      error: 'the tool refused this batch (code_in_use: FIB-1); its COMMIT was not confirmed (COMMIT did not answer)' });
+  });
+  it('no result at all: no answer', () => {
+    expect(unconfirmedBatch(failed, undefined)).toMatchObject({ commitUnconfirmed: true, toolReported: null });
   });
 });

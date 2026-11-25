@@ -73,3 +73,13 @@ describe('R3: batches refused before the stop', () => {
     expect(stopMessage(new MigrationStopped(new Error('boom'), false, [], { failed: [base('item', 1, { status: 'failed', error: 'x' })], dryRun: [] }))).toBe('sage migration stopped: boom');
   });
 });
+
+describe('L3 (round 13): an unconfirmed batch the tool refused', () => {
+  it('says the refusal, never "may have been updated" (not even from the dry run)', () => {
+    const b = base('item', 2, { status: 'failed', commitUnconfirmed: true, toolRefused: true, error: 'the tool refused this batch (code_in_use); its COMMIT was not confirmed' });
+    const dry = [base('item', 2, { toolReported: itemsAnswer(['FIB-0016', 'updated', ['description']]) })];
+    const m = stopMessage(new MigrationStopped(new Error('boom'), true, [b], { failed: [], dryRun: dry }));
+    expect(m).toContain('commit unconfirmed: item batch 2 (key-item-2)\n  the tool refused this batch (code_in_use); its COMMIT was not confirmed');
+    expect(m).not.toMatch(/may have been updated|FIB-0016/);
+  });
+});

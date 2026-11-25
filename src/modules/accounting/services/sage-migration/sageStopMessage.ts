@@ -30,6 +30,8 @@ export function stopMessage(err: unknown): string {
     if (b.replayed) {
       return b.rowsAbsent > 0 ? line(b, 'replayed: rows absent, nothing written (use --run-tag for a fresh import)') : line(b, 'answered from a stored answer, nothing written');
     }
+    // The tool refused it: nothing written, whether or not its COMMIT landed; its refusal is said, not "may have been updated" (L3).
+    if (b.commitUnconfirmed && b.toolRefused) return `${line(b, 'commit unconfirmed')}\n  ${cut(b.error)}`;
     if (b.commitUnconfirmed) {
       // The live answer the request had before its COMMIT; only without one, the dry run's answer for that batch (said so).
       return line(b, 'commit unconfirmed') + (b.toolReported !== null
