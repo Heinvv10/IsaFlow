@@ -145,8 +145,9 @@ export function checkRowsPresent(b: BatchReport, s: Send, after: Snapshot): Batc
     const names = missing.map(s.labelOf);
     return {
       ...b, status: 'failed', rowsAbsent: absent, changedAfterCommit: true, changedRows: [...(b.changedRows ?? []), ...names],
-      error: `committed, but ${absent} of ${b.size} rows of this batch are not in the books now (another writer removed them since): ${names.slice(0, 10).join(', ')}. `
-        + 'What the batch wrote was written; the next phase is not started. Check the books, then run again.',
+      // A batch whose rows were all there and that wrote nothing is said so (B14-2); "the next phase" only where there is one.
+      error: `${b.allRowsAlreadyPresent ? 'answered ok, nothing new written (its rows were already there)' : 'committed'}, but ${absent} of ${b.size} rows of this batch are not in the books now (another writer removed them since): ${names.slice(0, 10).join(', ')}. `
+        + `${b.allRowsAlreadyPresent ? '' : 'What the batch wrote was written; '}${s.entity === 'purchase_order' ? '' : 'the next phase is not started; '}check the books, then run again.`,
     };
   }
   return {

@@ -20,27 +20,47 @@ const cut = (text: string | null): string =>
 const updates = (b: BatchReport | undefined, word: (name: string) => string): string =>
   (b ? updatesOf(b) : []).map((u) => `\n  ${word(u.name)}: ${u.kind} ${u.name} (${u.changed.join(', ') || 'no detail given'})`).join('');
 
+/** What a batch a stop carries did to the books: the console line and the stop report's lists both come from this one reading. */
+export type BatchOutcome = 'committed' | 'nothing_written' | 'replayed' | 'commit_unconfirmed' | 'none';
+
+export function batchOutcome(b: BatchReport): BatchOutcome {
+  if (b.replayed) return 'replayed';
+  if (b.commitUnconfirmed) return 'commit_unconfirmed';
+  if (b.status !== 'ok' && !b.changedAfterCommit) return 'none';
+  return b.allRowsAlreadyPresent ? 'nothing_written' : 'committed';
+}
+
+/**
+ * The stop report's batches, listed by outcome (B14-4): a program reading `committed` gets only batches that wrote; a batch whose COMMIT
+ * is unconfirmed (a tool refusal among them, `toolRefused`) is in `commitUnconfirmed`; the failed ones (nothing written) in `failed`.
+ */
+export function stopReportBatches(err: MigrationStopped): { committed: BatchReport[]; nothingWritten: BatchReport[]; commitUnconfirmed: BatchReport[]; failed: BatchReport[] } {
+  const of = (o: BatchOutcome) => err.committed.filter((b) => batchOutcome(b) === o);
+  return { committed: of('committed'), nothingWritten: [...of('nothing_written'), ...of('replayed')], commitUnconfirmed: of('commit_unconfirmed'), failed: err.batches.failed };
+}
+
 export function stopMessage(err: unknown): string {
   const why = `sage migration stopped: ${err instanceof Error ? err.message : String(err)}`;
   if (!(err instanceof MigrationStopped) || !err.liveStarted) return why;
   const line = (b: BatchReport, what: string) => `\n${what}: ${b.entity} batch ${b.n} (${b.key})`;
   const dryOf = (b: BatchReport) => err.batches.dryRun.find((d) => d.entity === b.entity && d.n === b.n);
   const committed = err.committed.map((b) => {
-    // From the LIVE answer of each batch (sageRowWording). "Nothing written" only where the registry said it served a stored answer.
-    if (b.replayed) {
+    const outcome = batchOutcome(b);
+    if (outcome === 'replayed') {
       return b.rowsAbsent > 0 ? line(b, 'replayed: rows absent, nothing written (use --run-tag for a fresh import)') : line(b, 'answered from a stored answer, nothing written');
     }
     // The tool refused it: nothing written, whether or not its COMMIT landed; its refusal is said, not "may have been updated" (L3).
-    if (b.commitUnconfirmed && b.toolRefused) return `${line(b, 'commit unconfirmed')}\n  ${cut(b.error)}`;
-    if (b.commitUnconfirmed) {
+    if (outcome === 'commit_unconfirmed' && b.toolRefused) return `${line(b, 'commit unconfirmed')}\n  ${cut(b.error)}`;
+    if (outcome === 'commit_unconfirmed') {
       // The live answer the request had before its COMMIT; only without one, the dry run's answer for that batch (said so).
       return line(b, 'commit unconfirmed') + (b.toolReported !== null
         ? updates(b, () => "may have been updated to Sage's values (check the books)")
         : updates(dryOf(b), () => "may have been updated to Sage's values (from the dry run's answer: check the books)"));
     }
-    if (b.status !== 'ok' && !b.changedAfterCommit) return '';
-    if (b.allRowsAlreadyPresent && !b.changedAfterCommit) return line(b, 'answered ok, nothing new written (its rows were already there)');
+    if (outcome === 'none') return '';
     const changed = b.changedAfterCommit ? ` (then changed or removed in the books by another writer: ${(b.changedRows ?? []).join(', ') || 'see the books'}: check)` : '';
+    // A batch that wrote nothing stays "nothing new written" when a row changes after it (B14-2).
+    if (outcome === 'nothing_written') return line(b, 'answered ok, nothing new written (its rows were already there)') + changed;
     return line(b, 'committed') + changed + updates(b, (name) => writtenWording(b, name));
   }).join('');
   const failed = err.batches.failed.map((b) => `${line(b, 'failed, nothing written')}: ${cut(b.error)}`).join('');
