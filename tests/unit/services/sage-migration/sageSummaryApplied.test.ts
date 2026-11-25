@@ -1,8 +1,9 @@
 /**
  * Round-10 review MED / breaker B10-1: after a live run the summary says an owned item or category "was updated" only when the live batch
  * that carried it is ok (checked against the books). A phase that never ran wrote nothing ("would be updated (not written: ...)"), a failed
- * batch is not in the books ("would be updated (not in the books: ...)": refused, or overwritten right after its COMMIT); a batch whose
- * COMMIT is unconfirmed "may have been updated". A dry run says "would be updated" as before.
+ * batch that rolled back is not in the books ("would be updated (not in the books: ...)"); one that committed and was then changed by
+ * another writer "was updated ..., then changed in the books since (check)". An unconfirmed COMMIT never reaches a report (the run stops,
+ * round 10). A dry run says "would be updated" as before.
  */
 import { describe, expect, it } from 'vitest';
 import { summaryLines } from '@/modules/accounting/services/sage-migration/sageReportSummary';
@@ -57,13 +58,13 @@ describe('the wording of an owned row Sage\'s values change, after a live run', 
     const r = report({ categories: phase([categoryBatch(1, 'Optics')]), items: phase([{ ...itemBatch(1, ['FIB-1']), status: 'failed', rowsAbsent: 1 }, itemBatch(2, ['FIB-2'])]), purchaseOrders: phase([]) });
     expect(line(r, 'item FIB-1')).toMatch(/would be updated to Sage's values \(not in the books: item batch 1 failed\)/);
   });
-  it('an unconfirmed COMMIT: "may have been updated", for an item and a category', () => {
-    const r = report({
-      categories: phase([{ ...failed(categoryBatch(1, 'Optics'), 'COMMIT failed'), commitUnconfirmed: true }]), items: NOT_RUN, purchaseOrders: NOT_RUN,
-    });
-    expect(line(r, 'category Optics')).toBe("DIFFERS: category Optics may have been updated to Sage's values (the COMMIT of category batch 1 is unconfirmed: check the books): name");
-    const i = report({ categories: phase([categoryBatch(1, 'Optics')]), items: phase([{ ...failed(itemBatch(1, ['FIB-1']), 'COMMIT failed'), commitUnconfirmed: true }]), purchaseOrders: NOT_RUN });
-    expect(line(i, 'item FIB-1')).toMatch(/^DIFFERS: item FIB-1 may have been updated to Sage's values \(the COMMIT of item batch 1 is unconfirmed: check the books\)/);
+  it('B11-2 (round 11): a batch that COMMITTED and then failed the check against the books: "was updated ..., then changed in the books since"', () => {
+    const changed = (b: BatchReport): BatchReport => ({ ...b, status: 'failed', changedAfterCommit: true, error: 'the items in the books are not what this batch sent' });
+    const r = report({ categories: phase([changed(categoryBatch(1, 'Optics'))]), items: NOT_RUN, purchaseOrders: NOT_RUN });
+    expect(line(r, 'category Optics')).toBe("DIFFERS: category Optics was updated to Sage's values, then changed in the books since (check): name");
+    const i = report({ categories: phase([categoryBatch(1, 'Optics')]), items: phase([changed(itemBatch(1, ['FIB-1'])), failed(itemBatch(2, ['FIB-2']))]), purchaseOrders: NOT_RUN });
+    expect(line(i, 'item FIB-1')).toBe("DIFFERS: item FIB-1 was updated to Sage's values, then changed in the books since (check): description");
+    expect(line(i, 'item FIB-2')).toMatch(/would be updated to Sage's values \(not in the books: item batch 2 failed\)/); // rolled back: as before
   });
   it('a row whose batch is not in the report is never "was updated"', () => {
     const r = report({ categories: phase([]), items: phase([]), purchaseOrders: phase([]) });

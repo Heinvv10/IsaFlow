@@ -12,6 +12,19 @@ interface PoAnswer { po_number?: unknown; payload_differs?: unknown; differences
 interface ItemAnswer { outcome?: unknown; code?: unknown; changed?: unknown }
 interface CategoryAnswer { outcome?: unknown; name?: unknown; changed?: unknown }
 
+/** The owned items / categories a batch's answer says it UPDATED (put back to Sage's values), with the fields that change. */
+export function updatesOf(b: BatchReport): Array<{ kind: 'item' | 'category'; name: string; changed: string[] }> {
+  const changed = (x: { changed?: unknown }) => (Array.isArray(x.changed) ? x.changed.map(String) : []);
+  if (b.entity === 'category') {
+    const r = (b.toolReported ?? {}) as CategoryAnswer;
+    return r.outcome === 'updated' ? [{ kind: 'category', name: String(r.name), changed: changed(r) }] : [];
+  }
+  if (b.entity === 'item') {
+    return ((b.toolReported?.rows ?? []) as ItemAnswer[]).filter((r) => r.outcome === 'updated').map((r) => ({ kind: 'item', name: String(r.code), changed: changed(r) }));
+  }
+  return [];
+}
+
 export function differencesFrom(batches: readonly BatchReport[]): MigrationReport['differences'] {
   const purchaseOrders: MigrationReport['differences']['purchaseOrders'] = [];
   const items: MigrationReport['differences']['items'] = [];
@@ -21,13 +34,8 @@ export function differencesFrom(batches: readonly BatchReport[]): MigrationRepor
       for (const p of (b.toolReported?.purchase_orders ?? []) as PoAnswer[]) {
         if (p.payload_differs === true) purchaseOrders.push({ poNumber: String(p.po_number), differences: p.differences ?? [] });
       }
-    } else if (b.entity === 'category') {
-      const r = (b.toolReported ?? {}) as CategoryAnswer;
-      if (r.outcome === 'updated') categories.push({ name: String(r.name), changed: Array.isArray(r.changed) ? r.changed.map(String) : [] });
-    } else if (b.entity === 'item') {
-      for (const r of (b.toolReported?.rows ?? []) as ItemAnswer[]) {
-        if (r.outcome === 'updated') items.push({ code: String(r.code), changed: Array.isArray(r.changed) ? r.changed.map(String) : [] });
-      }
+    } else {
+      for (const u of updatesOf(b)) (u.kind === 'category' ? categories.push({ name: u.name, changed: u.changed }) : items.push({ code: u.name, changed: u.changed }));
     }
   }
   // The same PO or item named by the dry run and the live run is listed once.

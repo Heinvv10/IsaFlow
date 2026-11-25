@@ -13,8 +13,9 @@ const phase = (name: string, p: PhaseReport | undefined): string =>
 /**
  * What became of an owned item's / category's update (a difference the tool answered `updated`). A dry run writes nothing: "would be".
  * After a live run it "was updated" ONLY when the live batch that carried it is ok (the phases are checked against the books before
- * they are reported); a phase that never ran or a failed batch wrote nothing; an unconfirmed COMMIT may have. The batch is found by
- * its position, from the answers of the dry run (always run before a live one) or of the live run.
+ * they are reported); a phase that never ran or a batch that rolled back wrote nothing; a batch that committed and was then changed by
+ * another writer did write. (An unconfirmed COMMIT stops the run, so no report has one: the stop message says what it may have done.)
+ * The batch is found by its position, from the answers of the dry run (always run before a live one) or of the live run.
  */
 function updateWording(r: MigrationReport, entity: 'category' | 'item', name: string): string {
   const would = "would be updated to Sage's values";
@@ -26,8 +27,9 @@ function updateWording(r: MigrationReport, entity: 'category' | 'item', name: st
     : Array.isArray(b.toolReported?.rows) && (b.toolReported.rows as Array<{ code?: unknown }>).some((x) => x.code === name));
   const n = [...live.batches, ...dry.batches].find(names)?.n;
   const b = n === undefined ? undefined : live.batches.find((x) => x.n === n);
+  // The fallback the types ask for (every live batch of a phase that ran is in it, and the dry run named the row): never "was updated".
   if (!b) return "may have been updated to Sage's values (its batch is not in the report: check the books)";
-  if (b.commitUnconfirmed) return `may have been updated to Sage's values (the COMMIT of ${entity} batch ${b.n} is unconfirmed: check the books)`;
+  if (b.changedAfterCommit) return "was updated to Sage's values, then changed in the books since (check)";
   if (b.status !== 'ok') return `${would} (not in the books: ${entity} batch ${b.n} failed)`;
   return "was updated to Sage's values (an IsaFlow edit of these fields was overwritten)";
 }
@@ -35,11 +37,13 @@ function updateWording(r: MigrationReport, entity: 'category' | 'item', name: st
 export function summaryLines(r: MigrationReport): string[] {
   const rec = r.reconciliation;
   const po = rec.purchaseOrders;
+  // Both PO total figures are null exactly on a dry run (sageReconciliation); the two checks are there for the types (each narrows its own
+  // figure for money()), so a mutant dropping one fails tsc, not a test.
   const lines = [
     `company ${r.companyId}: ${r.status}`,
     `items: ${rec.items.inExport} in export, ${rec.items.refused} refused, ${rec.items.sent} sent, ${rec.items.presentBefore} already there, ${rec.items.presentAfter} there after (+${rec.items.addedByRun})`,
     `purchase orders: ${po.inExport} in export, ${po.refused} refused, ${po.sent} sent, ${po.presentBefore} already there, ${po.presentAfter} there after (+${po.addedByRun})`,
-    `PO total: export ${money(po.exportTotalCents)}, sent ${money(po.sentTotalCents)}, not sent ${money(po.notSentTotalCents)}, ${r.live === null || po.bookedTotalCents === null || po.differenceCents === null ? 'booked n/a (dry run), difference n/a' : `booked ${money(po.bookedTotalCents)}, difference ${money(po.differenceCents)}`}`,
+    `PO total: export ${money(po.exportTotalCents)}, sent ${money(po.sentTotalCents)}, not sent ${money(po.notSentTotalCents)}, ${po.bookedTotalCents === null || po.differenceCents === null ? 'booked n/a (dry run), difference n/a' : `booked ${money(po.bookedTotalCents)}, difference ${money(po.differenceCents)}`}`,
     ...(po.exportRowsWithoutTotal > 0 ? [`WARNING: the export PO total leaves out ${po.exportRowsWithoutTotal} row(s) whose Total is not a number`] : []),
     `stock movements written: ${rec.stock.written} (${rec.stock.itemsWithQuantityOnHandIgnored} items carried a QuantityOnHand, ignored)`,
     `PDFs to attach: ${rec.attachments.posWithPdf} (the runner uploads none)`,
@@ -78,7 +82,6 @@ export function summaryLines(r: MigrationReport): string[] {
   for (const p of [r.live, r.dryRun]) {
     for (const b of p ? [...p.categories.batches, ...p.items.batches, ...p.purchaseOrders.batches] : []) {
       if (b.status === 'failed') lines.push(`FAILED ${b.entity} batch ${b.n}${p === r.dryRun ? ' (dry run)' : ''}: ${shown(b.error)}`);
-      if (b.commitUnconfirmed) lines.push(`COMMIT UNCONFIRMED: ${b.entity} batch ${b.n} (${b.key}): it may have been committed; check the books`);
     }
   }
   lines.push(`all sent rows booked: ${rec.allSentBooked}; nothing refused: ${rec.nothingRefused}`);
@@ -88,12 +91,10 @@ export function summaryLines(r: MigrationReport): string[] {
 /**
  * 0: a clean dry run, or a live run that booked every row it sent, and every --expect-* figure matched what was sent / booked, and
  * no row was refused (unless `allowRefusals`), and no PO or owned item differs from what the books hold (unless `allowDifferences`). 1: anything else.
- * 4: a live batch's COMMIT did not answer (`commitUnconfirmed`): the books may hold it, so the run is not just "not ok" (same meaning as a stop after the live phase started).
+ * (A live batch whose COMMIT did not answer stops the run: MigrationStopped, exit 4 by exitCodeForError, never a report.)
  */
-export function exitCodeFor(r: MigrationReport, allowRefusals: boolean, allowDifferences = false): 0 | 1 | 4 {
+export function exitCodeFor(r: MigrationReport, allowRefusals: boolean, allowDifferences = false): 0 | 1 {
   const rec = r.reconciliation;
-  const live = r.live ? [...r.live.categories.batches, ...r.live.items.batches, ...r.live.purchaseOrders.batches] : [];
-  if (live.some((b) => b.commitUnconfirmed)) return 4;
   const finished = r.status === 'dry_run_ok' || (r.status === 'completed' && rec.allSentBooked);
   const expectationsMet = Object.values(rec.expected).every((e) => e === null || e.ok);
   const differs = r.differences.purchaseOrders.length + r.differences.items.length + r.differences.categories.length > 0;

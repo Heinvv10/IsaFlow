@@ -35,7 +35,7 @@ import { poContentDifferences, withContentDifferences } from './sagePoContent';
 import { buildReconciliation } from './sageReconciliation';
 import { readSnapshot, type Snapshot } from './sageSnapshot';
 import { resolveSuppliers } from './sageSuppliers';
-import { withToolSession, type ToolSession } from './sageToolSession';
+import { withToolSession } from './sageToolSession';
 
 const emptyPhase = (): PhaseReport => ({ batches: [], failed: 0 });
 /** A phase that never started because an earlier one failed. */
@@ -79,7 +79,10 @@ async function dryRun(pool: Pool, o: MigrationOptions, all: PlannedBatches, befo
   });
 }
 
-async function livePhase(pool: Pool, o: MigrationOptions, list: Send[], before: Snapshot, committed: BatchReport[], lockHeld: () => Promise<void>): Promise<PhaseReport> {
+/** What the live phases sent so far, for a stop to list: the batches that committed (or may have), and those that failed (nothing written). */
+interface Sent { committed: BatchReport[]; failed: BatchReport[] }
+
+async function livePhase(pool: Pool, o: MigrationOptions, list: Send[], before: Snapshot, sent: Sent, lockHeld: () => Promise<void>): Promise<PhaseReport> {
   const p = emptyPhase();
   for (const s of list) {
     // The lock is asked before EVERY batch (one SELECT 1, bounded by CHECK_TIMEOUT_MS, and the connection's own error flag): a loss it
@@ -99,7 +102,9 @@ async function livePhase(pool: Pool, o: MigrationOptions, list: Send[], before: 
     }
     p.batches.push(b);
     if (b.status === 'failed') p.failed++;
-    if (b.status === 'ok' || b.commitUnconfirmed) committed.push(b); // what an error later in the run can still say was (or may have been) committed
+    // What an error later in the run can still say was (or may have been) committed, and what failed before it with its reason.
+    if (b.status === 'ok' || b.commitUnconfirmed) sent.committed.push(b);
+    else sent.failed.push(b);
     // A COMMIT that did not answer may still land: the next batch would be checked (its budget, the rows it builds on) against books that
     // may not hold it yet. The run stops here, in any phase (MigrationStopped, exit 4), the batch listed as "commit unconfirmed".
     if (b.commitUnconfirmed) {
@@ -171,7 +176,7 @@ async function runLocked(pool: Pool, parsed: ParsedExport, opts: MigrationOption
   // BEFORE the live phase counts as started: a refused start, nothing written (then between the phases, below).
   await lockHeld();
   // From here the live phase has STARTED: an error carries what was committed, and says the run may have committed.
-  const committed: BatchReport[] = [];
+  const sent: Sent = { committed: [], failed: [] };
   try {
     const readAfter = () => withToolSession(pool, opts.companyId, opts.userId, false, () => readSnapshot(opts.companyId));
     // A batch the tool answered whose rows are not in the books is a replayed answer of rows since deleted: failed, with the remedy. It is
@@ -188,7 +193,8 @@ async function runLocked(pool: Pool, parsed: ParsedExport, opts: MigrationOption
       const batches = present.batches.map((b) => {
         const send = all.items.find((x) => x.n === b.n);
         const wrong = b.status === 'ok' && send?.itemSent ? itemsMismatch(send.itemSent, snapshot) : [];
-        return wrong.length === 0 ? b : { ...b, status: 'failed' as const, error: `the items in the books are not what this batch sent (${wrong.length}): ${wrong.slice(0, 5).join(' | ')}. The PO phase is not started. Run again.` };
+        // It committed: what it put back to Sage's values was written, then changed by another writer (changedAfterCommit), not rolled back.
+        return wrong.length === 0 ? b : { ...b, status: 'failed' as const, changedAfterCommit: true as const, error: `the items in the books are not what this batch sent (${wrong.length}): ${wrong.slice(0, 5).join(' | ')}. The PO phase is not started. Run again.` };
       });
       return { batches, failed: batches.filter((b) => b.status === 'failed').length };
     };
@@ -197,18 +203,18 @@ async function runLocked(pool: Pool, parsed: ParsedExport, opts: MigrationOption
       const batches = verified(phase, all.categories, snapshot).batches.map((b) => {
         const send = all.categories.find((x) => x.n === b.n);
         const wrong = b.status === 'ok' && send?.categorySent ? categoriesMismatch([send.categorySent], snapshot) : [];
-        return wrong.length === 0 ? b : { ...b, status: 'failed' as const, error: `the category in the books is not what this batch sent: ${wrong.join(' | ')}. The items phase is not started. Run again.` };
+        return wrong.length === 0 ? b : { ...b, status: 'failed' as const, changedAfterCommit: true as const, error: `the category in the books is not what this batch sent: ${wrong.join(' | ')}. The items phase is not started. Run again.` };
       });
       return { batches, failed: batches.filter((b) => b.status === 'failed').length };
     };
-    const liveCategories = await livePhase(pool, opts, all.categories, before, committed, lock.check);
+    const liveCategories = await livePhase(pool, opts, all.categories, before, sent, lock.check);
     // Every phase's batches are checked against the books, a failed sibling or not: a replay whose rows are gone must not read ok.
     const categoriesVerified = verifiedCategories(liveCategories, await readAfter());
     await lockHeld();
-    const liveItems = categoriesVerified.failed === 0 ? await livePhase(pool, opts, all.items, before, committed, lock.check) : skippedPhase();
+    const liveItems = categoriesVerified.failed === 0 ? await livePhase(pool, opts, all.items, before, sent, lock.check) : skippedPhase();
     const items = categoriesVerified.failed === 0 ? await verifiedItems(liveItems, await readAfter()) : liveItems;
     await lockHeld();
-    const livePos = categoriesVerified.failed + items.failed === 0 ? await livePhase(pool, opts, all.purchaseOrders, before, committed, lock.check) : skippedPhase();
+    const livePos = categoriesVerified.failed + items.failed === 0 ? await livePhase(pool, opts, all.purchaseOrders, before, sent, lock.check) : skippedPhase();
     await lockHeld();
     const after = await readAfter();
     const purchaseOrders = livePos.skipped ? livePos : verified(livePos, all.purchaseOrders, after);
@@ -227,6 +233,7 @@ async function runLocked(pool: Pool, parsed: ParsedExport, opts: MigrationOption
       }),
     };
   } catch (err) {
-    throw new MigrationStopped(err, true, await settled(committed, [...all.categories, ...all.items, ...all.purchaseOrders], () => withToolSession(pool, opts.companyId, opts.userId, false, () => readSnapshot(opts.companyId))));
+    const committed = await settled(sent.committed, [...all.categories, ...all.items, ...all.purchaseOrders], () => withToolSession(pool, opts.companyId, opts.userId, false, () => readSnapshot(opts.companyId)));
+    throw new MigrationStopped(err, true, committed, { failed: sent.failed, dryRun: [...dry.categories.batches, ...dry.items.batches] });
   }
 }

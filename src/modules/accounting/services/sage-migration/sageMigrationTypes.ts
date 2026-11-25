@@ -22,6 +22,11 @@ export interface BatchReport {
   error: string | null;
   /** The batch's COMMIT failed or never answered: it may have landed. The books are the judge (the final reconciliation reads them; a re-run finds what landed). */
   commitUnconfirmed?: true;
+  /**
+   * The batch COMMITTED (the tool answered ok) and then failed the check against the books: another writer changed one of its rows since.
+   * Unlike a batch that rolled back, what it put back to Sage's values was written (the summary says "was updated ..., then changed").
+   */
+  changedAfterCommit?: true;
 }
 
 /** `skipped`: the phase never started (an earlier phase failed): "not run", not an empty phase. */

@@ -10,7 +10,7 @@
  * deliberate fresh import after the rows of an earlier run were deleted (the registry would otherwise replay that run's answers). With --live: the dry run, then categories -> items -> purchase orders when
  * it is clean. --user must be an active member of --company (owner or admin to use --skip-budget-check). Exit 0 for a clean dry
  * run or a live run that booked every row it sent, whose --expect-* figures match what was sent (dry run) or booked (live) and
- * which refused no row (unless --allow-refusals) and found no PO or owned item differing from the books (unless --allow-differences); 1 for anything else; 2 for a refused start (nothing written), 4 when the run stopped on an error AFTER its live phase started, a live batch's COMMIT that did not answer among them (the run stops at that batch; batches may be committed: the message lists them; check the books, a re-run resumes), 3 when the run was otherwise ok but --report could not be written (the summary is printed first; a 1 or 4 stays).
+ * which refused no row (unless --allow-refusals) and found no PO or owned item differing from the books (unless --allow-differences); 1 for anything else; 2 for a refused start (nothing written), 4 when the run stopped on an error AFTER its live phase started, a live batch's COMMIT that did not answer among them (the run stops at that batch; batches may be committed: the message lists them; check the books, a re-run resumes), 3 when the run was otherwise ok but --report could not be written (the summary is printed first; a 1 stays).
  * `--no-env-file` keeps bun from loading a .env.local that names the dev database (the guard would refuse it anyway). Format and mapping: docs/design/sage-migration-export-format.md.
  */
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -77,7 +77,7 @@ async function main(): Promise<void> {
       try {
         writeFileSync(values.report, `${JSON.stringify(report, null, 2)}\n`);
       } catch (err) {
-        // Exit 3 only when the run would otherwise be 0: a 1 (not ok) or a 4 (a batch may be committed) must not be hidden by a report that
+        // Exit 3 only when the run would otherwise be 0: a 1 (not ok) must not be hidden by a report that
         // could not be written. The summary above says what the run did; this says what happened to the report.
         const why = err instanceof Error ? err.message : String(err);
         process.stderr.write(code === 0

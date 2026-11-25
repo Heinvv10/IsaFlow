@@ -120,21 +120,18 @@ describe('exit code and summary with differences', () => {
     expect(summaryLines({ ...base(), live: { categories: phase, items: phase, purchaseOrders: phase } }).join('\n')).toContain('live: categories: 0 batches, 0 failed; items: 0 batches, 0 failed');
   });
   it('L6 (round 9): a dry run does not print the whole sent total as the "difference" (nothing is booked to compare)', () => {
-    const t = summaryLines(base()).join('\n');
+    const dry = base();
+    Object.assign(dry.reconciliation.purchaseOrders, { bookedTotalCents: null, differenceCents: null }); // what a dry run's reconciliation holds (L3, round 10)
+    const t = summaryLines(dry).join('\n');
     expect(t).toContain('booked n/a (dry run), difference n/a');
     const live: MigrationReport = { ...base(), live: { categories: phase, items: phase, purchaseOrders: phase } };
     expect(summaryLines(live).join('\n')).toMatch(/booked R[\d\u00a0 ]+\.\d\d, difference R[\d\u00a0 ]+\.\d\d/);
   });
-  it('M1 (round 7): a batch whose COMMIT did not answer is named in the summary and the run exits 4, not 1 (the books may hold it)', () => {
-    const lost: BatchReport = { ...batch('item', null), status: 'failed', commitUnconfirmed: true, error: 'COMMIT failed', key: 'sage-mig-item-1-abc' };
-    const r: MigrationReport = { ...base(), status: 'failed', live: { categories: phase, items: { batches: [lost], failed: 1 }, purchaseOrders: phase } };
-    const t = summaryLines(r).join('\n');
-    expect(t).toContain('COMMIT UNCONFIRMED: item batch 1 (sage-mig-item-1-abc): it may have been committed; check the books');
-    expect(exitCodeFor(r, true, true)).toBe(4);
-    // an ordinary failed batch is exit 1, and says nothing about the books
-    const plain: MigrationReport = { ...r, live: { categories: phase, items: { batches: [{ ...lost, commitUnconfirmed: undefined }], failed: 1 }, purchaseOrders: phase } };
-    expect(exitCodeFor(plain, true, true)).toBe(1);
-    expect(summaryLines(plain).join('\n')).not.toContain('COMMIT UNCONFIRMED');
+  it('a failed live batch is exit 1 (an unconfirmed COMMIT never reaches a report since round 10: the run stops, exit 4, sageStopMessageBatches)', () => {
+    const failed: BatchReport = { ...batch('item', null), status: 'failed', error: 'refused', key: 'sage-mig-item-1-abc' };
+    const r: MigrationReport = { ...base(), status: 'failed', live: { categories: phase, items: { batches: [failed], failed: 1 }, purchaseOrders: phase } };
+    expect(exitCodeFor(r, true, true)).toBe(1);
+    expect(summaryLines(r).join('\n')).toContain('FAILED item batch 1: refused');
   });
   it('L3 (round 7): the PO total expectation is printed as money, not as bare cents next to a flag given in rands', () => {
     const r = base();

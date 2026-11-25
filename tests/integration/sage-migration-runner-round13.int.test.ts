@@ -34,7 +34,7 @@ const desc = async (ref: string) => (await pool.query(`SELECT description FROM i
 const editItem = () => pool.query(`UPDATE items SET description = 'edited', updated_at = now() WHERE company_id = $1 AND external_ref = '50002'`, [s.companyId]);
 
 describe('B10-A2 / MED: a category batch that fails its check against the books', () => {
-  it('items not run: the item reads "would be updated (not written ...)", the failed category is not "was updated"; exit 1, the edit kept', async () => {
+  it('items not run: the item reads "would be updated (not written ...)", the category "was updated ..., then changed"; exit 1, the edit kept', async () => {
     expect((await run()).status).toBe('completed');
     await editItem();
     await pool.query(`UPDATE item_categories SET name = 'Optics edited', updated_at = now() WHERE company_id = $1 AND external_ref = '10'`, [s.companyId]);
@@ -48,8 +48,9 @@ describe('B10-A2 / MED: a category batch that fails its check against the books'
     expect(exitCodeFor(r, true, true)).toBe(1);
     expect(lines.find((l) => l.startsWith('live:'))).toMatch(/items: not run; purchase orders: not run/);
     expect(lines.find((l) => /item FIB-0002/.test(l))).toBe("DIFFERS: item FIB-0002 would be updated to Sage's values (not written: the items phase did not run): description");
-    expect(lines.find((l) => /category Optics/.test(l))).toMatch(/^DIFFERS: category Optics would be updated to Sage's values \(not in the books: category batch \d+ failed\)/);
-    expect(lines.join('\n')).not.toMatch(/was updated|was overwritten/);
+    // The category batch COMMITTED (Sage's name written) and was renamed after: it did write (B11-2, round 11), unlike the items.
+    expect(lines.find((l) => /category Optics/.test(l))).toBe("DIFFERS: category Optics was updated to Sage's values, then changed in the books since (check): name");
+    expect(lines.find((l) => /item FIB-0002/.test(l))).not.toMatch(/was updated|was overwritten/);
     expect(await desc('50002')).toBe('edited');
   });
 });
