@@ -27,9 +27,9 @@ describe('quoteBody', () => {
     expect('body' in b && b.body.lines[0]!.vatType).toBe('exempt');
   });
 
-  it('inclusive sends the price as entered with amountsAre inclusive', () => {
-    const b = body([line({ unitPrice: 115, vatType: 'standard' })], 'inclusive');
-    expect('body' in b && [b.body.amountsAre, b.body.lines[0]!.unitPrice]).toEqual(['inclusive', 115]);
+  it('inclusive sends the ex-VAT price of a rated line with amountsAre exclusive; an exempt line as typed', () => {
+    const b = body([line({ unitPrice: 115, vatType: 'standard' }), line({ key: 'k2', description: 'Rent', unitPrice: 115, vatType: 'exempt' })], 'inclusive');
+    expect('body' in b && [b.body.amountsAre, ...b.body.lines.map((l) => l.unitPrice)]).toEqual(['exclusive', 100, 115]);
   });
 
   it('a company not registered for VAT sends untyped lines and exclusive', () => {

@@ -106,7 +106,7 @@ it('an exempt customer\'s lines start Exempt (the server\'s default chain)', asy
   expect((await sent()).lines[0]!.vatType).toBe('exempt');
 });
 
-it('Including VAT sends the price as entered with amountsAre inclusive; the total is the gross typed', async () => {
+it('Including VAT sends the ex-VAT price (as this modal always did); the total shown is the total stored', async () => {
   renderPage('bi-monthly');
   await openAndFill('100');
   await pickOption('Amounts are', /Including VAT/);
@@ -117,7 +117,7 @@ it('Including VAT sends the price as entered with amountsAre inclusive; the tota
   expect([figure('Subtotal'), figure('VAT (15%)'), figure('Total')].map((t) => t.replace(/[^\d.]/g, ''))).toEqual(['200.00', '30.00', '230.00']);
   create();
   const body = await sent();
-  expect([body.amountsAre, body.lines[0]!.unitPrice, body.lines[0]!.vatType]).toEqual(['inclusive', 230, 'standard']);
+  expect([body.amountsAre, body.lines[0]!.unitPrice, body.lines[0]!.vatType]).toEqual(['exclusive', 200, 'standard']);
 });
 
 it('a company not registered for VAT: no VAT column or "Amounts are", untyped lines, exclusive', async () => {

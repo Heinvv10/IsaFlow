@@ -19,7 +19,7 @@ import { InvoiceSettingsRow } from '@/components/accounting/customer-invoices/In
 import { InvoiceTotals } from '@/components/accounting/customer-invoices/InvoiceTotals';
 import { InvoiceLineVatSelect } from '@/components/accounting/customer-invoices/InvoiceLineVatSelect';
 import { normaliseVatType, type TaxMode } from '@/components/accounting/customer-invoices/taxMode';
-import { quoteBody, type QuoteFormHeader, type QuoteFormLine } from './quoteFormVat';
+import { quoteBody, storedForm, type QuoteFormHeader, type QuoteFormLine } from './quoteFormVat';
 
 /** A row of the customers list (contactDirectoryService.listCustomers): `default_vat_type` is its lines' VAT default. */
 export interface CustomerOption { id: string; name: string; default_vat_type?: string | null }
@@ -48,7 +48,9 @@ export function CreateQuoteModal({ customers, onClose, onCreated }: Props) {
   const types = lineVatTypes(lines, customerVat);
   const modeSwitch = useTaxModeSwitch({ lines, setLines, taxMode, setTaxMode, types, date: form.quoteDate });
   const mode = modeSwitch.vatMode; // 'none' for a company not registered for VAT
-  const { subtotal, tax, total } = formTotals(lines, types, mode, form.quoteDate);
+  // What is stored is what is shown: an inclusive quote is stored ex-VAT (storedForm), so its totals are read there.
+  const stored = storedForm(lines, types, mode, form.quoteDate);
+  const { subtotal, tax, total } = formTotals(stored.lines, types, stored.mode, form.quoteDate);
   const built = quoteBody(form, lines, mode, types);
   const update = (key: string, patch: Partial<QuoteFormLine>) => setLines((ls) => ls.map((l) => (l.key === key ? { ...l, ...patch } : l)));
   const busy = saving || dates.blocked;
@@ -121,14 +123,14 @@ export function CreateQuoteModal({ customers, onClose, onCreated }: Props) {
                   <td className="md:table-cell px-0 md:px-2 py-0 md:py-2"><span className="md:hidden block text-xs text-slate-600 dark:text-slate-400 mb-1">Unit price</span><AmountInput aria-label={`Unit price, line ${i + 1}`} value={l.unitPrice} min={0} onValueChange={v => update(l.key, { unitPrice: v })} className={`${inp} text-right`} /></td>
                   {/* Below md the row is a grid: description; qty, unit price, total; then the VAT type on its own row (order-1). */}
                   {showVat && <td className="col-span-3 order-1 md:order-none md:table-cell px-0 md:px-2 py-0 md:py-2"><span className="md:hidden block text-xs text-slate-600 dark:text-slate-400 mb-1">VAT type</span><InvoiceLineVatSelect label={`VAT type, line ${i + 1}`} value={types[i] ?? null} date={form.quoteDate} onChange={t => update(l.key, { vatType: t })} /></td>}
-                  <td className="md:table-cell px-0 md:px-3 py-0 md:py-2 text-right tabular-nums text-xs font-semibold text-slate-700 dark:text-slate-300"><span className="md:hidden block text-xs font-normal text-slate-600 dark:text-slate-400 mb-1">Total</span>{fmt(formLineNet(l, types[i] ?? null, mode, form.quoteDate))}</td>
+                  <td className="md:table-cell px-0 md:px-3 py-0 md:py-2 text-right tabular-nums text-xs font-semibold text-slate-700 dark:text-slate-300"><span className="md:hidden block text-xs font-normal text-slate-600 dark:text-slate-400 mb-1">Total</span>{fmt(formLineNet(stored.lines[i]!, types[i] ?? null, stored.mode, form.quoteDate))}</td>
                   <td className="col-span-3 order-2 md:order-none flex justify-end md:table-cell px-0 md:px-2 py-0 md:py-2"><button type="button" aria-label={`Remove line ${i + 1}`} onClick={() => lines.length > 1 && setLines(lines.filter((_, j) => j !== i))} className="p-1 min-h-11 min-w-11 md:min-h-0 md:min-w-0 inline-flex items-center justify-center rounded text-slate-700 dark:text-slate-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"><Trash2 className="w-3.5 h-3.5" /></button></td>
                 </tr>
               ))}
             </tbody>
           </table>
           </div>
-          <InvoiceTotals subtotal={subtotal} tax={tax} total={total} currencyCode="ZAR" byType={formVatByType(lines, types, mode, form.quoteDate)} date={form.quoteDate} />
+          <InvoiceTotals subtotal={subtotal} tax={tax} total={total} currencyCode="ZAR" byType={formVatByType(stored.lines, types, stored.mode, form.quoteDate)} date={form.quoteDate} />
         </div>
 
         {shown && <p role="alert" className="text-sm text-red-600 dark:text-red-400">{shown}</p>}

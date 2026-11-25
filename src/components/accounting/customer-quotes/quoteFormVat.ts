@@ -5,7 +5,9 @@
  *
  *   - each line carries its OWN VAT type (standard, zero_rated, exempt), picked in the VAT column, or none of its own
  *     (`vatType` absent): the customer's default chain at render (formVat.lineVatType), so it follows the customer;
- *   - prices are sent AS ENTERED with `amountsAre` (inclusive: VAT-inclusive; the server backs each line's VAT out);
+ *   - an "Including VAT" quote is sent EX-VAT, as this modal always did (storedForm): each rated line's typed price is
+ *     converted at its own rate (exVatUnitPrice) and sent with `amountsAre` exclusive, so a quote's stored total is what
+ *     it was before per-line VAT, and the modal shows that same total (it does not move on save);
  *   - every line sent names its `vatType` and no legacy `taxRate`, so the server never reads a type off a rate (the
  *     modal only creates: quotes have no edit screen, so no line carries a stored id);
  *   - a company not registered for VAT ('none') sends untyped lines and 'exclusive': the server stores no VAT for it.
@@ -18,8 +20,8 @@
  */
 import { numberLines } from '@/lib/lineNumbers';
 import { isRatedDate } from '@/lib/vat/standardRate';
-import { amountsAreFor, vatRoundsToNothingProblem, vatTypeProblem, type LineVatType, type LineVatTypeOrNone } from '@/components/accounting/customer-invoices/formVat';
-import { pricesToNothing, pricesToNothingMessage, type TaxMode } from '@/components/accounting/customer-invoices/taxMode';
+import { lineVatRate, vatRoundsToNothingProblem, vatTypeProblem, type FormVatLine, type LineVatType, type LineVatTypeOrNone } from '@/components/accounting/customer-invoices/formVat';
+import { exVatUnitPrice, pricesToNothing, pricesToNothingMessage, type TaxMode } from '@/components/accounting/customer-invoices/taxMode';
 import type { AmountsAre } from '@/modules/accounting/services/ar/invoiceLineVatPricing';
 
 export interface QuoteFormLine {
@@ -37,6 +39,21 @@ export interface QuoteLinePayload { description: string; quantity: number; unitP
 
 export type QuoteBody = QuoteFormHeader & { amountsAre: AmountsAre; lines: QuoteLinePayload[] };
 
+/**
+ * The lines and mode a quote is stored in (and so shown in): an inclusive quote's rated lines at their ex-VAT price,
+ * priced exclusive. Any other mode is as typed.
+ */
+export function storedForm<L extends FormVatLine>(lines: readonly L[], types: readonly LineVatTypeOrNone[], mode: TaxMode, date: string): { lines: L[]; mode: TaxMode } {
+  if (mode !== 'inclusive') return { lines: [...lines], mode };
+  return {
+    mode: 'exclusive',
+    lines: lines.map((l, i) => {
+      const rate = lineVatRate(types[i] ?? null, date);
+      return rate > 0 ? { ...l, unitPrice: exVatUnitPrice(l.unitPrice, rate) } : l;
+    }),
+  };
+}
+
 /** A line with a description (spaces alone are none): only such a line is sent, and every hold reads it the same way. */
 const described = (l: QuoteFormLine): boolean => l.description.trim() !== '';
 
@@ -52,17 +69,17 @@ export function quoteBody(form: QuoteFormHeader, lines: readonly QuoteFormLine[]
   if (tooSmall) return { problem: pricesToNothingMessage(tooSmall.description) };
   const kept = numberLines(lines.map((l, i) => ({ l, type: types[i] ?? null })), ({ l }) => described(l));
   if (kept.length === 0) return { problem: 'Add at least one line item' };
+  const shownTypes = kept.map(({ type }) => type);
+  const stored = storedForm(kept.map(({ l }) => l), shownTypes, mode, form.quoteDate);
   if (mode !== 'none') {
-    const shown = kept.map(({ l }) => l);
-    const shownTypes = kept.map(({ type }) => type);
-    const problem = vatTypeProblem(shown, shownTypes) ?? vatRoundsToNothingProblem(shown, shownTypes, mode, form.quoteDate);
+    const problem = vatTypeProblem(stored.lines, shownTypes) ?? vatRoundsToNothingProblem(stored.lines, shownTypes, stored.mode, form.quoteDate);
     if (problem) return { problem };
   }
   return {
     body: {
-      ...form, amountsAre: amountsAreFor(mode),
-      lines: kept.map(({ l, type, lineNo }) => ({
-        description: l.description, quantity: l.quantity, unitPrice: l.unitPrice, lineNo,
+      ...form, amountsAre: 'exclusive',
+      lines: kept.map(({ l, type, lineNo }, i) => ({
+        description: l.description, quantity: l.quantity, unitPrice: stored.lines[i]!.unitPrice, lineNo,
         ...(mode !== 'none' && type ? { vatType: type } : {}),
       })),
     },
