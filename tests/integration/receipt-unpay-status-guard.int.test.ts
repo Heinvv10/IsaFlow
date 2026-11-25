@@ -34,6 +34,7 @@ vi.mock('@/modules/accounting/services/ar/receiptInvoiceLock', async (orig) => {
 
 import { als } from '@/lib/als';
 import { sql } from '@/lib/neon';
+import { log } from '@/lib/logger';
 import { clearSystemAccountCache } from '@/modules/accounting/services/gl/systemAccountResolver';
 import { cancelCustomerPayment } from '@/modules/accounting/services/ar/customerPaymentAllocationService';
 import { applyReceiptPlan, planReceiptApplication } from '@/modules/accounting/services/ar/receiptApplicationService';
@@ -250,6 +251,42 @@ describe('supplier payments (the AP mirror)', () => {
     expect(await cols()).toEqual({ status: 'paid', paid: 1000, paid_at: true, payment_matched: true, matched_at: true });
     expect((await paymentAction('void', pay)).status).toBe(200);
     expect(await cols()).toEqual({ status: 'approved', paid: 0, paid_at: false, payment_matched: false, matched_at: false });
+  }, 60_000);
+
+  // #1728 follow-up: a bill holding LESS than this payment's allocation (dev Demo's 2026-04-27 bulk rewrite left 42) is
+  // voided the way MCP void_payment unwinds it: clamped at 0, the four derived columns re-derived, and a warning naming it
+  it('a void of a payment whose bill holds less than its allocation clamps at 0, re-derives the bill and warns', async () => {
+    const b = await seedBill(pool, fx, 1000);
+    const pay = await processedPayment(b, 1000);
+    await pool.query(`UPDATE supplier_invoices SET amount_paid = 600, status = 'partially_paid', paid_at = NOW(),
+      payment_matched = true, payment_matched_at = NOW() WHERE id = $1`, [b]); // 400 short of the 1000 allocated
+    const warn = vi.spyOn(log, 'warn');
+    try {
+      const voided = await paymentAction('void', pay);
+      expect(voided.status, JSON.stringify(voided.body)).toBe(200);
+      const { rows: [row] } = await pool.query(`SELECT status, amount_paid::float8 AS paid, paid_at IS NOT NULL AS paid_at,
+        payment_matched, payment_matched_at IS NOT NULL AS matched_at FROM supplier_invoices WHERE id = $1`, [b]);
+      expect(row).toEqual({ status: 'approved', paid: 0, paid_at: false, payment_matched: false, matched_at: false });
+      expect((await pool.query('SELECT status FROM supplier_payments WHERE id = $1', [pay])).rows[0].status).toBe('cancelled');
+      const clamped = warn.mock.calls.filter((c) => /less than/i.test(String(c[0])));
+      expect(clamped).toHaveLength(1);
+      expect(clamped[0]![1]).toMatchObject({ companyId: fx.company, billId: b, paymentId: pay, allocated: 1000, held: 600, shortfall: 400 });
+    } finally {
+      warn.mockRestore();
+    }
+  }, 60_000);
+
+  it('a void that the bill fully covers does not warn', async () => {
+    const b = await seedBill(pool, fx, 1000);
+    const pay = await processedPayment(b, 400);
+    const warn = vi.spyOn(log, 'warn');
+    try {
+      expect((await paymentAction('void', pay)).status).toBe(200);
+      expect(warn.mock.calls.filter((c) => /less than/i.test(String(c[0])))).toHaveLength(0);
+      expect(await bill(b)).toEqual({ status: 'approved', paid: 0 });
+    } finally {
+      warn.mockRestore();
+    }
   }, 60_000);
 
   // #1728 review L3: the apply side too, defence in depth: a payment processed onto a bill that is no longer balance-derived
