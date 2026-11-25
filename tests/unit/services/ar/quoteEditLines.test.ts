@@ -262,6 +262,11 @@ describe('a standard-only quote: a match needs a compatible rate and a free stor
     const sent = [line({ description: 'B', itemId: A, accountId: 'x' }), line({ description: 'A', unitPrice: 30, itemId: A }),
       line({ description: 'A', itemId: A, accountId: 'x' }), line({ description: 'B', itemId: A, accountId: 'y' })];
     expect(run(sent, [a0, bx, by]).ids[1]).toBeNull();
+    // A line of the place's description that IS matched (to another twin) does not want the place: the rename keeps it.
+    const ar = stored('ar', { description: 'A', itemId: B, accountId: 'z' });
+    const bq = stored('bq', { description: 'B', itemId: B, accountId: 'y' });
+    expect(run([line({ description: 'B', itemId: A }), line({ description: 'B', itemId: B }), line({ description: 'A', itemId: B })],
+      [a0, bq, ar]).ids).toEqual(['a', 'bq', 'ar']);
   });
 
   it('M4 (round 14): legacy [A p, A q, B] resent [B, A, A] with no itemIds is accepted and unchanged (never re-priced)', () => {
