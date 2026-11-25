@@ -4,7 +4,9 @@
  *     the check against the books keeps the items from running, and neither the category nor the item reads "was updated";
  *   - L2: the first batch whose COMMIT does not answer STOPS the run, in any phase (MigrationStopped, exit 4, the batch listed as
  *     "commit unconfirmed"): no later batch is sent against books that may not hold it yet. A COMMIT that lands after the bound is found
- *     by the re-run, with no duplicate.
+ *     by the re-run, with no duplicate;
+ *   - L7: the runner's phase skipping is held by tests that go red when it is mutated: verifiedCategories by round4's "a category changed
+ *     right after its batch committed" and B10-A2 here; the live skippedPhase by round11 L2 and B10-A2; the dry run's by the last one here.
  * Fixture route: isaflow_schema_fixture (assertDisposable). Never skips.
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -117,4 +119,40 @@ describe('B10-A3 / L2: a COMMIT that lands after the bound', () => {
     expect(exitCodeFor(again, false, false)).toBe(0);
     expect(await booked(pool, s.companyId)).toMatchObject({ items: 20, pos: 10 });
   }, 60_000);
+});
+
+describe('L7 (round 10): a dry run whose category batches fail', () => {
+  it('reads "not run" for the items and the POs, not "0 batches", and nothing is written', async () => {
+    // A writer lands between the snapshot and the dry run: the names of the export's categories, taken by categories the migration does
+    // not own, just as the dry run's first category batch asks its idempotency lock. The tool refuses each batch; the plan could not know.
+    const names = parsedExport(exportFile()).categories.map((c) => c.description);
+    let raced = false;
+    const racing = {
+      options: pool.options,
+      connect: async () => {
+        const c = await pool.connect();
+        return new Proxy(c, {
+          get(t, p) {
+            if (p === 'query') {
+              return async (...a: unknown[]) => {
+                if (!raced && Array.isArray(a[1]) && a[1].some((x) => typeof x === 'string' && x.includes(':sage-mig-category-0001-') && x.endsWith('-dry'))) {
+                  raced = true;
+                  for (const name of names) await pool.query(`INSERT INTO item_categories (company_id, name) VALUES ($1, $2)`, [s.companyId, name]);
+                }
+                return (t.query as (...x: unknown[]) => Promise<unknown>)(...a);
+              };
+            }
+            const v = Reflect.get(t, p, t) as unknown;
+            return typeof v === 'function' ? v.bind(t) : v;
+          },
+        });
+      },
+    } as unknown as Pool;
+    const r = await run({}, racing);
+    expect(raced).toBe(true);
+    expect(r.status).toBe('dry_run_failed');
+    expect(r.live).toBeNull();
+    expect(summaryLines(r).join('\n')).toContain(`dry run: categories: ${names.length} batches, ${names.length} failed; items: not run; purchase orders: not run`);
+    expect(await booked(pool, s.companyId)).toMatchObject({ categories: names.length, items: 0, pos: 0 }); // only the writer's own rows
+  });
 });
