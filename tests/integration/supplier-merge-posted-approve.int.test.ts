@@ -153,8 +153,24 @@ describe('posted, on the safer side (breaker of #1900: M1, M2)', () => {
   it('a bill approved and then cancelled (its journal pair, link nulled) needs Approve: approved_at says it was posted', async () => {
     await withFixture('smpa-m2-cancelled', async (fx, target) => {
       const bill = await makeBill(pool, fx, [{ acct: fx.acc.opex, amount: 100 }], { status: 'cancelled' });
-      await pool.query('UPDATE supplier_invoices SET approved_at = now(), approved_by = $2 WHERE id = $1', [bill, fx.owner]);
+      await pool.query('UPDATE supplier_invoices SET approved_at = now() WHERE id = $1', [bill]);
       await refused(fx, target, '1 approved, partly paid, paid or once-posted bill');
+    });
+  }, 30_000);
+
+  it('a credit note approved and then cancelled (approved_by kept) needs Approve', async () => {
+    await withFixture('smpa-m2-note', async (fx, target) => {
+      await pool.query(`INSERT INTO credit_notes (company_id, credit_note_number, type, supplier_id, credit_date, total_amount, status, approved_by, created_by)
+        VALUES ($1, 'SMPA-CN-1', 'supplier', $2, '2026-06-10', 10, 'cancelled', $3, $3)`, [fx.co, fx.supplier, fx.owner]);
+      await refused(fx, target, '1 approved, applied or once-posted credit note');
+    });
+  }, 30_000);
+
+  it('a payment cancelled after it was processed (processed_at kept) needs Approve', async () => {
+    await withFixture('smpa-m2-pay', async (fx, target) => {
+      const pay = await payment(fx, 'cancelled');
+      await pool.query('UPDATE supplier_payments SET processed_at = now() WHERE id = $1', [pay]);
+      await refused(fx, target, '1 approved, batched, processed or reconciled payment');
     });
   }, 30_000);
 
@@ -171,10 +187,10 @@ describe('posted, on the safer side (breaker of #1900: M1, M2)', () => {
     });
   }, 30_000);
 
-  it('a purchase order approved and then cancelled needs Approve', async () => {
+  it.each([['approved_at', 'now()', 'NULL'], ['approved_by', 'NULL', '$3']])('a purchase order approved and then cancelled (stamp: %s) needs Approve', async (_stamp, at, by) => {
     await withFixture('smpa-m2-po', async (fx, target) => {
       await pool.query(`INSERT INTO purchase_orders (company_id, po_number, supplier_id, order_date, status, subtotal, tax_amount, total, approved_at, approved_by)
-        VALUES ($1, 'SMPA-PO-1', $2, '2026-06-02', 'cancelled', 10, 0, 10, now(), $3)`, [fx.co, fx.supplier, fx.owner]);
+        VALUES ($1, 'SMPA-PO-1', $2, '2026-06-02', 'cancelled', 10, 0, 10, ${at}, ${by}::TEXT)`, by === '$3' ? [fx.co, fx.supplier, fx.owner] : [fx.co, fx.supplier]);
       try { await refused(fx, target, '1 approved, received or once-approved purchase order'); } finally {
         await pool.query("DELETE FROM purchase_orders WHERE company_id = $1 AND po_number = 'SMPA-PO-1'", [fx.co]);
       }

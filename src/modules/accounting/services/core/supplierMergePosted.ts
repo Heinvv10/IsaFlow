@@ -6,7 +6,7 @@
  *
  * Posted, by document, on the safer side (breaker of #1900, M1 / M2): a posted status OR the marks a posting leaves, so a document
  * posted and then cancelled, voided, reversed or sent back to pending / disputed still counts (its journal pair moves with it):
- *   - bills: approved, partially_paid, paid; or a journal link, an approval stamp (approved_at), or a journal sourced from it;
+ *   - bills: approved, partially_paid, paid; or a journal link, an approval stamp (approved_at / approved_by), or a journal sourced from it;
  *   - payments: approved (it will pay the payee's bank details), processed, reconciled; or in a payment batch, a journal link, an
  *     approval or process stamp, or a journal sourced from it;
  *   - supplier credit notes: approved, partially_applied, applied; or a journal link, an approval stamp, a journal sourced from it;
@@ -39,12 +39,12 @@ const sourcedJournal = (table: string) =>
  */
 const POSTED_SQL = {
   bill: `(supplier_invoices.status IN (${inList(POSTED_BILL_STATUSES)}) OR supplier_invoices.gl_journal_entry_id IS NOT NULL
-          OR supplier_invoices.approved_at IS NOT NULL OR ${sourcedJournal('supplier_invoices')})`,
+          OR supplier_invoices.approved_at IS NOT NULL OR supplier_invoices.approved_by IS NOT NULL OR ${sourcedJournal('supplier_invoices')})`,
   payment: `(supplier_payments.status IN (${inList(POSTED_PAYMENT_STATUSES)}) OR supplier_payments.batch_id IS NOT NULL
-          OR supplier_payments.gl_journal_entry_id IS NOT NULL OR supplier_payments.approved_at IS NOT NULL
+          OR supplier_payments.gl_journal_entry_id IS NOT NULL OR supplier_payments.approved_at IS NOT NULL OR supplier_payments.approved_by IS NOT NULL
           OR supplier_payments.processed_at IS NOT NULL OR ${sourcedJournal('supplier_payments')})`,
   credit_note: `(credit_notes.status IN (${inList(POSTED_CREDIT_NOTE_STATUSES)}) OR credit_notes.gl_journal_entry_id IS NOT NULL
-          OR credit_notes.approved_at IS NOT NULL OR ${sourcedJournal('credit_notes')})`,
+          OR credit_notes.approved_at IS NOT NULL OR credit_notes.approved_by IS NOT NULL OR ${sourcedJournal('credit_notes')})`,
 } as const;
 /** The predicate for a move's RETURNING: `RETURNING ..., ${postedSql('bill')} AS posted`. */
 export const postedSql = (kind: 'bill' | 'payment' | 'credit_note') => sql.unsafe(POSTED_SQL[kind]);
@@ -88,7 +88,7 @@ export async function assertMayMergePostedSupplierDocuments(
   `) as DbRow[];
   const counts = {
     bill: Number(row?.bills ?? 0), payment: Number(row?.payments ?? 0), credit_note: Number(row?.notes ?? 0),
-    purchase_order: pos.filter((p) => !UNCOMMITTED_PO_STATUSES.includes(p.status) || p.approvedAt !== null).length,
+    purchase_order: pos.filter((p) => !UNCOMMITTED_PO_STATUSES.includes(p.status) || p.approvedAt !== null || p.approvedBy !== null).length,
   };
   if (Object.values(counts).some((n) => n > 0)) throw refusal(counts);
 }
