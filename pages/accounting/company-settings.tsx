@@ -9,12 +9,11 @@ import { useRouter } from 'next/router';
 import Head from 'next/head';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Building2, Save, Loader2 } from 'lucide-react';
-import { apiErrorMessage, apiFetch, ApiRequestError, assertOk } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { useCompany } from '@/contexts/CompanyContext';
 import { Company, DocumentNumber, CompanyDocument, documentsFromList } from '@/components/accounting/settings/settingsTypes';
 import { mapApiCompany } from '@/components/accounting/settings/mapApiCompany';
 import { useFinancialYearRefresh } from '@/components/accounting/settings/refreshFinancialYearView';
-import { companySavePayload } from '@/components/accounting/settings/companySavePayload';
 import { SettingsErrorBanner } from '@/components/accounting/settings/SettingsErrorBanner';
 import { SettingsSavedBanner } from '@/components/accounting/settings/SettingsSavedBanner';
 import { SettingsSidebar } from '@/components/accounting/settings/SettingsSidebar';
@@ -34,20 +33,20 @@ import { UdfTab } from '@/components/accounting/settings/UdfTab';
 import { RegionalTab } from '@/components/accounting/settings/RegionalTab';
 import { CustomerZoneTab } from '@/components/accounting/settings/CustomerZoneTab';
 import { NetcashTab } from '@/components/accounting/settings/NetcashTab';
-import { useTimeoutOnce } from '@/hooks/useTimeoutOnce';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { formSnapshot, useSettingsDirty } from '@/components/accounting/settings/settingsSnapshot';
+import { useUnsavedChangesGuard } from '@/components/accounting/settings/useUnsavedChangesGuard';
+import { useCompanySettingsSave } from '@/components/accounting/settings/useCompanySettingsSave';
 
 export default function CompanySettingsPage() {
   const { activeCompany, loading: companiesLoading } = useCompany();
   const [company, setCompany] = useState<Company | null>(null);
-  const afterDelay = useTimeoutOnce();
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const [supplReady, setSupplReady] = useState(false); // the supplementary reads settled: the form is whole
   const [lockdownInvalid, setLockdownInvalid] = useState(false);
   const [error, setError] = useState('');
   const [loadedMonth, setLoadedMonth] = useState(3); // the financial year start the form was loaded with (companySavePayload)
-  const [stale, setStale] = useState(false); // the save found it changed since (409): offer Reload
   const [reloads, setReloads] = useState(0); // Reload, or a save that moves the year start, remounts General: its year panel re-reads
-  const [saved, setSaved] = useState(false);
   const [activeTab, setActiveTab] = useState<TabId>('details');
 
   // Deep links land on the tab they name (e.g. the "not registered for VAT"
@@ -91,6 +90,7 @@ export default function CompanySettingsPage() {
   }, []);
 
   const fetchSupplementary = useCallback(async (companyId: string) => {
+    setSupplReady(false);
     const get = async (url: string) => {
       const r = await apiFetch(url);
       await assertOk(r, 'Could not load some company settings - try again');
@@ -122,6 +122,7 @@ export default function CompanySettingsPage() {
     if (dispRes.status === 'fulfilled' && dispRes.value.data?.value) {
       try { setDocDisplayFields(prev => ({ ...prev, ...(JSON.parse(dispRes.value.data.value as string) as Record<string, boolean>) })); } catch { /* keep defaults */ }
     }
+    setSupplReady(true);
   }, []);
 
   useEffect(() => {
@@ -141,40 +142,13 @@ export default function CompanySettingsPage() {
     setCompany(prev => prev ? { ...prev, [field]: value } as Company : prev);
   };
 
-  const handleSave = async () => {
-    // Defence in depth: Save is disabled while Lockdown Date is refused, but not every path goes through the button.
-    if (!company || lockdownInvalid) return;
-    setSaving(true); setError(''); setStale(false); setSaved(false);
-    let companySaved = false;
-    try {
-      const put = async (url: string, body: unknown, fallback: string) => {
-        const r = await apiFetch(url, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-        await assertOk(r, fallback);
-      };
-      const r = await apiFetch('/api/accounting/companies', { method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(companySavePayload(company, loadedMonth)) });
-      await assertOk(r, 'Could not save the company details - try again');
-      companySaved = true;
-      const row = ((await r.json()) as { data?: Record<string, unknown> | null }).data;
-      const month = row ? mapApiCompany(row).financialYearStart : company.financialYearStart; // the month now stored
-      setLoadedMonth(month); if (month !== loadedMonth && activeCompany?.id) refreshYearView(activeCompany.id); // periods rebuilt
-      const after = 'Company details saved, but some settings could not be saved - try again';
-      await Promise.all([
-        docNumbers.length > 0 && put('/api/accounting/company-settings?type=document-numbers',
-          { updates: docNumbers.map(d => ({ documentType: d.documentType, prefix: d.prefix, nextNumber: d.nextNumber })) }, after),
-        Object.keys(messages).length > 0 && put('/api/accounting/company-settings?type=messages',
-          { messages: Object.entries(messages).map(([messageType, message]) => ({ messageType, message })) }, after),
-        !dispLoadFailed && put('/api/accounting/accounting-settings', { key: 'document_display_fields', value: JSON.stringify(docDisplayFields) }, after),
-      ].filter(Boolean));
-      setSaved(true);
-      afterDelay(() => setSaved(false), 3000);
-    } catch (err) {
-      setStale(!companySaved && err instanceof ApiRequestError && err.status === 409); // changed since loaded: offer Reload
-      setError(apiErrorMessage(err, 'Could not save the changes - try again'));
-    } finally {
-      setSaving(false);
-    }
-  };
+  const snapshot = formSnapshot({ company, docNumbers, messages, docDisplayFields });
+  const { dirty, markClean } = useSettingsDirty(snapshot, !loading && supplReady && !!company);
+  const guard = useUnsavedChangesGuard(dirty);
+  const { handleSave, saving, saved, stale, setStale } = useCompanySettingsSave({
+    company, lockdownInvalid, loadedMonth, setLoadedMonth, docNumbers, messages, docDisplayFields, dispLoadFailed,
+    companyId: activeCompany?.id, refreshYearView, setError, onSaved: () => markClean(snapshot),
+  });
 
   // ── Tab content renderer ──────────────────────────────────────────────────
 
@@ -255,19 +229,24 @@ export default function CompanySettingsPage() {
           </div>
           <button
             onClick={() => void handleSave()}
-            disabled={saving || !company || lockdownInvalid}
+            disabled={saving || !company || lockdownInvalid || !dirty}
             className="flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
           >
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Save Changes
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} {dirty || saving ? 'Save Changes' : 'No changes'}
           </button>
         </div>
 
         {error && (
           <SettingsErrorBanner message={error} onReload={stale && activeCompany?.id ? () => {
-            setError(''); setStale(false); setReloads(n => n + 1); void fetchCompany(activeCompany.id);
+            setError(''); setStale(false); setReloads(n => n + 1); void fetchCompany(activeCompany.id); void fetchSupplementary(activeCompany.id);
           } : undefined} />
         )}
         {saved && <SettingsSavedBanner />}
+        <ConfirmDialog
+          open={guard.pending !== null} tone="destructive" title="Leave without saving?"
+          message="You have unsaved changes to the company settings. If you leave now they are lost."
+          acceptLabel="Leave" cancelLabel="Stay" onAccept={guard.leave} onCancel={guard.stay}
+        />
 
         {loading && (
           <div className="flex justify-center py-12">

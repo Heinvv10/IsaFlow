@@ -7,7 +7,6 @@
 import { canWrite } from '@/lib/auth/writeRoles';
 import type { McpTool } from '../types';
 import { PoReportScanError, readPoStatusReport } from '@/modules/accounting/services/ap/poStatusReport';
-import { isRealCalendarDate } from '@/lib/validation';
 import { PO_STATUSES } from './listPurchaseOrders';
 import { OFFSET_SCHEMA, parseOffset } from './pageArgs';
 import { PO_REPORT_LIMIT_DEFAULT, PO_REPORT_LIMIT_MAX, poStatusItem } from './poStatusReportView';
@@ -62,7 +61,6 @@ export const poStatusReportTool: McpTool = {
     const offset = parseOffset(args);
     if (typeof offset === 'string') return toolError(offset);
     const text = (k: string): string | null => (typeof args[k] === 'string' && (args[k] as string).trim() !== '' ? (args[k] as string).trim() : null);
-    if (text('from') && !isRealCalendarDate(text('from')!)) return toolError('invalid from');
     try {
       const report = await readPoStatusReport(ctx.companyId, {
         statuses: statuses as string[] | null, supplierId: text('supplier_id')?.toLowerCase() ?? null, from: text('from'), to: text('to'),

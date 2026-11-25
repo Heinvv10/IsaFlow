@@ -11,6 +11,13 @@ import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vites
 
 // ── Module mocks ─────────────────────────────────────────────────────────────
 
+// The supplier live lock needs a request transaction (core/supplierLiveLock); here the supplier is live. Its SQL, the wait and the
+// merged-away refusal are proved on real PostgreSQL (tests/integration/i1699-*.int.test.ts).
+vi.mock('@/modules/accounting/services/core/supplierLiveLock', async (orig) => ({
+  ...(await orig<typeof import('@/modules/accounting/services/core/supplierLiveLock')>()),
+  lockSupplierIfLive: async () => true,
+  lockLiveSurvivor: async (_companyId: string, id: string) => id,
+}));
 vi.mock('@/lib/neon', () => {
   // sql.unsafe is a vi.fn so tests can assert against its bound values. It
   // returns the first arg (raw SQL text) so the outer sql tagged template

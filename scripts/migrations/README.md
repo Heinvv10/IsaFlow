@@ -2,7 +2,7 @@
 
 ## Naming Convention
 
-`NNN_description.sql` — 3-digit zero-padded numeric prefix, snake_case description.
+`N_description.sql` — a numeric prefix of any width (`99_`, `999_`, `1000_`), snake_case description. Ordering is numeric (`scripts/lib/migrationFiles.ts`), so `999z_` sorts before `1000_`. Use the next unused prefix, zero-padded to at least 3 digits (`1055_…`).
 
 To insert a migration **between** two existing numbers, use a letter suffix:
 `244b_add_missing_index.sql`
