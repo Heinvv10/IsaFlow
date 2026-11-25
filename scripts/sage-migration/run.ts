@@ -40,13 +40,12 @@ const leaveStopReport = (err: unknown): void => {
   const why = owned.write(stopReportBody(err));
   if (why) process.stderr.write(`${why}\n`);
 };
+/** A refused start: exit 2, its stop report in --report once the run created it (before that, stderr only: there is no file of its own). */
 const fail = (s: string): never => {
   process.stderr.write(`${s}\n`);
   leaveStopReport(new Error(s));
   process.exit(2);
 };
-/** A refusal before --report exists: stderr only, exit 2. */
-const refuse = (s: string): never => { process.stderr.write(`${s}\n`); process.exit(2); };
 
 /** "80950000.00" -> 8095000000 cents, exactly (no float). */
 function cents(text: string): number {
@@ -71,14 +70,14 @@ const count = (text: string | undefined): number | undefined => {
 
 async function main(): Promise<void> {
   let parsedArgs: ReturnType<typeof parseCli>;
-  try { parsedArgs = parseCli(); } catch (err) { return refuse(err instanceof Error ? err.message : String(err)); }
+  try { parsedArgs = parseCli(); } catch (err) { return fail(err instanceof Error ? err.message : String(err)); }
   const { values } = parsedArgs;
   // --report is created exclusively as the run's FIRST write (round 16): a path that exists is never written, and nothing else is.
   const target = checkReportArgs(process.argv.slice(2), values.report);
-  if (!target.ok) return refuse(target.why);
+  if (!target.ok) return fail(target.why);
   if (target.path !== undefined) {
     const created = OwnedReport.create(target.path);
-    if (!(created instanceof OwnedReport)) return refuse(created.why);
+    if (!(created instanceof OwnedReport)) return fail(created.why);
     owned = created;
   }
   try { assertLocalDatabase(); } catch (err) { fail(err instanceof Error ? err.message : String(err)); }

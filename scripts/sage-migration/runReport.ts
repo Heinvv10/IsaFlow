@@ -100,7 +100,8 @@ export class OwnedReport {
       closeSync(fd);
       fd = undefined;
       const now = lstatSync(this.path, { throwIfNoEntry: false });
-      if (!now || !now.isFile() || now.dev !== this.dev || now.ino !== this.ino || readFileSync(this.path, 'utf8') !== this.bytes) {
+      // A symlink, a hard link or another file put at the path has another inode (lstat: a symlink's own); a reused inode number, other bytes.
+      if (!now || now.dev !== this.dev || now.ino !== this.ino || readFileSync(this.path, 'utf8') !== this.bytes) {
         unlinkSync(tmp);
         return `--report ${this.path} is no longer the file this run created (it was replaced, linked or removed during the run): it is not written`;
       }
