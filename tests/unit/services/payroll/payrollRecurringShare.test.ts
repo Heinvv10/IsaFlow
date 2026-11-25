@@ -225,8 +225,11 @@ describe('review #1901 round 3: the remainder is only for rows that tile the win
     expect(gross(gap)).toBeLessThan(10000.01);
   });
   it('an overlap that makes up a gap (days add up to the month) is not a tiling: each row is its own share', () => {
-    const rows = apportionRecurringRows([earn('s', 10000, '2020-01-01', d(9)), earn('s', 10000, d(13)), earn('s', 10000, d(6), d(6))], employee, july);
-    expect(rows.map((r) => r.amount)).toEqual([r2(10000 * 7 / 23), r2(10000 * 15 / 23), r2(10000 * 1 / 23)]);
+    // R33 333.33: the three own shares (10 144.93 + 21 739.13 + 1 449.28) add to a cent more than the amount, so a
+    // remainder applied here would move the last row: it must not.
+    const rows = apportionRecurringRows([earn('s', 33333.33, '2020-01-01', d(9)), earn('s', 33333.33, d(13)), earn('s', 33333.33, d(6), d(6))], employee, july);
+    expect(rows.map((r) => r.amount)).toEqual([r2(33333.33 * 7 / 23), r2(33333.33 * 15 / 23), r2(33333.33 * 1 / 23)]);
+    expect(gross(rows)).toBe(33333.34);
   });
 });
 
