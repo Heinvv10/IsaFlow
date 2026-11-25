@@ -8,8 +8,11 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 
-/** One rule the sweep skipped because its supplier was merged into `survivorName` (null: plainly deleted). */
-export interface MergedRuleSkip { ruleName: string; supplierName: string; survivorName: string | null; lines: number }
+/**
+ * One rule the sweep skipped: `merged` from the supplier's merged_into_id (true: merged away, false: plainly deleted), and the
+ * survivor's name when it can still be read (null: deleted, or a merge whose survivor row is gone).
+ */
+export interface MergedRuleSkip { ruleName: string; supplierName: string; merged: boolean; survivorName: string | null; lines: number }
 
 export class MergedRuleSkips {
   private readonly byRule = new Map<string, { supplierId: string; lines: number }>();
@@ -29,7 +32,7 @@ export class MergedRuleSkips {
     if (this.byRule.size === 0) return [];
     const ids = [...new Set([...this.byRule.values()].map((r) => r.supplierId))];
     const rows = (await sql`
-      SELECT s.id::TEXT AS id, s.name, sv.name AS survivor
+      SELECT s.id::TEXT AS id, s.name, s.merged_into_id IS NOT NULL AS merged, sv.name AS survivor
         FROM suppliers s LEFT JOIN suppliers sv ON sv.id = s.merged_into_id AND sv.company_id = s.company_id
        WHERE s.company_id = ${companyId}::UUID AND s.id = ANY(${ids}::UUID[])
     `) as DbRow[];
@@ -37,6 +40,7 @@ export class MergedRuleSkips {
     return [...this.byRule.entries()].map(([ruleName, r]) => ({
       ruleName,
       supplierName: String(named.get(r.supplierId)?.name ?? 'its supplier'),
+      merged: named.get(r.supplierId)?.merged === true,
       survivorName: named.get(r.supplierId)?.survivor == null ? null : String(named.get(r.supplierId)!.survivor),
       lines: r.lines,
     }));

@@ -206,8 +206,8 @@ describe('fix-verify M1: supplier rules left on a merged-away supplier', () => {
         expect(res.e).toBeUndefined();
         expect(res.v).toMatchObject({ applied: 0, autoPostSkippedSupplierMerged: 2, autoPostSkippedRaced: 0, autoPostSkippedRefundCeiling: 0 });
         expect((res.v as { autoPostSupplierMergedRules: unknown[] }).autoPostSupplierMergedRules).toEqual(expect.arrayContaining([
-          { ruleName: 'i1882 pay rule', supplierName: 'P5-2 Supplies', survivorName: 'i1882-rules-merged target', lines: 1 },
-          { ruleName: 'i1882 refund rule', supplierName: 'P5-2 Supplies', survivorName: 'i1882-rules-merged target', lines: 1 },
+          { ruleName: 'i1882 pay rule', supplierName: 'P5-2 Supplies', merged: true, survivorName: 'i1882-rules-merged target', lines: 1 },
+          { ruleName: 'i1882 refund rule', supplierName: 'P5-2 Supplies', merged: true, survivorName: 'i1882-rules-merged target', lines: 1 },
         ]));
         expect(await journals(fx)).toBe(0);
       } finally { await pool.query('DELETE FROM bank_categorisation_rules WHERE company_id = $1', [fx.co]); }

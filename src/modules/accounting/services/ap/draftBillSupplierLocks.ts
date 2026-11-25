@@ -22,15 +22,17 @@ import { BillSupplierDeletedError } from './billSupplierLive';
  */
 export async function lockSuppliersBeforeBill(companyId: string, invoiceId: string, newSupplierId: string | undefined): Promise<string[] | null | 'not_found'> {
   if (!newSupplierId) return null;
-  const [named] = (await sql`
-    SELECT 1 AS ok FROM suppliers WHERE id = ${newSupplierId}::UUID AND company_id = ${companyId}::UUID
-  `) as DbRow[];
-  if (!named) return 'not_found';
+  // The bill first: absent or another company's is Not found before any supplier is locked (#1882 fix-verify L1).
   const [bill] = (await sql`
     SELECT supplier_id::TEXT AS supplier_id FROM supplier_invoices
      WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID
   `) as DbRow[];
-  const ids = [...new Set([newSupplierId, ...(bill ? [String(bill.supplier_id)] : [])])].sort();
+  if (!bill) return 'not_found';
+  const [named] = (await sql`
+    SELECT 1 AS ok FROM suppliers WHERE id = ${newSupplierId}::UUID AND company_id = ${companyId}::UUID
+  `) as DbRow[];
+  if (!named) return 'not_found';
+  const ids = [...new Set([newSupplierId, String(bill.supplier_id)])].sort();
   const held: string[] = [];
   for (const id of ids) {
     const live = await lockSupplierIfLive(companyId, id);

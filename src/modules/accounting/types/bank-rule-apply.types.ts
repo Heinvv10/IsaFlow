@@ -123,6 +123,6 @@ export interface RuleApplyResult {
    * it. Remedy: re-point the rule to the survivor, which `autoPostSupplierMergedRules` names per rule.
    */
   autoPostSkippedSupplierMerged?: number;
-  /** Per rule skipped as above: its name, the supplier it names, that supplier's survivor (null: deleted), and how many lines. */
-  autoPostSupplierMergedRules?: Array<{ ruleName: string; supplierName: string; survivorName: string | null; lines: number }>;
+  /** Per rule skipped as above: its name, the supplier it names, merged (merged_into_id) or deleted, the survivor's name, and lines. */
+  autoPostSupplierMergedRules?: Array<{ ruleName: string; supplierName: string; merged: boolean; survivorName: string | null; lines: number }>;
 }

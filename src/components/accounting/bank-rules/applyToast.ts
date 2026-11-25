@@ -25,14 +25,15 @@ export interface ApplyResultParts {
   autoPostSkippedDuplicateTransfer?: number;
   autoPostSkippedApprovalRequired?: number;
   autoPostSkippedSupplierMerged?: number;
-  autoPostSupplierMergedRules?: Array<{ ruleName: string; supplierName: string; survivorName: string | null; lines: number }>;
+  autoPostSupplierMergedRules?: Array<{ ruleName: string; supplierName: string; merged: boolean; survivorName: string | null; lines: number }>;
 }
 
 /** The banner's heading for those skips, by cause: merged into another supplier, deleted, or some of each (#1882 L-d). */
 export function mergedRuleHeading(rules: ApplyResultParts['autoPostSupplierMergedRules'], skipped: number): string {
   const list = rules ?? [];
-  const merged = list.some((r) => r.survivorName);
-  const deleted = list.some((r) => !r.survivorName);
+  // By merged_into_id (r.merged), never by whether the survivor's name could be read (fix-verify L2).
+  const merged = list.some((r) => r.merged);
+  const deleted = list.some((r) => !r.merged);
   const cause = merged && deleted ? 'names a supplier that was merged into another or deleted'
     : deleted ? 'names a supplier that was deleted' : 'names a supplier that was merged into another';
   return `${skipped} transaction${skipped > 1 ? 's were' : ' was'} skipped — the rule ${cause}.`;
@@ -42,9 +43,10 @@ export function mergedRuleHeading(rules: ApplyResultParts['autoPostSupplierMerge
 export function mergedRuleSentences(rules: ApplyResultParts['autoPostSupplierMergedRules']): string[] {
   return (rules ?? []).map((r) => {
     const lines = `${r.lines} skipped`;
+    if (!r.merged) return `${lines} (rule "${r.ruleName}" names ${r.supplierName}, which was deleted — edit the rule to name a live supplier)`;
     return r.survivorName
       ? `${lines} (rule "${r.ruleName}" names ${r.supplierName}, which was merged into ${r.survivorName} — edit the rule to name ${r.survivorName})`
-      : `${lines} (rule "${r.ruleName}" names ${r.supplierName}, which was deleted — edit the rule to name a live supplier)`;
+      : `${lines} (rule "${r.ruleName}" names ${r.supplierName}, which was merged into another supplier — edit the rule to name that supplier)`;
   });
 }
 

@@ -88,3 +88,27 @@ describe('L-c: a supplier that is not this company\'s', () => {
     });
   }, 30_000);
 });
+
+describe('fix-verify L1: a bill that is not this company\'s (or none) is Not found before any supplier is locked', () => {
+  it('answers at once, even while the named supplier is held by someone else', async () => {
+    await withFixture('i1882-l1-bill', async (fx, target) => {
+      const other = await seedBillFixture(pool, 'i1882-l1-bill-other');
+      const hold = await pool.connect();
+      try {
+        const foreignBill = await makeBill(pool, other, [{ acct: other.acc.opex, amount: 20 }]);
+        await hold.query('BEGIN');
+        await hold.query('SELECT id FROM suppliers WHERE id = $1 FOR UPDATE', [target]);
+        for (const bill of [foreignBill, crypto.randomUUID()]) {
+          const r = await openRequest(pool, fx, fx.owner);
+          const started = Date.now();
+          try {
+            const err = await r.run(edit(fx, bill, { supplierId: target })).then(() => null, (e: unknown) => e);
+            expect((err as Error | null)?.message, bill).toBe('Not found');
+            expect(Date.now() - started).toBeLessThan(2000); // never waited on the held supplier (its budget is 5 s)
+          } finally { await r.rollback(); }
+        }
+      } finally { await hold.query('ROLLBACK'); hold.release(); await dropBillFixture(pool, other); }
+    });
+  }, 30_000);
+});
+
