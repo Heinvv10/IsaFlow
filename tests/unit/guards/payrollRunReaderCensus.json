@@ -442,6 +442,10 @@
   "src/modules/accounting/services/payroll/payrollLeaverSuccessor.ts": [
    {"line":11,"text":"SELECT 1 FROM payroll_employee_components nxt","class":"S","owner":"PRA","why":"W29 review #1901 round 3: the one leaver-successor predicate (the next day, by date, no month), used by both readers"}
   ],
+  "src/modules/accounting/services/payroll/payrollRecurringOverlap.ts": [
+   {"line":19,"text":"FROM payroll_employee_components a","class":"S","owner":"PRA","why":"W29 review #1901 round 4: overlapping recurring rows touching the run's own period (periodStart..last), by date"},
+   {"line":20,"text":"JOIN payroll_employee_components b ON b.employee_id = a.employee_id AND b.component_id = a.component_id AND b.id <> a.id","class":"S","owner":"PRA","why":"W29 round 4: the other row of the pair, same employee and component"}
+  ],
   "src/modules/accounting/services/payroll/payrollRecurringShareAck.ts": [
    {"line":39,"text":"JOIN payroll_run_headers h ON h.id = l.run_id AND h.company_id = ${companyId}::uuid","class":"S","owner":"PRA","why":"W29 review M2: the run's own lines, by run id"},
    {"line":49,"text":"JOIN payroll_run_headers h ON h.id = a.entity_id AND h.company_id = ${companyId}::uuid","class":"S","owner":"PRA","why":"W29 review M2: acknowledgements bound to this company's run, by run id"}

@@ -71,6 +71,10 @@ beforeAll(async () => {
   await seedPayrollCompany(pool, co, 20000);
   salary = String((await pool.query("SELECT id FROM payroll_components WHERE company_id=$1 AND name='Basic Salary'", [co])).rows[0].id);
   for (const [shape, rows] of Object.entries(SHAPES)) for (const [where, end] of Object.entries(ENDS)) await emp(`${shape}-${where}`, end, rows(end));
+  // Round 4: legacy / imported data the write guard would refuse: a successor starting ON the leaver's end date (15 July)
+  // overlaps the leaver row for that day; and an employee (not a leaver) with two open salary rows.
+  await emp('OVL-LEAVER', '2026-07-15', [{ amount: 10000, from: '2020-01-01', to: '2026-07-15', recurring: true }, { amount: 12000, from: '2026-07-15', to: null, recurring: true }]);
+  await emp('OVL-OPEN', '2099-12-31', [{ amount: 10000, from: '2020-01-01', to: null, recurring: true }, { amount: 2000, from: '2026-07-01', to: null, recurring: true }]);
   // R3-L3: a weekly leaver (last day Wednesday 10 June) whose own row ends on that day, in the week of 6-12 June.
   await emp('W-LEAVER', '2026-06-10', [{ amount: 6000, from: '2020-01-01', to: '2026-06-10', recurring: true }], 'weekly');
   // June's weekly run first: July's SDL basis reads it (a later calculation of June would leave July's stale).
@@ -96,6 +100,25 @@ describe('one successor predicate: pay and guard agree, whichever reader meets t
     expect(b?.code).toBe('recurring_needs_pro_rata');
     for (const n of ['NEXT-band', 'NEXT-mid', 'PKG-band', 'PKG-mid', 'PRE953-band', 'PRE953-mid']) expect(b!.detail).toContain(`${n} Basic Salary`);
     expect(b!.detail).toContain("GAP-mid Basic Salary starts on 2026-07-17, after the employee's last day");
+  });
+});
+
+describe('round 4: two live recurring rows of one component that overlap', () => {
+  it('are flagged on the line, naming the later row, and approval names them', async () => {
+    for (const [num, from] of [['OVL-LEAVER', '2026-07-15'], ['OVL-OPEN', '2026-07-01']] as const) {
+      const r = (await pool.query('SELECT validation_results AS v FROM payroll_run_lines WHERE run_id=$1 AND employee_id=$2', [jul, ids[num]])).rows[0].v as Array<{ code: string; message: string }>;
+      expect(r.filter((x) => x.code === 'RECURRING_NEEDS_PRO_RATA' && x.message.includes('two recurring rows of this component overlap')).map((x) => x.message), num)
+        .toEqual([expect.stringContaining(`Basic Salary starts on ${from}, overlapping another of its rows`)]);
+    }
+    const b = (await judgePayrollApproval(co, jul))?.blocker;
+    expect(b!.detail).toContain('OVL-LEAVER Basic Salary starts on 2026-07-15, overlapping another of its rows');
+    expect(b!.detail).toContain('OVL-OPEN Basic Salary starts on 2026-07-01, overlapping another of its rows');
+    expect(b!.detail).toMatch(/^Recurring components on this run would be paid in full, not at all, or twice for some days/);
+  });
+
+  it('a GAP leaver (rows that do not overlap) carries no overlap flag', async () => {
+    const r = (await pool.query('SELECT validation_results AS v FROM payroll_run_lines WHERE run_id=$1 AND employee_id=$2', [jul, ids['GAP-mid']])).rows[0].v as Array<{ message: string }>;
+    expect(r.some((x) => x.message.includes('overlap'))).toBe(false);
   });
 });
 
