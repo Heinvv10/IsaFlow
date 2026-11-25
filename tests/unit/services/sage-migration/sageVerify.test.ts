@@ -86,6 +86,12 @@ describe('unconfirmedBatch (B12-1, L3 round 13)', () => {
   it('no result at all: no answer', () => {
     expect(unconfirmedBatch(failed, undefined)).toMatchObject({ commitUnconfirmed: true, toolReported: null });
   });
+  it('B19-1: the connection was lost: never "the tool refused", no toolRefused, no live answer', () => {
+    const refusedByLoss = batch('item', 2, { status: 'failed', toolReported: null, error: 'The operation failed. Please try again or contact support.' });
+    const b = unconfirmedBatch(failed, refusedByLoss, true);
+    expect(b).toMatchObject({ commitUnconfirmed: true, toolReported: null, error: 'the connection was lost; its COMMIT was not confirmed (COMMIT did not answer)' });
+    expect(b.toolRefused).toBeUndefined();
+  });
 });
 
 describe('settleCommitted (L6, round 13): a stop checks its committed batches as the live phases do', () => {

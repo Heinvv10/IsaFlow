@@ -45,7 +45,9 @@ export function verifiedCategories(phase: PhaseReport, sends: readonly Send[], s
  * The batch report of a live batch whose COMMIT did not answer, from what the request had before its COMMIT (`live`, the batch as sent):
  * its live answer (B12-1), or, when the tool REFUSED the batch, that refusal (round-13 L3: it wrote nothing, landed or not).
  */
-export function unconfirmedBatch(failed: BatchReport, live: BatchReport | undefined): BatchReport {
+export function unconfirmedBatch(failed: BatchReport, live: BatchReport | undefined, connectionLost = false): BatchReport {
+  // The connection was lost during the request: what the tool answered was that loss, not a refusal (B19-1); its live answer says nothing.
+  if (connectionLost) return { ...failed, commitUnconfirmed: true, toolReported: null, error: `the connection was lost; its COMMIT was not confirmed (${failed.error ?? 'no detail'})` };
   if (live?.status === 'failed' && !live.commitUnconfirmed) {
     return { ...failed, commitUnconfirmed: true, toolRefused: true, toolReported: null, error: `the tool refused this batch (${live.error ?? 'no reason given'}); its COMMIT was not confirmed (${failed.error ?? 'no detail'})` };
   }

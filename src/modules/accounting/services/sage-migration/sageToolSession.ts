@@ -46,10 +46,11 @@ export function setCommitBoundForTests(ms: number): () => void {
 /**
  * The COMMIT of a request transaction did not answer (or failed): whether it landed is unknown. Any other failure rolled the batch back.
  * `result` is what the request's work returned before the COMMIT (a live batch: the tool's own answer), so a caller can say what the batch
- * did if the COMMIT landed, never falling back on the dry run's answer.
+ * did if the COMMIT landed, never falling back on the dry run's answer. `connectionLost`: the client reported its connection lost during
+ * the request (round 19, B19-1), so a failure the tool answered was the lost connection, not a refusal.
  */
 export class CommitUnconfirmedError extends Error {
-  constructor(message: string, readonly result: unknown) { super(message); }
+  constructor(message: string, readonly result: unknown, readonly connectionLost = false) { super(message); }
 }
 
 const WRITE_TOOLS = new Set(mcpRegistry.listTools().filter((t) => t.write).map((t) => t.name));
@@ -76,6 +77,11 @@ export async function withToolSession<T>(
   pool: Pool, companyId: string, userId: string, commit: boolean, fn: (s: ToolSession) => Promise<T>,
 ): Promise<T> {
   const client = await pool.connect();
+  // pg-pool drops its idle 'error' listener while a client is checked out: without one, a backend that dies mid-request is an uncaught
+  // error that ends the process (B19-1). Listened to here, the rejected query drives the runner's own lost-connection path.
+  let lost: Error | null = null;
+  const onError = (err: Error): void => { lost = err; };
+  client.on('error', onError);
   let committed = false;
   let owned: RequestContext | null = null;
   let unusable = false; // set when a ROLLBACK fails: the connection may still be inside its transaction
@@ -125,7 +131,7 @@ export async function withToolSession<T>(
         new Promise<never>((_, reject) => { commitTimer = setTimeout(() => reject(new Error(`COMMIT did not answer within ${commitBoundMs}ms`)), commitBoundMs); commitTimer.unref?.(); }),
       ]);
     } catch (err) {
-      throw new CommitUnconfirmedError(err instanceof Error ? err.message : String(err), result);
+      throw new CommitUnconfirmedError(err instanceof Error ? err.message : String(err), result, lost !== null);
     } finally {
       clearTimeout(commitTimer);
     }
@@ -136,7 +142,8 @@ export async function withToolSession<T>(
     unusable = await rollbackFailed(client, 'sage-migration');
     throw err;
   } finally {
-    client.release(unusable);
+    client.off('error', onError);
+    client.release(unusable || lost !== null);
     settleAfterRollback(owned, committed);
   }
 }

@@ -106,7 +106,7 @@ async function livePhase(pool: Pool, o: MigrationOptions, list: Send[], before: 
       log.error('sage migration: batch failed', { entity: s.entity, n: s.n, message }, 'sage-migration');
       b = { entity: s.entity, n: s.n, size: s.size, key: keyFor(s, before, false), status: 'failed', allRowsAlreadyPresent: false, rowsAbsent: 0, toolReported: null, error: message };
       // An unconfirmed COMMIT may have landed: keep the LIVE tool answer the request had before its COMMIT (what the batch did if it landed).
-      if (err instanceof CommitUnconfirmedError) b = unconfirmedBatch(b, err.result as BatchReport | undefined);
+      if (err instanceof CommitUnconfirmedError) b = unconfirmedBatch(b, err.result as BatchReport | undefined, err.connectionLost);
     }
     p.batches.push(b);
     if (b.status === 'failed') p.failed++;
