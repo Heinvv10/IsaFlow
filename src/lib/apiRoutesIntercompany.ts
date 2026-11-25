@@ -10,6 +10,7 @@ import type { AllocationDetail, AllocationPage } from '@/modules/accounting/serv
 import type { AcceptAllocationOutcome } from '@/modules/accounting/services/intercompany/allocationClearTypes';
 import type { LoanClearingPreview, LoanClearResult } from '@/modules/accounting/services/intercompany/payerLoanClearTypes';
 import type { ReconConnection, ReconReport } from '@/modules/accounting/services/intercompany/loanReconTypes';
+import type { AcceptPaymentOutcome, PaymentDetail, PaymentPage, PaymentState, UnsentPage } from '@/modules/accounting/services/intercompany/paymentInboxTypes';
 
 export interface IntercompanyStaticRoutes {
   // GET the list (`items`), POST the new connection: the list and the item of one resource, disjoint on `items`.
@@ -25,6 +26,11 @@ export interface IntercompanyStaticRoutes {
   '/api/accounting/intercompany/loan-clearings': LoanClearingPreview | LoanClearResult;
   // P5: the connections the loan reconciliation can open (read only).
   '/api/accounting/intercompany/loan-reconciliation': { connections: ReconConnection[] };
+  // F: the payments a payer in the group made from its bank on bills linked to this company's invoices (cash mode), the payer's unsent list,
+  // and a receipt's intercompany chip (?receiptId=)
+  '/api/accounting/intercompany/payments': PaymentPage;
+  '/api/accounting/intercompany/payments/unsent': UnsentPage;
+  '/api/accounting/intercompany/payments/receipt-state': { messageId: string; state: PaymentState; status: string } | null;
 }
 
 export interface IntercompanyDynamicRoutes {
@@ -43,6 +49,13 @@ export interface IntercompanyDynamicRoutes {
   '/api/accounting/intercompany/allocations/{}/restore': { id: string; status: string };
   // P4-D: clear an allocation (one contra settlement) or store why it was refused (`accepted: false`).
   '/api/accounting/intercompany/allocations/{}/accept': AcceptAllocationOutcome;
+  // F: one payment message (its suggestions while open), the two accept outcomes, the discard of an F draft, and the other handlings
+  '/api/accounting/intercompany/payments/{}': PaymentDetail;
+  '/api/accounting/intercompany/payments/{}/accept': AcceptPaymentOutcome;
+  '/api/accounting/intercompany/payments/{}/discard-draft': { messageId: string; status: 'pending'; paymentId: string };
+  '/api/accounting/intercompany/payments/{}/reject': { id: string; status: string };
+  '/api/accounting/intercompany/payments/{}/dismiss': { id: string; status: string };
+  '/api/accounting/intercompany/payments/{}/restore': { id: string; status: string };
   // GET the pairing screen's data; POST records pairs (answers with the counts).
   '/api/accounting/intercompany/connections/{}/pairing': PairingView | PairingResult;
   // PUT confirms the partner's proposal, DELETE unlinks: both answer with the link's new status.

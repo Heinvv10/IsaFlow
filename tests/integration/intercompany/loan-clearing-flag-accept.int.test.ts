@@ -94,8 +94,9 @@ describe('flag OFF for the receiver: nothing can be accepted', () => {
 
 describe('flag ON: per company, the receiver\'s flag decides', () => {
   it('A on, B off: the list and detail say true with a preview, and A accepts B\'s message (one journal)', async () => {
-    await setLoanClearing(pool, [co.B], false);
+    // (1031, L-1: the sender asks the payer's flag in SQL too, so the message is sent while B's is on; then B's goes off)
     const sent = await sentClearable(pool, conn);
+    await setLoanClearing(pool, [co.B], false);
     expect(dataOf<AllocationPage>(await allocationsApi.list(U.a, co.A, { filter: 'open' })).loanClearingEnabled).toBe(true);
     const detail = dataOf<AllocationDetail>(await allocationsApi.get(U.a, co.A, sent.message));
     expect(detail.loanClearingEnabled).toBe(true);

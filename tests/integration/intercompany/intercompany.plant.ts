@@ -84,10 +84,12 @@ export const DOCUMENT_KINDS = ['invoice', 'credit_note', 'interest_invoice'];
  */
 export async function plantMessage(pool: Pool, connection: string, from: string, to: string, over: { kind?: string; doc?: string; user?: string } = {}): Promise<string> {
   const kind = over.kind ?? 'invoice';
-  const sourceType = kind === 'credit_note' ? 'credit_note' : kind === 'allocation' ? 'payment_allocation' : DOCUMENT_KINDS.includes(kind) ? 'customer_invoice' : 'payment';
-  // An allocation message names a real `payment_allocations` row of the sender's payment (1025): planted as the sender's draft payment against its own bill.
+  const rowKind = kind === 'allocation' || kind === 'payment';
+  const sourceType = kind === 'credit_note' ? 'credit_note' : rowKind ? 'payment_allocation' : DOCUMENT_KINDS.includes(kind) ? 'customer_invoice' : 'payment';
+  // An allocation (1025) or payment (1031) message names a real `payment_allocations` row of the sender's payment: planted as the sender's draft
+  // payment against its own bill (a payment message is the database's alone since 1031: app_user cannot write one, the definers' owner can).
   const doc = over.doc ?? (DOCUMENT_KINDS.includes(kind) ? await plantDocument(pool, sourceType as 'credit_note' | 'customer_invoice', from)
-    : kind === 'allocation' ? (await plantAllocationRow(pool, { paymentCompany: from })).allocation : crypto.randomUUID());
+    : rowKind ? (await plantAllocationRow(pool, { paymentCompany: from })).allocation : crypto.randomUUID());
   const payload = DOCUMENT_KINDS.includes(kind) ? await payloadFor(pool, kind, doc, from) : '{"number":"INV-1"}';
   // A message is written by the database (1019): app_user cannot INSERT one of any kind, so a fixture plants it as the table owner with the
   // sender's claims (the guard's other rules - connection, group, write role, source document - all run).

@@ -28,6 +28,9 @@ assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 8 });
 let conn = '';
 const MIGRATION_1027 = readFileSync(resolve(__dirname, '../../../scripts/migrations/sql/1027_intercompany_p4d_allocation_clearing.sql'), 'utf8');
+// 1031 (intercompany F) redefines the messages guard, the message-document check, the allocation sender, the cap lock and the target index:
+// replayed last, so the committed replay leaves the newest bodies
+const MIGRATION_1031 = readFileSync(resolve(__dirname, '../../../scripts/migrations/sql/1031_intercompany_p6f_payment_messages.sql'), 'utf8');
 
 const clearBankRows = async () => {
   for (const t of ['bank_transactions', 'bank_feed_connections', 'bank_accounts']) await pool.query(`DELETE FROM ${t} WHERE company_id = ANY($1)`, [[co.A, co.B, co.C]]);
@@ -147,6 +150,7 @@ describe('G, H', () => {
       expect(await ledger.message(pool, sent.message)).toMatchObject({ status: 'failed', target_doc_id: null });
     } finally {
       await pool.query(MIGRATION_1027);
+      await pool.query(MIGRATION_1031);
     }
   });
 

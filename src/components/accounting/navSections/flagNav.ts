@@ -14,6 +14,8 @@ export const THREE_WAY_HREF = '/accounting/budgets/three-way';
  *  feature flag or one module Read, and the intercompany write role (owner / admin / manager) is neither, so a member without it sees the
  *  link and the page answers its 403 sentence. */
 export const LOAN_RECON_HREF = '/accounting/settings/intercompany/loan-reconciliation';
+/** Intercompany F: the receiver's Payments inbox and the payer's unsent list (Sales > Intercompany Payments). */
+export const IC_PAYMENTS_HREF = '/accounting/customer-payments/intercompany';
 
 /** Self-serve upgrade from trial (owner only), dark behind its flag. The page and its API check the flag and the owner role themselves. */
 export const TRIAL_UPGRADE_HREF = '/accounting/settings/billing/upgrade';
@@ -22,6 +24,8 @@ export const TRIAL_UPGRADE_HREF = '/accounting/settings/billing/upgrade';
 const FLAGGED_SURFACES: Readonly<Record<string, string>> = {
   [THREE_WAY_HREF]: 'budgets_three_way',
   [LOAN_RECON_HREF]: 'intercompany_loan_clearing',
+  // intercompany F: the receiver's Payments inbox and the payer's unsent list (the dark flag; the routes refuse without it)
+  [IC_PAYMENTS_HREF]: 'intercompany_loan_clearing',
   [TRIAL_UPGRADE_HREF]: 'trial_self_serve_upgrade',
 };
 
