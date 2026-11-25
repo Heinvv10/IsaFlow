@@ -29,13 +29,13 @@ const cli = (args: string[], env: Record<string, string> = {}, preload?: string)
   'scripts/sage-migration/run.ts', '--company', s.companyId, '--user', s.userId, '--file', FIXTURE, ...args], { encoding: 'utf8', timeout: 170_000, env: { ...process.env, DATABASE_SSL: 'disable', ...env } });
 const live = ['--live', '--expect-items', '20', '--expect-pos', '10'];
 
-describe('B17-1: files at would-be temp names', () => {
-  it('survive byte for byte; the report is written', () => {
+describe('B17-1: files at the names a temp file would have had', () => {
+  it('survive byte for byte (planted for the run\'s own pid over the next 20 s); the report is written', () => {
     const report = join(d, 'r.json');
-    for (let n = 0; n < 200; n++) writeFileSync(join(d, `.r.json.${n}.${Date.now() + n}.tmp`), `planted ${n}`);
-    expect(cli(['--report', report]).status).toBe(0);
+    const r = cli(['--report', report], { SAGE_REPORT: report }, 'tests/integration/helpers/sagePlantTempPreload.ts');
+    expect(r.status, r.stderr).toBe(0);
     const planted = readdirSync(d).filter((f) => f.endsWith('.tmp'));
-    expect(planted).toHaveLength(200);
+    expect(planted).toHaveLength(20000);
     for (const f of planted) expect(readFileSync(join(d, f), 'utf8')).toMatch(/^planted \d+$/);
     expect(JSON.parse(readFileSync(report, 'utf8'))).toMatchObject({ status: 'dry_run_ok' });
   }, 180_000);
