@@ -53,7 +53,7 @@
 --        * a SUPERUSER session (999n);
 --        * the ON DELETE CASCADE of a company delete: a DELETE nested in another trigger (pg_trigger_depth() > 1)
 --          whose company row no longer exists, read past RLS by payroll_company_row_exists (SECURITY DEFINER, owned
---          by migration_admin, app_definer_reviews row). Nesting alone is not enough (breaker B1 of fb88f3fd9d: a
+--          by postgres like the tables and every other 1054 function, app_definer_reviews row). Nesting alone is not enough (breaker B1 of fb88f3fd9d: a
 --          role with TEMP fired a DELETE from a pg_temp trigger). Coordinator ruling (2026-11-25, option B; spec 4 RH
 --          and grill F6 said "refused"), as 999x's history guard and 999n's line freeze already allow it: deleting a
 --          tenant removes its whole history. Census (PR body): the only FK that cascades into payroll_run_headers is
@@ -268,7 +268,12 @@ SET search_path = pg_catalog, public, pg_temp
 AS $$
   SELECT EXISTS (SELECT 1 FROM public.companies c WHERE c.id = p_company)
 $$;
-ALTER FUNCTION public.payroll_company_row_exists(uuid) OWNER TO migration_admin;
+-- Owned by postgres (the tables' owner, BYPASSRLS), NOT migration_admin (breaker round 3 H of e61d6e877c): the owner may
+-- CREATE OR REPLACE a function, and migration_admin, owning it, replaced it to answer false and reopened the pg_temp
+-- delete. migration_admin is not a member of postgres, so it cannot. The owner of the tables could already disable the
+-- triggers outright (stated; OWN, W7, moves ownership). Every other function this file creates is owned by the
+-- migration role that runs it (postgres); the integration test pins all of them.
+ALTER FUNCTION public.payroll_company_row_exists(uuid) OWNER TO postgres;
 REVOKE ALL ON FUNCTION public.payroll_company_row_exists(uuid) FROM PUBLIC;
 -- Not app_user (breaker L of 5ef58a1b12: no app code needs it, and it would answer whether any company id exists).
 -- app_user holds no DELETE on companies, so it never reaches a company cascade; a nested DELETE it fires another way

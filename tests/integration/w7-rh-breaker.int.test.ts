@@ -10,7 +10,9 @@
  *  B4 app_user clears reopened_at on a reopened run: the delete is still refused (approval_evidence_at stays);
  *  R2-H platform_admin / migration_admin swap the victim company's id away for one statement so the nested DELETE sees
  *     its company "gone", then swap it back: refused (companies.id is fixed);
- *  R2-L app_user cannot call payroll_company_row_exists.
+ *  R2-L app_user cannot call payroll_company_row_exists;
+ *  R3-H migration_admin cannot CREATE OR REPLACE the helper (it is postgres's), so the pg_temp delete stays refused;
+ *     every function 1054 creates is owned by postgres.
  * Every case runs in a transaction that is rolled back; seeding as the fixture's superuser.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -180,5 +182,31 @@ describe('round 2 L: payroll_company_row_exists is not app_user\'s', () => {
     await as('platform_admin', async (c) => {
       expect((await c.query('SELECT public.payroll_company_row_exists($1) AS e', [A])).rows[0].e).toBe(true);
     });
+  });
+});
+
+describe('round 3 H: the guard functions are not migration_admin\'s to replace', () => {
+  it('every 1054 function is owned by postgres', async () => {
+    const rows = (await su.query(`SELECT p.proname, pg_get_userbyid(p.proowner) AS owner FROM pg_proc p
+      JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public' AND p.proname = ANY($1) ORDER BY 1`,
+    [['companies_id_fixed', 'payroll_company_row_exists', 'payroll_row_company_fixed', 'payroll_run_headers_approval_evidence',
+      'payroll_run_headers_final_no_delete', 'payroll_run_headers_no_truncate']])).rows;
+    expect(rows).toHaveLength(6);
+    expect(rows.filter((r) => r.owner !== 'postgres')).toEqual([]);
+  });
+  it('migration_admin: CREATE OR REPLACE of the helper is "must be owner", and the pg_temp delete is still refused', async () => {
+    await as('migration_admin', async (c) => {
+      await c.query('SAVEPOINT r');
+      await expect(c.query(`CREATE OR REPLACE FUNCTION public.payroll_company_row_exists(p_company uuid) RETURNS boolean
+        LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp AS $f$ SELECT false $f$`))
+        .rejects.toMatchObject({ code: '42501', message: expect.stringMatching(/must be owner of function payroll_company_row_exists/) });
+      await c.query('ROLLBACK TO SAVEPOINT r');
+      await c.query('CREATE TEMP TABLE kick (id uuid) ON COMMIT DROP');
+      await c.query(`CREATE FUNCTION pg_temp.zap() RETURNS trigger LANGUAGE plpgsql AS $f$
+        BEGIN DELETE FROM public.payroll_run_headers WHERE id = NEW.id; RETURN NEW; END $f$`);
+      await c.query('CREATE TRIGGER kick_t AFTER INSERT ON pg_temp.kick FOR EACH ROW EXECUTE FUNCTION pg_temp.zap()');
+      await expect(c.query('INSERT INTO pg_temp.kick VALUES ($1)', [FIN])).rejects.toThrow(FINAL_REFUSED);
+    });
+    expect(await exists(FIN)).toBe(true);
   });
 });
