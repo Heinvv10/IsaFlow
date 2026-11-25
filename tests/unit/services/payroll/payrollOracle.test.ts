@@ -102,6 +102,7 @@ const EXPECTED_CASE_IDS = [
   'weekly-starter-fourth-week-averaged',
   'weekly-split-same-amount-sums-to-whole', // W29 review M1
   'weekly-starter-g21-3-of-7-days',
+  'weekly-week-52-pay-friday', // W1 (wave 7 W53): the WEEK_53_PAY_DAY control
   'weekly-week-53-medical-retirement',
   'weekly-week-53-pay-sunday',
 ];

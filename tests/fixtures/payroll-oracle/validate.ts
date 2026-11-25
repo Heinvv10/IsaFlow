@@ -36,7 +36,8 @@ export const PII_KEY_PARTS = ['name', 'surname', 'id', 'tax', 'bank', 'account',
 
 /** The schema's own keys, per object, which may contain a PII_KEY_PARTS substring by design. */
 const SCHEMA: Record<string, readonly string[]> = {
-  case: ['id', 'source', 'sourceRef', 'notes', 'input', 'expected', 'tolerance'],
+  /** W1 (wave 7 W53): `expectedWarnings`, the exact set of warning/error line codes (oracle.ts caseProblems); absent = not asserted. */
+  case: ['id', 'source', 'sourceRef', 'notes', 'input', 'expected', 'tolerance', 'expectedWarnings'],
   input: ['period', 'taxYear', 'employee', 'employerAnnualRemuneration', 'components', 'unmodelled', 'priorPeriods'],
   period: ['year', 'month', 'frequency', 'periodStart', 'periodEnd', 'runKind'],
   /** An earlier period of the tax year (wave-6 F1): its inputs and the line figures a run stored for it. */
@@ -151,6 +152,11 @@ export function validateCase(raw: unknown, file: string): void {
   for (const [k, v] of Object.entries(c.expected as Obj)) {
     need((ORACLE_FIELDS as readonly string[]).includes(k), file, `unknown expected field ${k}`);
     need(isNum(v), file, `expected.${k} must be a number`);
+  }
+  if (c.expectedWarnings !== undefined) {
+    const w = c.expectedWarnings;
+    need(Array.isArray(w) && w.every(x => typeof x === 'string' && /^[A-Z][A-Z0-9_]*$/.test(x)) && new Set(w).size === w.length, file,
+      'expectedWarnings must be an array of distinct upper-case line codes (empty = the line raises none)');
   }
   if (c.tolerance !== undefined) {
     need(isObj(c.tolerance), file, 'tolerance must be an object');

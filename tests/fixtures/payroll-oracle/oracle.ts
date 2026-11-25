@@ -76,6 +76,8 @@ export interface OracleCase {
   };
   /** Only the fields the source gives are asserted. */
   expected: Partial<Record<OracleField, number>>;
+  /** W1 (wave 7 W53): the exact set of warning and error codes the line raises (validationResults, `info` left out); absent = not asserted. */
+  expectedWarnings?: string[];
   /**
    * Documented rounding only: at most MAX_TOLERANCE_CENTS per field, with the reason. `engineActual`
    * pins the engine's CURRENT figure exactly, so it cannot drift inside the tolerance unnoticed.
@@ -177,9 +179,13 @@ export function gapListProblems(cases: readonly OracleCase[], gaps: readonly Kno
   return problems;
 }
 
-export function runCase(c: OracleCase): Record<OracleField, number> {
+/** The line's figures, and its warning and error codes (distinct, sorted; `info` results left out) for `expectedWarnings`. */
+export type OracleActual = Record<OracleField, number> & { warnings: string[] };
+
+export function runCase(c: OracleCase): OracleActual {
   const r = calculatePayrollLine(buildCaseInput(c));
   return {
+    warnings: [...new Set(r.validationResults.filter(v => v.severity !== 'info').map(v => v.code))].sort(),
     paye: r.paye.monthlyPaye,
     uifEmployee: r.uif.employeeContribution,
     uifEmployer: r.uif.employerContribution,
@@ -206,15 +212,19 @@ export function failingFields(c: OracleCase, actual: Record<OracleField, number>
  * fields, each at exactly its pinned engineActual, and pass the rest.
  */
 export function caseProblems(c: OracleCase, gap: KnownGap | undefined): string[] {
-  let actual: Record<OracleField, number>;
+  let actual: OracleActual;
   try {
     actual = runCase(c);
   } catch (err) {
     return [`${c.id}: the engine threw: ${err instanceof Error ? err.message : String(err)}`];
   }
   const failing = failingFields(c, actual);
-  const listed = Object.keys(gap?.engineActual ?? {}) as OracleField[];
   const out: string[] = [];
+  if (c.expectedWarnings !== undefined) {
+    const want = [...c.expectedWarnings].sort();
+    if (want.join() !== actual.warnings.join()) out.push(`${c.id}.warnings: engine [${actual.warnings.join(', ')}], expected [${want.join(', ')}]`);
+  }
+  const listed = Object.keys(gap?.engineActual ?? {}) as OracleField[];
   for (const f of failing.filter(x => !listed.includes(x))) {
     out.push(`${c.id}.${f}: engine ${actual[f]}, ${c.source} ${c.expected[f]} (a new miss: fix the engine or the fixture)`);
   }
