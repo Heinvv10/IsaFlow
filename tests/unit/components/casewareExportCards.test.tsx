@@ -36,7 +36,7 @@ describe('CaseWare export on touch', () => {
     expect(inputs).toHaveLength(4);
     for (const i of inputs) {
       expect(cls(i)).toEqual(expect.arrayContaining(['max-lg:min-h-11', 'max-lg:w-full']));
-      expect(cls(i.closest('td')!)).toEqual(expect.arrayContaining(['max-lg:flex-col', 'max-lg:items-stretch', 'max-lg:gap-1']));
+      expect(cls(i.closest('td')!)).toEqual(expect.arrayContaining(['max-lg:flex-col', 'max-lg:items-stretch', 'max-lg:!gap-1']));
     }
   });
 

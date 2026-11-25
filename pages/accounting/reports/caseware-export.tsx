@@ -243,12 +243,12 @@ export default function CaseWareExportPage() {
                           <td data-label="Type" className="px-3 py-1.5 text-[var(--ff-text-tertiary)] capitalize">
                             {m.accountType}{m.accountSubtype ? ` / ${m.accountSubtype}` : ''}
                           </td>
-                          <td data-label="CaseWare Code" className="px-3 py-1 max-lg:flex-col max-lg:items-stretch max-lg:gap-1">
+                          <td data-label="CaseWare Code" className="px-3 py-1 max-lg:flex-col max-lg:items-stretch max-lg:!gap-1">
                             <input type="text" value={edit.code}
                               onChange={e => updateEdit(m.glAccountId, 'code', e.target.value)}
                               className="ff-input text-xs py-0.5 w-28 font-mono max-lg:min-h-11 max-lg:w-full" maxLength={20} />
                           </td>
-                          <td data-label="CaseWare Label" className="px-3 py-1 max-lg:flex-col max-lg:items-stretch max-lg:gap-1">
+                          <td data-label="CaseWare Label" className="px-3 py-1 max-lg:flex-col max-lg:items-stretch max-lg:!gap-1">
                             <input type="text" value={edit.label}
                               onChange={e => updateEdit(m.glAccountId, 'label', e.target.value)}
                               className="ff-input text-xs py-0.5 w-48 max-lg:min-h-11 max-lg:w-full" maxLength={100} />
