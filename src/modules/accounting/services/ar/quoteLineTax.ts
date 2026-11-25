@@ -31,6 +31,7 @@ import {
 } from './quoteEditLines';
 import { typedLinesProblem } from './invoiceVatLegs';
 import { LineValidationError, quoteAmountsAre } from './quoteLineChecks';
+import { applyItemLineDefaults } from '../items/itemLineDefaults';
 
 export interface QuoteVatLineIn {
   accountId?: unknown;
@@ -64,24 +65,37 @@ const ref = (v: unknown): string | null => (typeof v === 'string' && v !== '' ? 
  * keeps that stored line's item: the same line keeps its item, and the row written is the line the VAT match read
  * (itemEditLines hands items out by the raw identical key in stored order, which a case-only description change or
  * twins swapped by id would get wrong). A MATCHED line sent without an accountId keeps its stored account (the user may
- * have chosen it, and conversion credits it) unless it names a NEW item (one not the stored line's; null, '' and a
- * missing id all mean no item, as quoteEditLines compares them) that has a default sales account, which it then takes
- * (itemEditLines / applyItemLineDefaults). Removing an item, resending the stored one, or naming one with no default
- * account keeps the stored account. Only an accountId sent changes it, null clearing it. An unmatched line: the resolved
- * line's own. Accepted: a kept account comes from this quote's own stored rows, and conversion re-checks it
- * (assertLineAccountIds refuses one deactivated since).
+ * have chosen it, and conversion credits it) unless it names a NEW item, judged against THAT matched stored line (null,
+ * '' and a missing id all mean no item, as quoteEditLines compares them), with a default sales account, which it then
+ * takes: read here by applyItemLineDefaults for exactly those lines, so itemEditLines' own "new item" view (the first
+ * identical stored line) never decides a matched line's account. Removing an item, resending the stored one, or naming
+ * one with no default account keeps the stored account. Only an accountId sent changes it, null clearing it. An
+ * unmatched line: the resolved line's own. Accepted: a kept account comes from this quote's own stored rows, and
+ * conversion re-checks it (assertLineAccountIds refuses one deactivated since).
  */
-function lineRefs(lines: readonly QuoteVatLineIn[], sent: readonly QuoteVatLineIn[], matches: readonly (LineMatch | null)[] | undefined): QuoteLineRef[] {
+async function lineRefs(
+  companyId: string, lines: readonly QuoteVatLineIn[], sent: readonly QuoteVatLineIn[], matches: readonly (LineMatch | null)[] | undefined,
+): Promise<QuoteLineRef[]> {
+  const newItemAt = lines.map((_, i) => {
+    const m = matches?.[i];
+    const s = sent[i];
+    if (!m || s?.accountId !== undefined) return null;
+    const sentItem = normalItem(s?.itemId);
+    // No item named (left out, null or ''): nothing to default; else new only if it is not the matched line's.
+    return sentItem !== null && sentItem !== normalItem(m.stored.itemId) ? sentItem : null;
+  });
+  const wanted = newItemAt.flatMap((itemId, i) => (itemId ? [{ i, itemId }] : []));
+  const defaults = wanted.length === 0 ? [] : await applyItemLineDefaults(
+    companyId, wanted.map((w) => ({ itemId: w.itemId, glAccountId: undefined as string | undefined })), 'sales', (k) => `items[${wanted[k]!.i}]`,
+  );
+  const defaultAt = new Map(wanted.map((w, k) => [w.i, ref(defaults[k]?.glAccountId)]));
   return lines.map((l, i) => {
     const m = matches?.[i];
     const s = sent[i];
     if (!m) return { itemId: ref(l.itemId), accountId: ref(l.accountId) };
-    const sentItem = normalItem(s?.itemId);
-    const newItem = sentItem !== null && sentItem !== normalItem(m.stored.itemId);
-    const itemDefault = newItem ? ref(l.accountId) : null; // the new item's default account, when it has one
     return {
       itemId: s?.itemId === undefined ? m.stored.itemId ?? null : ref(l.itemId),
-      accountId: s?.accountId !== undefined ? ref(l.accountId) : itemDefault ?? m.stored.accountId ?? null,
+      accountId: s?.accountId !== undefined ? ref(l.accountId) : defaultAt.get(i) ?? m.stored.accountId ?? null,
     };
   });
 }
@@ -136,7 +150,7 @@ export async function priceQuoteLines(companyId: string, args: {
     return {
       lines: matches.map((m) => ({ qty: m!.stored.quantity, price: m!.stored.unitPrice, amount: m!.stored.amount, taxAmount: null, vatType: null, taxRate: m!.stored.taxRate })),
       header: { subtotal, tax, total, taxRate, amountsAre: null },
-      refs: lineRefs(args.lines, sent, matches),
+      refs: await lineRefs(companyId, args.lines, sent, matches),
     };
   }
   const parties = await invoiceVatParties(companyId, args.clientId);
@@ -153,5 +167,5 @@ export async function priceQuoteLines(companyId: string, args: {
     { subtotal: priced.header.subtotal, taxAmount: priced.header.tax, totalAmount: priced.header.total, invoiceDate: args.quoteDate, amountsAre },
   );
   if (problem) throw new InvoiceLineVatRefusal(`This quote could not be invoiced as priced: ${problem}`);
-  return { ...priced, refs: lineRefs(args.lines, sent, matches) };
+  return { ...priced, refs: await lineRefs(companyId, args.lines, sent, matches) };
 }
