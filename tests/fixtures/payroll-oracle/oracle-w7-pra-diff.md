@@ -7,13 +7,16 @@ throwaway dump of `runCase` over every fixture at both heads (the five new cases
 harness refuses their `effectiveFrom` / `effectiveTo` / `endDate` keys).
 
 Result: **every existing case is unchanged on every field** (none has a dated component or an end date, so
-`apportionRecurringRows` returns its rows as they were); the eight new cases equal their hand computation exactly; no
+`apportionRecurringRows` returns its rows as they were); the ten new cases equal their hand computation exactly; no
 `knownGaps.json` or `unverified.json` entry changes.
 
 Review #1901 round 1 (regenerated at that head): three cases added (H1 `leaver-raise-mid-month-sums-to-window`,
 `starter-raise-mid-month-sums-to-window`; M1 `weekly-split-same-amount-sums-to-whole`). One case of this PR, never merged,
 had its `expected.net` re-derived because its basis changed by the coordinator's M1 decision (pay at the exact ratio,
 not a four-decimal share): `recurring-start-mid-week-weekly` 1385.98 -> 1386.00. No merged case's `expected` was edited.
+
+Review #1901 round 2 (regenerated at that head): two cases added (R2-M1 `leaver-row-ends-on-end-date-mid-month-full`,
+R2-L1 `three-rows-one-amount-sums-to-month`). No `expected` edited; every earlier case unchanged.
 
 | Case | Source | Expected | Engine before | Engine after | Delta (c) | Disposition |
 |---|---|---|---|---|---|---|
@@ -40,6 +43,7 @@ not a four-decimal share): `recurring-start-mid-week-weekly` 1385.98 -> 1386.00.
 | ga-maintenance-outside-cap | UNVERIFIED | paye 2115, net 8707.88 | paye 2115, net 8707.88 | paye 2115, net 8707.88 | 0 | unchanged: no field moved (no dated row, no end date) |
 | leaver-mid-month-full-salary | sars-guide:SARS PAYE-GEN-01-G21 Guide … | paye 0, uifEmployee 50, uifEmployer 50, sdl 50, net 4950 | new case (not loadable before) | paye 0, uifEmployee 50, uifEmployer 50, sdl 50, net 4950 | n/a | new W29 case: engine equals expected on every asserted field |
 | leaver-raise-mid-month-sums-to-window | sars-guide:SARS PAYE-GEN-01-G21 Guide … | paye 0, uifEmployee 42.91, uifEmployer 42.91, sdl 42.91, net 4247.99 | new case (not loadable before) | paye 0, uifEmployee 42.91, uifEmployer 42.91, sdl 42.91, net 4247.99 | n/a | new W29 case: engine equals expected on every asserted field |
+| leaver-row-ends-on-end-date-mid-month-full | sars-guide:SARS PAYE-GEN-01-G21 Guide … | paye 0, uifEmployee 50, uifEmployer 50, sdl 50, net 4950 | new case (not loadable before) | paye 0, uifEmployee 50, uifEmployer 50, sdl 50, net 4950 | n/a | new W29 case: engine equals expected on every asserted field |
 | monthly-raise-averaged-with-priors | sars-guide:SARS PAYE-GEN-01-G21 Guide … | paye 4579, uifEmployee 177.12, net 25243.88 | paye 4579.03, uifEmployee 177.12, net 25243.85 | paye 4579.03, uifEmployee 177.12, net 25243.85 | 0 | unchanged: no field moved (no dated row, no end date) |
 | offcycle-bonus-after-regular-g21 | sars-guide:SARS PAYE-GEN-01-G21 Guide … | paye 3848, uifEmployee 0, uifEmployer 0 | paye 3848, uifEmployee 0, uifEmployer 0 | paye 3848, uifEmployee 0, uifEmployer 0 | 0 | unchanged: no field moved (no dated row, no end date) |
 | offcycle-termination-leave-after-regular | sars-guide:SARS PAYE-GEN-01-G21 Guide … | paye 2192, uifEmployee 0, uifEmployer 0 | paye 2192.04, uifEmployee 0, uifEmployer 0 | paye 2192.04, uifEmployee 0, uifEmployer 0 | 0 | unchanged: no field moved (no dated row, no end date) |
@@ -75,6 +79,7 @@ not a four-decimal share): `recurring-start-mid-week-weekly` 1385.98 -> 1386.00.
 | statutory-2027-bracket-36pct-55000 | sars-guide:SARS rates of tax for indiv… | paye 12875.58, uifEmployee 177.12, uifEmployer 177.12, sdl 550, eti 0, net 41947.3 | paye 12875.6, uifEmployee 177.12, uifEmployer 177.12, sdl 550, eti 0, net 41947.28 | paye 12875.6, uifEmployee 177.12, uifEmployer 177.12, sdl 550, eti 0, net 41947.28 | 0 | unchanged: no field moved (no dated row, no end date) |
 | statutory-2027-bracket-39pct-60000 | sars-guide:SARS rates of tax for indiv… | paye 14736.08, uifEmployee 177.12, uifEmployer 177.12, sdl 600, eti 0, net 45086.8 | paye 14736.1, uifEmployee 177.12, uifEmployer 177.12, sdl 600, eti 0, net 45086.78 | paye 14736.1, uifEmployee 177.12, uifEmployer 177.12, sdl 600, eti 0, net 45086.78 | 0 | unchanged: no field moved (no dated row, no end date) |
 | statutory-2027-bracket-41pct-100000 | sars-guide:SARS rates of tax for indiv… | paye 30857.75, uifEmployee 177.12, uifEmployer 177.12, sdl 1000, eti 0, net 68965.13 | paye 30857.77, uifEmployee 177.12, uifEmployer 177.12, sdl 1000, eti 0, net 68965.11 | paye 30857.77, uifEmployee 177.12, uifEmployer 177.12, sdl 1000, eti 0, net 68965.11 | 0 | unchanged: no field moved (no dated row, no end date) |
+| three-rows-one-amount-sums-to-month | sars-guide:SARS PAYE-GEN-01-G21 Guide … | paye 0, uifEmployee 40, uifEmployer 40, sdl 40, net 3960 | new case (not loadable before) | paye 0, uifEmployee 40, uifEmployer 40, sdl 40, net 3960 | n/a | new W29 case: engine equals expected on every asserted field |
 | ts-deemed-standard-tables-not-flat-25pct | sars-guide:PAYE-GEN-01-G21 Rev 1 p. 28… | paye 0 | paye 0 | paye 0 | 0 | unchanged: no field moved (no dated row, no end date) |
 | ts-non-standard-5h-day-over-394-flat-25pct | sars-guide:PAYE-GEN-01-G21 Rev 1 p. 28… | paye 1250 | paye 1250 | paye 1250 | 0 | unchanged: no field moved (no dated row, no end date) |
 | ts-non-standard-5h-day-under-394-nil-paye | sars-guide:PAYE-GEN-01-G21 Rev 1 p. 28… | paye 0 | paye 0 | paye 0 | 0 | unchanged: no field moved (no dated row, no end date) |
