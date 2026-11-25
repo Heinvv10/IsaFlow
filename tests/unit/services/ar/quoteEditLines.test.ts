@@ -244,7 +244,29 @@ describe('a standard-only quote: a match needs a compatible rate and a free stor
     const a0 = stored('a', { description: 'A', itemId: A, accountId: 'x' });
     const b1 = stored('b', { description: 'B', itemId: B, accountId: 'y' });
     expect(run([line({ description: 'B' }), line({ description: 'B' })], [a0, b1]).ids).toEqual([null, 'b']);
-    expect(run([line({ description: 'B', itemId: A }), line({ description: 'B', itemId: B })], [a0, b1]).ids).toEqual([null, 'b']);
+    // Naming its own item, the line renamed in place keeps it: B's stored line is already matched, so it cannot be that one.
+    expect(run([line({ description: 'B', itemId: A }), line({ description: 'B', itemId: B })], [a0, b1]).ids).toEqual(['a', 'b']);
+  });
+
+  it('a line of a description FREE stored twins hold is never a rename, even where only its own place fits the rate', () => {
+    const lg = (id: string, description: string, rate: number) => stored(id, { description, itemId: A, accountId: 'x', vatType: null, taxAmount: null, taxRate: rate });
+    // Legacy E at 14% in place 0; D twins at 15%: sent "D" at 14% naming E's item fits only place 0, by rate.
+    expect(run([line({ description: 'D', taxRate: 14, itemId: A })], [lg('e', 'E', 14), lg('d1', 'D', 15), lg('d2', 'D', 15)]).ids).toEqual([null]);
+  });
+
+  it('a NEW line of a matched description never renames the line at its place that other unmatched lines still want', () => {
+    // [A p X, B p X, B p Y] reordered with ids-less explicit B lines and a new A inserted at the B place: the new A is new.
+    const a0 = stored('a', { description: 'A', itemId: A, accountId: 'x' });
+    const bx = stored('bx', { description: 'B', itemId: A, accountId: 'x' });
+    const by = stored('by', { description: 'B', itemId: A, accountId: 'y' });
+    const sent = [line({ description: 'B', itemId: A, accountId: 'x' }), line({ description: 'A', unitPrice: 30, itemId: A }),
+      line({ description: 'A', itemId: A, accountId: 'x' }), line({ description: 'B', itemId: A, accountId: 'y' })];
+    expect(run(sent, [a0, bx, by]).ids[1]).toBeNull();
+    // A line of the place's description that IS matched (to another twin) does not want the place: the rename keeps it.
+    const ar = stored('ar', { description: 'A', itemId: B, accountId: 'z' });
+    const bq = stored('bq', { description: 'B', itemId: B, accountId: 'y' });
+    expect(run([line({ description: 'B', itemId: A }), line({ description: 'B', itemId: B }), line({ description: 'A', itemId: B })],
+      [a0, bq, ar]).ids).toEqual(['a', 'bq', 'ar']);
   });
 
   it('M4 (round 14): legacy [A p, A q, B] resent [B, A, A] with no itemIds is accepted and unchanged (never re-priced)', () => {
