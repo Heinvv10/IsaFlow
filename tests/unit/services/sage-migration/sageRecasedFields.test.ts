@@ -22,7 +22,7 @@ describe('B11-5: a known field in another case', () => {
     ] as const) {
       const r = refusal({ Items: [item(50)], PurchaseOrders: [po(line)] });
       expect(r.kept, key).toBe(1); // the item only: the PO is refused
-      expect(r.why, key).toContain(`Lines[0].${key} is ${field} in another case`);
+      expect(r.why, key).toContain(`Lines[0]."${key}" is ${field} in another spelling`);
     }
   });
   it('on an item row (category, taxTypeIdSales, physical) refuses the item', () => {
@@ -32,12 +32,12 @@ describe('B11-5: a known field in another case', () => {
       const r = refusal({ Items: [item(1, extra)] });
       expect(r.kept, key).toBe(0);
       expect(r.codes, key).toEqual(['invalid_row']);
-      expect(r.why, key).toContain(`${key} is ${field} in another case`);
+      expect(r.why, key).toContain(`"${key}" is ${field} in another spelling`);
     }
   });
   it('on a PO row (supplierid, Deliverydate) refuses the PO', () => {
     for (const [extra, key] of [[{ supplierid: 4 }, 'supplierid'], [{ Deliverydate: '2026-03-01' }, 'Deliverydate']] as const) {
-      expect(refusal({ PurchaseOrders: [po({}, extra)] }).why, key).toContain(`${key} is `);
+      expect(refusal({ PurchaseOrders: [po({}, extra)] }).why, key).toContain(`"${key}" is `);
     }
   });
   it('fields this import does not read, in any case, stay ignored; the exact spelling reads', () => {
@@ -58,5 +58,28 @@ describe('B11-4: LineType ""', () => {
     for (const t of [undefined, null, 0, '0']) {
       expect(parseSageExport({ Items: [item(50)], PurchaseOrders: [po({ LineType: t, ItemId: 50 })] }).purchaseOrders[0]!.lines[0]!.itemId, String(t)).toBe('50');
     }
+  });
+});
+
+describe('B12-6 (round 12): keys are compared normalised, and inside Category too', () => {
+  it('a trailing or leading space, an underscore, a dotted I, a zero-width character: each refuses the row', () => {
+    for (const key of ['LineType ', 'Line_Type', 'L\u0130neType', 'LineType\u200b']) {
+      const r = refusal({ Items: [item(50)], PurchaseOrders: [po({ [key]: 1, ItemId: 50 })] });
+      expect(r.kept, JSON.stringify(key)).toBe(1);
+      expect(r.why, JSON.stringify(key)).toContain(`Lines[0].${JSON.stringify(key)} is LineType in another spelling`);
+    }
+    expect(refusal({ Items: [item(50)], PurchaseOrders: [po({ ' ItemId': 50 })] }).why).toContain('" ItemId" is ItemId');
+    expect(refusal({ Items: [item(50, { 'PriceExclusive ': 99 })] }).why).toContain('"PriceExclusive " is PriceExclusive');
+  });
+  it('a Category key in another spelling, beside the right one or alone, refuses the item and says so', () => {
+    for (const [c, key] of [[{ ID: 5, Description: 'X', id: 7 }, 'id'], [{ ID: 5, Description: 'X', description: 'Y' }, 'description'], [{ Id: 5, Description: 'X' }, 'Id']] as const) {
+      const r = refusal({ Items: [item(50, { Category: c })] });
+      expect(r.kept, key).toBe(0);
+      expect(r.why, key).toContain(`Category."${key}" is`);
+    }
+  });
+  it('R5 named limit: it fails closed, also for a key that is probably harmless (Id, SupplierID, quantityonhand refuse the row)', () => {
+    expect(refusal({ Items: [item(50, { quantityonhand: 5 })] }).kept).toBe(0);
+    expect(refusal({ PurchaseOrders: [po({}, { SupplierID: 3 })] }).kept).toBe(0);
   });
 });

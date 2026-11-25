@@ -35,15 +35,19 @@ export function readId(o: Raw, key: string, why: string[], required = true, mayM
 /**
  * The keys of `o` that spell a field this import reads in another case (ItemID, lineType, category): each is a reason, so the row is
  * refused, never read as if the field were absent (a re-cased LineType 1 would link an account line to an item; ItemID would drop a link).
- * Keys that match no field read here, in any case, stay ignored.
+ * Keys are compared normalised (fieldKey: NFKC, lower case, letters and digits only), so "LineType ", Line_Type, a dotted-I or a
+ * zero-width character in the key are caught too. Keys that match no field read here, in any spelling, stay ignored.
  */
 export function recasedFieldReasons(o: Raw, fields: readonly string[]): string[] {
-  const byLower = new Map(fields.map((f) => [f.toLowerCase(), f]));
+  const byKey = new Map(fields.map((f) => [fieldKey(f), f]));
   return Object.keys(o).flatMap((k) => {
-    const field = byLower.get(k.toLowerCase());
-    return field !== undefined && field !== k ? [`${k} is ${field} in another case: a field this import reads is refused in any other spelling, never ignored`] : [];
+    const field = byKey.get(fieldKey(k));
+    return field !== undefined && field !== k ? [`${JSON.stringify(k)} is ${field} in another spelling: a field this import reads is refused in any other spelling, never ignored`] : [];
   });
 }
+
+/** A key as compared with the fields read: NFKC, lower case, then only the letters a-z and digits (spaces, _, marks, zero-width dropped). */
+export const fieldKey = (k: string): string => k.normalize('NFKC').toLowerCase().replace(/[^a-z0-9]/g, '');
 
 const LONE_SURROGATE = /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/;
 

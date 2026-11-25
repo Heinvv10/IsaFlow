@@ -7,10 +7,12 @@
  */
 import type { RowResult, SageItem } from './sageExportTypes';
 import { isRaw, readBool, readId, readNumber, readText, recasedFieldReasons, SAGE_NONE_UNKNOWN, type Raw } from './sageValues';
+import { taxTypeFor } from './sageTaxTypes';
 
 /** The fields of an item row this import reads (QuantityOnHand only for the count): any other spelling of one is refused. */
 const ITEM_FIELDS = ['ID', 'Code', 'Description', 'Active', 'Physical', 'PriceExclusive', 'LastCost', 'AverageCost', 'TaxTypeIdSales', 'TaxTypeIdPurchases', 'Category', 'QuantityOnHand'] as const;
-import { taxTypeFor } from './sageTaxTypes';
+/** The fields of a Category object this import reads. */
+const CATEGORY_FIELDS = ['ID', 'Description'] as const;
 
 function taxField(o: Raw, key: string, why: string[]): SageItem['taxSales'] | undefined {
   const id = readId(o, key, why, false, true);
@@ -25,6 +27,9 @@ function category(o: Raw, why: string[]): SageItem['category'] | undefined {
   const c = o.Category;
   if (c === undefined || c === null) return null;
   if (!isRaw(c)) { why.push('Category must be an object {ID, Description} or null'); return undefined; }
+  // A Category field in another spelling ({ id: 7 } beside ID, { Id: 5 }) is refused, never ignored (B12-6), and said so.
+  const respelled = recasedFieldReasons(c, CATEGORY_FIELDS).map((w) => `Category.${w}`);
+  if (respelled.length > 0) { why.push(...respelled); return undefined; }
   const before = why.length;
   const id = readId(c, 'ID', why, true, true);
   const description = readText(c, 'Description', 255, why);
