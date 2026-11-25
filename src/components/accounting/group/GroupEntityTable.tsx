@@ -35,7 +35,7 @@ export function GroupEntityTable({ entities, totals }: Props) {
         <p className="text-xs text-[var(--ff-text-tertiary)] mt-0.5">Financial overview per company in the group</p>
       </div>
       <div className="overflow-x-auto">
-        <table className="w-full text-sm">
+        <table className="w-full text-sm table-cards">
           <thead>
             <tr className="border-b border-[var(--ff-border-light)]">
               {['Company Name', 'Revenue', 'Expenses', 'Net Profit', 'Cash Position'].map((h) => (
@@ -51,7 +51,7 @@ export function GroupEntityTable({ entities, totals }: Props) {
           <tbody>
             {entities.length === 0 ? (
               <tr>
-                <td colSpan={5} className="px-5 py-8 text-center text-[var(--ff-text-tertiary)]">
+                <td colSpan={5} className="px-5 py-8 text-center text-[var(--ff-text-tertiary)] max-lg:!py-8 max-lg:!text-center">
                   No entities in this group yet.
                 </td>
               </tr>
@@ -60,22 +60,22 @@ export function GroupEntityTable({ entities, totals }: Props) {
                 {entities.map(entity => (
                   <tr key={entity.companyId} className="border-b border-[var(--ff-border-light)] hover:bg-[var(--ff-surface-primary)] transition-colors">
                     <td className="px-5 py-3 font-medium text-[var(--ff-text-primary)]">{entity.companyName}</td>
-                    <td className="px-5 py-3 text-right text-[var(--ff-text-primary)] tabular-nums">{fmtCurrency(entity.revenue)}</td>
-                    <td className="px-5 py-3 text-right text-[var(--ff-text-primary)] tabular-nums">{fmtCurrency(entity.expenses)}</td>
-                    <td className={`px-5 py-3 text-right font-medium tabular-nums ${entity.netProfit >= 0 ? 'text-teal-500' : 'text-rose-600 dark:text-rose-400'}`}>
+                    <td data-label="Revenue" className="px-5 py-3 text-right text-[var(--ff-text-primary)] tabular-nums">{fmtCurrency(entity.revenue)}</td>
+                    <td data-label="Expenses" className="px-5 py-3 text-right text-[var(--ff-text-primary)] tabular-nums">{fmtCurrency(entity.expenses)}</td>
+                    <td data-label="Net Profit" className={`px-5 py-3 text-right font-medium tabular-nums ${entity.netProfit >= 0 ? 'text-teal-500' : 'text-rose-600 dark:text-rose-400'}`}>
                       {fmtCurrency(entity.netProfit)}
                     </td>
-                    <td className="px-5 py-3 text-right text-[var(--ff-text-primary)] tabular-nums">{fmtCurrency(entity.cashPosition)}</td>
+                    <td data-label="Cash Position" className="px-5 py-3 text-right text-[var(--ff-text-primary)] tabular-nums">{fmtCurrency(entity.cashPosition)}</td>
                   </tr>
                 ))}
                 <tr className="bg-[var(--ff-surface-primary)] font-semibold">
                   <td className="px-5 py-3 text-[var(--ff-text-primary)]">Total</td>
-                  <td className="px-5 py-3 text-right text-[var(--ff-text-primary)] tabular-nums">{fmtCurrency(totals.revenue)}</td>
-                  <td className="px-5 py-3 text-right text-[var(--ff-text-primary)] tabular-nums">{fmtCurrency(totals.expenses)}</td>
-                  <td className={`px-5 py-3 text-right tabular-nums ${totals.netProfit >= 0 ? 'text-teal-500' : 'text-rose-600 dark:text-rose-400'}`}>
+                  <td data-label="Revenue" className="px-5 py-3 text-right text-[var(--ff-text-primary)] tabular-nums">{fmtCurrency(totals.revenue)}</td>
+                  <td data-label="Expenses" className="px-5 py-3 text-right text-[var(--ff-text-primary)] tabular-nums">{fmtCurrency(totals.expenses)}</td>
+                  <td data-label="Net Profit" className={`px-5 py-3 text-right tabular-nums ${totals.netProfit >= 0 ? 'text-teal-500' : 'text-rose-600 dark:text-rose-400'}`}>
                     {fmtCurrency(totals.netProfit)}
                   </td>
-                  <td className="px-5 py-3 text-right text-[var(--ff-text-primary)] tabular-nums">{fmtCurrency(totals.cashPosition)}</td>
+                  <td data-label="Cash Position" className="px-5 py-3 text-right text-[var(--ff-text-primary)] tabular-nums">{fmtCurrency(totals.cashPosition)}</td>
                 </tr>
               </>
             )}

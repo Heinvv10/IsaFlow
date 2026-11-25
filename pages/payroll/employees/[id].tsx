@@ -2,7 +2,7 @@
  * Payroll Employee Detail + Edit + Components — Phase 2.
  * Route: /payroll/employees/[id]
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -19,6 +19,7 @@ import { PayScaleCard } from '@/components/payroll/PayScaleCard';
 import { ApplyPackageCard } from '@/components/payroll/ApplyPackageCard';
 import { OccupationalLevelCard } from '@/components/payroll/OccupationalLevelCard';
 import { EmployeeReadinessCard } from '@/components/payroll/EmployeeReadinessCard';
+import { prefetchReadiness } from '@/components/payroll/employeeBankState';
 import { EmployeeBankCard } from '@/components/payroll/EmployeeBankCard';
 import { EmployeeFringeBenefitsCard } from '@/components/payroll/EmployeeFringeBenefitsCard';
 import { GarnisheeOrdersCard } from '@/components/payroll/GarnisheeOrdersCard';
@@ -41,6 +42,8 @@ export default function EmployeeDetailPage() {
 
   const [bankVersion, setBankVersion] = useState(0);
   const d = useEmployeeDetail(employeeId);
+  // The card asks for its read once the profile has drawn; start it now so it is not queued behind the page's other calls.
+  useEffect(() => { if (employeeId && mayWrite) prefetchReadiness(employeeId); }, [employeeId, mayWrite]);
   const {
     employee, setEmployee, components, assignments, isLoading, error, savingProfile, newComponentId, newAmount, newFrom,
     newIsRecurring, addingAssignment,

@@ -18,7 +18,7 @@ vi.mock('@/lib/neon', () => ({
     const [year] = values as [number];
     return st.catalogue.filter((r) => r.effective_year === year).map((r) => ({
       ...r, category: 'deduction', status: 'active', foreign_code: null, code_pair: null, applicability_note: null,
-      rationalisation_note: null, source_document: null, source_url: null, official_excerpt: null, brs_version: null,
+      rationalisation_note: null, source_document: null, source_url: null, brs_version: null,
     }));
   }),
 }));

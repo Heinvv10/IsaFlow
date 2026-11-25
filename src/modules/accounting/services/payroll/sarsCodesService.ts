@@ -38,7 +38,6 @@ export interface SarsCode {
   rationalisationNote: string | null;
   sourceDocument: string | null;
   sourceUrl: string | null;
-  officialExcerpt: string | null;
   brsVersion: string | null;
 }
 
@@ -54,7 +53,6 @@ interface SarsCodeRow {
   rationalisation_note: string | null;
   source_document: string | null;
   source_url: string | null;
-  official_excerpt: string | null;
   brs_version: string | null;
 }
 
@@ -75,7 +73,6 @@ function rowToCode(r: SarsCodeRow): SarsCode {
     rationalisationNote: r.rationalisation_note,
     sourceDocument: r.source_document,
     sourceUrl: r.source_url,
-    officialExcerpt: r.official_excerpt,
     brsVersion: r.brs_version,
   };
 }
@@ -87,7 +84,7 @@ async function loadYear(year: number): Promise<Map<string, SarsCode>> {
   const rows = (await sql`
     SELECT code, effective_year, category, description, status,
            foreign_code, code_pair, applicability_note, rationalisation_note,
-           source_document, source_url, official_excerpt, brs_version
+           source_document, source_url, brs_version
       FROM sars_source_codes
      WHERE effective_year = ${year}
   `) as unknown as SarsCodeRow[];

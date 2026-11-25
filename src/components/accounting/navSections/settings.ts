@@ -12,6 +12,12 @@ export const settingsTab: Tab = {
       ],
     },
     {
+      section: 'Billing',
+      items: [
+        { label: 'Upgrade from trial', href: '/accounting/settings/billing/upgrade', isSetting: true },
+      ],
+    },
+    {
       section: 'Documents & Workflows',
       items: [
         { label: 'Document Capture', href: '/accounting/document-capture' },

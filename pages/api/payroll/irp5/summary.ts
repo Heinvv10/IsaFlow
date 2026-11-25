@@ -183,7 +183,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     // Readiness is on remuneration: an employee paid only a non-cash benefit has a certificate to issue.
     const remuneration = totalGross + totalFringeBenefits;
 
-    const messages = await validateEmployeeIrp5({
+    // Paid only as a PSP this year: no natural-person certificate, so no tax-number / ID / gross validation (the
+    // not-certified warning below names it). The deleted year-end checklist skipped these the same way (W31).
+    const pspPayee = pspByEmployee.get(String(emp.id));
+    const messages: ValidationMessage[] = pspPayee && !pspPayee.alsoEmployee ? [] : await validateEmployeeIrp5({
       taxNumber: emp.tax_number ? String(emp.tax_number) : null,
       idNumber: emp.id_number ? String(emp.id_number) : null,
       totalGross: remuneration,

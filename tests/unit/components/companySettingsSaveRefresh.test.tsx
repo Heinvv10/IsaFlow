@@ -13,7 +13,9 @@ const active = vi.hoisted(() => ({ id: 'company-a' }));
 vi.mock('@/contexts/CompanyContext', () => ({
   useCompany: () => ({ activeCompany: { id: active.id }, loading: false }), useCompanyRoleOrNull: () => 'owner',
 }));
-vi.mock('next/router', () => ({ useRouter: () => ({ query: { tab: 'general' } }) }));
+vi.mock('next/router', () => ({
+  useRouter: () => ({ query: { tab: 'general' }, asPath: '/', beforePopState: vi.fn() }), default: { router: null },
+}));
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: ReactNode }) => children }));
 vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));

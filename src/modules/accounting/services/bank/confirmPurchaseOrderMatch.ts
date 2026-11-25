@@ -21,6 +21,7 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { formatCents } from '@/lib/money/formatMoney';
 import { withRowLockBudget, RowLockTimeoutError } from '../core/rowLockBudget';
+import { lockSupplierIfLive, mergedPoSupplierRefusal } from '../core/supplierLiveLock';
 import { toCents } from '../ap/billAllocatable';
 import { allocateTransaction } from './bankAllocationService';
 import { lockBankTransactionForUpdate } from './bankTxLock';
@@ -52,11 +53,24 @@ export async function confirmPurchaseOrderMatch(
     throw new BankAllocationRefusal(`Transaction already ${String(line.status)} — cannot allocate`); // 400
   }
 
+  // The order's supplier FIRST, FOR KEY SHARE and live (supplierLiveLock), then the order FOR UPDATE: a supplier merge takes the
+  // supplier and then the source's POs, so locking the PO first and the supplier only at the payment's FK was a 40P01 (#1882 M1).
+  // The supplier is peeked unlocked and re-checked under the PO lock (a merge that moved the PO meanwhile is a retryable refusal).
+  const [peek] = (await sql`
+    SELECT supplier_id::TEXT AS supplier_id FROM purchase_orders
+    WHERE id = ${purchaseOrderId}::UUID AND company_id = ${companyId}::UUID`) as Record<string, unknown>[];
+  if (!peek) return { ok: false, kind: 'not_found', resource: 'Purchase order' };
+  if (!(await lockSupplierIfLive(companyId, String(peek.supplier_id)))) {
+    return { ok: false, kind: 'refused', message: await mergedPoSupplierRefusal(companyId, String(peek.supplier_id)) };
+  }
   const [po] = await withRowLockBudget(async () => (await sql`
     SELECT id, supplier_id, status, total FROM purchase_orders
     WHERE id = ${purchaseOrderId}::UUID AND company_id = ${companyId}::UUID
     FOR UPDATE`) as Record<string, unknown>[], () => new RowLockTimeoutError('This purchase order'));
   if (!po) return { ok: false, kind: 'not_found', resource: 'Purchase order' };
+  if (String(po.supplier_id) !== String(peek.supplier_id)) {
+    return { ok: false, kind: 'refused', message: 'This purchase order moved to another supplier (a supplier merge) while it was being matched; match it again.' };
+  }
 
   const status = String(po.status);
   if (!PAYABLE_PO_STATUSES.includes(status)) {

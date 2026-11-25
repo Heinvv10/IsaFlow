@@ -8,17 +8,21 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import CompanySettingsPage from '../../../pages/accounting/company-settings';
 import { apiFetch } from '@/lib/apiFetch';
 import { pickKit } from '../../helpers/kitSelect';
+import { editSettingsForm } from '../helpers/editSettingsForm';
 
 vi.mock('@/contexts/CompanyContext', () => ({
   useCompany: () => ({ activeCompany: { id: 'company-a' }, loading: false }), useCompanyRoleOrNull: () => 'owner',
 }));
 const route = vi.hoisted(() => ({ tab: 'details' }));
-vi.mock('next/router', () => ({ useRouter: () => ({ query: { tab: route.tab } }) }));
+vi.mock('next/router', () => ({
+  useRouter: () => ({ query: { tab: route.tab }, asPath: '/', beforePopState: vi.fn() }), default: { router: null },
+}));
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: ReactNode }) => children }));
 vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
 useApiJsonOverMock();
 
 const STALE = 'Company settings changed since you loaded them — reload and try again';
+const SHOWN = `${STALE}. Reload replaces every unsaved edit on this page.`; // what the banner says on a 409
 let stored = 1;        // financial_year_start in the "database"
 let actual = 1;        // the month the fiscal periods start in (a saved change rebuilds them on it)
 let refuse = true;     // the company PUT answers 409
@@ -59,10 +63,10 @@ const companyGets = () => vi.mocked(apiFetch).mock.calls.filter(([url]) => Strin
 
 it('sends the loaded month; a 409 shows the message and Reload, which re-reads the company; the next save sends the new month', async () => {
   render(<CompanySettingsPage />);
-  await waitFor(() => expect(save().disabled).toBe(false));
+  await editSettingsForm('City');
   fireEvent.click(save());
 
-  await screen.findByText(STALE);
+  await screen.findByText(SHOWN);
   expect(companyPuts()[0]).toMatchObject({ financialYearStart: 1, loadedFinancialYearStart: 1 });
   expect(screen.queryByText('Changes saved successfully')).toBeNull();
 
@@ -71,9 +75,9 @@ it('sends the loaded month; a 409 shows the message and Reload, which re-reads t
   const before = companyGets();
   fireEvent.click(screen.getByRole('button', { name: /Reload settings/ }));
   await waitFor(() => expect(companyGets()).toBe(before + 1));
-  await waitFor(() => expect(screen.queryByText(STALE)).toBeNull());
+  await waitFor(() => expect(screen.queryByText(SHOWN)).toBeNull());
 
-  await waitFor(() => expect(save().disabled).toBe(false));
+  await editSettingsForm('City'); // the reloaded form is clean again
   fireEvent.click(save());
   await screen.findByText('Changes saved successfully');
   expect(companyPuts()[1]).toMatchObject({ financialYearStart: 3, loadedFinancialYearStart: 3 });
@@ -90,7 +94,7 @@ it('another failure (not 409) shows the message without Reload', async () => {
     return Response.json({ success: true, data: [] });
   });
   render(<CompanySettingsPage />);
-  await waitFor(() => expect(save().disabled).toBe(false));
+  await editSettingsForm('City');
   fireEvent.click(save());
   await screen.findByText('vatPeriod is wrong');
   expect(screen.queryByRole('button', { name: /Reload settings/ })).toBeNull();
@@ -100,15 +104,15 @@ it('Reload re-reads the whole General tab: the year panel loads again, not only 
   route.tab = 'general';
   const yearReads = () => vi.mocked(apiFetch).mock.calls.filter(([url]) => String(url).includes('financial-year-end-change')).length;
   render(<CompanySettingsPage />);
-  await waitFor(() => expect(save().disabled).toBe(false));
+  await editSettingsForm('Currency Symbol');
   await waitFor(() => expect(yearReads()).toBeGreaterThan(0));
   fireEvent.click(save());
-  await screen.findByText(STALE);
+  await screen.findByText(SHOWN);
   const before = yearReads();
   stored = 6;
   refuse = false;
   fireEvent.click(screen.getByRole('button', { name: /Reload settings/ }));
-  await waitFor(() => expect(screen.queryByText(STALE)).toBeNull());
+  await waitFor(() => expect(screen.queryByText(SHOWN)).toBeNull());
   await waitFor(() => expect(yearReads(), 'the year panel kept its pre-Reload year').toBe(before + 1));
 });
 
@@ -136,6 +140,7 @@ it('a save that keeps the month does not re-read the company or the year panel',
   const yearReads = () => vi.mocked(apiFetch).mock.calls.filter(([url]) => String(url).includes('financial-year-end-change')).length;
   render(<CompanySettingsPage />);
   await screen.findByText(/1 Mar 2026 to 28 Feb 2027/);
+  await editSettingsForm('Currency Symbol');
   const [gets, years] = [companyGets(), yearReads()];
   fireEvent.click(save());
   await screen.findByText('Changes saved successfully');

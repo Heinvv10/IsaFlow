@@ -23,7 +23,6 @@ import importsIndex from '../../pages/api/payroll/parallel-run/imports';
 import batchesIndex from '../../pages/api/payroll/batches';
 import reconciliation from '../../pages/api/payroll/emp501/reconciliation';
 import uifIndex from '../../pages/api/payroll/uif';
-import yearEnd from '../../pages/api/payroll/year-end/status';
 import eea2 from '../../pages/api/payroll/equity/eea2';
 import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
 import { calculatedRun, cleanPayrollCompanies, seedPayrollCompany, type Route } from './w3-01-payroll.helpers';
@@ -145,7 +144,6 @@ describe('aggregate-only routes — a viewer may read them and they carry no per
     ['batches (list)', batchesIndex as Route, {}],
     ['emp501/reconciliation', reconciliation as Route, { taxYear: '2027' }],
     ['uif (list)', uifIndex as Route, { year: '2026' }],
-    ['year-end/status', yearEnd as Route, { taxYear: '2027' }],
   ];
   it.each(agg)('%s: 200 for a viewer, no name / ID / tax number', async (_n, route, query) => {
     const r = await raw(route, 'GET', query, viewer);

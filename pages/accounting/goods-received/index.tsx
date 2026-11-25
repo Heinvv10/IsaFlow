@@ -17,6 +17,7 @@ interface GRN {
   supplier_name: string | null;
   received_date: string;
   received_by: string | null;
+  received_by_name?: string | null;
   notes: string | null;
   status: string | null;
   cancel_reason: string | null;
@@ -134,7 +135,7 @@ export default function GoodsReceivedPage() {
                       <td data-label="PO Reference" className="px-5 py-3.5 text-slate-500 dark:text-slate-400">{g.po_number || '—'}</td>
                       <td data-label="Supplier" className="px-5 py-3.5 text-slate-900 dark:text-slate-100 font-medium">{g.supplier_name || '—'}</td>
                       <td data-label="Received Date" className="px-5 py-3.5 text-slate-500 dark:text-slate-400 text-xs">{dateStr(g.received_date)}</td>
-                      <td data-label="Received By" className="px-5 py-3.5 text-slate-500 dark:text-slate-400">{g.received_by || '—'}</td>
+                      <td data-label="Received By" className="px-5 py-3.5 text-slate-500 dark:text-slate-400">{g.received_by_name || g.received_by || '—'}</td>
                       <td data-label="Status" className="px-5 py-3.5">
                         <div className="max-lg:text-right">
                           <StatusPill status={g.status || 'received'} />

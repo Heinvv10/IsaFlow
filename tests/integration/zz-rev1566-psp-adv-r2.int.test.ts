@@ -7,7 +7,6 @@ import { assertDisposable, request } from './mfa-impersonation-postgres.helpers'
 import { cleanSeveranceFixtures, type SeveranceFixture } from './p3-severance.helpers';
 import { seedEmployee } from './p4fu-cumulative.helpers';
 import { addEmployee, lineOf, newRun } from './ts-b.helpers';
-import yearEndStatus from '../../pages/api/payroll/year-end/status';
 import emp501Recon from '../../pages/api/payroll/emp501/reconciliation';
 import { calculatePayrollRun } from '@/modules/accounting/services/payroll/payrollRunService';
 import { updatePayrollEmployee } from '@/modules/accounting/services/payroll/payrollEmployeeService';
@@ -54,17 +53,17 @@ async function get(route: unknown, f: SeveranceFixture, url: string, query: Reco
 const flags = (l: { results: Array<{ code: string; treatment?: string }> }) =>
   l.results.filter((r) => r.code === 'PAYE_OUTSIDE_TABLES').map((r) => r.treatment);
 
-describe('E: the year-end status checklist (GET /api/payroll/year-end/status)', () => {
-  it('its "IRP5 PAYE" and EMP501 balance are the IRP5 the filings make (PSP months out), not every line', async () => {
+describe('E: the EMP501 balance (GET /api/payroll/emp501/reconciliation; W31: moved from the deleted year-end status route)', () => {
+  it('its IRP5 PAYE total and balance are the IRP5 the filings make (PSP months out), not every line', async () => {
     const f = await seedEmployee(pool, fixtures, 'adv2 yearend', 30_000);
     const psp = await addEmployee(pool, f, 'adv2-ye', PAY);
     await updatePayrollEmployee(psp, f.company, { taxStatus: 'personal_service_provider', pspEntityType: 'company' });
     await month(f, 3);
     const irp5 = await getIrp5EmployeeTotals(f.company, 2027);
     const irp5Paye = Math.round(irp5.rows.reduce((t, r) => t + r.paye, 0) * 100) / 100;
-    const out = await get(yearEndStatus, f, '/api/payroll/year-end/status?taxYear=2027', { taxYear: '2027' });
-    const data = (out.body.data ?? out.body) as { emp501: { totalIrp5: number; balanced: boolean }; readiness: { certificatesReady: number } };
-    expect({ status: out.statusCode, totalIrp5: Math.round(data.emp501.totalIrp5 * 100) / 100, balanced: data.emp501.balanced })
+    const out = await get(emp501Recon, f, '/api/payroll/emp501/reconciliation?taxYear=2027', { taxYear: '2027' });
+    const data = (out.body.data ?? out.body) as { totalIrp5: number; totalVariance: number };
+    expect({ status: out.statusCode, totalIrp5: Math.round(data.totalIrp5 * 100) / 100, balanced: Math.abs(data.totalVariance) < 0.01 })
       .toEqual({ status: 200, totalIrp5: irp5Paye, balanced: false });
   });
 });
