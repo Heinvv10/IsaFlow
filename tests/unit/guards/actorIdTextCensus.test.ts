@@ -153,8 +153,8 @@ const SITES: Readonly<Record<string, Readonly<Record<number, string>>>> = {
     217: 'createdBy: String(row.created_by),',
   },
   ['src/modules/admin/services/sarsCodesAdminService.ts']: {
-    135: 'source_document, source_url, official_excerpt, brs_version, imported_by',
-    154: 'imported_by = EXCLUDED.imported_by',
+    134: 'source_document, source_url, official_excerpt, brs_version, imported_by',
+    153: 'imported_by = EXCLUDED.imported_by',
   },
 };
 
@@ -182,7 +182,7 @@ const VALUE_BINDS: Readonly<Record<string, Readonly<Record<number, string>>>> = 
   [`${S}reports/vatSubmissionService.ts`]: { 224: "${userId}, -- TEXT since 999w (HYb): the real user id, not resolveUserUuid's stand-in" },
   [`${S}reports/vatAdjustmentService.ts`]: { 63: '${input.adjustmentType}, ${input.amount}, ${input.reason}, ${userId}' },
   ['src/modules/admin/services/sarsCodesAdminService.ts']: {
-    139: '${r.sourceDocument}, ${r.sourceUrl}, ${r.officialExcerpt}, ${opts.brsVersion}, ${opts.importedBy}',
+    138: '${r.sourceDocument}, ${r.sourceUrl}, ${r.officialExcerpt}, ${opts.brsVersion}, ${opts.importedBy}',
   },
 };
 
