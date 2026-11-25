@@ -176,6 +176,7 @@ describe('item rows', () => {
     const f = fixture();
     f.Items.$resources.push({ ID: 50001, Code: 'OTHER-1', Description: 'Something else', Active: 'yes', Physical: true, PriceExclusive: 999 }); // same ID, bad Active
     f.Items.$resources.push({ ID: 60000, Code: f.Items.$resources[1]!.Code, Description: 'Same code', Active: 'yes', Physical: true }); // same Code, bad Active
+    (f.Items as Record<string, unknown>).$totalResults = f.Items.$resources.length; // the page says what it holds (B10-3a)
     const p = parseSageExport(f);
     expect(p.items.map((i) => i.id)).not.toContain('50001');
     expect(p.items.map((i) => i.id)).not.toContain(String(f.Items.$resources[1]!.ID));
@@ -196,6 +197,7 @@ describe('item rows', () => {
   it('B5-F (round 5): an invalid row whose ID or Code is unreadable makes no claim on a valid one', () => {
     const f = fixture();
     f.Items.$resources.push({ ID: 'abc', Code: '', Description: 'x' }, { Code: 12, Description: 'y' });
+    (f.Items as Record<string, unknown>).$totalResults = f.Items.$resources.length; // the page says what it holds (B10-3a)
     expect(parseSageExport(f).items).toHaveLength(20);
   });
   it('refuses a later item that describes a category ID differently, or reuses a category name under another ID', () => {
