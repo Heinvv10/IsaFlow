@@ -70,9 +70,11 @@ export function MarkRunPaidButton({ runId, run, companyRole, onPaid }: {
   };
   const choice = (file: boolean, label: string) => (
     <button type="button" role="radio" aria-checked={byFile === file} onClick={() => setByFile(file)}
-      className={`${BTN} border text-left ${byFile === file
-        ? 'border-teal-600 bg-teal-500/10 text-[var(--ff-text-primary)]'
-        : 'border-[var(--ff-border-primary)] text-[var(--ff-text-secondary)] hover:bg-[var(--ff-bg-tertiary)]'}`}>
+      // Primary text in both states (review #1911 golden: secondary text on the unselected choice failed axe contrast);
+      // the chosen one is told apart by its border and fill. Never disabled, so no disabled styling.
+      className={`px-4 py-2 min-h-[44px] rounded-lg text-sm font-medium border text-left text-[var(--ff-text-primary)] ${byFile === file
+        ? 'border-teal-600 bg-teal-500/10'
+        : 'border-[var(--ff-border-primary)] hover:bg-[var(--ff-bg-tertiary)]'}`}>
       {label}
     </button>
   );
