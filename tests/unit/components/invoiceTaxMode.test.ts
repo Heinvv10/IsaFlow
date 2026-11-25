@@ -2,12 +2,12 @@
  * taxMode.ts — what the invoice form's excl / incl / none choice does to a typed price. Since the per-line VAT writer PR
  * the invoice form sends the price AS TYPED with its mode and the server backs an inclusive line's VAT out of its gross,
  * so an inclusive total is exactly what was typed (the drift spec decision 2 quoted, 3 x R10 incl storing R30.02, is
- * gone). The totals here are formTotals, the page's own, which is the pricing the server stores. The quote form still
- * converts (storedUnitPrice / lineTotalForMode).
+ * gone). The totals here are formTotals, the page's own, which is the pricing the server stores (the quote modal too,
+ * since per-line VAT on quotes: customer-quotes/quoteFormVat).
  */
 import { describe, expect, it } from 'vitest';
 import {
-  effectiveTaxRate, exVatUnitPrice, grossUnitPrice, inclusiveTypedTotal, lineTotalForMode, linesForModeChange, pricesToNothing, storedUnitPrice, type TaxMode,
+  exVatUnitPrice, grossUnitPrice, inclusiveTypedTotal, pricesToNothing, type TaxMode,
 } from '@/components/accounting/customer-invoices/taxMode';
 import { formTotals, lineVatWarning } from '@/components/accounting/customer-invoices/formVat';
 
@@ -60,44 +60,6 @@ describe('grossUnitPrice', () => {
   });
 });
 
-describe('linesForModeChange', () => {
-  const lines = [{ unitPrice: 1000, discount: 10 }, { unitPrice: 500, discount: 0 }];
-  const prices = (from: TaxMode, to: TaxMode) => linesForModeChange(lines, from, to, 15).map((l) => l.unitPrice);
-
-  it('grosses up on the way into inclusive, from either other mode', () => {
-    expect(prices('exclusive', 'inclusive')).toEqual([1150, 575]);
-    expect(prices('none', 'inclusive')).toEqual([1150, 575]);
-  });
-
-  it('takes the VAT back out on the way out of inclusive, to either other mode', () => {
-    const shown = [{ unitPrice: 1150 }, { unitPrice: 575 }];
-    expect(linesForModeChange(shown, 'inclusive', 'exclusive', 15).map((l) => l.unitPrice)).toEqual([1000, 500]);
-    expect(linesForModeChange(shown, 'inclusive', 'none', 15).map((l) => l.unitPrice)).toEqual([1000, 500]);
-  });
-
-  it('converts nothing at a rate below 0, where the way back is not exact', () => {
-    expect(linesForModeChange(lines, 'exclusive', 'inclusive', -5).map((l) => l.unitPrice)).toEqual([1000, 500]);
-    expect(linesForModeChange(lines, 'inclusive', 'exclusive', -5).map((l) => l.unitPrice)).toEqual([1000, 500]);
-  });
-
-  it('leaves a price mid-edit as it is, either way, and still converts the rest', () => {
-    const half = [{ unitPrice: Number.NaN }, { unitPrice: 115 }];
-    expect(linesForModeChange(half, 'inclusive', 'exclusive', 15).map((l) => l.unitPrice)).toEqual([Number.NaN, 100]);
-    expect(linesForModeChange(half, 'exclusive', 'inclusive', 15).map((l) => l.unitPrice)).toEqual([Number.NaN, 132.25]);
-  });
-
-  it('converts nothing at a rate that cannot be read', () => {
-    expect(linesForModeChange(lines, 'exclusive', 'inclusive', Number.NaN).map((l) => l.unitPrice)).toEqual([1000, 500]);
-    expect(linesForModeChange(lines, 'inclusive', 'exclusive', Number.NaN).map((l) => l.unitPrice)).toEqual([1000, 500]);
-  });
-
-  it('leaves the price alone between exclusive and No VAT, and keeps the rest of the line', () => {
-    expect(prices('exclusive', 'none')).toEqual([1000, 500]);
-    expect(prices('none', 'exclusive')).toEqual([1000, 500]);
-    expect(linesForModeChange(lines, 'exclusive', 'inclusive', 15)[0]!.discount).toBe(10);
-  });
-});
-
 const line = (quantity: number, unitPrice: number, discount = 0) => ({ quantity, unitPrice, discount });
 const invoice = (mode: TaxMode, lines: ReturnType<typeof line>[]) =>
   formTotals(lines, lines.map(() => 'standard' as const), mode, '2026-11-20');
@@ -121,11 +83,6 @@ describe('the stored invoice for what was typed', () => {
     expect(inclusiveTypedTotal(lines)).toBe(10000);
   });
 
-  it('the quote form still converts an inclusive price to ex-VAT (quoteVat)', () => {
-    expect(storedUnitPrice('inclusive', 10, 15)).toBe(8.7);
-    expect(lineTotalForMode('inclusive', 15, line(3, 10))).toBe(26.1);
-  });
-
   it('1 x R115 incl is exact', () => {
     const lines = [line(1, 115)];
     expect(invoice('inclusive', lines)).toEqual({ subtotal: 100, tax: 15, total: 115 });
@@ -143,15 +100,10 @@ describe('the stored invoice for what was typed', () => {
   });
 
   it('exclusive sends the typed price untouched, whatever its precision', () => {
-    expect(storedUnitPrice('exclusive', 10.005, 15)).toBe(10.005);
     expect(invoice('exclusive', [line(3, 10)])).toEqual({ subtotal: 30, tax: 4.5, total: 34.5 });
   });
 
   it('none is rate 0 whatever the form holds, and the price is untouched', () => {
-    expect(effectiveTaxRate('none', 15)).toBe(0);
-    expect(effectiveTaxRate('exclusive', 15)).toBe(15);
-    expect(effectiveTaxRate('inclusive', 14)).toBe(14);
-    expect(storedUnitPrice('none', 115, 0)).toBe(115);
     expect(invoice('none', [line(1, 115)])).toEqual({ subtotal: 115, tax: 0, total: 115 });
   });
 });

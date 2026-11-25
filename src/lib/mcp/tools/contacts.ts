@@ -18,7 +18,7 @@ export const listCustomersTool: McpTool = {
   name: 'list_customers',
   description:
     'Customers of the connected company (name, contact details, payment terms, VAT number, '
-    + 'default_revenue_account_id), ordered by '
+    + 'default_revenue_account_id, default_vat_type: the VAT type a new invoice or quote line takes when it names none), ordered by '
     + 'name. Optional free-text search. Returns {customers, next_offset}: up to `limit` rows (default '
     + `${CUSTOMERS_DEFAULT_LIMIT}, max ${CUSTOMERS_MAX_LIMIT}); when next_offset is not null, call again with `
     + 'offset=next_offset for the next page (null means that was the last page).',

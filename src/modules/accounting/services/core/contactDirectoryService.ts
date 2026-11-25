@@ -208,6 +208,7 @@ export async function listCustomers(
       id, name, email, phone, contact_person,
       payment_terms, payment_terms_type, credit_limit, is_active,
       vat_number, registration_number, default_revenue_account_id,
+      default_vat_type, -- the quote modal's line VAT default (per-line VAT on quotes)
       created_at
     FROM customers
     WHERE company_id = ${companyId}
