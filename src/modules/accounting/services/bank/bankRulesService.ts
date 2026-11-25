@@ -33,13 +33,25 @@ export { applyRules } from './bankRulesMatchingService';
 
 // ── CRUD ────────────────────────────────────────────────────────────────────
 
+/** A rule's supplier as the list shows it: "Name", "Name (merged into Survivor)" or "Name (deleted)"; merged by merged_into_id. */
+function supplierLabel(name: string, gone: boolean, merged: boolean, survivor: unknown): string {
+  if (!gone) return name;
+  if (!merged) return `${name} (deleted)`;
+  return survivor != null ? `${name} (merged into ${String(survivor)})` : `${name} (merged into another supplier)`;
+}
+
 export async function getRules(companyId: string): Promise<BankCategorisationRule[]> {
   const rows = (await sql`
     SELECT r.*, ga.account_code AS gl_account_code, ga.account_name AS gl_account_name,
-           s.company_name AS supplier_name, c.name AS client_name
+           COALESCE(NULLIF(s.company_name, ''), s.name) AS supplier_name,
+           (s.merged_into_id IS NOT NULL OR s.deleted_at IS NOT NULL) AS supplier_gone, s.merged_into_id IS NOT NULL AS supplier_merged,
+           COALESCE(NULLIF(sv.company_name, ''), sv.name) AS supplier_survivor, c.name AS client_name
     FROM bank_categorisation_rules r
     LEFT JOIN gl_accounts ga ON ga.id = r.gl_account_id AND ga.company_id = r.company_id
     LEFT JOIN suppliers s ON s.id = r.supplier_id AND s.company_id = r.company_id
+    -- A rule left on a merged-away (or deleted) supplier says so in the list, where people look first (#1882): its survivor, same
+    -- company only (the merged_into_id FK is company-scoped too).
+    LEFT JOIN suppliers sv ON sv.id = s.merged_into_id AND sv.company_id = r.company_id
     LEFT JOIN customers c ON c.id = r.client_id AND c.company_id = r.company_id
     WHERE r.company_id = ${companyId}::UUID
     ORDER BY r.priority ASC, r.rule_name ASC, r.id ASC
@@ -215,7 +227,8 @@ function mapRuleRow(row: Record<string, unknown>): BankCategorisationRule {
     updatedAt: String(row.updated_at),
     glAccountCode: row.gl_account_code ? String(row.gl_account_code) : undefined,
     glAccountName: row.gl_account_name ? String(row.gl_account_name) : undefined,
-    supplierName: row.supplier_name ? String(row.supplier_name) : undefined,
+    supplierName: row.supplier_name
+      ? supplierLabel(String(row.supplier_name), row.supplier_gone === true, row.supplier_merged === true, row.supplier_survivor) : undefined,
     clientName: row.client_name ? String(row.client_name) : undefined,
   };
 }

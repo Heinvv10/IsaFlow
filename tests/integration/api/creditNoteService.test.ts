@@ -16,6 +16,8 @@
 
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { sql } from '@/lib/neon';
+import { Pool } from 'pg';
+import { als } from '@/lib/als';
 import { createCreditNote } from '@/modules/accounting/services/ar/creditNoteService';
 import {
   validateCreditNoteLinks,
@@ -34,6 +36,22 @@ let supplierA: string;
 let createdIds: string[] = [];
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+/**
+ * A committed request transaction, as withAuth runs one: a supplier note locks its supplier FOR KEY SHARE and live
+ * (core/supplierLiveLock, #1699), which refuses to run outside a request transaction.
+ */
+let txPool: Pool | null = null;
+async function inTx<T>(fn: () => Promise<T>): Promise<T> {
+  txPool ??= new Pool({ connectionString: process.env.DATABASE_URL, max: 2 });
+  const client = await txPool.connect();
+  try {
+    await client.query('BEGIN');
+    const out = await als.run({ client, userId: USER_ID, companyId: COMPANY_A, claims: {} } as never, fn);
+    await client.query('COMMIT');
+    return out;
+  } catch (err) { await client.query('ROLLBACK'); throw err; } finally { client.release(); }
+}
 
 async function ensureTestCompany(id: string, name: string): Promise<void> {
   await sql`
@@ -70,6 +88,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  await txPool?.end();
   if (createdIds.length > 0) {
     await sql`
       DELETE FROM credit_notes WHERE id = ANY(${createdIds}::UUID[])
@@ -161,7 +180,7 @@ describe('BL-42: createCreditNote supplies company_id', () => {
  */
 describe('createCreditNote — supplier credit notes reach the table with their supplier', () => {
   it('creates a supplier credit note carrying a real supplier UUID', async () => {
-    const cn = await createCreditNote(
+    const cn = await inTx(() => createCreditNote(
       COMPANY_A,
       {
         type: 'supplier',
@@ -172,7 +191,7 @@ describe('createCreditNote — supplier credit notes reach the table with their 
         taxRate: 15,
       },
       USER_ID,
-    );
+    ));
     createdIds.push(cn.id);
 
     // Read the stored value back rather than trusting the mapped return: the
@@ -198,13 +217,13 @@ describe('validateCreditNoteLinks — tenant and counterparty fences', () => {
 
   it('accepts a customer and a supplier that belong to the calling company', async () => {
     expect(await validateCreditNoteLinks(COMPANY_A, { type: 'customer', clientId: customerA })).toBeNull();
-    expect(await validateCreditNoteLinks(COMPANY_A, { type: 'supplier', supplierId: supplierA })).toBeNull();
+    expect(await inTx(() => validateCreditNoteLinks(COMPANY_A, { type: 'supplier', supplierId: supplierA }))).toBeNull();
   });
 
   it('refuses a customer belonging to another company with the generic miss text', async () => {
     expect(await validateCreditNoteLinks(OTHER_COMPANY, { type: 'customer', clientId: customerA }))
       .toBe('Not found');
-    expect(await validateCreditNoteLinks(OTHER_COMPANY, { type: 'supplier', supplierId: supplierA }))
+    expect(await inTx(() => validateCreditNoteLinks(OTHER_COMPANY, { type: 'supplier', supplierId: supplierA })))
       .toBe('Not found');
   });
 
@@ -235,11 +254,11 @@ describe('createCreditNote — the tenant fence is in the service, so every call
   });
 
   it('refuses a supplier belonging to another company', async () => {
-    await expect(createCreditNote(
+    await expect(inTx(() => createCreditNote(
       OTHER_COMPANY,
       { type: 'supplier', supplierId: supplierA, creditDate: '2026-04-15', subtotal: 100 },
       USER_ID,
-    )).rejects.toThrow('Not found');
+    ))).rejects.toThrow('Not found');
   });
 
   it('refuses a customer note with no client_id at all', async () => {
@@ -295,11 +314,11 @@ describe('findOpenDuplicateDraft', () => {
    * all, silently. Mutating the operator makes only THIS test fail.
    */
   it('matches a supplier draft, whose customer columns are NULL', async () => {
-    const cn = await createCreditNote(
+    const cn = await inTx(() => createCreditNote(
       COMPANY_A,
       { type: 'supplier', supplierId: supplierA, creditDate: '2026-05-04', subtotal: 300, taxRate: 15 },
       USER_ID,
-    );
+    ));
     createdIds.push(cn.id);
 
     expect(await findOpenDuplicateDraft(
