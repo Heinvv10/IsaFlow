@@ -27,6 +27,11 @@ async function seriousAxe(page: Page): Promise<string[]> {
     .flatMap((v) => v.nodes.map((n) => `${v.id} (${v.impact}): ${n.target.join(' ')}`));
 }
 
+/** next dev paints a thrown routeChangeStart (how Next documents cancelling a route change) as an error overlay; production does not. */
+async function hideDevOverlay(page: Page): Promise<void> {
+  await page.evaluate(() => document.querySelectorAll('nextjs-portal').forEach((n) => ((n as HTMLElement).style.display = 'none')));
+}
+
 for (const theme of THEMES) {
   test(`Save follows the form's dirty state and leaving with edits asks first (${theme})`, async ({ page, context, baseURL }) => {
     const u = new URL(baseURL!);
@@ -73,9 +78,8 @@ for (const theme of THEMES) {
     await page.getByRole('link', { name: 'Dashboard' }).first().click();
     const dialog = page.getByRole('alertdialog', { name: 'Leave without saving?' });
     await expect(dialog).toBeVisible();
+    await hideDevOverlay(page);
     await expect(dialog).toHaveAttribute('aria-modal', 'true');
-    // The guard cancels the route change by throwing from routeChangeStart (Next's documented way); next dev shows that as an overlay.
-    await page.evaluate(() => document.querySelectorAll('nextjs-portal').forEach((n) => ((n as HTMLElement).style.display = 'none')));
     expect(await seriousAxe(page)).toEqual([]);
     if (EVIDENCE_DIR) await page.screenshot({ path: `${EVIDENCE_DIR}/settings-leave-dialog-${theme}.png` });
     await page.keyboard.press('Escape');
@@ -83,7 +87,9 @@ for (const theme of THEMES) {
     await expect(page).toHaveURL(/company-settings/);
     await expect(page.locator(PHONE)).toHaveValue('0110000099');
 
-    await page.getByRole('link', { name: 'Dashboard' }).first().evaluate((a: HTMLElement) => a.click()); // next dev's error overlay can cover the link
+    await page.getByRole('link', { name: 'Dashboard' }).first().click();
+    await expect(dialog).toBeVisible();
+    await hideDevOverlay(page);
     await page.getByRole('button', { name: 'Leave' }).click();
     await expect(page).not.toHaveURL(/company-settings/, { timeout: 30_000 });
   });
