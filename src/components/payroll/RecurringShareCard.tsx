@@ -11,7 +11,15 @@ import { apiErrorMessage, apiFetch, apiJson, assertOk } from '@/lib/apiFetch';
 /** What the card reads of each pair; `message` is the server's sentence (payrollRecurringShare.shareBesideOnceOffResults). */
 interface SharePair { employeeId: string; employeeName: string; employeeNumber: string; acknowledged: boolean; message: string }
 
-export function RecurringShareCard({ runId, canAcknowledge }: { runId: string; canAcknowledge: boolean }) {
+/**
+ * What the card must re-read on (review #1901 R2-L5): each line's pair key. A recalculation that changes a pair writes a new
+ * key, so the card fetches again rather than showing a stale "Acknowledged".
+ */
+export function sharePairsKey(lines: ReadonlyArray<{ validationResults?: ReadonlyArray<{ code: string; pairKey?: string }> | null }>): string {
+  return lines.map((l) => (l.validationResults ?? []).find((v) => v.code === 'RECURRING_SHARE_BESIDE_ONCE_OFF')?.pairKey ?? '').join('|');
+}
+
+export function RecurringShareCard({ runId, canAcknowledge, refreshKey = '' }: { runId: string; canAcknowledge: boolean; refreshKey?: string }) {
   const [items, setItems] = useState<SharePair[]>([]);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState('');
@@ -24,7 +32,7 @@ export function RecurringShareCard({ runId, canAcknowledge }: { runId: string; c
       setError(apiErrorMessage(err, 'Could not load the part-period earnings'));
     }
   }, [runId]);
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { void load(); }, [load, refreshKey]);
 
   const acknowledge = async (employeeId: string) => {
     setBusy(employeeId);

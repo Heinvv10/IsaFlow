@@ -5,7 +5,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { RecurringShareCard } from '@/components/payroll/RecurringShareCard';
+import { RecurringShareCard, sharePairsKey } from '@/components/payroll/RecurringShareCard';
 
 const fetchMock = vi.fn();
 const json = (data: unknown, status = 200) => new Response(JSON.stringify(status < 400 ? { success: true, data } : { success: false, error: data }), { status });
@@ -55,4 +55,18 @@ describe('RecurringShareCard', () => {
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     expect(container.textContent).toBe('');
   });
+
+  // Review #1901 R2-L5: a recalculation that changes a pair writes a new key on the line; the card reads again.
+  it('reads again when the lines\' pair keys change (a recalculation), so a stale "Acknowledged" is not shown', async () => {
+    let acked = true;
+    fetchMock.mockImplementation(async () => json({ pairs: [pair(acked)] }));
+    const lines = (k: string) => [{ validationResults: [{ code: 'RECURRING_SHARE_BESIDE_ONCE_OFF', pairKey: k }] }];
+    const { rerender } = render(<RecurringShareCard runId="r1" canAcknowledge refreshKey={sharePairsKey(lines('a'))} />);
+    expect(await screen.findByText('Acknowledged')).toBeTruthy();
+    acked = false;
+    rerender(<RecurringShareCard runId="r1" canAcknowledge refreshKey={sharePairsKey(lines('b'))} />);
+    expect(await screen.findByRole('button', { name: 'Acknowledge for Raj Raise' })).toBeTruthy();
+    expect(sharePairsKey([{ validationResults: null }, ...lines('x')])).toBe('|x');
+  });
 });
+
