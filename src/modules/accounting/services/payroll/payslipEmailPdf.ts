@@ -21,9 +21,8 @@ import { createHash } from 'crypto';
 import { escapeHtml } from '@/modules/accounting/services/packs/escapeHtml';
 import { buildPayslipPdf, payslipFilename } from './payslipPdf';
 import { encryptPayslipPdf, type EncryptDeps } from './payslipEncrypt';
+import { payslipPeriodTitle } from './payslipPeriod';
 import type { Payslip, PayslipRun } from './payslipModel';
-
-const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
 export type PasswordSource = 'id_number' | 'passport_number';
 
@@ -61,7 +60,7 @@ export async function renderEmailPayslip(
 
 /** The subject and body. The password itself is never in the mail; only which document it is. */
 export function payslipEmailMessage(run: PayslipRun, slip: Payslip, source: PasswordSource): { subject: string; html: string } {
-  const period = `${MONTHS[run.periodMonth - 1]} ${run.periodYear}`;
+  const period = payslipPeriodTitle(run);
   const doc = source === 'id_number' ? 'your South African ID number' : 'your passport number';
   const employer = escapeHtml(run.employer.name);
   return {
