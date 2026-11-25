@@ -6,7 +6,7 @@
  *    agent token; a viewer; another tenant's run; details not frozen) sends nothing and writes no row;
  *  - a send attaches one password-protected PDF per employee, records pdf_sha256 = the hash of the exact bytes sent,
  *    skips and names an employee with no address or no ID/passport number, and audits once;
- *  - it is idempotent per (run, employee, approval): again = ALREADY_SENT; resend = the same bytes; a failed send is
+ *  - it is idempotent per (run, employee, approval): again = ALREADY_SENT; resend = a new encryption; a failed send is
  *    retried; a re-approval may be sent again;
  *  - a send to an address other than the employee's last one is named (addressChanged);
  *  - every captured recipient is @example.invalid; the table refuses a row the code would never write.
@@ -129,8 +129,9 @@ describe('payslip email', () => {
     const first = captured.find((m) => m.to === 'thandi@example.invalid')!.attachments![0]!.content;
     const resend = await send(a, run, { body: { employeeIds: [emp.idOnly], resend: true } });
     expect(resend.body.data!.sent).toMatchObject([{ employeeId: emp.idOnly, addressChanged: false }]);
-    expect(Buffer.compare(attachment(2), first)).toBe(0);
-    expect((await deliveries(a)).at(-1)).toMatchObject({ resend: true, pdf_sha256: sha(first) });
+    // Wave 7 PX: AES-256 is salted, so a resend is new bytes (its own pdf_sha256) of the same render (w7-px-payslip-aes).
+    expect(Buffer.compare(attachment(2), first)).not.toBe(0);
+    expect((await deliveries(a)).at(-1)).toMatchObject({ resend: true, pdf_sha256: sha(attachment(2)) });
 
     failNext.count = 1;
     await a.pool.query("UPDATE payroll_employees SET email = 'retry@example.invalid' WHERE id = $1", [emp.noId]);
