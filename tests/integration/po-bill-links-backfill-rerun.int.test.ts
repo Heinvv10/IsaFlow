@@ -186,6 +186,7 @@ describe('the checks have teeth: each mutant of the live function is caught', ()
     ['any PO status', "AND pr.po_status IN ('approved', 'partially_received', 'received', 'closed')", '', /expected none/],
     ['cancelled bills too', "si.status <> 'cancelled' AND ", '', /expected none/],
     ['deleted bills too', 'AND si.deleted_at IS NULL', '', /expected none/],
+    ['a table lock above ROW EXCLUSIVE', '  FOR r IN\n', '  LOCK TABLE public.purchase_order_bill_links IN SHARE ROW EXCLUSIVE MODE;\n  FOR r IN\n', /table lock/],
     ['header residual ignores the lines', 's.sub_c - s.pos_total - s.held_c', 's.sub_c', /exceed its subtotal|expected 30\.00/],
   ];
   it.each(cases)('%s', async (_name, from, to, caught) => {
