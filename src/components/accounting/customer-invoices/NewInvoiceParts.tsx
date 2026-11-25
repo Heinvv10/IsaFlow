@@ -64,7 +64,7 @@ export function InvoiceActionBar({ status, children }: { status: ReactNode; chil
   const bar = useRef<HTMLDivElement>(null);
   useClearOfBar(bar);
   return (
-    <div ref={bar} role="group" aria-label="Invoice actions" className="sticky bottom-0 z-20 border-t border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur px-4 sm:px-6 xl:px-8 py-3">
+    <div ref={bar} role="group" aria-label="Invoice actions" className="sticky bottom-0 z-20 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-4 sm:px-6 xl:px-8 py-3">
       <div className="max-w-screen-2xl mx-auto flex flex-col sm:flex-row sm:items-center gap-x-4 gap-y-2">
         {/* The status takes what the buttons leave and wraps inside it; the buttons never drop under it. */}
         <div className="flex-1 min-w-0 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">{status}</div>
