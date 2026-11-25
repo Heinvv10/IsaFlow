@@ -29,6 +29,7 @@ import {
 } from '@/lib/auth/emailVerificationService';
 import { provisionTenant } from '@/modules/onboarding/services/tenantProvisioningService';
 import { notifySignup } from '@/modules/onboarding/services/signupNotification';
+import { sendWelcomeEmail } from '@/modules/onboarding/services/welcomeEmail';
 import { setUpSignupBureau, type SignupBureauResult } from '@/modules/bureau/services/signupBureauService';
 import { sql } from '@/lib/neon';
 import { withRateLimit } from '@/lib/rateLimit';
@@ -150,7 +151,7 @@ const handler: NextApiHandler = async (req, res) => {
   let paygEligible = false;
   let gotrueUserId = '';
   let email = '';
-  let companyName = '';
+  let companyName = '', firstName: string | null = null;
   let signupType = '';
   let bureau: SignupBureauResult | null = null;
   let unusable = false;
@@ -200,6 +201,7 @@ const handler: NextApiHandler = async (req, res) => {
       return res.status(409).json(EMAIL_MISMATCH);
     }
     companyName = consumed.pending.companyName;
+    firstName = consumed.pending.firstName;
     signupType = consumed.pending.signupType;
 
     // One tenant per user, enforced here rather than assumed from the token.
@@ -287,6 +289,7 @@ const handler: NextApiHandler = async (req, res) => {
   }, 'auth');
 
   notifySignup({ email, companyName, signupType, companyId, ownerUserId: gotrueUserId, bureau });
+  sendWelcomeEmail({ companyId, email, firstName, companyName, signupType });
 
   // Deliberately NOT signed in: the link is often opened on a different device
   // from the one that signed up, and the only way to auto-sign-in here would be
