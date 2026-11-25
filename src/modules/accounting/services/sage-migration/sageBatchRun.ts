@@ -104,9 +104,14 @@ export function planBatches(plan: MigrationPlan, opts: Pick<MigrationOptions, 'i
  * live call. Nothing the dry run does survives its transaction, idempotency and audit rows included (tests prove it); its keys carry
  * "-dry" as well, so even a failed rollback could not make the live run replay a dry run's answer.
  */
-/** Whether the tool's answer says it wrote nothing: an item batch with `written: false`. A category is never "present" (its flag comes from outcome unchanged alone); a PO batch is never rewritten (the tool only replays or creates). */
-function wroteNothing(entity: Send['entity'], body: Record<string, unknown> | null): boolean {
+/**
+ * Whether the tool's answer says it wrote nothing: an item batch with `written: false`; a PO batch that created no PO and did not raise
+ * the number counter (bulk_create_purchase_orders: `created`, `counter.raised`), so a batch that re-created a deleted PO is never "nothing
+ * new written" (B13-2). A category is never "present" (its flag comes from outcome unchanged alone).
+ */
+export function wroteNothing(entity: Send['entity'], body: Record<string, unknown> | null): boolean {
   if (entity === 'item') return body?.written !== true;
+  if (entity === 'purchase_order') return body?.created === 0 && (body.counter as { raised?: unknown } | undefined)?.raised !== true;
   return true;
 }
 

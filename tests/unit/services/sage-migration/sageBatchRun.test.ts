@@ -250,3 +250,14 @@ describe('M1 (round 4): a category batch key follows the state of the owned cate
     expect(keyFor(b.purchaseOrders[0]!, empty(), false)).toMatch(/^sage-mig-purchase_order-0001-[0-9a-f]{16}$/);
   });
 });
+
+describe('B13-2 (round 13): a PO batch that created a PO wrote something', () => {
+  it('wroteNothing is true only for created 0 and no counter raised', async () => {
+    const { wroteNothing } = await import('@/modules/accounting/services/sage-migration/sageBatchRun');
+    expect(wroteNothing('purchase_order', { created: 0, already_existed: 2, counter: { raised: false } })).toBe(true);
+    expect(wroteNothing('purchase_order', { created: 1, already_existed: 1, counter: { raised: false } })).toBe(false);
+    expect(wroteNothing('purchase_order', { created: 0, counter: { raised: true } })).toBe(false);
+    expect(wroteNothing('purchase_order', null)).toBe(false);
+    expect([wroteNothing('item', { written: false }), wroteNothing('item', { written: true })]).toEqual([true, false]);
+  });
+});
