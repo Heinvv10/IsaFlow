@@ -116,6 +116,15 @@ export function MarkRunPaidButton({ runId, run, companyRole, onPaid }: {
 
 export function RunPaidNote({ run }: { run: PaidRun }) {
   if (run.status !== 'paid') return null;
+  // B7/Q2 (review #1911): a legacy paid row (before migration 1053, e.g. the Demo reseed's) has neither a reference nor a
+  // payment date, and no file behind it: it is not described as paid by a bank file.
+  if (!run.paidReference && !run.paidOn) {
+    return (
+      <div role="status" className="px-4 py-2 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-800 dark:text-emerald-300 text-sm">
+        Paid (recorded before payment records were kept). A paid run cannot be reopened.
+      </div>
+    );
+  }
   const how = run.paidReference ? `bank reference ${run.paidReference}` : 'its confirmed salary bank file';
   const who = run.paidByName ? ` by ${run.paidByName}` : '';
   const when = run.paidAt ? ` on ${formatDisplayDateTime(run.paidAt)}` : '';

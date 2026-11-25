@@ -76,6 +76,11 @@ describe('RunPaidNote', () => {
     render(<RunPaidNote run={{ status: 'paid', journalEntryId: 'j', paidOn: '2026-11-25', paidReference: null }} />);
     expect(screen.getByRole('status')).toHaveTextContent(/its confirmed salary bank file/);
     cleanup();
+    // B7/Q2: a legacy paid row (no reference, no payment date) is not said to be paid by a bank file.
+    render(<RunPaidNote run={{ status: 'paid', journalEntryId: 'j', paidOn: null, paidReference: null }} />);
+    expect(screen.getByRole('status')).toHaveTextContent('Paid (recorded before payment records were kept). A paid run cannot be reopened.');
+    expect(screen.getByRole('status')).not.toHaveTextContent(/bank file/);
+    cleanup();
     const { container } = render(<RunPaidNote run={approved} />);
     expect(container).toBeEmptyDOMElement();
   });

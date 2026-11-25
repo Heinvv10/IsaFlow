@@ -39,9 +39,11 @@ export class PayrollRunReopenRefusedError extends Error {
 export class PayrollRunPaidReopenError extends PayrollRunReopenRefusedError {
   readonly code = PAYROLL_REFUSAL.RUN_PAID;
   readonly status = 409;
-  constructor(paidOn: string | null) {
+  constructor(paidOn: string | null, offCycle = false) {
     super(`Paid runs cannot be reopened: this run was marked paid${paidOn ? ` on ${paidOn}` : ''} and its payments were issued. `
-      + 'Correct it with an off-cycle run.');
+      + (offCycle
+        ? 'Pay any difference with a new off-cycle run of its month.'
+        : 'Correct it with an off-cycle run.'));
     this.name = 'PayrollRunPaidReopenError';
   }
 }
@@ -63,14 +65,15 @@ export async function reopenPayrollRun(opts: {
   await lockCompanyPayrollApprovals(opts.runId, opts.companyId);
   const run = await lockPayrollRunHeader(opts.runId, opts.companyId);
   if (!run) throw new PayrollRunReopenRefusedError('Payroll run not found');
+  const previousStatus = String(run.status);
+  // Wave 7 MP: a paid run of any kind is answered first (409 RUN_PAID, naming the correction path for its kind).
+  if (previousStatus === 'paid') {
+    throw new PayrollRunPaidReopenError(run.paid_on == null ? null : String(run.paid_on), run.run_kind === 'off_cycle'); // DATE reads as text (pgTypes)
+  }
   // Wave 6 FQa: an off-cycle or non-monthly run is not reopened by this release (GA lifted the garnishee clause).
   await assertRunKindSupported(opts.companyId, opts.runId, 'reopen');
 
-  const previousStatus = String(run.status);
   if (!REOPENABLE_STATUSES.has(previousStatus)) {
-    if (previousStatus === 'paid') {
-      throw new PayrollRunPaidReopenError(run.paid_on == null ? null : String(run.paid_on)); // DATE reads as text (pgTypes)
-    }
     if (previousStatus === 'cancelled') {
       throw new PayrollRunReopenRefusedError('Cancelled runs cannot be reopened — create a new run for this period.');
     }

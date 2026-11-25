@@ -31,6 +31,19 @@ describe('parseTypedPayment', () => {
     expect([r.status, r.reason]).toEqual([400, 'INVALID_REFERENCE']);
   });
 
+  it.each([
+    ['a control character', 'EFT\u00071'], ['a bidi override', 'EFT\u202E1'], ['a zero-width space', 'EFT\u200B1'],
+    ['a line separator', 'EFT\u20281'], ['a newline inside', 'EFT\n1'],
+  ])('S1: %s in the reference is refused (400 INVALID_REFERENCE)', (_l, reference) => {
+    const r = refusal(() => parseTypedPayment({ reference, paidOn: '2026-11-25' }));
+    expect([r.status, r.reason]).toEqual([400, 'INVALID_REFERENCE']);
+    expect(r.message).toMatch(/invisible or control character/);
+  });
+
+  it('S1: ordinary punctuation, accents and spaces inside pass', () => {
+    expect(parseTypedPayment({ reference: 'FNB/EFT-2026 #12 Zoë', paidOn: '2026-11-25' })?.reference).toBe('FNB/EFT-2026 #12 Zoë');
+  });
+
   it(`${MAX_PAID_REFERENCE} characters pass; one more is refused`, () => {
     expect(parseTypedPayment({ reference: 'R'.repeat(MAX_PAID_REFERENCE), paidOn: '2026-11-25' })?.reference).toHaveLength(64);
     expect(refusal(() => parseTypedPayment({ reference: 'R'.repeat(MAX_PAID_REFERENCE + 1), paidOn: '2026-11-25' })).reason)

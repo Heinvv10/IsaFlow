@@ -55,6 +55,11 @@ export function parseTypedPayment(input: { reference?: string | null; paidOn?: s
   if (reference.length === 0) {
     throw new PayrollRunMarkPaidRefusal('INVALID_REFERENCE', 'Type the bank payment reference (it cannot be blank).');
   }
+  // S1 (review #1911): no control, format or bidi characters (\p{Cc}, \p{Cf}) nor line or paragraph separators: the
+  // reference is shown and exported as typed, and these change how it reads.
+  if (/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(reference)) {
+    throw new PayrollRunMarkPaidRefusal('INVALID_REFERENCE', 'The bank payment reference has an invisible or control character: type it again.');
+  }
   if (reference.length > MAX_PAID_REFERENCE) {
     throw new PayrollRunMarkPaidRefusal('INVALID_REFERENCE', `The bank payment reference is at most ${MAX_PAID_REFERENCE} characters.`);
   }
