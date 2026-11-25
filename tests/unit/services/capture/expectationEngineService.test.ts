@@ -31,6 +31,7 @@ vi.mock('@/lib/logger', () => ({
 // queue below stays positional.
 vi.mock('@/modules/accounting/services/core/contactDirectoryService', () => ({
   assertSupplierInCompany: vi.fn(async () => undefined),
+  SupplierNotInCompanyError: class SupplierNotInCompanyError extends Error {},
 }));
 
 import { RowLockTimeoutError } from '@/modules/accounting/services/core/rowLockBudget';

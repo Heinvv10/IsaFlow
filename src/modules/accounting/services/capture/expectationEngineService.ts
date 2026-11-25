@@ -8,7 +8,7 @@ import { RowLockTimeoutError, withRowLockBudget } from '../core/rowLockBudget';
 import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/lib/neon';
-import { assertSupplierInCompany } from '../core/contactDirectoryService';
+import { assertSupplierInCompany, SupplierNotInCompanyError } from '../core/contactDirectoryService';
 
 type Row = DbRow;
 
@@ -276,9 +276,11 @@ export async function recomputeAllForCompany(
       processed++;
       if (exp.status === 'locked') locked++;
     } catch (err) {
-      // Only the two expected per-supplier outcomes are skipped: a supplier held past the lock budget (a merge in flight) and one
-      // merged away. Anything else is a real failure and fails the run (#1882 fix-verify L2); the savepoint has rolled it back.
-      if (!(err instanceof RowLockTimeoutError) && !(err instanceof ExpectationSupplierNotLiveError)) throw err;
+      // Only the expected per-supplier outcomes are skipped: a supplier held past the lock budget (a merge in flight), one merged
+      // away, and another company's supplier on this company's bills (R-068, refused before any write). Anything else is a real
+      // failure and fails the run (#1882 fix-verify L2); the savepoint has rolled it back.
+      const expected = err instanceof RowLockTimeoutError || err instanceof ExpectationSupplierNotLiveError || err instanceof SupplierNotInCompanyError;
+      if (!expected) throw err;
       log.warn('recomputeAllForCompany: skipped supplier', {
         supplierId: row.supplier_id, error: err,
       }, 'expectationEngine');
