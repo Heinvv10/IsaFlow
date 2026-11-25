@@ -16,6 +16,7 @@ import { seedSupplier } from './helpers/poBillLinkHarness';
 import { dropGrnExtras, dropMaintExtras, seedQtyPo } from './helpers/grnHarness';
 import { dropMergeRaceExtras, holdRow, pausedMerge, startRequest, waitsOnLock } from './helpers/mergeRace';
 import { mergeEntities } from '@/modules/accounting/services/core/duplicateMergeService';
+import { autoPostApprovalGuard } from '@/modules/accounting/services/bank/bankRuleAutoPostApproval';
 import { createSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceService';
 import { BillSupplierDeletedError } from '@/modules/accounting/services/ap/billSupplierLive';
 import { createSupplierPayment } from '@/modules/accounting/services/ap/supplierPaymentService';
@@ -49,7 +50,7 @@ describe('M1: a bill create naming a PO of the source, against a merge (no 40P01
       let merge: Awaited<ReturnType<typeof startRequest>> | undefined;
       let bill: Awaited<ReturnType<typeof startRequest>> | undefined;
       try {
-        merge = await startRequest(pool, fx, () => mergeEntities(fx.co, 'supplier', target, fx.supplier, fx.owner, 'owner'));
+        merge = await startRequest(pool, fx, () => mergeEntities(fx.co, 'supplier', target, fx.supplier, fx.owner, autoPostApprovalGuard(true), 'owner'));
         expect(await waitsOnLock(pool, merge.pid)).toBe(true);
         bill = await startRequest(pool, fx, () => createSupplierInvoice(fx.co, {
           trustSourceTax: true, supplierId: fx.supplier, invoiceNumber: `M1-${fx.co.slice(0, 8)}`, invoiceDate: '2026-06-15',

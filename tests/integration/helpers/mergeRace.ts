@@ -6,6 +6,7 @@
  */
 import type { Pool, PoolClient } from 'pg';
 import { mergeEntities } from '@/modules/accounting/services/core/duplicateMergeService';
+import { autoPostApprovalGuard } from '@/modules/accounting/services/bank/bankRuleAutoPostApproval';
 import { makeBill, openRequest, type BillFixture } from './budgetBillFixture';
 
 export interface Settled<T> { v: T | undefined; e: unknown }
@@ -53,7 +54,7 @@ export async function startRequest<T>(pool: Pool, fx: BillFixture, fn: () => Pro
 export async function pausedMerge(pool: Pool, fx: BillFixture, target: string) {
   const parked = await makeBill(pool, fx, [{ acct: fx.acc.opex, amount: 10 }]);
   const hold = await holdRow(pool, 'SELECT id FROM supplier_invoices WHERE id = $1 FOR UPDATE', [parked]);
-  const merge = await startRequest(pool, fx, () => mergeEntities(fx.co, 'supplier', target, fx.supplier, fx.owner, 'owner'));
+  const merge = await startRequest(pool, fx, () => mergeEntities(fx.co, 'supplier', target, fx.supplier, fx.owner, autoPostApprovalGuard(true), 'owner'));
   if (!(await waitsOnLock(pool, merge.pid))) { await hold.release(); throw new Error('the merge never reached its bill UPDATE'); }
   return { merge, release: hold.release };
 }
