@@ -2,7 +2,7 @@
  * The New Quote modal and per-line VAT (migration 1024): each line has a VAT type (Standard / Zero-rated / Exempt, the
  * invoice form's picker), the customer's default types a line with none of its own, the totals under the lines carry
  * one VAT row per type, priced per line as the server stores it, and the body sends each line's vatType with the ex-VAT
- * price (an Including VAT quote is stored ex-VAT, as it always was), never a legacy taxRate. A company not registered for VAT gets no VAT column, no "Amounts
+ * price (an Including VAT quote is stored ex-VAT, as it always was), never a legacy taxRate (but No VAT: an explicit taxRate 0). A company not registered for VAT gets no VAT column, no "Amounts
  * are" and untyped lines. A quote date is required (M1), and a picked type survives a customer change (M2). Real page;
  * only the network is scripted.
  */

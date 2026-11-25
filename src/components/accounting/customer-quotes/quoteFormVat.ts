@@ -9,7 +9,7 @@
  *     converted at its own rate (exVatUnitPrice) and sent with `amountsAre` exclusive, so a one-line quote's stored total is
  *     what it was before per-line VAT (VAT is now rounded on each line, so a quote of several lines can differ by cents,
  *     as an exclusive one does), and the modal shows the total it stores (it does not move on save);
- *   - every line sent names its `vatType` and no legacy `taxRate`, so the server never reads a type off a rate (the
+ *   - every line sent in a VAT mode names its `vatType` and no legacy `taxRate`, so the server never reads a type off a rate (the
  *     modal only creates: quotes have no edit screen, so no line carries a stored id);
  *   - a company not registered for VAT ('none') sends untyped lines with an explicit taxRate 0 and 'exclusive': the
  *     server stores no VAT for it (and zero-rated lines, not its default chain, if it reads the company as registered).

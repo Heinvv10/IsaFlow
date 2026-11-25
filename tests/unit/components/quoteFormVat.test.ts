@@ -1,6 +1,6 @@
 /**
- * The New Quote modal's body (quoteFormVat): per-line VAT types and the invoice form's holds. Every line names its
- * vatType and no legacy taxRate (review round 2 LOW 3: one rate on every line retyped a mixed quote's exempt lines).
+ * The New Quote modal's body (quoteFormVat): per-line VAT types and the invoice form's holds. Every line of a VAT
+ * mode names its vatType and no legacy taxRate (No VAT sends taxRate 0 and no type) (review round 2 LOW 3: one rate on every line retyped a mixed quote's exempt lines).
  * The modal only creates, so no line carries an id (UI review L8).
  */
 import { describe, expect, it } from 'vitest';

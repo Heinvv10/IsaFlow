@@ -67,7 +67,8 @@ const serverTotals = (lines: QuoteFormLine[], types: ('standard' | 'zero_rated' 
   if ('problem' in built) throw new Error(built.problem);
   const b = built.body;
   return previewInvoiceVat(b.lines.map((l) => ({ quantity: l.quantity, unitPrice: l.unitPrice, discount: 0 })),
-    mode === 'none' ? b.lines.map(() => 'zero_rated' as const) : b.lines.map((l) => l.vatType!), DATE, b.amountsAre);
+    // read off what was SENT: a typed line's vatType, or a legacy rate 0 (which the server stores zero-rated or untyped)
+    b.lines.map((l) => l.vatType ?? (l.taxRate === 0 ? ('zero_rated' as const) : (() => { throw new Error('line names no VAT'); })())), DATE, b.amountsAre);
 };
 
 describe('what the modal previews is what the server stores, in every mode', () => {

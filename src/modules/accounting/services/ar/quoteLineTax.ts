@@ -3,7 +3,7 @@
  * programme, migration 1024), so a quote converts to an invoice of the same figures.
  *
  *   type     invoiceLineVatTypes, worded for a quote: a line `vatType` (standard, zero_rated, exempt); else the LEGACY
- *            per-line `taxRate` (what API callers and old drafts send; the modal sends `vatType`), read as the invoice's legacy header
+ *            per-line `taxRate` (what API callers and old drafts send; the modal sends `vatType`, or taxRate 0 for No VAT), read as the invoice's legacy header
  *            rate, line by line: the standard rate on the quote date -> standard, 0 -> zero_rated, anything else refused;
  *            on an edit the line's stored match whose type has that rate keeps it (an exempt line resent at 0 stays
  *            exempt). A `vatType` and a `taxRate` on one quote are refused, as an invoice refuses a line type with its
