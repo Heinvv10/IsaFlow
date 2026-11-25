@@ -121,3 +121,35 @@ describe('L6: an unmatched line inherits no item from an identical stored line',
     expect(rows()).toEqual([[X, GX], [null, null]]);
   });
 });
+
+describe('each step\'s edges (mutation-checked)', () => {
+  it('content: identical twins of different items, moved, with no itemIds, are not paired by content: refused', async () => {
+    world.stored = [storedLine('s0', 1, X, GX, '10.00'), storedLine('s1', 2, Y, GY, '10.00')];
+    await expect(put([{ description: 'New', quantity: 1, unitPrice: 5 }, svc(10), svc(10)])).rejects.toThrow(AMBIGUOUS);
+    expect(wrote()).toBe(false);
+  });
+
+  it('place: naming the item of a twin already claimed by id re-items the line at its place (no ambiguity left)', async () => {
+    world.stored = [storedLine('s0', 1, X, GX, '10.00'), storedLine('s1', 2, Y, GY, '20.00')];
+    await put([svc(10, { id: 's0' }), svc(25, { itemId: X })]);
+    expect(rows()).toEqual([[X, GX], [X, GY]]);
+  });
+
+  it('place: twins of one item but different accounts, re-priced in place naming that item, keep their places', async () => {
+    world.stored = [storedLine('s0', 1, X, GX, '10.00'), storedLine('s1', 2, X, GY, '20.00')];
+    await put([svc(15, { itemId: X }), svc(25, { itemId: X })]);
+    expect(rows()).toEqual([[X, GX], [X, GY]]);
+  });
+
+  it('twins of different items all claimed by id: one more line of the description is a new line, not refused', async () => {
+    world.stored = [storedLine('s0', 1, X, GX, '10.00'), storedLine('s1', 2, Y, GY, '20.00')];
+    await put([svc(10, { id: 's0' }), svc(20, { id: 's1' }), svc(30)]);
+    expect(rows()).toEqual([[X, GX], [Y, GY], [null, null]]);
+  });
+
+  it('renamed: a description a stored line holds (claimed by id) never takes the line at its place by item', async () => {
+    world.stored = [named('l0', 1, 'A', X, GX, '10.00'), named('l1', 2, 'B', X, GY, '10.00')];
+    await put([{ description: 'B', quantity: 1, unitPrice: 12, itemId: X }, { id: 'l1', description: 'B', quantity: 1, unitPrice: 10 }]);
+    expect(rows()).toEqual([[X, null], [X, GY]]);
+  });
+});
