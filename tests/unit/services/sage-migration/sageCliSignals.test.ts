@@ -158,6 +158,8 @@ describe('a second signal: the run ends at once', () => {
     h.release();
     await vi.waitFor(() => expect(h.poolEnded).toBe(1));
     fire('SIGTERM');
+    expect(err.join('')).toMatch(/SIGTERM: the run had finished; its report and exit code stand\n$/); // B20-3: no promise of a list
+    expect(err.join('')).not.toMatch(/stops before its next batch/);
     fire('SIGTERM');
     expect(exit.mock.calls[0]).toEqual([]); // process.exit() keeps process.exitCode (0)
     expect(json()).toMatchObject({ marker: 'THE-FINAL-REPORT' });

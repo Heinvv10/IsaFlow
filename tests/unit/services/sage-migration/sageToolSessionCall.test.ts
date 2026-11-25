@@ -16,7 +16,7 @@ vi.mock('@/lib/afterCommit', () => ({ runOwnedContext: (_ctx: unknown, fn: () =>
 vi.mock('@/lib/rollbackFailed', () => ({ rollbackFailed: async (c: { query: (t: string) => Promise<unknown> }) => { await c.query('ROLLBACK'); return false; } }));
 
 import { EventEmitter } from 'node:events';
-import { CommitUnconfirmedError, withToolSession } from '@/modules/accounting/services/sage-migration/sageToolSession';
+import { CommitUnconfirmedError, ConnectionLostError, withToolSession } from '@/modules/accounting/services/sage-migration/sageToolSession';
 
 const sent: string[] = [];
 const pool = { connect: async () => Object.assign(new EventEmitter(), { query: async (text: string) => { sent.push(text); return { rows: [] }; }, release: () => undefined }) } as never;
@@ -96,3 +96,32 @@ describe('(c) B19-1: a connection lost while the client is checked out', () => {
     expect((err as CommitUnconfirmedError).connectionLost).toBe(false);
   });
 });
+
+describe('(d) B20-1: a connection lost in a request that commits nothing (the dry run, the plan, a read)', () => {
+  const lossClient = (commitQuery: (text: string) => Promise<unknown>) => Object.assign(new EventEmitter(), { query: commitQuery, release: vi.fn() });
+  it('a loss the tool turned into a failed answer: ConnectionLostError (never a batch "failed"), released as broken', async () => {
+    const client = lossClient(async () => ({ rows: [] }));
+    registry.call.mockImplementationOnce(async () => {
+      client.emit('error', new Error('Connection terminated unexpectedly'));
+      return { content: [{ type: 'text', text: 'The operation failed.' }], isError: true };
+    });
+    const err = await withToolSession({ connect: async () => client } as never, 'c1', 'u1', false, (s) => s.call('w', { idempotency_key: 'k' })).then(() => null, (e: unknown) => e);
+    expect(err).toBeInstanceOf(ConnectionLostError);
+    expect((err as Error).message).toBe('the connection to the database was lost (Connection terminated unexpectedly); this request commits nothing, so nothing of it was written');
+    expect(client.release).toHaveBeenCalledWith(true);
+  });
+  it('a query rejected by a terminated backend (57P01) inside the request: ConnectionLostError', async () => {
+    const fatal = Object.assign(new Error('terminating connection due to administrator command'), { code: '57P01' });
+    const client = lossClient(async (text: string) => { if (text.startsWith('SELECT snapshot')) throw fatal; return { rows: [] }; });
+    const err = await withToolSession({ connect: async () => client } as never, 'c1', 'u1', false, async () => { await client.query('SELECT snapshot'); }).then(() => null, (e: unknown) => e);
+    expect(err).toBeInstanceOf(ConnectionLostError);
+    expect((err as Error).message).toMatch(/lost \(terminating connection due to administrator command\); .*nothing of it was written/);
+  });
+  it('any other failure of such a request is thrown as it is', async () => {
+    const client = lossClient(async () => ({ rows: [] }));
+    const err = await withToolSession({ connect: async () => client } as never, 'c1', 'u1', false, async () => { throw new Error('a plain bug'); }).then(() => null, (e: unknown) => e);
+    expect(err).not.toBeInstanceOf(ConnectionLostError);
+    expect((err as Error).message).toBe('a plain bug');
+  });
+});
+

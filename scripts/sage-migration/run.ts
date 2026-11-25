@@ -113,6 +113,8 @@ function installHandlers(): () => void {
   const signal = (sig: NodeJS.Signals) => () => {
     if (stopSignal !== null) return terminate(`stopped at once by a second signal (${sig})`);
     stopSignal = sig;
+    // After the run returned (its report written or being written, the pool closing) there is nothing left to stop (B20-3).
+    if (state.finished) return say(`${sig}: the run had finished; its report and exit code stand`);
     say(state.liveStarted
       ? `${sig}: the live run stops before its next batch, if one remains; what it committed is then listed (send it again to stop at once)`
       : `${sig}: the run stops before its next batch, if one remains; nothing is written to the books (send it again to stop at once)`);

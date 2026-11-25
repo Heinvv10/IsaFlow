@@ -6,6 +6,8 @@
  * the item batch listed commit unconfirmed as a LOST CONNECTION, never "the tool refused this batch".
  * R20-2 / R20-1: the backend killed DURING the item batch's COMMIT (a deferred trigger of this company's FIB-0001 sleeps at COMMIT): the
  * FATAL rejects the COMMIT before any client error, still read as a lost connection, and the batch keeps its OK live answer.
+ * B20-1: the backend of the DRY RUN killed while its item insert waits: a refused start (exit 2), "the connection ... was lost ...
+ * nothing of it was written", never a batch "failed" in a dry_run_failed report.
  * Fixture route: isaflow_schema_fixture (assertDisposable). Never skips.
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -94,3 +96,29 @@ describe('R20-2: a backend killed during the COMMIT itself', () => {
     expect(await booked(pool, s.companyId)).toMatchObject({ categories: 4, items: 0 });
   }, 180_000);
 });
+
+describe('B20-1: the dry run\'s backend killed while it waits', () => {
+  it('a refused start: exit 2, the lost connection said, nothing written, no batch blamed', async () => {
+    const report = join(d, 'report.json');
+    holder = await pool.connect();
+    await holder.query('BEGIN');
+    await holder.query('LOCK TABLE items IN SHARE MODE'); // reads go on (the plan); the dry run's item insert waits
+    const p = spawn('bun', ['--no-env-file', 'scripts/sage-migration/run.ts', '--company', s.companyId, '--user', s.userId, '--file', 'tests/fixtures/sage-export/sage-export.json',
+      '--report', report, '--live', '--expect-items', '20', '--expect-pos', '10'], { env: { ...process.env, DATABASE_SSL: 'disable' } });
+    let err = '';
+    p.stderr.on('data', (b) => { err += String(b); });
+    const done = new Promise<number | null>((r) => p.on('close', r));
+    let victims: number[] = [];
+    for (const t0 = Date.now(); victims.length === 0 && Date.now() - t0 < 90_000; await wait(50)) victims = (await pool.query(waitingOnItems)).rows.map((r) => r.pid);
+    expect(victims, 'the dry run waiting on items').toHaveLength(1);
+    await pool.query('SELECT pg_terminate_backend($1)', [victims[0]]);
+    await release();
+    const code = await done;
+    expect(code, err).toBe(2);
+    expect(err).toMatch(/sage migration stopped: the connection to the database was lost \(.*\); this request commits nothing, so nothing of it was written/);
+    expect(err).not.toMatch(/FAILED item batch|an uncaught error/);
+    expect(JSON.parse(readFileSync(report, 'utf8'))).toMatchObject({ status: 'stopped', liveStarted: false, committed: [] });
+    expect(await booked(pool, s.companyId)).toMatchObject({ categories: 0, items: 0 });
+  }, 180_000);
+});
+

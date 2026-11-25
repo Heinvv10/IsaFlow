@@ -53,6 +53,16 @@ export class CommitUnconfirmedError extends Error {
   constructor(message: string, readonly result: unknown, readonly connectionLost = false) { super(message); }
 }
 
+/**
+ * The connection of a request that commits nothing (the dry run, the plan, a read) was lost (B20-1): said so, never a tool's generic
+ * failure blamed on a batch. Nothing of the request was written; before the live phase that makes it a refused start (exit 2).
+ */
+export class ConnectionLostError extends Error {
+  constructor(cause: unknown) {
+    super(`the connection to the database was lost (${cause instanceof Error ? cause.message : String(cause)}); this request commits nothing, so nothing of it was written`);
+  }
+}
+
 /** The error of a connection that ended: the server terminated the backend (57P01-03), a connection exception (08xxx), or pg's own. */
 const connectionEnded = (err: unknown): boolean => {
   const code = (err as { code?: unknown }).code;
@@ -125,6 +135,7 @@ export async function withToolSession<T>(
       },
     };
     const result = await runOwnedContext(txCtx, () => fn(session));
+    if (!commit && lost !== null) throw new ConnectionLostError(lost);
     if (!commit) {
       unusable = await rollbackFailed(client, 'sage-migration');
       return result;
@@ -149,6 +160,7 @@ export async function withToolSession<T>(
     return result;
   } catch (err) {
     unusable = await rollbackFailed(client, 'sage-migration');
+    if (!commit && !(err instanceof ConnectionLostError) && (lost !== null || connectionEnded(err))) throw new ConnectionLostError(lost ?? err);
     throw err;
   } finally {
     client.off('error', onError);
