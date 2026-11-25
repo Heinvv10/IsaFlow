@@ -197,14 +197,15 @@ describe('garnishee creditor bank details', () => {
   });
 
 
-  /** One employee, one order of its own (so no other order eats the s65J 25% limit), deducted by a run of `month` 2027. */
+  /** One employee, one order of its own (so no other order eats the s65J 25% limit), deducted by an approved run of
+   *  `month` 2026 (tax year 2027: the newest tables loaded; orderA starts in 2027, so it is not in these runs). */
   async function deductedOrder(month: number, ref: string): Promise<{ employee: string; order: string; run: string }> {
     const employee = (await a.employee(200000)).employee;
     const made = await a.call(orders as Route, 'POST', `/api/payroll/employees/${employee}/garnishee-orders`, employee,
-      { body: { ...ORDER, reference: ref, instalment: 10000, totalDebt: 500000, startDate: `2027-${String(month).padStart(2, '0')}-01` } });
+      { body: { ...ORDER, reference: ref, instalment: 10000, totalDebt: 500000, startDate: `2026-${String(month).padStart(2, '0')}-01` } });
     expect(made.statusCode, JSON.stringify(made.body)).toBe(201);
     const order = String(made.body.data!.id);
-    const run = await a.calculatedRun(month, 2027);
+    const run = await a.calculatedRun(month, 2026);
     // B0: the rule below is only tested if the run really deducted this order.
     const rows = (await a.pool.query('SELECT amount::float8 AS amount FROM payroll_garnishee_deductions WHERE order_id = $1 AND run_id = $2', [order, run])).rows;
     expect(rows).toEqual([{ amount: 10000 }]);
@@ -230,7 +231,7 @@ describe('garnishee creditor bank details', () => {
     creditor_account_number = '62001234567', creditor_account_type = 'cheque' WHERE id = $1`;
 
   it('B0/B1/R1: approval sets the flag; a manager\'s first entry is refused, and still after a reopen and a nil recalculation', async () => {
-    const { employee, order, run } = await deductedOrder(3, 'EAO 3/2027');
+    const { employee, order, run } = await deductedOrder(11, 'EAO 11/2026');
     expect(await flag(order)).toBe(true);
     const refused = await at(a, employee, order, 'PUT', { body: BANK, user: manager });
     expect([refused.statusCode, reason(refused)]).toEqual([403, 'FIRST_ENTRY_REQUIRES_ADMIN']);
@@ -239,7 +240,7 @@ describe('garnishee creditor bank details', () => {
     // R1: reopen, then a higher-priority order takes the whole 25% limit, so the recalculation records nothing for it.
     expect((await a.api.reopen(run)).statusCode).toBe(200);
     const big = await a.call(orders as Route, 'POST', `/api/payroll/employees/${employee}/garnishee-orders`, employee,
-      { body: { ...ORDER, reference: 'EAO 3b/2027', instalment: 900000, totalDebt: null, priority: 1, startDate: '2027-03-01' } });
+      { body: { ...ORDER, reference: 'EAO 11b/2026', instalment: 900000, totalDebt: null, priority: 1, startDate: '2026-11-01' } });
     expect(big.statusCode).toBe(201);
     expect((await a.api.calculate(run)).statusCode).toBe(200);
     expect((await a.pool.query('SELECT 1 FROM payroll_garnishee_deductions WHERE order_id = $1', [order])).rows).toEqual([]);
@@ -252,7 +253,7 @@ describe('garnishee creditor bank details', () => {
   });
 
   it('R2/T2 (flag arm): as app_user, deleting the reopened run\'s deduction does not open the first entry; the flag never clears', async () => {
-    const { order, run } = await deductedOrder(4, 'EAO 4/2027');
+    const { order, run } = await deductedOrder(12, 'EAO 12/2026');
     expect((await a.api.reopen(run)).statusCode).toBe(200);
     await expect(asManager(async (c) => {
       const del = (await c.query('DELETE FROM payroll_garnishee_deductions WHERE order_id = $1 RETURNING id', [order])) as { rows: unknown[] };
