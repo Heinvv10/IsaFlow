@@ -186,3 +186,17 @@ it('L1: a price typed with no description anywhere: Create stays enabled and say
   expect((await screen.findByRole('alert')).textContent).toBe('Line 1 needs a description');
   expect(posts()).toHaveLength(0);
 });
+
+it('L-B: a problem shown after Create clears as soon as the line is fixed (and a new one shows live)', async () => {
+  renderPage('bi-monthly');
+  await openAndFill('100');
+  const description = screen.getAllByPlaceholderText('Item description')[0]!;
+  fireEvent.change(description, { target: { value: '' } });
+  create();
+  expect((await screen.findByRole('alert')).textContent).toBe('Line 1 needs a description');
+  fireEvent.change(description, { target: { value: 'Widget' } });
+  expect(screen.queryByRole('alert')).toBeNull();
+  fireEvent.change(screen.getByLabelText('Unit price, line 1'), { target: { value: '0.03' } });
+  expect(screen.getByRole('alert').textContent).toMatch(/rounds to nothing/);
+  expect(posts()).toHaveLength(0);
+});

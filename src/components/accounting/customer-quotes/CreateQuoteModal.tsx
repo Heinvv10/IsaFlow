@@ -38,6 +38,9 @@ export function CreateQuoteModal({ customers, onClose, onCreated }: Props) {
   const [taxMode, setTaxMode] = useState<TaxMode>('exclusive');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  // Set once Create is pressed on a form quoteBody holds: from then on its problem is shown LIVE, so fixing the line
+  // clears the message at once (and a new problem shows) instead of waiting for the next press.
+  const [held, setHeld] = useState(false);
   const dates = useDateGate();
   // The picked customer's default VAT type, from the list already loaded: no lookup to wait for.
   const customerVat = normaliseVatType(customers.find((c) => c.id === form.clientId)?.default_vat_type) || null;
@@ -52,7 +55,7 @@ export function CreateQuoteModal({ customers, onClose, onCreated }: Props) {
 
   const handleCreate = async () => {
     if (busy) return;
-    if ('problem' in built) { setError(built.problem); return; }
+    if ('problem' in built) { setHeld(true); return; }
     setSaving(true);
     setError('');
     try {
@@ -69,6 +72,7 @@ export function CreateQuoteModal({ customers, onClose, onCreated }: Props) {
     }
   };
 
+  const shown = held && 'problem' in built ? built.problem : error;
   const showVat = mode !== 'none';
   return (
     <Modal open onClose={onClose} title="New Quote" size="xl">
@@ -127,7 +131,7 @@ export function CreateQuoteModal({ customers, onClose, onCreated }: Props) {
           <InvoiceTotals subtotal={subtotal} tax={tax} total={total} currencyCode="ZAR" byType={formVatByType(lines, types, mode, form.quoteDate)} date={form.quoteDate} />
         </div>
 
-        {error && <p role="alert" className="text-sm text-red-600 dark:text-red-400">{error}</p>}
+        {shown && <p role="alert" className="text-sm text-red-600 dark:text-red-400">{shown}</p>}
       </Modal.Body>
       <Modal.Footer>
         <button type="button" onClick={onClose} className="px-4 py-2 min-h-11 sm:min-h-0 text-sm text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors">Cancel</button>

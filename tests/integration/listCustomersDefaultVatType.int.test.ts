@@ -5,6 +5,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { Pool } from 'pg';
 import { als } from '@/lib/als';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
+import { log } from '@/lib/logger';
 import { listCustomers } from '@/modules/accounting/services/core/contactDirectoryService';
 
 const DATABASE_URL = process.env.DATABASE_URL;
@@ -24,6 +25,7 @@ describeIfDb('listCustomers returns default_vat_type', () => {
 
   it('each row carries its customer\'s default VAT type (null when none is set)', async () => {
     const c = await pool.connect();
+    let failure: unknown;
     try {
       await c.query('BEGIN');
       await c.query(`INSERT INTO companies (id, name, is_active) VALUES ($1, 'Quote VAT Default Co', true)`, [COMPANY]);
@@ -31,9 +33,19 @@ describeIfDb('listCustomers returns default_vat_type', () => {
         [COMPANY, 'Exempt Trust', 'exempt', 'Plain Ltd']);
       const rows = await als.run({ client: c, userId: USER, companyId: COMPANY, claims: {} } as never, () => listCustomers(COMPANY));
       expect(rows.map((r) => [r.name, r.default_vat_type])).toEqual([['Exempt Trust', 'exempt'], ['Plain Ltd', null]]);
+    } catch (err) {
+      failure = err;
+      throw err;
     } finally {
-      // A failed ROLLBACK is thrown, never swallowed; the connection is released either way.
-      try { await c.query('ROLLBACK'); } finally { c.release(); }
+      try {
+        await c.query('ROLLBACK');
+        c.release();
+      } catch (rollbackErr) {
+        c.release(rollbackErr as Error); // a client whose ROLLBACK failed is destroyed, never returned to the pool
+        // The test's own failure stays the one reported; the rollback's is logged beside it, or is the failure itself.
+        if (failure === undefined) throw rollbackErr;
+        log.error('listCustomersDefaultVatType: ROLLBACK failed after the test failed', { err: String(rollbackErr) });
+      }
     }
   });
 });
