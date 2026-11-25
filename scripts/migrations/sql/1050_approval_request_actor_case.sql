@@ -7,13 +7,18 @@
 -- this is the SQL floor, so the self check holds on its own and not by the accident of a second exact comparison.
 --
 -- WHAT: each function lowers its actor parameter ONCE, into v_decided_by / v_requested_by, and every use reads that:
--- assert_caller, assert_write_role, the self test (lower on both sides), the membership role (lower(cu.user_id)), the
+-- assert_caller, assert_write_role, the self test (lower on both sides), the membership role, the
 -- past-requester and content-author tests (uuid text is already lower case), the roster snapshot, other members, the
 -- decided_by / requested_by written and the sole-approver audit row's user_id. Bodies are 872's otherwise, line for line.
 -- auth.uid() returns the JWT sub claim verbatim (it does not lower it); approval_request_subject() casts it to uuid, so
 -- the subject check was never case-sensitive. A JWT whose sub is upper case (none is issued) still fails closed on the
 -- sole-approver path: 708's approval_company_other_members compares auth.uid() to the (now lowered) id exactly (42501).
--- rebind and lock are not changed (rebind's actor reaches assert_write_role exactly: an upper-cased one is refused RA008).
+-- Only the actor INPUT is lowered. A stored column is compared exactly wherever it is TEXT (company_users.user_id: its key
+-- is case-sensitive, so lower() on it would match a case-twin row, breaker round 1); requested_by is a uuid, whose text
+-- is canonical lower case, so lower() on it is a no-op and cannot match a twin.
+-- rebind and lock are not changed, on purpose: no case can be raised there that 1050 has to catch. Rebind's actor reaches
+-- assert_write_role exactly, so an upper-cased one is refused RA008 before any write (fails closed); rebind compares
+-- requested_by as a uuid; the app sends it lower-cased (approvalRequestWrites.ts). Lock takes no actor parameter.
 --
 -- DEFINER REGISTRY (930): both functions are SECURITY DEFINER; their app_definer_reviews rows are re-registered with the
 -- new body hash, AFTER the replace (CREATE OR REPLACE keeps owner and grants; asserted below).
@@ -136,7 +141,9 @@ BEGIN
                          AND public.approval_required_rank(v_row.required_role) > public.approval_required_rank(v_rule_role)
                        THEN v_row.required_role ELSE v_rule_role END;
     SELECT cu.role::pg_catalog.text INTO v_decider_role
-    FROM public.company_users cu WHERE cu.company_id = p_company_id AND pg_catalog.lower(cu.user_id) = v_decided_by;
+    -- EXACT on the stored side (breaker round 1): company_users.user_id is TEXT and its key is case-sensitive, so
+    -- lower(cu.user_id) would also match a case-twin row ('ABC...' beside 'abc...') and could take the twin's role.
+    FROM public.company_users cu WHERE cu.company_id = p_company_id AND cu.user_id = v_decided_by;
     v_enforced := EXISTS (SELECT 1 FROM public.approval_enforcement ae
                           WHERE ae.company_id = v_row.company_id AND ae.document_type = v_row.document_type);
 

@@ -18,11 +18,32 @@ assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const companies: string[] = [];
 const tokens: Record<string, string> = {};
+const twins: string[] = [];
 let u: Awaited<ReturnType<typeof n1Users>>;
 const up = (id: string) => id.toUpperCase();
 
 beforeAll(async () => { u = await n1Users(pool, tokens); });
-afterAll(async () => { await cleanupPr2(pool, companies, Object.values(u)); });
+afterAll(async () => {
+  await pool.query('DELETE FROM company_users WHERE user_id = ANY($1::text[])', [twins]);
+  await cleanupPr2(pool, companies, [...Object.values(u), ...twins]);
+});
+
+/**
+ * A case twin: a users + company_users row whose id is the upper-cased spelling of `id`, holding `role`, inserted
+ * BEFORE `id`'s own row (company_users.user_id is TEXT and its key is case-sensitive, so both rows can exist).
+ */
+async function plantTwin(c: string, id: string, role: string) {
+  const twin = up(id);
+  if (!twins.includes(twin)) {
+    twins.push(twin);
+    await pool.query("INSERT INTO users(id, email, role, is_active) VALUES($1, $2, 'admin', true)",
+      [twin, `twin-${id}@example.invalid`]);
+  }
+  const real = (await pool.query('SELECT role FROM company_users WHERE company_id = $1 AND user_id = $2', [c, id])).rows[0].role;
+  await pool.query('DELETE FROM company_users WHERE company_id = $1 AND user_id = $2', [c, id]);
+  await pool.query('INSERT INTO company_users(company_id, user_id, role) VALUES($1, $2, $3)', [c, twin, role]);
+  await pool.query('INSERT INTO company_users(company_id, user_id, role) VALUES($1, $2, $3)', [c, id, real]);
+}
 
 const digestOf = async (id: string) => (await requestRow(pool, id))?.document_digest ?? null;
 
@@ -129,5 +150,27 @@ describe('approval_request_raise (1050) reads the requester without case', () =>
     expect(raised.approver_roster).toEqual(lowerRoster);
     expect(await outcome(decide(f.c, raised.id, u.b))).toBe('RA001');
     expect(await outcome(decide(f.c, raised.id, up(u.b)))).toBe('RA001');
+  });
+});
+
+describe('a case-twin membership row never lends its role (breaker round 1)', () => {
+  it("decide: a manager beside an OWNER row under the upper-cased spelling of their id is refused on rank (RA002), as 872 refused", async () => {
+    const f = await pendingBill(pool, tokens, u, companies, { creator: u.v });
+    await plantTwin(f.c, u.m, 'owner');
+    expect(await outcomeUnder872(f.c, f.requestId, u.m, 'approved')).toBe('RA002');
+    expect(await outcome(decide(f.c, f.requestId, u.m))).toBe('RA002');
+    expect(await outcome(decide(f.c, f.requestId, up(u.m)))).toBe('RA002');
+    expect((await requestRow(pool, f.requestId))?.status).toBe('pending');
+  });
+
+  it("raise: the roster records the requester's own role, not an owner twin's", async () => {
+    const f = await pendingBill(pool, tokens, u, companies, { creator: u.v, requester: u.m });
+    await decide(f.c, f.requestId, u.m, 'rejected');
+    await plantTwin(f.c, u.m, 'owner');
+    const billId = (await pool.query('SELECT document_id FROM approval_requests WHERE id = $1', [f.requestId])).rows[0].document_id;
+    const [raised] = await asRole(pool, 'app_user', f.c, { sub: u.m },
+      async (cl) => (await raiseFn(cl, f.c, 'supplier_invoice', billId, f.ownerRule, up(u.m))).rows, true);
+    expect(raised).toMatchObject({ status: 'pending', requested_by: u.m });
+    expect(raised.approver_roster.requester_role).toBe('manager');
   });
 });

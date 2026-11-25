@@ -83,7 +83,7 @@ const PINNED: Record<string, { md5: string; result: string }> = {
   'approval_request_raise(uuid,text,uuid,uuid,text)': { md5: 'c1116a9ab606030c3c7d103933d41bee', result: 'SETOF approval_requests' },
   'approval_request_rebind(uuid,uuid,uuid,text)': { md5: '768af4d84ac628234bbdac8ffcae5532', result: 'SETOF approval_requests' },
   'approval_request_lock(uuid,uuid)': { md5: 'ff39a730494c0a39e14e456653f627b3', result: 'void' },
-  'approval_request_decide(uuid,uuid,text,text,text,text)': { md5: '6c50997c7d6420525aebe4f96531fd39', result: 'SETOF approval_requests' },
+  'approval_request_decide(uuid,uuid,text,text,text,text)': { md5: 'd4b61ae91155abf0c9c545ef8af57876', result: 'SETOF approval_requests' },
 };
 
 /** A static write naming the table: INSERT/UPDATE/DELETE/TRUNCATE/MERGE, ONLY, schema-qualified or quoted. */
