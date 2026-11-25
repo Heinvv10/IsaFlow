@@ -147,6 +147,7 @@ it('M1: clearing the quote date holds Create (the server would price on today, t
   const date = screen.getByRole('textbox', { name: /Quote Date/ });
   fireEvent.change(date, { target: { value: '' } });
   fireEvent.blur(date);
+  expect(await within(dialog()).findByText('Enter a date.')).toBeTruthy(); // the field is required
   await waitFor(() => expect(createButton().disabled).toBe(true));
   create();
   expect(posts()).toHaveLength(0);
