@@ -5,10 +5,15 @@
  *   - B12-1: an unconfirmed COMMIT that LANDED names, from the live answer, a row edited after the dry run;
  *   - B12-2 / B12-3: a committed batch with another row soft-deleted after it is "committed", its overwrite named, never "replayed,
  *     nothing written" (nor --run-tag, which would re-import a row a person deleted);
- *   - B12-4: a tool SUCCESS with a non-JSON answer rolls its request back, so "failed, nothing written" is true.
+ *   - B12-4: a tool SUCCESS with a non-JSON answer rolls its request back, so "failed, nothing written" is true;
+ *   - note: a stopped CLI run overwrites the --report file with a stop report, so an earlier run's report is not left there.
  * Fixture route: isaflow_schema_fixture (assertDisposable). Never skips.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { Pool } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { cleanupWorld } from './helpers/itemsWorld';
@@ -103,4 +108,22 @@ describe('B12-A4 / A5 regress: an unconfirmed COMMIT that landed on a category o
     expect((await run({ poBatchSize: 4 })).status).toBe('completed');
     expect(await booked(pool, s.companyId)).toMatchObject({ pos: 10 });
   });
+});
+
+describe('note (round 12): a stopped CLI run and the --report file of an earlier run', () => {
+  it('the file is replaced by a stop report (status stopped, the batches listed); the exit code is the stop\'s 4', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sage-stop-report-'));
+    try {
+      const report = join(dir, 'report.json');
+      writeFileSync(report, JSON.stringify({ status: 'completed', note: 'an earlier run' }));
+      const r = spawnSync('bun', ['--no-env-file', '--preload', join(process.cwd(), 'tests/integration/helpers/sageFailCommitPreload.ts'), 'scripts/sage-migration/run.ts',
+        '--company', s.companyId, '--user', s.userId, '--file', 'tests/fixtures/sage-export/sage-export.json', '--live', '--expect-items', '20', '--expect-pos', '10', '--report', report],
+      { encoding: 'utf8', timeout: 170_000, env: { ...process.env, DATABASE_SSL: 'disable', SAGE_FAIL_COMMIT: '5' } }); // 4 categories, then the item batch
+      expect(r.status).toBe(4);
+      const json = JSON.parse(readFileSync(report, 'utf8'));
+      expect(json).toMatchObject({ status: 'stopped', liveStarted: true });
+      expect(json.message).toMatch(/commit unconfirmed: item batch 1 \(/);
+      expect(json.committed.map((b: { entity: string; n: number }) => `${b.entity} ${b.n}`)).toEqual(['category 1', 'category 2', 'category 3', 'category 4', 'item 1']);
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  }, 180_000);
 });

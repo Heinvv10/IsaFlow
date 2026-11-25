@@ -23,6 +23,7 @@ import { parseSageExport } from '../../src/modules/accounting/services/sage-migr
 import { runSageMigration } from '../../src/modules/accounting/services/sage-migration/sageMigrationRunner';
 import { exitCodeFor, summaryLines } from '../../src/modules/accounting/services/sage-migration/sageReportSummary';
 import { exitCodeForError, stopMessage } from '../../src/modules/accounting/services/sage-migration/sageStopMessage';
+import { MigrationStopped } from '../../src/modules/accounting/services/sage-migration/sageMigrationStopped';
 
 const out = (s: string) => process.stdout.write(`${s}\n`);
 const fail = (s: string): never => { process.stderr.write(`${s}\n`); process.exit(2); };
@@ -33,6 +34,20 @@ function cents(text: string): number {
   if (!m) return fail(`not an amount: ${text}`);
   return Number(m[1]) * 100 + Number((m[2] ?? '').padEnd(2, '0'));
 }
+/**
+ * A run that STOPS still leaves a report at --report, so a report of an earlier run is never left there to be read as this one's: what
+ * the stop knows (whether the live phase started, the message, the batches committed / failed). Best effort: the exit code is the stop's.
+ */
+function writeStopReport(path: string, err: unknown): void {
+  const stopped = err instanceof MigrationStopped ? err : null;
+  const report = { status: 'stopped', liveStarted: stopped?.liveStarted ?? false, message: stopMessage(err), committed: stopped?.committed ?? [], failed: stopped?.batches.failed ?? [] };
+  try {
+    writeFileSync(path, `${JSON.stringify(report, null, 2)}\n`);
+  } catch (writeErr) {
+    process.stderr.write(`the stop report could not be written to ${path}: ${writeErr instanceof Error ? writeErr.message : String(writeErr)}\n`);
+  }
+}
+
 const count = (text: string | undefined): number | undefined => {
   if (text === undefined) return undefined;
   if (!/^\d+$/.test(text)) return fail(`not a count: ${text}`);
@@ -58,7 +73,13 @@ async function main(): Promise<void> {
   }
   if (values['po-gl-account'] !== undefined && !UUID_RE.test(values['po-gl-account'])) fail('--po-gl-account must be an expense account uuid');
 
-  const parsed = parseSageExport(JSON.parse(readFileSync(values.file!, 'utf8')));
+  let parsed: ReturnType<typeof parseSageExport>;
+  try {
+    parsed = parseSageExport(JSON.parse(readFileSync(values.file!, 'utf8')));
+  } catch (err) {
+    if (values.report) writeStopReport(values.report, err);
+    throw err;
+  }
   const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
   pool.on('error', (err) => process.stderr.write(`database pool error: ${err.message}\n`));
   try {
@@ -68,6 +89,9 @@ async function main(): Promise<void> {
         items: count(values['expect-items']), purchaseOrders: count(values['expect-pos']),
         purchaseOrderTotalCents: values['expect-po-total'] === undefined ? undefined : cents(values['expect-po-total']),
       },
+    }).catch((err: unknown) => {
+      if (values.report) writeStopReport(values.report, err);
+      throw err;
     });
     // The summary is printed FIRST: a committed run must always tell what it did, whatever happens to the report file.
     for (const line of summaryLines(report)) out(line);
