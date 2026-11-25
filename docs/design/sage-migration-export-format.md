@@ -123,6 +123,10 @@ to one IsaFlow supplier are both refused).
   run, and the plan refuses rows against it. A writer that adds a clashing row between that read and the live batch can still make a
   tool refuse a batch. The dry run reports such a refusal and writes nothing; a live batch that hits it is reported failed with the
   tool's whole message, nothing of it written, and running again resumes.
+- **Pages with no markers.** A page that carries neither `$totalResults` nor `$next` (nor a `$startIndex`) says nothing about the
+  rest of the export, so an array of such pages with a MIDDLE page missing reads as a whole, smaller export: nothing in the file
+  shows the gap. `--expect-items` and `--expect-pos` (required with `--live`) are the only guard: the dry run's counts must match
+  them, or live is not started.
 - **Other causes that can still fail a PO batch as a whole:** a PO that is really over budget under `block` (the dry run reports it
   and nothing is written), and a supplier merged into another or deleted after the snapshot (the tool refuses the batch).
 - **`--po-gl-account` posts every PO line to that one account.** It is opt-in; the default is no account, and a line with none is
