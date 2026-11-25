@@ -9,7 +9,8 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Pool } from 'pg';
@@ -89,7 +90,7 @@ describe('L3 (round 13): a live batch the tool refused, whose COMMIT (of the ref
 });
 
 describe('L4 / B13-3 (round 13): a refused start of the CLI and the --report file of an earlier run', () => {
-  it('every refusal after the arguments are read (exit 2) leaves a stop report in the new --report it created (round 16: a new path each)', () => {
+  it('round 17: a refusal by a check that needs no database writes nothing anywhere (--report not created); one by the database leaves a stop report', () => {
     const dir = mkdtempSync(join(tmpdir(), 'sage-refused-report-'));
     try {
       for (const [extra, why] of [[['--run-tag', 'bad tag!'], /--run-tag must be/], [['--live'], /--live needs --expect-items/], [['--live', '--expect-items', 'x', '--expect-pos', '1'], /not a count: x/]] as const) {
@@ -97,10 +98,16 @@ describe('L4 / B13-3 (round 13): a refused start of the CLI and the --report fil
         const base = ['--no-env-file', 'scripts/sage-migration/run.ts', '--company', s.companyId, '--user', s.userId, '--file', 'tests/fixtures/sage-export/sage-export.json', '--report', report];
         const r = spawnSync('bun', [...base, ...extra], { encoding: 'utf8', timeout: 170_000, env: { ...process.env, DATABASE_SSL: 'disable' } });
         expect(r.status, extra.join(' ')).toBe(2);
-        const json = JSON.parse(readFileSync(report, 'utf8'));
-        expect(json, extra.join(' ')).toMatchObject({ status: 'stopped', liveStarted: false, committed: [], failed: [] });
-        expect(json.message, extra.join(' ')).toMatch(why);
+        expect(r.stderr, extra.join(' ')).toMatch(why);
+        expect(r.stderr, extra.join(' ')).toMatch(/\(nothing written; --report .* was not created\)/);
+        expect(existsSync(report), extra.join(' ')).toBe(false);
       }
+      // A company the user is not a member of is refused by the database: after the create, so its stop report is there.
+      const report = join(dir, 'not-a-member.json');
+      const r = spawnSync('bun', ['--no-env-file', 'scripts/sage-migration/run.ts', '--company', randomUUID(), '--user', s.userId, '--file', 'tests/fixtures/sage-export/sage-export.json', '--report', report],
+        { encoding: 'utf8', timeout: 170_000, env: { ...process.env, DATABASE_SSL: 'disable' } });
+      expect(r.status).toBe(2);
+      expect(JSON.parse(readFileSync(report, 'utf8'))).toMatchObject({ status: 'stopped', liveStarted: false, committed: [], failed: [] });
     } finally { rmSync(dir, { recursive: true, force: true }); }
   }, 180_000);
 });

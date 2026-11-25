@@ -68,15 +68,14 @@ describe('B16-2 / R16-F2: another tool\'s status file', () => {
 });
 
 describe('the --report path swapped under a running run', () => {
-  it('replaced by a hard link to the export: the report is not written there (exit 3), the export byte for byte; the run booked', async () => {
+  it('replaced by a hard link to the export: the export byte for byte (round 17: the run writes its own unlinked file, exit 0); the run booked', async () => {
     const exportCopy = join(d, 'export.json');
     copyFileSync(FIXTURE, exportCopy);
     const bytes = readFileSync(exportCopy, 'utf8');
     const report = join(d, 'report.json');
     const r = cli(['--company', s.companyId, '--user', s.userId, '--file', exportCopy, '--report', report, '--live', '--expect-items', '20', '--expect-pos', '10'],
       { SAGE_SWAP_REPORT: report, SAGE_SWAP_TO: exportCopy }, 'tests/integration/helpers/sageSwapReportPreload.ts');
-    expect(r.status).toBe(3);
-    expect(r.stderr).toMatch(/is no longer the file this run created/);
+    expect(r.status, r.stderr).toBe(0);
     expect(readFileSync(exportCopy, 'utf8')).toBe(bytes);
     expect(await booked(pool, s.companyId)).toMatchObject({ items: 20, pos: 10 });
   }, 180_000);

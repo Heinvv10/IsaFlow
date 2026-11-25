@@ -33,10 +33,15 @@ function cli(args: string[], env: Record<string, string | undefined> = {}) {
   });
   return { code: r.status, out: r.stdout, err: r.stderr };
 }
-/** The CLI with a --report that becomes unwritable during the run (sageBreakReportPreload). */
-function breakingReport(args: string[], report: string) {
-  const r = spawnSync('bun', ['--no-env-file', '--preload', join(process.cwd(), 'tests/integration/helpers/sageBreakReportPreload.ts'), 'scripts/sage-migration/run.ts', ...args],
-    { encoding: 'utf8', timeout: 170_000, env: { ...process.env, DATABASE_SSL: 'disable', SAGE_BREAK_REPORT: report } });
+/**
+ * The CLI under a 1 KB file-size limit (SIGXFSZ ignored, so a write past it fails EFBIG): the placeholder fits, the run's report does
+ * not, so its final write fails like a full disk (round 17: the report is written only through the descriptor of its create, so a path
+ * swapped under the run no longer makes it fail). `preloads` add fault injection.
+ */
+function breakingReport(args: string[], preloads: string[] = [], env: Record<string, string> = {}) {
+  const pre = preloads.flatMap((p) => ['--preload', join(process.cwd(), p)]).join(' ');
+  const r = spawnSync('bash', ['-c', `trap '' XFSZ; ulimit -f 1; exec bun --no-env-file ${pre} scripts/sage-migration/run.ts "$@"`, 'run', ...args],
+    { encoding: 'utf8', timeout: 170_000, env: { ...process.env, DATABASE_SSL: 'disable', ...env } });
   return { code: r.status, out: r.stdout, err: r.stderr };
 }
 const base = () => ['--company', s.companyId, '--user', s.userId, '--file', 'tests/fixtures/sage-export/sage-export.json'];
@@ -141,13 +146,13 @@ describe('scripts/sage-migration/run.ts', () => {
       // Unwritable at the START is refused before anything is written (round 15, B15-3); this is one that breaks DURING the run.
       const report = join(dir, 'breaks-during-the-run.json');
       const r = breakingReport(['--company', world.companyId, '--user', world.userId, '--file', 'tests/fixtures/sage-export/sage-export.json', '--live',
-        '--expect-items', '20', '--expect-pos', '10', '--report', report], report);
+        '--expect-items', '20', '--expect-pos', '10', '--report', report]);
       expect(r.code).toBe(3);
       expect(r.out).toContain(`company ${world.companyId}: completed`);
       expect(r.out).toContain('all sent rows booked: true; nothing refused: true');
-      // Round 16: the run writes only the file it created; a directory put at that path is never written.
-      // (A directory made where the file was can reuse its inode number: then reading it fails first, "could not be written": not written either.)
-      expect(r.err).toMatch(/the run finished \(exit 0 without this\) but the report was not written: --report .*breaks-during-the-run.*( is no longer the file this run created| could not be written: EISDIR)/);
+      expect(r.err).toMatch(/the run finished \(exit 0 without this\) but the report was not written: --report .*breaks-during-the-run.* could not be written: EFBIG/);
+      // Round 17 (R17-4): the file does not keep saying "running": the small fallback body went through the same descriptor.
+      expect(JSON.parse(readFileSync(report, 'utf8'))).toMatchObject({ status: 'report_not_written', exitCode: 3 });
       expect(await booked(pool, world.companyId)).toMatchObject({ items: 20, pos: 10 });
     } finally {
       await cleanupSageWorld(pool, world);
@@ -217,16 +222,14 @@ describe('scripts/sage-migration/run.ts', () => {
       const report = join(dir, 'm2-breaks.json');
       const args = ['--company', world.companyId, '--user', world.userId, '--file', 'tests/fixtures/sage-export/sage-export.json', '--live', '--expect-items', '20', '--expect-pos', '10',
         '--report', report];
-      const r = spawnSync('bun', ['--no-env-file', '--preload', join(process.cwd(), 'tests/integration/helpers/sageFailCommitPreload.ts'),
-        '--preload', join(process.cwd(), 'tests/integration/helpers/sageBreakReportPreload.ts'), 'scripts/sage-migration/run.ts', ...args],
-        { encoding: 'utf8', timeout: 170_000, env: { ...process.env, DATABASE_SSL: 'disable', SAGE_FAIL_COMMIT: '5', SAGE_BREAK_REPORT: report } }); // 4 categories, then the item batch
-      // Since round 10 an unconfirmed COMMIT STOPS the run at that batch: the stop message names it, exit 4 (no summary, no report).
-      expect(r.stderr).toMatch(/sage migration stopped: the COMMIT of item batch 1 .*commit unconfirmed: item batch 1 \(/s);
-      expect(r.status).toBe(4);
+      const r = breakingReport(args, ['tests/integration/helpers/sageFailCommitPreload.ts'], { SAGE_FAIL_COMMIT: '5' }); // 4 categories, then the item batch
+      // Since round 10 an unconfirmed COMMIT STOPS the run at that batch: the stop message names it, exit 4 (no summary).
+      expect(r.err).toMatch(/sage migration stopped: the COMMIT of item batch 1 .*commit unconfirmed: item batch 1 \(/s);
+      expect(r.code).toBe(4);
       // not ok (1): a wrong expectation, the same unwritable report
       const report2 = join(dir, 'm2-breaks-2.json');
       const wrong = breakingReport(['--company', world.companyId, '--user', world.userId, '--file', 'tests/fixtures/sage-export/sage-export.json', '--live', '--expect-items', '20', '--expect-pos', '999',
-        '--report', report2], report2);
+        '--report', report2]);
       expect(wrong.code).toBe(1);
       expect(wrong.err).toMatch(/the exit code stays 1/);
     } finally {

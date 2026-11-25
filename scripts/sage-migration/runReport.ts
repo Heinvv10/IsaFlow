@@ -45,9 +45,11 @@ export function sameFile(a: string, b: string): boolean {
   return x.dev === y.dev && x.ino === y.ino;
 }
 
+const alreadyExists = (path: string) => `--report ${path} already exists: the run writes only a new file, so pick a new path or delete the old file; nothing was written`;
+
 /**
  * The --report the strictly parsed arguments name, checked against all the arguments: given once, never a value starting with `--`, and
- * none of the --file values (a clear message for the export itself; its path exists anyway, so the create would refuse it too).
+ * none of the --file values (a clear message for the export itself), and a path that does not exist yet (the create checks it again).
  */
 export function checkReportArgs(argv: readonly string[], parsed: string | undefined): { ok: true; path: string | undefined } | { ok: false; why: string } {
   const { reports, files } = scanReportArgs(argv);
@@ -58,6 +60,8 @@ export function checkReportArgs(argv: readonly string[], parsed: string | undefi
   if (distinct[0] !== parsed) return { ok: false, why: `--report ${parsed}: a value that starts with -- is never taken as a path; give a file path` };
   const export_ = files.find((f) => sameFile(parsed, f));
   if (export_ !== undefined) return { ok: false, why: `--report ${parsed} is the export --file itself (${export_}): writing the report would overwrite it; give another path` };
+  // Said early, before any other check, so a path that exists is named as the reason; the exclusive create stays the guard (a race).
+  if (lstatSync(parsed, { throwIfNoEntry: false })) return { ok: false, why: alreadyExists(parsed) };
   return { ok: true, path: parsed };
 }
 
@@ -83,7 +87,7 @@ export class OwnedReport {
     try { fd = openSync(path, 'wx', 0o644); } catch (err) {
       const code = (err as NodeJS.ErrnoException).code;
       return { why: code === 'EEXIST'
-        ? `--report ${path} already exists: the run writes only a new file, so pick a new path or delete the old file; nothing was written`
+        ? alreadyExists(path)
         : `--report ${path} cannot be written (${message(err)}): nothing was written` };
     }
     const owned = new OwnedReport(path, fd);
