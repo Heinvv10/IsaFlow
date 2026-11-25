@@ -47,12 +47,14 @@ describe('a discount that is not zero', () => {
 describe('another money-like field this import does not read', () => {
   it('not zero on a line or the PO refuses the PO as po_money_field_unsupported', () => {
     for (const [line, extra, key] of [
-      [{ Rebate: 5 }, {}, 'Lines[0].Rebate'], [{ SurchargeAmount: 2 }, {}, 'Lines[0].SurchargeAmount'], [{ PriceInclusive: 115 }, {}, 'Lines[0].PriceInclusive'],
+      [{ SurchargeAmount: 2 }, {}, 'Lines[0].SurchargeAmount'], [{ PriceInclusive: 115 }, {}, 'Lines[0].PriceInclusive'],
       [{}, { OutstandingAmount: 115 }, 'OutstandingAmount'], [{}, { DeliveryCharge: 30 }, 'DeliveryCharge'], [{}, { TotalInclusive: 'x' }, 'TotalInclusive'],
     ] as const) {
       const r = refused({ PurchaseOrders: [po(line, extra)] });
       expect(r.codes, key).toEqual(['po_money_field_unsupported']);
       expect(r.why, key).toContain(`${key} is `);
+      // R1 (round 13): the refusal says what to do with a field the real export turns out to carry
+      expect(r.why, key).toContain('add it, with its check, to the reviewed list in sageMoneyFields.ts');
     }
   });
   it('zero passes; the fields read (Exclusive, Tax, Total, UnitPriceExclusive) and non-money fields are not touched', () => {
@@ -69,5 +71,21 @@ describe('a line Total', () => {
     expect(r.kept).toBe(0);
     expect(r.why).toContain('Lines[0].Total 57.5 is not Exclusive 100 + Tax 15');
     expect(refused({ PurchaseOrders: [po({ Total: 115 })] }).codes).toEqual([]);
+  });
+});
+
+describe('R2 (round 13): discount spellings, by word inside the key', () => {
+  it('Disc%, Markdown, Allowance, PercentOff, Rebate, LineDiscountAmount and an accented Discöunt on a line refuse as po_discount_unsupported', () => {
+    for (const key of ['Disc%', 'MarkdownValue', 'Allowance', 'PercentOff', 'Rebate', 'LineDiscountAmount', 'Disc\u00f6unt']) {
+      const r = refused({ PurchaseOrders: [po({ [key]: 5 })] });
+      expect(r.codes, key).toEqual(['po_discount_unsupported']);
+      expect(r.why, key).toContain(`Lines[0].${key} is 5: a discount is not imported`);
+    }
+  });
+  it('on an item, by word too (ItemDiscountPercent, TradeRebate), not only the exact key', () => {
+    for (const key of ['ItemDiscountPercent', 'TradeRebate']) expect(refused({ Items: [item({ [key]: 10 })] }).codes, key).toEqual(['item_discount_unsupported']);
+  });
+  it('the description and other plain fields are not discounts', () => {
+    expect(refused({ Items: [item({ Description: 'Disc brake' })], PurchaseOrders: [po({ Description: 'discount rack' })] }).codes).toEqual([]);
   });
 });
