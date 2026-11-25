@@ -14,6 +14,8 @@ import {
 import { QuoteNotConvertibleError, QuoteNotInvoiceableError } from '@/modules/accounting/services/ar/quoteConvertService';
 import { InvoiceLineCodingRefusal } from '@/modules/accounting/services/ar/invoiceLineCoding';
 import { ItemLineRefusal } from '@/modules/accounting/services/items/itemLineDefaults';
+import { InvoiceLineVatRefusal, InvoiceVatNotRegisteredRefusal } from '@/modules/accounting/services/ar/invoiceLineVatTypes';
+import { LineValidationError } from '@/modules/accounting/services/ar/quoteLineChecks';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['POST']);
@@ -56,10 +58,13 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         // COMMITs) commits nothing.
         // A line account the invoice could never post to: refused before the claim, so nothing is written.
         if (err instanceof InvoiceLineCodingRefusal || err instanceof ItemLineRefusal) return apiResponse.badRequest(res, err.message, { code: err.code });
+        // Migration 1024: the invoice's VAT refused as priced (quoteInvoiceVat), before the claim.
+        if (err instanceof InvoiceLineVatRefusal || err instanceof InvoiceVatNotRegisteredRefusal) return apiResponse.badRequest(res, err.message, { code: err.code });
         if (err instanceof QuoteNotInvoiceableError) {
           return apiResponse.conflict(res, err.message, {
             quoteStatus: err.quoteStatus,
             invoiceId: err.existingInvoiceId,
+            salesOrderId: err.existingOrderId, // a quote already turned into an order: that order
           });
         }
         throw err;
@@ -76,10 +81,13 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         // order id is handed back so the client can open it instead of being
         // told its quote does not exist. Nothing is written before the guard
         // refuses, so answering 4xx here commits no partial work.
+        // An inclusive quote (migration 1024) is refused before the claim: a sales order holds ex-VAT prices only.
+        if (err instanceof LineValidationError) return apiResponse.badRequest(res, err.message);
         if (err instanceof QuoteNotConvertibleError) {
           return apiResponse.conflict(res, err.message, {
             quoteStatus: err.quoteStatus,
             salesOrderId: err.existingOrderId,
+            invoiceId: err.existingInvoiceId, // a quote already invoiced: that invoice
           });
         }
         throw err;

@@ -10,7 +10,7 @@ import { empty500, expectNoJargon, MSG, ok, on, refuse, serve, writeCalls, type 
 
 vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
-vi.mock('next/router', () => ({ useRouter: () => ({ query: {}, isReady: true, push: vi.fn(), replace: vi.fn(), pathname: '/' }) }));
+vi.mock('next/router', () => ({ useRouter: () => ({ query: {}, isReady: true, push: vi.fn(), replace: vi.fn(), pathname: '/', asPath: '/', beforePopState: vi.fn() }), default: { router: null } }));
 vi.mock('next/link', () => ({ default: ({ children }: { children: React.ReactNode }) => <a>{children}</a> }));
 vi.mock('@/components/admin/AdminLayout', () => ({ AdminLayout: ({ children }: { children: React.ReactNode }) => <div>{children}</div> }));
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: React.ReactNode }) => <div>{children}</div> }));
@@ -27,7 +27,12 @@ vi.mock('@/components/accounting/settings/GeneralTab', () => ({
   GeneralTab: ({ company }: { company: { name: string } }) => <p>{company.name}</p>,
 }));
 vi.mock('@/components/accounting/settings/DocumentsTab', () => ({
-  DocumentsTab: ({ docNumbers }: { docNumbers: { prefix: string }[] }) => <p>{docNumbers.map(d => d.prefix).join(',')}</p>,
+  DocumentsTab: ({ docNumbers, onDisplayFieldChange }: {
+    docNumbers: { prefix: string }[]; onDisplayFieldChange: (key: string, value: boolean) => void;
+  }) => <>
+    <p>{docNumbers.map(d => d.prefix).join(',')}</p>
+    <button type="button" onClick={() => onDisplayFieldChange('website', true)}>Show website on documents</button>
+  </>,
 }));
 
 import { apiFetch } from '@/lib/apiFetch';
@@ -183,41 +188,24 @@ describe('admin dashboard', () => {
   });
 });
 
-/** A response the test hands over when it chooses. */
-function deferred() {
-  let release: (res: Response) => void = () => undefined;
-  const promise = new Promise<Response>((r) => { release = r; });
-  return { promise, release: (res: Response) => release(res) };
-}
-
 describe('company settings save', () => {
   const base = (display: Route = on('GET', 'accounting-settings', () => ok({ key: 'document_display_fields', value: null }))): Route[] => [
     on('GET', '/companies?id=', () => ok({ id: 'co1', name: 'D2 Company (Pty) Ltd' })),
-    // Answered only after Save is enabled (open() releases it 300 ms after that, so a slow render cannot let the
-    // numbers arrive first): a save that does not wait for them writes none, which the PUT counts and payload catch.
-    (u: string, m: string) => (m === 'GET' && u.includes('type=document-numbers') ? numbers.promise : undefined),
+    on('GET', 'type=document-numbers', () => ok([{ documentType: 'invoice', prefix: 'D2PFX', nextNumber: 1 }])),
     display,
   ];
-  // Save is enabled once the company has loaded; the document numbers load beside it, and save() writes them only once
-  // they have. So wait for them where they show: the Documents tab. (Waiting for 'D2PFX' without opening that tab
-  // never matched: it only ever timed out, and that timeout was the real wait.)
+  // Save opens once every read has settled AND something is edited. D2PFX on the Documents tab shows the document
+  // numbers have loaded; the edit is made there.
   const save = async () => {
+    render(<CompanySettingsPage />);
     fireEvent.click(await screen.findByText('Open documents tab'));
     await screen.findByText('D2PFX');
+    fireEvent.click(screen.getByText('Show website on documents'));
     fireEvent.click(await screen.findByText('Save Changes'));
-  };
-  let numbers = deferred();
-  beforeEach(() => { numbers = deferred(); });
-  const open = async () => {
-    render(<CompanySettingsPage />);
-    await waitFor(() => expect((screen.getByText('Save Changes').closest('button') as HTMLButtonElement).disabled).toBe(false));
-    // 300 ms after Save is enabled, however long that took: a save that does not wait clicks well before.
-    setTimeout(() => numbers.release(ok([{ documentType: 'invoice', prefix: 'D2PFX', nextNumber: 1 }])), 300);
   };
 
   it('company PUT refused: the server message, no "saved" banner, the other writes are not attempted', async () => {
     serve(on('PUT', '/api/accounting/companies', () => refuse()), ...base());
-    await open();
     await save();
     expect(await screen.findByText(MSG)).toBeDefined();
     expect(screen.queryByText('Changes saved successfully')).toBeNull();
@@ -226,7 +214,6 @@ describe('company settings save', () => {
 
   it('company PUT empty-body 500: a plain sentence', async () => {
     serve(on('PUT', '/api/accounting/companies', empty500), ...base());
-    await open();
     await save();
     expect(await screen.findByText('Could not save the company details - try again')).toBeDefined();
     expectNoJargon();
@@ -235,7 +222,6 @@ describe('company settings save', () => {
   it('a refused secondary write (document numbers) is shown and never reported as saved', async () => {
     serve(on('PUT', '/api/accounting/companies', () => ok({})), on('PUT', 'document-numbers', () => refuse()),
       on('PUT', 'accounting-settings', () => ok({})), ...base());
-    await open();
     await save();
     expect(await screen.findByText(MSG)).toBeDefined();
     expect(screen.queryByText('Changes saved successfully')).toBeNull();
@@ -244,7 +230,6 @@ describe('company settings save', () => {
   it('an empty-body 500 on a secondary write gives a plain sentence', async () => {
     serve(on('PUT', '/api/accounting/companies', () => ok({})), on('PUT', 'document-numbers', empty500),
       on('PUT', 'accounting-settings', () => ok({})), ...base());
-    await open();
     await save();
     expect(await screen.findByText(/Company details saved, but some settings could not be saved - try again/)).toBeDefined();
     expectNoJargon();
@@ -253,7 +238,6 @@ describe('company settings save', () => {
   it('display fields that failed to load are never overwritten by the defaults on save', async () => {
     serve(on('PUT', '/api/accounting/companies', () => ok({})), on('PUT', 'document-numbers', () => ok({})),
       on('PUT', 'accounting-settings', () => ok({})), ...base(on('GET', 'accounting-settings', () => refuse())));
-    await open();
     await save();
     expect(await screen.findByText('Changes saved successfully')).toBeDefined();
     expect(writeCalls('PUT', 'document-numbers')).toBe(1);
@@ -263,7 +247,6 @@ describe('company settings save', () => {
   it('a good save writes everything and reports saved', async () => {
     serve(on('PUT', '/api/accounting/companies', () => ok({})), on('PUT', 'document-numbers', () => ok({})),
       on('PUT', 'accounting-settings', () => ok({})), ...base());
-    await open();
     await save();
     expect(await screen.findByText('Changes saved successfully')).toBeDefined();
     expect(writeCalls('PUT', 'accounting-settings')).toBe(1);

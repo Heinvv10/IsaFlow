@@ -42,9 +42,10 @@ interface LineWithItem {
 export interface ItemDefaultOptions {
   /**
    * Derive a missing line `taxRate` from the item's VAT type on that side (`vat_on_purchases` for a PO / bill,
-   * `vat_on_sales` for a quote): standard = the statutory rate (lib/vat/standardRate, as the items screen), zero = 0 with
+   * `vat_on_sales` for a sales document): standard = the statutory rate (lib/vat/standardRate, as the items screen), zero = 0 with
    * vat_classification zero_rated, exempt = 0 with exempt. Set it only where the document has a per-line rate and the
-   * caller named no rate for the document either (a customer invoice has ONE rate on its header, so never there).
+   * caller named no rate for the document either. Never on a customer invoice or (migration 1024) a quote: their lines
+   * take a VAT type, the item's vat_on_sales one step of its default chain (ar/invoiceLineVatTypes).
    */
   deriveTax?: boolean;
 }

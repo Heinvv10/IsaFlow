@@ -15,7 +15,8 @@
  * "acquire" a lock Postgres never took, which is the failure this whole class of
  * test exists to catch. Two REAL connections contend here.
  */
-import { describe, it, expect, vi } from 'vitest';
+import { randomUUID } from 'crypto';
+import { describe, it, expect, vi, afterAll } from 'vitest';
 import { Client, type PoolClient } from 'pg';
 import { als } from '@/lib/als';
 import { isDbReachable } from '../helpers/dbReachable';
@@ -57,6 +58,18 @@ async function done(c: PoolClient | null): Promise<void> {
   if (c) await (c as unknown as Client).end().catch(() => undefined);
 }
 
+/**
+ * Every fixture company this run creates is tracked from the INSERT, before any
+ * later step can throw. The old helper returned `Lines` only at the very end, so
+ * a failure between the company insert and the journal insert left `lines` null
+ * and cleanup() returned early: the company leaked (15,406 of them on dev by
+ * 2026-11-20, and the swallowed `.catch(() => undefined)` hid every failure).
+ * The run id in the name lets afterAll prove zero are left.
+ */
+const RUN_ID = randomUUID();
+const CO_NAME = `Line lock fixture co ${RUN_ID}`;
+const created: string[] = [];
+
 interface Lines {
   companyId: string;
   ids: string[];
@@ -80,9 +93,10 @@ async function makeCommittedLines(client: PoolClient): Promise<Lines | null> {
   // give: (company_id, entry_number) is unique and every borrower of "the first
   // company with an open period" races the rest for the next number.
   const { rows: co } = await client.query<{ id: string }>(
-    "INSERT INTO companies (name) VALUES ('Line lock fixture co') RETURNING id",
+    'INSERT INTO companies (name) VALUES ($1) RETURNING id', [CO_NAME],
   );
   const companyId = co[0]!.id;
+  created.push(companyId);
   await client.query(
     `INSERT INTO fiscal_periods
        (company_id, period_name, period_number, fiscal_year, start_date, end_date, status)
@@ -123,21 +137,35 @@ async function makeCommittedLines(client: PoolClient): Promise<Lines | null> {
 
 async function cleanup(client: PoolClient, lines: Lines | null): Promise<void> {
   if (!lines) return;
-  await client.query(
-    `DELETE FROM gl_journal_entries WHERE id IN (
-       SELECT journal_entry_id FROM gl_journal_lines WHERE id = ANY($1::UUID[]))`,
-    [lines.ids],
-  );
-  await client.query(
-    "DELETE FROM gl_accounts WHERE company_id = $1 AND account_code LIKE 'LCK%'",
-    [lines.companyId],
-  );
-  await client.query('DELETE FROM fiscal_periods WHERE company_id = $1', [lines.companyId]);
-  await client.query('DELETE FROM companies WHERE id = $1', [lines.companyId]);
+  await removeCompany(client, lines.companyId);
+}
+
+/** Removes one fixture company by company_id, whatever step it got to. */
+async function removeCompany(client: PoolClient, companyId: string): Promise<void> {
+  await client.query('DELETE FROM gl_journal_entries WHERE company_id = $1', [companyId]);
+  await client.query('DELETE FROM gl_accounts WHERE company_id = $1', [companyId]);
+  await client.query('DELETE FROM fiscal_periods WHERE company_id = $1', [companyId]);
+  await client.query('DELETE FROM companies WHERE id = $1', [companyId]);
 }
 
 describe('lockReclassLinesForUpdate (real DB)', async () => {
   const reachable = await isDbReachable();
+
+  // A company the test body never got to hand back (a throw after the insert)
+  // is removed here, and the run must leave none behind.
+  afterAll(async () => {
+    if (!reachable) return;
+    const c = await dedicated();
+    const errors: unknown[] = [];
+    try {
+      for (const id of created) {
+        try { await removeCompany(c, id); } catch (e) { errors.push(e); }
+      }
+      const { rows } = await c.query<{ n: string }>('SELECT count(*) AS n FROM companies WHERE name = $1', [CO_NAME]);
+      try { expect(Number(rows[0]!.n)).toBe(0); } catch (e) { errors.push(e); }
+    } finally { await done(c); }
+    if (errors.length) throw errors.length === 1 ? errors[0] : new AggregateError(errors, 'afterAll cleanup failed');
+  });
 
   it.skipIf(!reachable)('a second batch over the SAME lines cannot proceed until the first commits', async (ctx) => {
     assertNotProductionDb('This test inserts and deletes journal entries and lines.');

@@ -16,7 +16,8 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { assertBillPoLinks } from './supplierInvoicePoLinks';
 import { asBillGrnRefused, assertBillGrn, lockNotePo } from './billGoodsReceivedLink';
-import { asBillSupplierDeleted } from './billSupplierLive';
+import { asBillSupplierDeleted, BillSupplierDeletedError } from './billSupplierLive';
+import { lockSupplierIfLive } from '../core/supplierLiveLock';
 import { recordBillLinks } from './billPurchaseOrderLinks';
 import type {
   SupplierInvoice,
@@ -141,6 +142,10 @@ export async function createSupplierInvoice(
     const fingerprint = computeFingerprint(supplierVatNumber, input.invoiceNumber, totalAmount);
 
     const invoiceRow = await withTransaction(async (tx) => {
+      // The supplier row FIRST, FOR KEY SHARE and live (supplierLiveLock): a merge takes it FOR UPDATE and then the source's POs, so
+      // taking the POs below first and the supplier only at the INSERT's FK was a 40P01 cycle (breaker of aad49a02, M1). A supplier
+      // merged away meanwhile is the typed refusal, as the supplier-live trigger would answer at the INSERT.
+      if (!(await lockSupplierIfLive(companyId, input.supplierId))) throw new BillSupplierDeletedError();
       // The named PO lines again, UNDER a KEY SHARE lock on their POs, before the bill or any line is written: a PO edit that
       // replaces the lines cannot slip in between the check above and the insert (design mcp-po-maintenance.md, review M1).
       await assertBillPoLinks(companyId, input.purchaseOrderId, input.supplierId, lineInputs, { db: tx, lock: true });
@@ -222,7 +227,7 @@ export async function createSupplierInvoice(
   } catch (err) {
     // A soft-deleted supplier (merged into another, or deleted; e.g. by a merge this create waited on): 1021's supplier-live trigger
     // refused the INSERT; or a note cancelled meanwhile (the grn-live trigger, which waited on the cancel): typed refusals, nothing written.
-    const gone = asBillSupplierDeleted(err) ?? asBillGrnRefused(err);
+    const gone = err instanceof BillSupplierDeletedError ? err : asBillSupplierDeleted(err) ?? asBillGrnRefused(err);
     if (gone) throw gone;
     log.error('Failed to create supplier invoice', { error: err }, 'accounting');
     throw err;
