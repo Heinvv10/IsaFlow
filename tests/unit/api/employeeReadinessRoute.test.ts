@@ -2,7 +2,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { NextApiRequest, NextApiResponse } from 'next';
 
-const st = vi.hoisted(() => ({ allowed: true, keys: [] as string[], reads: 0 }));
+const st = vi.hoisted(() => ({ allowed: true, keys: [] as string[], reads: 0, window: null as null | { used: number }, max: [] as number[] }));
 
 vi.mock('@/lib/auth/permissionService', async (orig) => (await import('../helpers/modulePermissionMock')).permissionServiceAllowing(await orig<object>())); // #1656: the module gate is proven in approvePermissionPaths / payrollModuleCensus
 vi.mock('@/lib/auth', () => ({ withAuth: (h: unknown) => h }));
@@ -16,7 +16,12 @@ vi.mock('@/modules/accounting/services/bank/bankControlResponse', () => ({ respo
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 vi.mock('@/lib/rateLimit', () => ({
   INTERACTIVE_REPORT_LIMIT: { max: 120, windowSecs: 900 },
-  checkReportRateLimit: vi.fn(async (_c: string, key: string) => { st.keys.push(key); return st.allowed; }),
+  checkReportRateLimit: vi.fn(async (_c: string, key: string, opts: { max?: number } = {}) => {
+    st.keys.push(key); st.max.push(opts.max ?? 25);
+    // A real window: the first `max` calls pass, the rest are refused (what rate_limit_counters does for one key).
+    if (st.window) { st.window.used += 1; return st.window.used <= (opts.max ?? 25); }
+    return st.allowed;
+  }),
 }));
 vi.mock('@/modules/accounting/services/payroll/employeeReadinessRead', () => ({
   readEmployeeReadiness: vi.fn(async () => { st.reads += 1; return { bank: 'none', runs: [], hasFinalRun: true }; }),
@@ -36,7 +41,7 @@ function call() {
   return (handler as unknown as (a: NextApiRequest, b: NextApiResponse) => Promise<void>)(req, res).then(() => out);
 }
 
-beforeEach(() => { st.allowed = true; st.keys = []; st.reads = 0; });
+beforeEach(() => { st.allowed = true; st.keys = []; st.reads = 0; st.window = null; st.max = []; });
 
 describe('GET readiness', () => {
   it('answers the boolean under its own per-user rate-limit key', async () => {
@@ -50,5 +55,21 @@ describe('GET readiness', () => {
     const out = await call();
     expect(out.status).toBe(429);
     expect(st.reads).toBe(0);
+  });
+  // RS3: a reviewer opening one profile after another (each page load reads once, twice under React strict mode in dev)
+  // used up the 120-a-window cap in a few minutes, and every later card said "Could not check bank details" (a 429).
+  it('does not refuse a user who opens profile after profile: 300 reads in one window all answer 200', async () => {
+    st.window = { used: 0 };
+    const statuses: number[] = [];
+    for (let i = 0; i < 300; i += 1) statuses.push((await call()).status);
+    expect(statuses.filter(s => s !== 200)).toEqual([]);
+  });
+  it('still refuses a runaway client: the configured cap (1200) passes, the 1201st read is 429', async () => {
+    st.window = { used: 0 };
+    const statuses: number[] = [];
+    for (let i = 0; i < 1201; i += 1) statuses.push((await call()).status);
+    expect(statuses.slice(0, 1200).every(s => s === 200)).toBe(true);
+    expect(statuses[1200]).toBe(429);
+    expect(st.reads).toBe(1200);
   });
 });

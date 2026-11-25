@@ -39,12 +39,12 @@ interface Props {
 export function DocumentList({ documents, total, isLoading, error, statusFilter, onStatusFilterChange }: Props) {
   return (
     <div className="bg-[var(--ff-bg-secondary)] rounded-xl border border-[var(--ff-border-light)] overflow-hidden">
-      <div className="px-6 py-4 border-b border-[var(--ff-border-light)] flex items-center justify-between">
+      <div className="px-6 py-4 border-b border-[var(--ff-border-light)] flex items-center justify-between max-lg:flex-wrap max-lg:gap-3">
         <h2 className="text-lg font-semibold text-[var(--ff-text-primary)]">
           Captured Documents
           {total > 0 && <span className="text-sm font-normal text-[var(--ff-text-tertiary)] ml-2">({total})</span>}
         </h2>
-        <select value={statusFilter} onChange={(e) => onStatusFilterChange(e.target.value)} className="ff-select text-sm">
+        <select value={statusFilter} onChange={(e) => onStatusFilterChange(e.target.value)} className="ff-select text-sm max-lg:min-h-11">
           <option value="">All Statuses</option>
           <option value="pending">Pending</option>
           <option value="reviewed">Reviewed</option>
@@ -68,7 +68,7 @@ export function DocumentList({ documents, total, isLoading, error, statusFilter,
         </div>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full text-sm table-cards">
             <thead>
               <tr className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-tertiary)]">
                 <th className="px-4 py-3 text-left text-xs font-medium text-[var(--ff-text-secondary)]">File</th>
@@ -91,15 +91,15 @@ export function DocumentList({ documents, total, isLoading, error, statusFilter,
                       <span className="text-[var(--ff-text-primary)] font-medium truncate max-w-[200px]">{doc.fileName}</span>
                     </div>
                   </td>
-                  <td className="px-4 py-3 text-[var(--ff-text-secondary)] capitalize">{doc.documentType || '-'}</td>
-                  <td className="px-4 py-3 text-[var(--ff-text-primary)]">{doc.vendorName || '-'}</td>
-                  <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{formatDate(doc.documentDate)}</td>
-                  <td className="px-4 py-3 text-[var(--ff-text-secondary)] font-mono text-xs">{doc.referenceNumber || '-'}</td>
-                  <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">{formatCurrency(doc.totalAmount ?? 0)}</td>
-                  <td className="px-4 py-3 text-center"><StatusBadge status={doc.status} /><ReadBadge readState={doc.readState} /></td>
-                  <td className="px-4 py-3 text-[var(--ff-text-tertiary)] text-xs">{formatDate(doc.createdAt)}</td>
+                  <td data-label="Type" className="px-4 py-3 text-[var(--ff-text-secondary)] capitalize">{doc.documentType || '-'}</td>
+                  <td data-label="Vendor" className="px-4 py-3 text-[var(--ff-text-primary)]">{doc.vendorName || '-'}</td>
+                  <td data-label="Date" className="px-4 py-3 text-[var(--ff-text-secondary)]">{formatDate(doc.documentDate)}</td>
+                  <td data-label="Reference" className="px-4 py-3 text-[var(--ff-text-secondary)] font-mono text-xs">{doc.referenceNumber || '-'}</td>
+                  <td data-label="Total" className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">{formatCurrency(doc.totalAmount ?? 0)}</td>
+                  <td data-label="Status" className="px-4 py-3 text-center"><span><StatusBadge status={doc.status} /><ReadBadge readState={doc.readState} /></span></td>
+                  <td data-label="Uploaded" className="px-4 py-3 text-[var(--ff-text-tertiary)] text-xs">{formatDate(doc.createdAt)}</td>
                   <td className="px-4 py-3">
-                    <Link href={`/accounting/document-capture/${doc.id}`} className="inline-flex items-center gap-1 text-teal-500 hover:text-teal-400 text-xs">
+                    <Link href={`/accounting/document-capture/${doc.id}`} className="inline-flex items-center gap-1 text-teal-500 hover:text-teal-400 text-xs max-lg:min-h-11">
                       <Eye className="h-3.5 w-3.5" />
                       View
                       <ChevronRight className="h-3 w-3" />
