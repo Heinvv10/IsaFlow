@@ -48,6 +48,9 @@ A Sage service code (`Physical` false) with a work-unit counter in `QuantityOnHa
 | `Lines[].Description`, `Quantity` (> 0, 2 dp), `UnitPriceExclusive` | required | `description`, `quantity`, `unit_price` |
 | `Lines[].TaxPercentage` / `TaxTypeId` | one of them; both must agree. The rate is the one that applied on the PO date: standard 14% before 2018-04-01, 15% from then; a percentage is that rate or 0, any other is refused | `tax_rate` |
 | `Lines[].Exclusive`, `Tax` | optional, whole cents | `line_total`, `tax_amount` |
+| `Lines[].Total` | optional, whole cents; when given it must be `Exclusive + Tax` (a discount hidden in the Total is refused, not booked at the price) | checked only |
+| `Discount`, `DiscountPercentage`, `DiscountAmount` (a line; `Discount` / `DiscountPercentage` on the PO; any on an item), any spelling | 0, absent or blank: ignored. Anything else refuses the row: `po_discount_unsupported` (the PO) or `item_discount_unsupported` (the item), naming the field and value. A discount is not imported, and dropped it would book the undiscounted figures | never |
+| any other key on a PO or a line that looks like money (`amount`, `price`, `total`, `discount`, `rebate`, `surcharge`, `charge` in its name) and is not a field above | 0, absent or blank: ignored; anything else refuses the PO (`po_money_field_unsupported`) | never |
 | `Lines[].ItemId` (alias `SelectionId`) | optional; must be an item in the file | `item_code` on the line (links `po_items.item_id`), see below |
 | `Lines[].LineType` | optional; **ASSUMED, unconfirmed against a real export**: Sage One API v2 `PurchaseOrderLine.LineType`, 0 = item line, 1 = account line. Absent, null or 0: an item line, as above (`""` is not: it is refused like any other value). 1: the PO is refused (`po_account_line_unsupported`, naming the account id): its SelectionId is a ledger ACCOUNT and Sage numbers entity types separately, so it can equal an item's id. Any other value: refused (`po_line_type_unknown`). A line that is not known to be an item is never linked to one | the line is read, never linked, when refused |
 
@@ -72,7 +75,8 @@ A row is refused with a code and every reason:
 - PO lines and items: `line_item_unknown` (a line names an item the export does not contain), `line_item_refused` (a line names an item
   that is refused AND has no readable Code to name it by; a refused item WITH a readable code does not refuse the PO, its line goes
   unlinked), `line_description_too_long` (an UNLINKED line's description with its " [item CODE]" passes 500: nothing is cut),
-  `po_account_line_unsupported` / `po_line_type_unknown` (a line whose `LineType` is 1 = account, or not 0 / 1: never linked to an item; the mapping is assumed).
+  `po_account_line_unsupported` / `po_line_type_unknown` (a line whose `LineType` is 1 = account, or not 0 / 1: never linked to an item; the mapping is assumed),
+  `po_discount_unsupported` / `po_money_field_unsupported` (a discount, or another money field this import does not read, that is not zero); an item: `item_discount_unsupported`.
 - Suppliers: `supplier_unresolved`, `supplier_ambiguous` (also when a name search hits its 1000-row cap), `supplier_ref_conflict` (the
   supplier of that name already carries another Sage reference), `supplier_collapsed` (two Sage suppliers resolve to one IsaFlow
   supplier), `supplier_inactive`.
@@ -128,6 +132,10 @@ to one IsaFlow supplier are both refused).
   What remains: a container of plain rows, or a single page without `$totalResults`, says nothing beyond itself, so a file cut short
   there reads as a whole, smaller export; and the chain checks trust the markers Sage wrote. `--expect-items` and `--expect-pos`
   (required with `--live`) stay the last guard: the dry run's counts must match them.
+- **Money fields fail closed by their name.** A PO or line key whose name holds a money word and is not a field read refuses the PO
+  when it is not zero, also when it is not money at all (a `ChargeCode` of "X"); and only discounts are checked on an item (its
+  `PriceInclusive` and other unread price fields are not read and not checked). A money field with no money word in its name is not
+  seen. The export is fixed, or the reader taught the field, never guessed.
 - **A field spelled another way fails closed, also when it is harmless.** The normalised key check refuses the whole row for any key
   that is a field this import reads in another spelling, including ones that would mean the same (`Id`, `SupplierID`,
   `quantityonhand`): such a row is refused, never guessed, and the export is fixed or the reader taught the spelling.
