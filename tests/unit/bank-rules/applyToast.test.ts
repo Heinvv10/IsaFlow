@@ -151,3 +151,38 @@ describe('buildApplyToast — WP2 row 5 transfer and approval skips', () => {
     expect(r.kind).toBe('warn');
   });
 });
+
+describe('supplier rules on a merged-away supplier (#1882 fix-verify M1)', () => {
+  it('names each rule, its supplier and the survivor to re-point it to, and warns', async () => {
+    const { buildApplyToast, mergedRuleSentences } = await import('@/components/accounting/bank-rules/applyToast');
+    const rules = [
+      { ruleName: 'Telkom debit', supplierName: 'Telkom SA', merged: true, survivorName: 'Telkom SA (merged)', lines: 2 },
+      { ruleName: 'Old vendor', supplierName: 'Gone CC', merged: false, survivorName: null, lines: 1 },
+    ];
+    expect(mergedRuleSentences(rules)).toEqual([
+      '2 skipped (rule "Telkom debit" names Telkom SA, which was merged into Telkom SA (merged) — edit the rule to name Telkom SA (merged))',
+      '1 skipped (rule "Old vendor" names Gone CC, which was deleted — edit the rule to name a live supplier)',
+    ]);
+    const t = buildApplyToast({ applied: 5, autoPostSkippedSupplierMerged: 3, autoPostSupplierMergedRules: rules });
+    expect(t.kind).toBe('warn');
+    expect(t.message).toContain('edit the rule to name Telkom SA (merged)');
+    expect(t.message).not.toContain('allocated by another request');
+  });
+});
+
+describe('the merged-rule banner heading, by cause (#1882 L-d)', () => {
+  it('says merged, deleted, or both', async () => {
+    const { mergedRuleHeading } = await import('@/components/accounting/bank-rules/applyToast');
+    const merged = { ruleName: 'a', supplierName: 'A', merged: true, survivorName: 'B', lines: 2 };
+    const deleted = { ruleName: 'c', supplierName: 'C', merged: false, survivorName: null, lines: 1 };
+    expect(mergedRuleHeading([merged], 2)).toBe('2 transactions were skipped — the rule names a supplier that was merged into another.');
+    expect(mergedRuleHeading([deleted], 1)).toBe('1 transaction was skipped — the rule names a supplier that was deleted.');
+    expect(mergedRuleHeading([merged, deleted], 3)).toBe('3 transactions were skipped — the rule names a supplier that was merged into another or deleted.');
+    // Merged by merged_into_id even when the survivor's name cannot be read (L2): not "deleted".
+    const nameless = { ruleName: 'd', supplierName: 'D', merged: true, survivorName: null, lines: 1 };
+    expect(mergedRuleHeading([nameless], 1)).toBe('1 transaction was skipped — the rule names a supplier that was merged into another.');
+    const { mergedRuleSentences } = await import('@/components/accounting/bank-rules/applyToast');
+    expect(mergedRuleSentences([nameless])[0]).toContain('which was merged into another supplier');
+  });
+});
+

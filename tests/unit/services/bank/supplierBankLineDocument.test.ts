@@ -11,6 +11,13 @@ import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vites
 
 // The learning-loop log has its own suites (codingDecisionLog, coding-decision-paths); it is kept out of this
 // file's SQL sequence.
+// The supplier live lock needs a request transaction (core/supplierLiveLock); here the supplier is live. Its SQL, the wait and the
+// merged-away refusal are proved on real PostgreSQL (tests/integration/i1699-*.int.test.ts, i1882-*.int.test.ts).
+vi.mock('@/modules/accounting/services/core/supplierLiveLock', async (orig) => ({
+  ...(await orig<typeof import('@/modules/accounting/services/core/supplierLiveLock')>()),
+  lockSupplierIfLive: async () => true,
+  isSupplierLive: async () => true,
+}));
 vi.mock('@/modules/accounting/services/bank/bankAllocationPeriod', () => ({ allocationPeriodFor: async () => 'fp-open' })); // WP2 row 12: proven in bank-wp2-12-fiscal-preflight.int
 vi.mock('@/modules/accounting/services/bank/codingDecisionLog', () => ({
   postingRefOf: () => ({}), recordAllocationDecision: vi.fn(), recordAutoPostUndone: vi.fn(),

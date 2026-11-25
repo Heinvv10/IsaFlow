@@ -15,6 +15,7 @@ import {
   listExpectations,
   getExpectation,
   recomputeForSupplier,
+  ExpectationSupplierNotLiveError,
   recomputeAllForCompany,
 } from '@/modules/accounting/services/capture/expectationEngineService';
 import { SupplierNotInCompanyError } from '@/modules/accounting/services/core/contactDirectoryService';
@@ -51,7 +52,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         return apiResponse.success(res, await recomputeForSupplier(companyId, supplierId));
       } catch (err) {
         // R-068: refused before the upsert, so nothing has been written.
-        if (err instanceof SupplierNotInCompanyError) return apiResponse.badRequest(res, err.message);
+        if (err instanceof SupplierNotInCompanyError || err instanceof ExpectationSupplierNotLiveError) return apiResponse.badRequest(res, err.message);
         throw err;
       }
     }

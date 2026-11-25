@@ -8,6 +8,15 @@ import { vi, beforeEach, type MockedFunction } from 'vitest';
 // R-032 L5: the Login-as guard runs its own query first; it is covered by
 // tests/unit/auth/impersonationGuard.test.ts and the r-032 integration suites.
 // FX PR0: the currency gate reads the company row; it has its own tests (fx-pr0-*).
+// The supplier live lock needs a request transaction (core/supplierLiveLock). Here it runs its one statement through the mocked
+// `sql`, as it did before it asserted the transaction, so the queued answers line up; its wait and refusal are integration-tested.
+vi.mock('@/modules/accounting/services/core/supplierLiveLock', async (orig) => {
+  const { sql: q } = await import('@/lib/neon');
+  return {
+    ...(await orig<typeof import('@/modules/accounting/services/core/supplierLiveLock')>()),
+    lockSupplierIfLive: async () => ((await q`SELECT id FROM suppliers FOR KEY SHARE`) as unknown[] | undefined ?? []).length > 0,
+  };
+});
 vi.mock('@/modules/accounting/services/shared/documentCurrency', async (importOriginal) =>
   (await import('../../helpers/documentCurrencyMock')).documentCurrencyMock(await importOriginal()));
 vi.mock('@/lib/auth/impersonationGuard', async (importOriginal) => ({

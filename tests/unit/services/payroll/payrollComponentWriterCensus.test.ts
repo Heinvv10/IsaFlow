@@ -46,8 +46,6 @@ const INDIRECT: Record<string, [number, string]> = {
   // Wave 6 OC (gate ruling 1 on e0eec1dea1): the month's earlier lines read a historical item's assignment kind.
   'src/modules/accounting/services/payroll/payrollOffCycleMonthRead.ts': [1, 'read-only: recovers a historical basic pay item\'s is_recurring; the one sql.unsafe is payRunFinalSql (final runs), no write'],
   'src/modules/accounting/services/payroll/payrollFrequencyGuard.ts': [1, 'read-only (wave 6 FQc frequency refusals): the one sql.unsafe is payRunFinalSql (final runs), no write'],
-  // Wave 6 FQd: the run-kind guard judges the employee frequency as at a FINAL run (payRunFinalSql); it only reads the table.
-  'src/modules/accounting/services/payroll/yearEndStatusReads.ts': [2, 'read-only (the year-end status route reads, wave 6 FQb1): the two sql.unsafe are payRunFinalSql (final runs), no write'],
   'src/modules/accounting/services/payroll/payrollComponentService.ts': [2, 'read-only (W29 review #1901 round 3): the two sql.unsafe are LEAVER_ROW_HAS_SUCCESSOR_SQL, one successor predicate for both readers, an EXISTS, no write'],
 };
 
