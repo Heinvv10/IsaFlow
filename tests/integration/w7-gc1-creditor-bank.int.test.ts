@@ -1,7 +1,8 @@
 /**
  * The creditor's bank details on a garnishee order (wave 7 GC1, migration 1051) through the real routes, withAuth,
  * app_user and RLS, on two tenants. Claims:
- *  - a manager makes the first entry; a change by a manager is 403 CHANGE_REQUIRES_ADMIN and writes nothing; an owner /
+ *  - a manager makes the first entry, except on an order that is ended or that an approved run has deducted (403
+ *    FIRST_ENTRY_REQUIRES_ADMIN, nothing written; the trigger refuses it as app_user too); a change by a manager is 403 CHANGE_REQUIRES_ADMIN and writes nothing; an owner /
  *    admin changes them; the same details again write nothing;
  *  - refusals (bad values, an extra key, another tenant's order, a viewer) change no row and write no audit row;
  *  - the list and the PUT answer are masked for everyone; a full GET is owner / admin only and writes one `export`
@@ -66,6 +67,10 @@ beforeAll(async () => {
 }, 120_000);
 afterAll(async () => {
   for (const r of [a, b].filter(Boolean)) {
+    // The deductions' guard keeps an approved run's rows: unapprove, unapply, then delete (as w6-garnishee does).
+    await r.pool.query("UPDATE payroll_run_headers SET status = 'calculated' WHERE company_id = $1", [r.company]);
+    await r.pool.query('UPDATE payroll_garnishee_deductions SET balance_applied = false WHERE company_id = $1', [r.company]);
+    await r.pool.query('DELETE FROM payroll_garnishee_deductions WHERE company_id = $1', [r.company]);
     await r.pool.query('DELETE FROM payroll_garnishee_orders WHERE company_id = $1', [r.company]);
     await r.teardown();
   }
@@ -184,5 +189,43 @@ describe('garnishee creditor bank details', () => {
       c.release();
     }
     expect(await stored(a, orderA)).toMatchObject({ creditor_account_number: '10098765432' });
+  });
+
+  it('a manager\'s first entry is refused on an order an approved run deducted, and on an ended one; an admin\'s is not', async () => {
+    const made = await a.call(orders as Route, 'POST', `/api/payroll/employees/${emp}/garnishee-orders`, emp,
+      { body: { ...ORDER, reference: 'EAO 2/2027', instalment: 10000, totalDebt: 500000, startDate: '2027-02-01' } });
+    expect(made.statusCode).toBe(201);
+    const deducted = String(made.body.data!.id);
+    const run = await a.calculatedRun(2, 2027);
+    const approved = await a.api.approve(run);
+    expect(approved.statusCode, JSON.stringify(approved.body)).toBe(200);
+    const refused = await at(a, emp, deducted, 'PUT', { body: BANK, user: manager });
+    expect([refused.statusCode, reason(refused)]).toEqual([403, 'FIRST_ENTRY_REQUIRES_ADMIN']);
+    expect(await stored(a, deducted)).toMatchObject({ creditor_account_number: null, stamped: false });
+    expect(await audits(a, deducted)).toEqual([]);
+    // The trigger holds the rule for a writer that skips the service (app_user, the manager's claims).
+    const c = await a.pool.connect();
+    try {
+      await c.query('BEGIN');
+      await c.query('SET LOCAL ROLE app_user');
+      await c.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: manager, role: 'authenticated' })]);
+      await c.query("SELECT set_config('app.current_company_id', $1, true)", [a.company]);
+      await expect(c.query(`UPDATE payroll_garnishee_orders SET creditor_bank_name = 'FNB', creditor_branch_code = '250655',
+        creditor_account_number = '62001234567', creditor_account_type = 'cheque' WHERE id = $1`, [deducted]))
+        .rejects.toThrow(/ended or approved-deducted order/);
+    } finally {
+      await c.query('ROLLBACK').catch(() => undefined);
+      c.release();
+    }
+    expect((await at(a, emp, deducted, 'PUT', { body: BANK })).statusCode).toBe(200);
+    expect(await stored(a, deducted)).toMatchObject({ creditor_account_number: '62001234567', creditor_bank_set_by: a.admin });
+
+    const fresh = await a.call(orders as Route, 'POST', `/api/payroll/employees/${emp}/garnishee-orders`, emp,
+      { body: { ...ORDER, reference: 'EAO 3/2027', startDate: '2027-12-01' } });
+    const ended = String(fresh.body.data!.id);
+    expect((await at(a, emp, ended, 'POST', { body: { endDate: '2027-12-31', reason: 'Order rescinded by the court' } })).statusCode).toBe(200);
+    const endedRefused = await at(a, emp, ended, 'PUT', { body: BANK, user: manager });
+    expect([endedRefused.statusCode, reason(endedRefused)]).toEqual([403, 'FIRST_ENTRY_REQUIRES_ADMIN']);
+    expect(await stored(a, ended)).toMatchObject({ creditor_account_number: null });
   });
 });

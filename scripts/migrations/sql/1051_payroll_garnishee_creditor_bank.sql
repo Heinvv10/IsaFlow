@@ -8,10 +8,15 @@
 --   GC2 (W12 part 2) pays these accounts from the salary bank file; nothing here touches the bank file or the ledger.
 --
 -- WHO (payroll_garnishee_creditor_bank_guard, INVOKER, ENABLE ALWAYS, fires only on an UPDATE that names a creditor
---   column): a session user is required; the first entry on an order is any payroll-detail role (the route's
---   withPayrollDetailAccess), a change to details already entered is owner / admin only (the actor's role in the
---   company, as 952's update policy), and details are replaced, never removed. The same rule is decided again in the
---   service before any write (a 4xx commits); the trigger is the floor for any other writer.
+--   column): a session user is required; a change to details already entered is owner / admin only (the actor's role
+--   in the company, as 952's update policy); the first entry is any payroll-detail role (the route's
+--   withPayrollDetailAccess) EXCEPT on an order that is ended or that a run which is or ever was approved has deducted
+--   (a deduction applied, or on a run approved / paid / with approved_at, a journal, a reopen or an approval history,
+--   or a balance below the total debt): there the first entry is owner / admin only too, as an employee's first bank
+--   details after an approved run (952, Hein's ruling on D1), because money already owed would follow that account.
+--   For that verdict a non-admin first entry takes the company payroll-approval lock (as 999z's insert and end do).
+--   Details are replaced, never removed. The service decides the same before any write (a 4xx commits); the trigger
+--   is the floor for any other writer.
 --   app_user gets UPDATE on the five columns only; INSERT is not widened (an order is entered without them).
 --
 -- CHECKs are added NOT VALID, then VALIDATEd in this file: every existing row has NULLs, so the scan passes.
@@ -66,6 +71,7 @@ CREATE OR REPLACE FUNCTION public.payroll_garnishee_creditor_bank_guard() RETURN
 LANGUAGE plpgsql SECURITY INVOKER SET search_path = pg_catalog, public, pg_temp AS $$
 DECLARE
   uid text := auth.uid();
+  is_admin boolean;
 BEGIN
   IF (NEW.creditor_account_holder, NEW.creditor_bank_name, NEW.creditor_branch_code, NEW.creditor_account_number, NEW.creditor_account_type)
      IS NOT DISTINCT FROM (OLD.creditor_account_holder, OLD.creditor_bank_name, OLD.creditor_branch_code, OLD.creditor_account_number, OLD.creditor_account_type) THEN
@@ -76,12 +82,25 @@ BEGIN
   IF uid IS NULL THEN
     RAISE EXCEPTION 'payroll_garnishee_orders: creditor bank details need a session user' USING ERRCODE = '42501';
   END IF;
+  is_admin := COALESCE(public.company_member_actor_role(NEW.company_id) IN ('owner', 'admin'), false);
   IF OLD.creditor_account_number IS NOT NULL THEN
     IF NEW.creditor_account_number IS NULL THEN
       RAISE EXCEPTION 'payroll_garnishee_orders: creditor bank details are replaced, never removed' USING ERRCODE = 'check_violation';
     END IF;
-    IF NOT COALESCE(public.company_member_actor_role(NEW.company_id) IN ('owner', 'admin'), false) THEN
+    IF NOT is_admin THEN
       RAISE EXCEPTION 'payroll_garnishee_orders: only an owner or admin changes creditor bank details' USING ERRCODE = '42501';
+    END IF;
+  ELSIF NOT is_admin THEN
+    PERFORM pg_advisory_xact_lock(hashtextextended('payroll_approval:' || NEW.company_id::text, 0));
+    IF OLD.status = 'ended' OR OLD.balance IS DISTINCT FROM OLD.total_debt OR EXISTS (
+         SELECT 1 FROM public.payroll_garnishee_deductions d
+           JOIN public.payroll_run_headers h ON h.id = d.run_id AND h.company_id = d.company_id
+          WHERE d.order_id = OLD.id AND d.company_id = OLD.company_id
+            AND (d.balance_applied OR h.status IN ('approved', 'paid') OR h.approved_at IS NOT NULL
+                 OR h.journal_entry_id IS NOT NULL OR h.reopened_at IS NOT NULL
+                 OR NOT isempty(COALESCE(h.approval_history, '{}')))) THEN
+      RAISE EXCEPTION 'payroll_garnishee_orders: only an owner or admin enters creditor bank details on an ended or approved-deducted order'
+        USING ERRCODE = '42501';
     END IF;
   END IF;
   NEW.creditor_bank_set_by := uid;

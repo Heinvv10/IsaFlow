@@ -34,7 +34,7 @@ describe('creditorBankView', () => {
 
 describe('setCreditorBank', () => {
   it('a manager\'s change of entered details is refused before any UPDATE or audit row', async () => {
-    vi.mocked(sql).mockResolvedValueOnce([ROW] as never);
+    vi.mocked(sql).mockResolvedValueOnce([] as never).mockResolvedValueOnce([ROW] as never);
     await expect(setCreditorBank('c1', 'e1', 'o1', INPUT, 'manager', ACTOR)).rejects.toMatchObject({ code: 'CHANGE_REQUIRES_ADMIN', status: 403 });
     expect(sqlText().some((t) => /UPDATE payroll_garnishee_orders/.test(t))).toBe(false);
     expect(logAuditOrThrow).not.toHaveBeenCalled();
@@ -54,9 +54,29 @@ describe('setCreditorBank', () => {
     expect(logAuditOrThrow).not.toHaveBeenCalled();
   });
 
+  it('a manager\'s first entry on an order already deducted by an ever-approved run (or ended) is refused before any write', async () => {
+    vi.mocked(sql).mockResolvedValueOnce([] as never) // the company payroll-approval lock
+      .mockResolvedValueOnce([{ ...EMPTY, status: 'active', ever_approved: true }] as never);
+    await expect(setCreditorBank('c1', 'e1', 'o1', INPUT, 'manager', ACTOR)).rejects.toMatchObject({ code: 'FIRST_ENTRY_REQUIRES_ADMIN', status: 403 });
+    vi.mocked(sql).mockResolvedValueOnce([] as never).mockResolvedValueOnce([{ ...EMPTY, status: 'ended', ever_approved: false }] as never);
+    await expect(setCreditorBank('c1', 'e1', 'o1', INPUT, 'manager', ACTOR)).rejects.toMatchObject({ code: 'FIRST_ENTRY_REQUIRES_ADMIN' });
+    expect(sqlText().some((t) => /UPDATE payroll_garnishee_orders/.test(t))).toBe(false);
+    expect(sqlText().filter((t) => /pg_advisory_xact_lock/.test(t))).toHaveLength(2);
+    expect(logAuditOrThrow).not.toHaveBeenCalled();
+  });
+
+  it('an owner\'s first entry on such an order writes, and takes no approval lock', async () => {
+    const after = { ...ROW, creditor_account_number: '10098765432' };
+    vi.mocked(sql).mockResolvedValueOnce([{ ...EMPTY, status: 'ended', ever_approved: true }] as never).mockResolvedValueOnce([after] as never);
+    await setCreditorBank('c1', 'e1', 'o1', INPUT, 'owner', ACTOR);
+    expect(sqlText().some((t) => /pg_advisory_xact_lock/.test(t))).toBe(false);
+    expect(sqlText().some((t) => /UPDATE payroll_garnishee_orders/.test(t))).toBe(true);
+  });
+
   it('a manager\'s first entry writes, and the audit row holds masked values only', async () => {
     const after = { ...ROW, creditor_bank_name: 'Standard Bank', creditor_branch_code: '051001', creditor_account_number: '10098765432', creditor_account_type: 'savings', creditor_account_holder: null };
-    vi.mocked(sql).mockResolvedValueOnce([EMPTY] as never).mockResolvedValueOnce([after] as never);
+    vi.mocked(sql).mockResolvedValueOnce([] as never).mockResolvedValueOnce([{ ...EMPTY, status: 'active', ever_approved: false }] as never)
+      .mockResolvedValueOnce([after] as never);
     const view = await setCreditorBank('c1', 'e1', 'o1', INPUT, 'manager', ACTOR);
     expect(view).toMatchObject({ accountNumber: '…5432', masked: true });
     expect(sqlText().some((t) => /UPDATE payroll_garnishee_orders/.test(t))).toBe(true);
