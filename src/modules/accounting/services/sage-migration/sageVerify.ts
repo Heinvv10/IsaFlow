@@ -46,8 +46,12 @@ export function verifiedCategories(phase: PhaseReport, sends: readonly Send[], s
  * its live answer (B12-1), or, when the tool REFUSED the batch, that refusal (round-13 L3: it wrote nothing, landed or not).
  */
 export function unconfirmedBatch(failed: BatchReport, live: BatchReport | undefined, connectionLost = false): BatchReport {
-  // The connection was lost during the request: what the tool answered was that loss, not a refusal (B19-1); its live answer says nothing.
-  if (connectionLost) return { ...failed, commitUnconfirmed: true, toolReported: null, error: `the connection was lost; its COMMIT was not confirmed (${failed.error ?? 'no detail'})` };
+  // The connection was lost during the request: a FAILED tool answer was that loss, not a refusal (B19-1), and says nothing; an OK live
+  // answer (the loss came during the COMMIT) is kept, as for any unconfirmed COMMIT, never the dry run's (R20-1).
+  if (connectionLost) {
+    const kept = live?.status === 'ok' ? { toolReported: live.toolReported, ...(live.replayed ? { replayed: true as const } : {}) } : { toolReported: null };
+    return { ...failed, commitUnconfirmed: true, ...kept, error: `the connection was lost; its COMMIT was not confirmed (${failed.error ?? 'no detail'})` };
+  }
   if (live?.status === 'failed' && !live.commitUnconfirmed) {
     return { ...failed, commitUnconfirmed: true, toolRefused: true, toolReported: null, error: `the tool refused this batch (${live.error ?? 'no reason given'}); its COMMIT was not confirmed (${failed.error ?? 'no detail'})` };
   }

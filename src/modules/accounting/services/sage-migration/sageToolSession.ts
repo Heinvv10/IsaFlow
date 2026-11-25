@@ -53,6 +53,13 @@ export class CommitUnconfirmedError extends Error {
   constructor(message: string, readonly result: unknown, readonly connectionLost = false) { super(message); }
 }
 
+/** The error of a connection that ended: the server terminated the backend (57P01-03), a connection exception (08xxx), or pg's own. */
+const connectionEnded = (err: unknown): boolean => {
+  const code = (err as { code?: unknown }).code;
+  return (typeof code === 'string' && (/^57P0[123]$/.test(code) || code.startsWith('08')))
+    || /Connection terminated|terminating connection/i.test(err instanceof Error ? err.message : String(err));
+};
+
 const WRITE_TOOLS = new Set(mcpRegistry.listTools().filter((t) => t.write).map((t) => t.name));
 
 /**
@@ -131,6 +138,8 @@ export async function withToolSession<T>(
         new Promise<never>((_, reject) => { commitTimer = setTimeout(() => reject(new Error(`COMMIT did not answer within ${commitBoundMs}ms`)), commitBoundMs); commitTimer.unref?.(); }),
       ]);
     } catch (err) {
+      // A backend killed DURING the COMMIT rejects it with a FATAL (57P0x) before the client emits 'error' (R20-2): lost too.
+      if (lost === null && connectionEnded(err)) lost = err as Error;
       throw new CommitUnconfirmedError(err instanceof Error ? err.message : String(err), result, lost !== null);
     } finally {
       clearTimeout(commitTimer);

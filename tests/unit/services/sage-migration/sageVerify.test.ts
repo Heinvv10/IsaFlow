@@ -92,6 +92,13 @@ describe('unconfirmedBatch (B12-1, L3 round 13)', () => {
     expect(b).toMatchObject({ commitUnconfirmed: true, toolReported: null, error: 'the connection was lost; its COMMIT was not confirmed (COMMIT did not answer)' });
     expect(b.toolRefused).toBeUndefined();
   });
+  it('R20-1: lost during the COMMIT of an OK live answer: the live answer (and replayed) is kept, never the dry run\'s', () => {
+    const live = batch('item', 2, { toolReported: { rows: [{ code: 'FIB-1', outcome: 'updated' }] } });
+    expect(unconfirmedBatch(failed, live, true)).toMatchObject({ commitUnconfirmed: true, toolReported: live.toolReported,
+      error: 'the connection was lost; its COMMIT was not confirmed (COMMIT did not answer)' });
+    expect(unconfirmedBatch(failed, { ...live, replayed: true }, true).replayed).toBe(true);
+    expect(unconfirmedBatch(failed, live, true).toolRefused).toBeUndefined();
+  });
 });
 
 describe('settleCommitted (L6, round 13): a stop checks its committed batches as the live phases do', () => {

@@ -73,6 +73,18 @@ describe('(c) B19-1: a connection lost while the client is checked out', () => {
     expect(client.listenerCount('error')).toBe(0);
     expect(client.release).toHaveBeenCalledWith(true);
   });
+  it('R20-2: a backend killed DURING the COMMIT (FATAL 57P01 rejects it before any client error): connectionLost', async () => {
+    for (const fatal of [Object.assign(new Error('terminating connection due to administrator command'), { code: '57P01' }), new Error('Connection terminated unexpectedly')]) {
+      const client = Object.assign(new EventEmitter(), {
+        query: async (text: string) => { if (text === 'COMMIT') throw fatal; return { rows: [] }; },
+        release: vi.fn(),
+      });
+      registry.call.mockResolvedValueOnce(ok('{"created":1}'));
+      const err = await withToolSession({ connect: async () => client } as never, 'c1', 'u1', true, (s) => s.call('w', { idempotency_key: 'k' })).then(() => null, (e: unknown) => e);
+      expect((err as CommitUnconfirmedError).connectionLost, fatal.message).toBe(true);
+      expect(client.release, fatal.message).toHaveBeenCalledWith(true);
+    }
+  });
   it('a COMMIT that fails without a lost connection: connectionLost false', async () => {
     const client = Object.assign(new EventEmitter(), {
       query: async (text: string) => { if (text === 'COMMIT') throw new Error('COMMIT did not answer'); return { rows: [] }; },
