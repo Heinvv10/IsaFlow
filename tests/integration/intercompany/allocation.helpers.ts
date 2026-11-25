@@ -82,6 +82,8 @@ export async function plantPaymentJournal(pool: Pool, amount: number, over: { co
 /** A payment of B for `bill` with its allocation row. `journal: false` = none; a string = that journal; a batch member takes the batch's. */
 export async function plantPaid(pool: Pool, bill: string, over: {
   status?: string; date?: string; amount?: number; journal?: boolean | string; leg?: string; payment?: string; batch?: string; reversed?: boolean; allocate?: boolean; memberBank?: string; provisional?: string;
+  /** payment_method (default eft); `contra` is what settle_by_contra writes */
+  method?: string;
 } = {}) {
   const amount = over.amount ?? 1150;
   const status = over.status ?? 'processed';
@@ -98,8 +100,8 @@ export async function plantPaid(pool: Pool, bill: string, over: {
       await client.query("SELECT set_config('isaflow.approval_gate_exempt', 'bank_feed', true)");
       payment = (await client.query(
         `INSERT INTO supplier_payments(company_id, supplier_id, payment_date, total_amount, payment_method, bank_account_id, reference, status, batch_id, gl_journal_entry_id, created_by, settles_provisional_je_id)
-         VALUES ($1, $2, $3::date, $4, 'eft', $5, 'IC alloc ref', $6, $7, $8, $9, $10) RETURNING id`,
-        [co.B, party.bSupplier, over.date ?? '2026-09-01', amount, over.batch ? over.memberBank ?? null : over.leg ?? bank.b, status, over.batch ?? null, journal, U.ab, over.provisional ?? null])).rows[0].id as string;
+         VALUES ($1, $2, $3::date, $4, $11, $5, 'IC alloc ref', $6, $7, $8, $9, $10) RETURNING id`,
+        [co.B, party.bSupplier, over.date ?? '2026-09-01', amount, over.batch ? over.memberBank ?? null : over.leg ?? bank.b, status, over.batch ?? null, journal, U.ab, over.provisional ?? null, over.method ?? 'eft'])).rows[0].id as string;
       await client.query('COMMIT');
     } catch (err) {
       await client.query('ROLLBACK');

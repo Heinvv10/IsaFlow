@@ -36,7 +36,7 @@ describe('payerJournalKey (leaf)', () => {
     expect(sqlMock).toHaveBeenCalledTimes(1);
     const q = text(sqlMock.mock.calls[0]!);
     expect(q).toMatch(/source_journal_entry_id/);
-    expect(q).toMatch(/kind = 'allocation'/);
+    expect(q).toMatch(/kind IN \('allocation', 'payment'\)/);                     // F (1031): a payment message's root too
     expect(q).toMatch(/from_company_id/);
     expect(q).not.toMatch(/pg_advisory_xact_lock/);
   });

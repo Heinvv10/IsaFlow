@@ -64,7 +64,7 @@ describe('a stranger cannot LOCK TABLE the group tables', () => {
       await asAppUser(pool, U.ab, co.A, async (q) => {
         await q.query("SET LOCAL lock_timeout = '1500ms'");
         await q.query(`INSERT INTO intercompany_messages(connection_id, from_company_id, to_company_id, kind, source_doc_type, source_doc_id, payload)
-                       VALUES ($1, $2, $3, 'payment', 'payment', gen_random_uuid(), '{}')`, [id, co.A, co.B]);
+                       VALUES ($1, $2, $3, 'reject', 'payment', gen_random_uuid(), '{}')`, [id, co.A, co.B]);
       }, true);
     } finally {
       await stranger.query('ROLLBACK');

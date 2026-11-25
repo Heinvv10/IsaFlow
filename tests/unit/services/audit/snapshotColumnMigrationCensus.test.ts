@@ -139,6 +139,10 @@ const READ_BY_HAND = new Set([
   // 'EXECUTE') and the deploy-safe REVOKE loop's EXECUTE format('REVOKE ALL ON FUNCTION ...'); "journal" is the STABLE readers' walk of
   // gl_journal_entries (reversal chains) and their SUMs over gl_journal_lines on the loan accounts. No DDL on gl_journal_entries / gl_journal_lines.
   '1030_intercompany_p5_loan_reconciliation.sql',
+  // 1031 (2026-11-24, intercompany F payment message): EXECUTE only as GRANT EXECUTE ON FUNCTION, has_function_privilege(..., 'EXECUTE') and a
+  // DO-block `EXECUTE format('REVOKE ALL ON FUNCTION %s FROM %I CASCADE', ...)` over its own functions (the 1029 pattern); "journal" is read only
+  // (gl_journal_entries / gl_journal_lines in definer bodies: the payment's standing journal, its chain, a loan-account credit). No DDL on either table.
+  '1031_intercompany_p6f_payment_messages.sql',
   // 1018 (2026-11-20, ledger column immutability): EXECUTE only as EXECUTE FUNCTION in its CREATE TRIGGERs (on
   // gl_journal_entries and the three document tables). One column added, document_cancelled_at (NOT_MATERIAL); none renamed
   // or rebuilt, no dynamic SQL.

@@ -23,6 +23,7 @@ import type { CustomerPayment } from '../../types/ar.types';
 import type { JournalLineInput } from '../../types/gl.types';
 import { underFlowLockBudget } from '../core/rowLockBudget';
 import { BALANCE_DERIVED } from './invoiceStatusRecompute';
+import { icDraftConfirmGate } from '../intercompany/icDraftConfirmGate';
 
 type Row = DbRow;
 
@@ -70,9 +71,12 @@ async function confirmCustomerPaymentInner(
     // both reach the same payment and the same invoice. The journal this posts
     // below is CREATED here, so no other transaction can contend for it and it
     // does not belong to the ordering.
+    // Intercompany F (k) H-3: an F draft (IC:<payment message>) locks its message FIRST and confirms only while that message targets it, `target_ok`
+    const icRecheck = await icDraftConfirmGate(companyId, id);
     if (!(await lockCustomerPaymentForUpdate(companyId, id))) {
       throw new Error(`Payment ${id} not found`);
     }
+    await icRecheck?.();
     const payment = await getCustomerPaymentById(companyId, id);
     if (!payment) throw new Error(`Payment ${id} not found`);
     if (payment.status !== 'draft') throw new Error(`Cannot confirm payment with status: ${payment.status}`);

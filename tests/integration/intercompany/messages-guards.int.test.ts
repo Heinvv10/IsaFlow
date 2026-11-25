@@ -16,7 +16,7 @@ beforeEach(async () => {
 });
 
 const MSG = `INSERT INTO intercompany_messages(connection_id, from_company_id, to_company_id, kind, source_doc_type, source_doc_id, payload)
-             VALUES ($1, $2, $3, 'payment', 'payment', gen_random_uuid(), '{}')`;
+             VALUES ($1, $2, $3, 'reject', 'payment', gen_random_uuid(), '{}')`;
 const handle = (user: string, company: string, m: string, set: string) =>
   asAppUser(pool, user, company, (q) => outcome(q, `UPDATE intercompany_messages SET ${set} WHERE id = $1`, [m]), true);
 
