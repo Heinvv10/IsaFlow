@@ -14,7 +14,7 @@ import { join } from 'node:path';
 
 const h = vi.hoisted(() => ({
   behave: 'ok' as 'ok' | 'locked-out' | 'live-summary-fails',
-  code: 0, calls: 0, failFinalWrite: false, poolEndThrows: false, poolEnded: 0,
+  code: 0, calls: 0, failFinalWrite: false, poolEndThrows: false, poolEnded: 0, failPlaceholder: false,
 }));
 vi.mock('@/modules/accounting/services/sage-migration/sageMigrationRunner', () => ({
   runSageMigration: vi.fn(async () => {
@@ -34,9 +34,14 @@ vi.mock('node:fs', async (orig) => {
   const real = await orig<typeof import('node:fs')>();
   const writeSync = ((fd: number, buf: unknown, ...rest: unknown[]) => {
     if (h.failFinalWrite && String(buf).includes('THE-FINAL-REPORT')) throw new Error('EIO: injected');
+    if (h.failPlaceholder && String(buf).includes('"running"')) throw new Error('ENOSPC: injected');
     return (real.writeSync as (...x: unknown[]) => number)(fd, buf, ...rest);
   }) as typeof real.writeSync;
-  return { ...real, default: { ...real, writeSync }, writeSync };
+  const unlinkSync = ((...a: Parameters<typeof real.unlinkSync>) => {
+    if (h.failPlaceholder) throw new Error('EACCES: injected');
+    return real.unlinkSync(...a);
+  }) as typeof real.unlinkSync;
+  return { ...real, default: { ...real, writeSync, unlinkSync }, writeSync, unlinkSync };
 });
 
 let d: string;
@@ -44,7 +49,7 @@ let out: string[];
 let err: string[];
 beforeEach(() => {
   d = mkdtempSync(join(tmpdir(), 'sage-cli-report-'));
-  Object.assign(h, { behave: 'ok', code: 0, calls: 0, failFinalWrite: false, poolEndThrows: false, poolEnded: 0 });
+  Object.assign(h, { behave: 'ok', code: 0, calls: 0, failFinalWrite: false, poolEndThrows: false, poolEnded: 0, failPlaceholder: false });
   out = []; err = [];
   process.exitCode = undefined;
   vi.resetModules();
@@ -87,6 +92,15 @@ describe('a refusal before the create: nothing written anywhere', () => {
       expect(err.join(''), extra.join(' ')).toMatch(said); // a refusal is said as it is, not as a "stop"
       expect(err.join(''), extra.join(' ')).toMatch(/\(nothing written; --report .* was not created by this run\)\n$/);
     }
+    expect(h.calls).toBe(0);
+  });
+  it('R18-4: a create that failed and could not remove its file says so (never "not created"); exit 2, the runner never runs', async () => {
+    h.failPlaceholder = true;
+    const report = join(d, 'left.json');
+    expect(await runCli(report)).toBe(2);
+    expect(existsSync(report)).toBe(true);
+    expect(err.join('')).toMatch(/ENOSPC: injected \(nothing written to the books; --report .*left\.json was created but could not be written or removed: delete it\)/);
+    expect(err.join('')).not.toMatch(/was not created/);
     expect(h.calls).toBe(0);
   });
   it('B16-1: an existing --report (a running run\'s placeholder) is left as it is', async () => {

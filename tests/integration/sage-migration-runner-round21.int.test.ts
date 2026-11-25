@@ -142,11 +142,12 @@ describe('B18-3: one SIGTERM in a dry run', () => {
 });
 
 describe('B18-2: a live run piped to | head -n 1', () => {
-  it('is not killed by EPIPE: a completed report and exit 0, or a stop report and exit 4', () => {
+  it('is not killed by EPIPE: it runs to its end, a completed report and exit 0 (the closed stdout said on stderr)', () => {
     const r = spawnSync('bash', ['-c', 'bun --no-env-file "$@" | head -n 1 > /dev/null; exit "${PIPESTATUS[0]}"', 'run', ...args(live)], { encoding: 'utf8', timeout: 170_000, env: env() });
-    const rep = json();
-    expect([0, 4], r.stderr).toContain(r.status);
-    expect(rep.status, r.stderr).toBe(r.status === 0 ? 'completed' : 'stopped');
+    // Without the stream handler the uncaught-error hook would still end it with a stop report and exit 4: stricter than that here.
+    expect(r.status, r.stderr).toBe(0);
+    expect(json()).toMatchObject({ status: 'completed' });
+    expect(r.stderr).toMatch(/stdout is closed \(EPIPE\)/);
     expect(r.stderr).not.toMatch(/EPIPE: broken pipe, write\n\s+fd:/); // not the uncaught crash
   }, 180_000);
 });
