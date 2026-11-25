@@ -103,7 +103,7 @@ describe('B18-4: SIGHUP', () => {
     await holder!.query('ROLLBACK'); holder!.release(); holder = null;
     const r = await run.done;
     expect(r.code, r.err).toBe(4);
-    expect(r.err).toMatch(/SIGHUP: the live run stops before its next batch/);
+    expect(r.err).toMatch(/SIGHUP: the live run stops before its next batch, if one remains/);
     const rep = json();
     expect(rep).toMatchObject({ status: 'stopped', liveStarted: true, message: expect.stringMatching(/stopped by SIGHUP/) });
     expect(listed(rep, 'committed')).toEqual(FOUR);
@@ -135,7 +135,7 @@ describe('B18-3: one SIGTERM in a dry run', () => {
     await holder!.query('ROLLBACK'); holder!.release(); holder = null;
     const r = await run.done;
     expect(r.code, r.err).toBe(2);
-    expect(r.err).toMatch(/SIGTERM: the run stops before its next batch; nothing is written to the books/);
+    expect(r.err).toMatch(/SIGTERM: the run stops before its next batch, if one remains; nothing is written to the books/);
     expect(json()).toMatchObject({ status: 'stopped', liveStarted: false, committed: [] });
     expect(await booked(pool, s.companyId)).toMatchObject({ categories: 0, items: 0 });
   }, 180_000);

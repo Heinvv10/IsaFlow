@@ -57,7 +57,7 @@ describe('B17-3: a signal during the live run', () => {
     const report = join(d, 'report.json');
     const r = cli(['--report', report, ...live], { SAGE_SIGNAL_AT_COMMIT: '1' }, 'tests/integration/helpers/sageSignalAtCommitPreload.ts');
     expect(r.status).toBe(4);
-    expect(r.stderr).toMatch(/SIGTERM: the live run stops before its next batch/);
+    expect(r.stderr).toMatch(/SIGTERM: the live run stops before its next batch, if one remains/);
     const json = JSON.parse(readFileSync(report, 'utf8'));
     expect(json).toMatchObject({ status: 'stopped', liveStarted: true, message: expect.stringMatching(/stopped by SIGTERM: no further batch is sent/) });
     expect(json.committed.map((b: { entity: string; n: number }) => `${b.entity} ${b.n}`)).toEqual(['category 1']);
