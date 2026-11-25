@@ -118,3 +118,11 @@ it('scoped history inventory detects a privileged synthetic foreign-PO receipt',
   expect(result.state.statusCode).toBe(200);expect(JSON.stringify(result.state.body)).not.toContain('PO-foreign');
   expect(JSON.stringify(result.state.body)).not.toContain('Foreign supplier');
 });
+it('lists the receiver by name: a receipt with no typed receiver shows the user, not the raw id; a typed one is kept',async()=>{
+  const req=request({'sb-access-token':token,active_company_id:first},'GET');req.url='/api/accounting/goods-received';
+  const result=response();await goodsReceived(req,result.res);expect(result.state.statusCode).toBe(200);
+  const rows=((result.state.body as {data:Array<{received_by:string;received_by_name:string}>}).data);
+  const own=rows.find(r=>r.received_by===user);expect(own?.received_by_name).toBe(`${user}@test.local`);
+  expect(rows.find(r=>r.received_by==='Fixture receiver')?.received_by_name).toBe('Fixture receiver');
+  expect(rows.every(r=>r.received_by_name!==user)).toBe(true);
+});
