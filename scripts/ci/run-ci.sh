@@ -180,8 +180,15 @@ run_step "client-responses"       bun scripts/ci/check-client-responses.ts
 run_step "migration-naming"  bun scripts/audit-migration-naming.ts
 fi
 if static_suites; then
+# A hosted part (4 vCPU, 16 GB) died twice on 2026-11-25 ("JavaScript heap out of
+# memory", a vitest fork at its ~2 GB default) in unit-tests, 15-20 min lost per
+# rerun. 4 GB per fork x 3 forks = 12 GB leaves the OS 4. Set here, not in ci.yml:
+# the workflow's gate env is an exact allow-list (workflowGateJobs.ts GATE_ENV).
+PRE_NODE_OPTIONS="${NODE_OPTIONS-}"
+export NODE_OPTIONS="--max-old-space-size=4096 $PRE_NODE_OPTIONS"
 run_step "unit-tests"        bun run test:unit "${SUITE_SHARD[@]}"
 run_step "component-tests"   bun run test:components "${SUITE_SHARD[@]}"
+export NODE_OPTIONS="$PRE_NODE_OPTIONS"
 fi
 
 if in_group velo; then
