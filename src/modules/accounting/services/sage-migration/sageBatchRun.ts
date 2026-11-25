@@ -61,6 +61,12 @@ export function poBatchSalt(sageIds: readonly string[], poStates: ReadonlyMap<st
   return stateSalt(sageIds.map((id) => [id, poStates.get(id)] as const));
 }
 
+/** Clauses joined by "; " into one sentence that starts with a capital and ends with a full stop (empty clauses dropped). */
+const sentence = (clauses: string[]): string => {
+  const s = clauses.filter((c) => c !== '').join('; ');
+  return `${s.charAt(0).toUpperCase()}${s.slice(1)}.`;
+};
+
 /** The idempotency key a batch is sent under (a dry run's carries "-dry"). */
 export function keyFor(s: Send, before: Snapshot, dry: boolean): string {
   const salt = s.itemRows ? itemBatchSalt(s.itemRows, before.items) : s.categoryRef ? categoryBatchSalt(s.categoryRef, before.categories) : s.poRefs ? poBatchSalt(s.poRefs, before.poStates) : undefined;
@@ -147,7 +153,7 @@ export function checkRowsPresent(b: BatchReport, s: Send, after: Snapshot): Batc
       ...b, status: 'failed', rowsAbsent: absent, changedAfterCommit: true, changedRows: [...(b.changedRows ?? []), ...names],
       // A batch whose rows were all there and that wrote nothing is said so (B14-2); "the next phase" only where there is one.
       error: `${b.allRowsAlreadyPresent ? 'answered ok, nothing new written (its rows were already there)' : 'committed'}, but ${absent} of ${b.size} rows of this batch are not in the books now (another writer removed them since): ${names.slice(0, 10).join(', ')}. `
-        + `${b.allRowsAlreadyPresent ? '' : 'What the batch wrote was written; '}${s.entity === 'purchase_order' ? '' : 'the next phase is not started; '}check the books, then run again.`,
+        + sentence([b.allRowsAlreadyPresent ? '' : 'What the batch wrote was written', s.entity === 'purchase_order' ? '' : 'the next phase is not started', 'check the books, then run again']),
     };
   }
   return {

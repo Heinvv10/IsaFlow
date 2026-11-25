@@ -24,6 +24,7 @@ describe('checkRowsPresent: the error of a batch whose rows went after its COMMI
     expect(r).toMatchObject({ status: 'failed', changedAfterCommit: true, changedRows: ['PO-1'] });
     expect(r.error).toMatch(/^answered ok, nothing new written \(its rows were already there\), but 1 of 2 rows/);
     expect(r.error).not.toMatch(/What the batch wrote was written|next phase/);
+    expect(r.error).toMatch(/: PO-1\. Check the books, then run again\.$/);
   });
   it('a PO batch that wrote: "committed ... What the batch wrote was written", still no "next phase" (there is none after the POs)', () => {
     const r = checkRowsPresent(b('purchase_order', 1), poSend, books(['2']));
