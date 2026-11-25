@@ -4,10 +4,12 @@
  *    active, cannot delete, update or move B's rows (W9);
  *  - payroll_employees.company_id never changes for a non-superuser, BYPASSRLS roles included (W10);
  *  - a FINAL header (approved/paid with approved_at or approval_grandfathered_at) is not deleted by a direct DELETE,
- *    for app_user and platform_admin alike, so an approved, never-reopened run cannot be deleted and inserted again
- *    with its off-cycle snapshot reset (W35); a draft, and an approved run with no stamp, still delete;
+ *    for app_user and platform_admin alike; nor, outside the Demo, is one with past-approval evidence (ever_final_at,
+ *    which the trigger keeps and no statement clears, reopened_at, a stamp or approval_history), so no run that was
+ *    approved can be deleted and inserted again with its off-cycle snapshot reset (W35); a never-final draft deletes;
  *  - the Demo reseed's wipe path (reopenFinalRuns, then the plan's DELETE steps) still empties the Demo's runs, as a
- *    non-superuser; without the reopen it is refused (the Demo is not exempt);
+ *    non-superuser, runs that were approved before included (the Demo is exempt from the evidence rule only, as 999x's
+ *    history guard exempts it); without the reopen it is refused (the final rule binds the Demo);
  *  - a company delete still cascades its final runs (coordinator ruling B: pg_trigger_depth() > 1), and companies is
  *    the only parent that cascades into payroll_run_headers.
  * Seeding runs as the fixture's superuser (exempt); every refused statement is followed by a check that no row moved.
@@ -25,6 +27,8 @@ const [EA, EB] = [crypto.randomUUID(), crypto.randomUUID()];
 const YEAR = 2100 + Math.floor(Math.random() * 800);
 const FINAL_REFUSED = /a final pay run is not deleted \(reopen or cancel it first\)/;
 const MOVE_REFUSED = /an employee's company is fixed/;
+// The same words as 999x's history guard, which this rule widens (its pins in w6-oc-forge hold).
+const EVIDENCE_REFUSED = /a pay run that was approved before is not deleted; cancel it instead/;
 
 const one = async (q: string, p: unknown[] = []) => (await su.query(q, p)).rows[0];
 /** A header of `company` in `status`; final ones get their stamp after a line, as the app writes them. */
@@ -164,7 +168,38 @@ describe('W35: a final header is not deleted', () => {
     await su.query('DELETE FROM payroll_run_headers WHERE id = $1', [h]); // the superuser is exempt (999n's rule)
     expect(await exists(h)).toBe(false);
   });
-  it('a draft, and an approved run with no approval stamp (not final), still delete', async () => {
+  it('approve, then a status flip out of approved (no history written), then DELETE: refused by the evidence', async () => {
+    const h = await header(A, 'approved', 'approved_at', 1);
+    await as(owner, async (c) => {
+      // 999n lets a final run leave approved with its stamps cleared; nothing here appends approval_history.
+      expect(await n(c, "UPDATE payroll_run_headers SET status = 'calculated', approved_at = NULL WHERE id = $1", [h])).toBe(1);
+      await expect(c.query('DELETE FROM payroll_run_headers WHERE id = $1', [h])).rejects
+        .toMatchObject({ code: '23514', message: expect.stringMatching(EVIDENCE_REFUSED) });
+    });
+    expect(await exists(h)).toBe(true);
+  });
+  it('approve, then cancel (stamps cleared), then DELETE: refused, and ever_final_at cannot be cleared or forged', async () => {
+    const h = await header(A, 'approved', 'approved_at', 2);
+    await as(owner, async (c) => {
+      expect(await n(c, "UPDATE payroll_run_headers SET status = 'cancelled', approved_at = NULL WHERE id = $1", [h])).toBe(1);
+      expect(await n(c, 'UPDATE payroll_run_headers SET ever_final_at = NULL WHERE id = $1', [h])).toBe(1);
+      expect((await c.query('SELECT ever_final_at IS NOT NULL AS set FROM payroll_run_headers WHERE id = $1', [h])).rows[0].set).toBe(true);
+      const forged = (await c.query(`INSERT INTO payroll_run_headers (company_id, period_month, period_year, status, ever_final_at)
+        VALUES ($1, 9, $2, 'draft', now()) RETURNING ever_final_at`, [A, YEAR])).rows[0];
+      expect(forged.ever_final_at).toBeNull();
+      await expect(c.query('DELETE FROM payroll_run_headers WHERE id = $1', [h])).rejects.toThrow(EVIDENCE_REFUSED);
+    });
+  });
+  it('approve, then the app\'s reopen (history and reopened_at written), then DELETE: refused', async () => {
+    const h = await header(A, 'approved', 'approved_at', 12);
+    await as(owner, async (c) => {
+      expect(await n(c, `UPDATE payroll_run_headers SET status = 'calculated', approved_at = NULL, reopened_at = clock_timestamp(),
+        approval_history = tstzmultirange(tstzrange(approved_at, clock_timestamp())) WHERE id = $1`, [h])).toBe(1);
+      await expect(c.query('DELETE FROM payroll_run_headers WHERE id = $1', [h])).rejects.toThrow(EVIDENCE_REFUSED);
+    });
+    expect(await exists(h)).toBe(true);
+  });
+  it('a draft, and an approved run with no approval stamp (never final), still delete', async () => {
     const d = await header(A, 'draft', null, 7);
     const unstamped = await header(A, 'approved', null, 8);
     await as(owner, async (c) => {
