@@ -45,6 +45,7 @@ export async function payslipEmailActor(req: NextApiRequest, res: NextApiRespons
 
 const CODE: Record<number, ErrorCode> = {
   403: ErrorCode.FORBIDDEN, 404: ErrorCode.NOT_FOUND, 409: ErrorCode.CONFLICT, 429: ErrorCode.RATE_LIMIT,
+  503: ErrorCode.SERVICE_UNAVAILABLE,
 };
 
 export function respondIfPayslipEmailRefused(res: NextApiResponse, err: unknown): boolean {

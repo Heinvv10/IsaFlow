@@ -46,6 +46,7 @@ vi.mock('@/modules/accounting/services/core/pdfShared', async (actual) => ({
   getCompanyDetailsFromCompany: vi.fn(async () => ({ name: 'Fixture Payroll (Pty) Ltd', address: '1 Main Road, Durban' })),
 }));
 
+import { sql } from '@/lib/neon';
 import { getPayslips } from '@/modules/accounting/services/payroll/payslipModel';
 import { buildPayslipPdf, DRAFT_MARK } from '@/modules/accounting/services/payroll/payslipPdf';
 
@@ -226,5 +227,44 @@ describe('buildPayslipPdf', () => {
     expect(text).toContain('\u2022\u2022\u2022\u2022 3456');
     expect(text).not.toContain('account ending');
     expect(text).not.toMatch(/\bID\b|identity/i);
+  });
+});
+
+describe('W16 (wave 7 PX): a frozen slip itemises by the component types frozen at approval', () => {
+  const APPROVED = '2026-11-25T10:00:00.123456Z';
+  const us = String(BigInt(Date.parse('2026-11-25T10:00:00Z')) * 1000n + 123456n);
+  const frozenLine = (componentTypes?: Record<string, string>) => ({
+    ...LINE_ROW, snapshot_approved_at: APPROVED, approved_at_us: us,
+    payslip_snapshot: {
+      ...LINE_ROW, approvedAt: APPROVED, employer: { name: 'Then Ltd', address: '1 Old Road' },
+      yearToDate: { grossPay: 30000, taxableIncome: 30000, paye: 5000, uifEmployee: 177.12, netPay: 23022.88 },
+      ...(componentTypes ? { componentTypes } : {}),
+    },
+  });
+  const catalogueReads = () => (vi.mocked(sql).mock.calls as unknown as Array<[TemplateStringsArray]>)
+    .filter(([s]) => s.join('?').includes('FROM payroll_components')).length;
+
+  it('the frozen type wins over a later live re-type, and the catalogue is not read', async () => {
+    db.header = header({ status: 'approved', approved_at: APPROVED, approval_grandfathered_at: null });
+    // Live, c-med is a deduction; at approval it was an employer contribution.
+    db.line = frozenLine({ 'c-salary': 'earning', 'c-med': 'employer_contribution' });
+    const before = catalogueReads();
+    const run = await getPayslips(CO, RUN);
+    expect(run.detailsAsAt).toBe('approval');
+    expect(run.payslips[0]).toMatchObject({
+      earnings: [{ label: 'Basic Salary', amount: 30000 }],
+      employerContributions: [{ label: 'Medical Aid', amount: 1800 }],
+    });
+    expect(run.payslips[0]!.deductions.some((d) => d.label === 'Medical Aid')).toBe(false);
+    expect(catalogueReads()).toBe(before);
+  });
+
+  it('a snapshot written before PX (no componentTypes) reads the live types', async () => {
+    db.header = header({ status: 'approved', approved_at: APPROVED, approval_grandfathered_at: null });
+    db.line = frozenLine();
+    const before = catalogueReads();
+    const [slip] = (await getPayslips(CO, RUN)).payslips;
+    expect(slip).toMatchObject({ deductions: [{ label: 'Medical Aid', code: '4005', amount: 1800 }] });
+    expect(catalogueReads()).toBe(before + 1);
   });
 });
