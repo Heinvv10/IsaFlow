@@ -17,6 +17,7 @@ const A = crypto.randomUUID();
 const B = crypto.randomUUID();
 const owner = crypto.randomUUID();
 let callA: ReturnType<typeof routeCaller>;
+let token: string;
 
 beforeAll(async () => {
   for (const [id, name] of [[A, 'MH drop A'], [B, 'MH drop B']] as const) {
@@ -25,7 +26,7 @@ beforeAll(async () => {
   }
   await pool.query("INSERT INTO users(id,email,role,is_active) VALUES($1,$2,'admin',true)", [owner, `${owner}@test.local`]);
   for (const id of [A, B]) await pool.query("INSERT INTO company_users(company_id,user_id,role) VALUES($1,$2,'owner')", [id, owner]);
-  const token = await new SignJWT({ sub: owner, aal: 'aal2' }).setProtectedHeader({ alg: 'HS256' })
+  token = await new SignJWT({ sub: owner, aal: 'aal2' }).setProtectedHeader({ alg: 'HS256' })
     .setExpirationTime('1h').sign(new TextEncoder().encode(process.env.JWT_SECRET));
   callA = routeCaller({ [owner]: token }, { user: owner, company: A });
 });
@@ -58,7 +59,15 @@ describe('migration 1055: payroll_employees.tax_directive_number is gone', () =>
   });
 
   it("another company's employee list does not include it", async () => {
-    const { rows } = await pool.query('SELECT 1 FROM payroll_employees WHERE company_id = $1 AND employee_number = $2', [B, 'MH-1']);
-    expect(rows).toEqual([]);
+    const callB = routeCaller({ [owner]: token }, { user: owner, company: B });
+    const made = await callB(employees as Route, 'POST', '/api/payroll/employees', undefined, {
+      body: { firstName: 'Sipho', lastName: 'Dlamini', employeeNumber: 'MH-2', employmentType: 'permanent', startDate: '2026-11-01' },
+    });
+    expect(made.statusCode, JSON.stringify(made.body)).toBe(201);
+    const list = await callB(employees as Route, 'GET', '/api/payroll/employees', undefined);
+    expect(list.statusCode, JSON.stringify(list.body)).toBe(200);
+    const nums = (list.body.data as unknown as Array<{ employeeNumber: string }>).map((e) => e.employeeNumber);
+    expect(nums).toContain('MH-2');
+    expect(nums).not.toContain('MH-1');
   });
 });
