@@ -126,8 +126,21 @@ export interface MigrationOptions {
   liveWithoutCounts?: boolean;
   expect?: { items?: number; purchaseOrders?: number; purchaseOrderTotalCents?: number };
   /**
-   * Asked wherever the run lock is checked (before the live phase, before every live batch, between the phases): a non-null answer stops
-   * the run there (before the live phase: nothing written; after: MigrationStopped, exit 4). The CLI answers once SIGINT / SIGTERM came.
+   * Asked before every batch, dry and live, and before the live phase starts (round 18; never after the last batch, so a finished run keeps
+   * its reconciliation): a non-null answer stops the run there. In the dry run or before the live phase, StopRequested (nothing written,
+   * exit 2); in the live phase, MigrationStopped (exit 4). The CLI answers once SIGINT / SIGTERM / SIGHUP came.
    */
   shouldStop?: () => string | null;
+  /** The run's progress as it happens (round 18): the CLI keeps it, so a stop at once (a second signal, a crash) still says what is known. */
+  onProgress?: (p: MigrationProgress) => void;
 }
+
+/**
+ * - `phase`: the dry run starts, or the LIVE phase starts (from here batches may be committed);
+ * - `sending`: a live batch's request starts (in flight until its `recorded`: its COMMIT may or may not land);
+ * - `recorded`: a batch's outcome, dry or live, as the runner records it.
+ */
+export type MigrationProgress =
+  | { kind: 'phase'; phase: 'dry' | 'live' }
+  | { kind: 'sending'; batch: Pick<BatchReport, 'entity' | 'n' | 'size' | 'key'> }
+  | { kind: 'recorded'; phase: 'dry' | 'live'; batch: BatchReport };

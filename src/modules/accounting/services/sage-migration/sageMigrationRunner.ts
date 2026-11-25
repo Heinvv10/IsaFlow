@@ -66,15 +66,20 @@ async function dryRun(pool: Pool, o: MigrationOptions, all: PlannedBatches, befo
     const run = async (list: Send[]): Promise<PhaseReport> => {
       const p = emptyPhase();
       for (const s of list) {
+        // A stop asked for in the dry run (round 18, B18-3): thrown inside its transaction, so it rolls back: a refused start, nothing written.
+        const stop = o.shouldStop?.();
+        if (stop) throw new StopRequested(stop);
         let b = await sendBatch(session, s, before, true);
         // The dry run's item outcomes say what the live call would do: they must agree with what the plan was made from.
         const problem = b.status === 'ok' && s.itemRows ? ownershipProblem(b, s.itemRows, before) : null;
         if (problem) b = { ...b, status: 'failed', error: problem };
         p.batches.push(b);
         if (b.status === 'failed') p.failed++;
+        o.onProgress?.({ kind: 'recorded', phase: 'dry', batch: b });
       }
       return p;
     };
+    o.onProgress?.({ kind: 'phase', phase: 'dry' });
     // The phases go in the order the live run's do, and a phase does not start behind a failed one (its refusals would only be a cascade).
     const categories = await run(all.categories);
     const items = categories.failed === 0 ? await run(all.items) : skippedPhase();
@@ -83,14 +88,15 @@ async function dryRun(pool: Pool, o: MigrationOptions, all: PlannedBatches, befo
   });
 }
 
-async function livePhase(pool: Pool, o: MigrationOptions, list: Send[], before: Snapshot, sent: Sent, lockHeld: () => Promise<void>): Promise<PhaseReport> {
+async function livePhase(pool: Pool, o: MigrationOptions, list: Send[], before: Snapshot, sent: Sent, beforeBatch: () => Promise<void>): Promise<PhaseReport> {
   const p = emptyPhase();
   for (const s of list) {
     // The lock is asked before EVERY batch (one SELECT 1, bounded by CHECK_TIMEOUT_MS, and the connection's own error flag): a loss it
     // already knows of stops the run here; a half-open connection is noticed within the timeout, so at most one batch can be in flight
-    // beyond the loss. Thrown outside the batch's own try, so it stops the run, listing what was committed.
-    await lockHeld();
+    // beyond the loss. Thrown outside the batch's own try, so it stops the run, listing what was committed. A stop asked for, too.
+    await beforeBatch();
     let b: BatchReport;
+    o.onProgress?.({ kind: 'sending', batch: { entity: s.entity, n: s.n, size: s.size, key: keyFor(s, before, false) } });
     try {
       b = await withToolSession(pool, o.companyId, o.userId, true, (session) => sendBatch(session, s, before, false));
     } catch (err) {
@@ -106,6 +112,7 @@ async function livePhase(pool: Pool, o: MigrationOptions, list: Send[], before: 
     if (b.status === 'failed') p.failed++;
     // What an error later in the run can still say was (or may have been) committed, and what failed before it with its reason.
     recordSent(sent, b);
+    o.onProgress?.({ kind: 'recorded', phase: 'live', batch: b });
     // A COMMIT that did not answer may still land: the next batch would be checked (its budget, the rows it builds on) against books that
     // may not hold it yet. The run stops here, in any phase (MigrationStopped, exit 4), the batch listed as "commit unconfirmed".
     if (b.commitUnconfirmed) {
@@ -147,10 +154,11 @@ export async function runSageMigration(pool: Pool, parsed: ParsedExport, opts: M
 }
 
 async function runLocked(pool: Pool, parsed: ParsedExport, opts: MigrationOptions, lock: RunLock): Promise<MigrationReport> {
-  // Wherever the lock is checked, a stop the caller asked for (opts.shouldStop: the CLI's SIGINT / SIGTERM) is checked too.
-  // Asked AFTER the lock's round trip: a signal is handled on an event-loop turn, and the round trip is one, so a signal that came while
-  // the previous batch committed is seen here, before the next batch.
-  const lockHeld = async (): Promise<void> => {
+  // Before every live batch (and before the live phase), a stop the caller asked for (opts.shouldStop: the CLI's signals) is checked with
+  // the lock. Asked AFTER the lock's round trip: a signal is handled on an event-loop turn, and the round trip is one, so a signal that came
+  // while the previous batch committed is seen here, before the next batch. Between the phases and after the last batch only the lock is
+  // checked: no batch follows a stop there anyway, and a finished run keeps its reconciliation (R18-6).
+  const beforeBatch = async (): Promise<void> => {
     await lock.check();
     const stop = opts.shouldStop?.();
     if (stop) throw new StopRequested(stop);
@@ -181,23 +189,24 @@ async function runLocked(pool: Pool, parsed: ParsedExport, opts: MigrationOption
   if (blockers.length > 0) return noLive('live_blocked', blockers);
 
   // The lock's connection sat idle through the dry run: if its backend was dropped, another run could start now, so this one stops. Checked
-  // BEFORE the live phase counts as started: a refused start, nothing written (then between the phases, below).
-  await lockHeld();
+  // BEFORE the live phase counts as started: a refused start, nothing written (then between the phases, below). A stop asked for, too.
+  await beforeBatch();
   // From here the live phase has STARTED: an error carries what was committed, and says the run may have committed.
   const sent: Sent = { committed: [], failed: [] };
+  opts.onProgress?.({ kind: 'phase', phase: 'live' });
   try {
     const readAfter = () => withToolSession(pool, opts.companyId, opts.userId, false, () => readSnapshot(opts.companyId));
     // Every phase is checked against the books BETWEEN the phases (sageVerify), so the next phase does not start behind absent rows or rows
     // other than what was sent (an item batch with its rows gone would otherwise fail every PO naming those items, a misleading cascade).
-    const liveCategories = await livePhase(pool, opts, all.categories, before, sent, lockHeld);
+    const liveCategories = await livePhase(pool, opts, all.categories, before, sent, beforeBatch);
     // Every phase's batches are checked against the books, a failed sibling or not: a replay whose rows are gone must not read ok.
     const categoriesVerified = verifiedCategories(liveCategories, all.categories, await readAfter());
-    await lockHeld();
-    const liveItems = categoriesVerified.failed === 0 ? await livePhase(pool, opts, all.items, before, sent, lockHeld) : skippedPhase();
+    await lock.check();
+    const liveItems = categoriesVerified.failed === 0 ? await livePhase(pool, opts, all.items, before, sent, beforeBatch) : skippedPhase();
     const items = categoriesVerified.failed === 0 ? verifiedItems(liveItems, all.items, await readAfter()) : liveItems;
-    await lockHeld();
-    const livePos = categoriesVerified.failed + items.failed === 0 ? await livePhase(pool, opts, all.purchaseOrders, before, sent, lockHeld) : skippedPhase();
-    await lockHeld();
+    await lock.check();
+    const livePos = categoriesVerified.failed + items.failed === 0 ? await livePhase(pool, opts, all.purchaseOrders, before, sent, beforeBatch) : skippedPhase();
+    await lock.check();
     const after = await readAfter();
     const purchaseOrders = livePos.skipped ? livePos : verified(livePos, all.purchaseOrders, after);
     const failed = categoriesVerified.failed + items.failed + purchaseOrders.failed;

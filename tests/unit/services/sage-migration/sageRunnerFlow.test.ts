@@ -141,3 +141,26 @@ describe('B17-3 (round 17): a stop the caller asks for (shouldStop: the CLI\'s S
     expect(h.sent.filter((x) => x.endsWith('live'))).toEqual([]);
   });
 });
+
+describe('round 18: dry-run stops, no stop after the last batch, progress', () => {
+  it('B18-3: asked in the dry run: StopRequested before the next dry batch, nothing live sent', async () => {
+    const { StopRequested } = await import('@/modules/accounting/services/sage-migration/sageMigrationRunner');
+    const err = await run({ shouldStop: () => (h.sent.includes('category dry') ? 'stopped by SIGTERM: no further batch is sent' : null) }).then(() => null, (e: unknown) => e);
+    expect(err).toBeInstanceOf(StopRequested);
+    expect(h.sent).toEqual(['category dry']);
+  });
+  it('R18-6: asked after the last live batch: the run is not stopped, it completes with its reconciliation', async () => {
+    const r = await run({ shouldStop: () => (h.sent.includes('purchase_order live') ? 'stopped by SIGTERM: no further batch is sent' : null) });
+    expect(r.status).toBe('completed');
+    expect(r.live).not.toBeNull();
+  });
+  it('onProgress: the dry phase, its batches, the live phase, each live batch sending then recorded', async () => {
+    const seen: string[] = [];
+    await run({ onProgress: (p: { kind: string; phase?: string; batch?: { entity: string } }) => {
+      seen.push(p.kind === 'phase' ? `phase ${p.phase}` : `${p.kind}${p.kind === 'recorded' ? ` ${p.phase}` : ''} ${p.batch!.entity}`);
+    } });
+    expect(seen).toEqual(['phase dry', 'recorded dry category', 'recorded dry item', 'recorded dry purchase_order', 'phase live',
+      'sending category', 'recorded live category', 'sending item', 'recorded live item', 'sending purchase_order', 'recorded live purchase_order']);
+  });
+});
+
