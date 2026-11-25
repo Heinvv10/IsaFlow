@@ -118,8 +118,11 @@ DECLARE
   was_paid boolean := TG_OP = 'UPDATE' AND OLD.status = 'paid';
   uid text := auth.uid();
   -- The Demo company is exempt from the transition rules (B4, B5) as from 999x's history guard: the reseed may run as a
-  -- non-owner (a role holding the owner's privileges, demo-reseed.int.test.ts) and its money is not real.
-  demo boolean := NEW.company_id = '00000000-0000-0000-0000-000000000001'::uuid;
+  -- non-owner (a role holding the owner's privileges, demo-reseed.int.test.ts) and its money is not real. Only a row that
+  -- WAS Demo's (review #1911 round 2, D3): a client run moved into Demo in the same UPDATE that marks it paid, then moved
+  -- back, would otherwise be paid with no journal and no date.
+  demo boolean := NEW.company_id = '00000000-0000-0000-0000-000000000001'::uuid
+                  AND (TG_OP = 'INSERT' OR OLD.company_id = '00000000-0000-0000-0000-000000000001'::uuid);
 BEGIN
   IF NEW.status IS DISTINCT FROM 'paid' THEN
     -- B4 (review #1911): only a trusted identity takes a run out of paid (the Demo reseed, as the table owner); for

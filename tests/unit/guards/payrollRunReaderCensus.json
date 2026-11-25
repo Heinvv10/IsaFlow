@@ -467,13 +467,13 @@
    {"line":172,"text":"OR EXISTS (SELECT 1 FROM payroll_run_directive_uses u WHERE u.company_id = h.company_id AND u.run_id = h.id AND u.employee_id = ${employeeId}::uuid))","class":"S","owner":"FQb1","why":"directive uses by run id"}
   ],
   "src/modules/accounting/services/payroll/payrollRunReopen.ts": [
-   {"line":76,"text":"UPDATE payroll_run_headers h","class":"S","owner":"FQb1","why":"write by run id"}
+   {"line":111,"text":"UPDATE payroll_run_headers h","class":"S","owner":"FQb1","why":"write by run id"}
   ],
   "src/modules/accounting/services/payroll/payrollRunMarkPaid.ts": [
    {"line":76,"text":"UPDATE payroll_run_headers","class":"S","owner":"FQb1","why":"wave 7 MP: mark paid, a write by run id (predicated on status approved)"}
   ],
   "src/modules/accounting/services/payroll/payrollRunMarkPaidJudge.ts": [
-   {"line":84,"text":"FROM payroll_run_headers h","class":"S","owner":"FQb1","why":"wave 7 MP: the run's own journal and approval day, a read by run id"}
+   {"line":89,"text":"FROM payroll_run_headers h","class":"S","owner":"FQb1","why":"wave 7 MP: the run's own journal and approval day, a read by run id"}
   ],
   "src/modules/accounting/services/payroll/payrollRunRowWrite.ts": [
    {"line":53,"text":"await tx`DELETE FROM payroll_employee_components WHERE id = ${rowId}::uuid AND employee_id = ${employeeId}::uuid`;","class":"S","owner":"FQb1","why":"assignment delete by id"},
