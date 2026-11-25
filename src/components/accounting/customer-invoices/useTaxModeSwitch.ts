@@ -10,7 +10,7 @@
 import { useEffect, useState } from 'react';
 import { useVatRegistrationOrDefault } from '@/hooks/useVatRegistration';
 import { vatModeFor, type FormVatLine, type LineVatTypeOrNone } from './formVat';
-import { switchTaxMode, taxModesFor } from './taxModeSwitch';
+import { switchTaxMode, taxModesFor, type ModeSwitch } from './taxModeSwitch';
 import type { TaxMode } from './taxMode';
 
 export interface TaxModeSwitchArgs<L extends FormVatLine & { description?: string }> {
@@ -21,6 +21,8 @@ export interface TaxModeSwitchArgs<L extends FormVatLine & { description?: strin
   date: string; currencyCode?: string;
   /** After a switch that went through. */
   onSwitched?: () => void;
+  /** The pricing the refusal check compares (switchTaxMode's `price`). */
+  price?: ModeSwitch['price'];
 }
 
 export function useTaxModeSwitch<L extends FormVatLine & { description?: string }>(a: TaxModeSwitchArgs<L>) {
@@ -30,7 +32,7 @@ export function useTaxModeSwitch<L extends FormVatLine & { description?: string 
   const input = JSON.stringify([a.lines.map((l) => [l.quantity, l.unitPrice, l.discount ?? 0]), a.types, a.date, from, registered, a.currencyCode ?? 'ZAR']);
   useEffect(() => { if (refused && refused.input !== input) setRefused(null); }, [input, refused]);
   const pick = (mode: TaxMode) => {
-    const s = switchTaxMode(a.lines, { from, to: mode, date: a.date, types: a.types, registered, currencyCode: a.currencyCode });
+    const s = switchTaxMode(a.lines, { from, to: mode, date: a.date, types: a.types, registered, currencyCode: a.currencyCode, price: a.price });
     if ('problem' in s) { setRefused({ text: s.problem, input }); return; }
     setRefused(null);
     a.onSwitched?.();

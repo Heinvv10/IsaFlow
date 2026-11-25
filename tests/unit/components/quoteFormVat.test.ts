@@ -32,10 +32,11 @@ describe('quoteBody', () => {
     expect('body' in b && [b.body.amountsAre, ...b.body.lines.map((l) => l.unitPrice)]).toEqual(['exclusive', 100, 115]);
   });
 
-  it('a company not registered for VAT sends untyped lines and exclusive', () => {
-    const b = body([line({ vatType: 'standard' })], 'none');
-    expect('body' in b && b.body).toMatchObject({ amountsAre: 'exclusive', lines: [{ description: 'Widget', unitPrice: 100, lineNo: 1 }] });
-    expect('body' in b && 'vatType' in b.body.lines[0]!).toBe(false);
+  it('No VAT sends untyped lines at an EXPLICIT taxRate 0 (never the server\'s default chain), exclusive', () => {
+    const b = body([line({ vatType: 'standard' }), line({ key: 'k2', description: 'Two', unitPrice: 50 })], 'none');
+    expect('body' in b && b.body).toMatchObject({ amountsAre: 'exclusive', lines: [
+      { description: 'Widget', unitPrice: 100, lineNo: 1, taxRate: 0 }, { description: 'Two', unitPrice: 50, lineNo: 2, taxRate: 0 }] });
+    expect('body' in b && b.body.lines.some((l) => 'vatType' in l)).toBe(false);
   });
 
   it('blank lines are dropped and the rest keep their place on the form (lineNo)', () => {

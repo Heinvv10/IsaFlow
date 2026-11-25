@@ -6,10 +6,12 @@
  * quantities and VAT-inclusive prices (ONE line: VAT is rounded per line now, so several lines can differ by cents), and against what the modal SHOWS for the same lines (formTotals over storedForm).
  */
 import { describe, expect, it } from 'vitest';
-import { quoteBody, storedForm, type QuoteFormLine } from '@/components/accounting/customer-quotes/quoteFormVat';
+import { quoteBody, storedForm, storedTotals, type QuoteFormLine } from '@/components/accounting/customer-quotes/quoteFormVat';
 import { formTotals } from '@/components/accounting/customer-invoices/formVat';
 import { exVatUnitPrice } from '@/components/accounting/customer-invoices/taxMode';
 import { previewLineAmount, previewTotals } from '@/modules/accounting/services/ar/invoiceLineAmount';
+import { switchTaxMode } from '@/components/accounting/customer-invoices/taxModeSwitch';
+import type { TaxMode } from '@/components/accounting/customer-invoices/taxMode';
 import { previewInvoiceVat } from '@/modules/accounting/services/ar/invoiceLineVatPricing';
 
 const DATE = '2026-11-11';
@@ -56,5 +58,50 @@ describe('an Including VAT quote\'s total', () => {
   it('a price whose ex-VAT price carries no VAT is held on the converted price (1 x R0.04 incl)', () => {
     const built = quoteBody(form, [{ key: 'k', description: 'W', quantity: 1, unitPrice: 0.04, vatType: 'standard' }], 'inclusive', ['standard']);
     expect(built).toHaveProperty('problem');
+  });
+});
+
+/** The server's pricing of the body a mode sends: the typed lines are VAT-typed unless the mode is No VAT. */
+const serverTotals = (lines: QuoteFormLine[], types: ('standard' | 'zero_rated' | 'exempt' | null)[], mode: TaxMode) => {
+  const built = quoteBody(form, lines, mode, types);
+  if ('problem' in built) throw new Error(built.problem);
+  const b = built.body;
+  return previewInvoiceVat(b.lines.map((l) => ({ quantity: l.quantity, unitPrice: l.unitPrice, discount: 0 })),
+    mode === 'none' ? b.lines.map(() => 'zero_rated' as const) : b.lines.map((l) => l.vatType!), DATE, b.amountsAre);
+};
+
+describe('what the modal previews is what the server stores, in every mode', () => {
+  const sets: { name: string; lines: QuoteFormLine[]; types: ('standard' | 'zero_rated' | 'exempt')[] }[] = [
+    { name: '3 x R10 standard', lines: [{ key: 'a', description: 'A', quantity: 3, unitPrice: 10 }], types: ['standard'] },
+    { name: 'mixed standard + exempt + zero', lines: [
+      { key: 'a', description: 'A', quantity: 7, unitPrice: 16.43 }, { key: 'b', description: 'B', quantity: 2, unitPrice: 57.5 }, { key: 'c', description: 'C', quantity: 1, unitPrice: 9.99 }],
+      types: ['standard', 'exempt', 'zero_rated'] },
+  ];
+  for (const { name, lines, types } of sets) {
+    for (const mode of ['exclusive', 'inclusive'] as const) {
+      it(`${name}, ${mode}: preview = stored`, () => {
+        expect(storedTotals(lines, types, mode, DATE)).toEqual(serverTotals(lines, types, mode));
+      });
+    }
+    it(`${name}, No VAT: preview = stored, no VAT`, () => {
+      const preview = storedTotals(lines, types.map(() => null), 'none', DATE);
+      expect(serverTotals(lines, types.map(() => null), 'none')).toEqual(preview);
+      expect(preview.tax).toBe(0);
+    });
+  }
+
+  it('switching modes keeps the stored figures and is never refused for them (3 x R10 incl <-> excl)', () => {
+    const lines: QuoteFormLine[] = [{ key: 'a', description: 'A', quantity: 3, unitPrice: 10, vatType: 'standard' }];
+    const base = { date: DATE, registered: true, types: ['standard' as const], price: storedTotals };
+    const toExcl = switchTaxMode(lines, { ...base, from: 'inclusive', to: 'exclusive' });
+    expect('problem' in toExcl).toBe(false);
+    if ('problem' in toExcl) return;
+    expect(storedTotals(toExcl.lines, ['standard'], 'exclusive', DATE)).toEqual(storedTotals(lines, ['standard'], 'inclusive', DATE));
+    const back = switchTaxMode(toExcl.lines, { ...base, from: 'exclusive', to: 'inclusive' });
+    expect('problem' in back).toBe(false);
+    if ('problem' in back) return;
+    expect(storedTotals(back.lines, ['standard'], 'inclusive', DATE)).toEqual(storedTotals(lines, ['standard'], 'inclusive', DATE));
+    // the invoice pricing would have refused the same switch (R30.00 typed vs R30.02 stored): the quote's must not
+    expect('problem' in switchTaxMode(lines, { date: DATE, registered: true, types: ['standard'], from: 'inclusive', to: 'exclusive' })).toBe(true);
   });
 });

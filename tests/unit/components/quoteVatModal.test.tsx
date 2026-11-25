@@ -131,6 +131,20 @@ it('Including VAT shows the totals it stores: R10 incl is 8.70 + 1.31 = 10.01, n
   expect((await sent()).lines[0]!.unitPrice).toBe(8.7);
 });
 
+it('Including -> Excluding VAT is not refused for a figure the quote stores (3 x R10 incl): the price converts, the totals hold', async () => {
+  renderPage('bi-monthly');
+  await openAndFill('100');
+  await pickOption('Amounts are', /Including VAT/);
+  fireEvent.change(screen.getByLabelText('Quantity, line 1'), { target: { value: '3' } });
+  fireEvent.change(screen.getByLabelText('Unit price, line 1'), { target: { value: '10' } });
+  const before = [figure('Subtotal'), figure('VAT (15%)'), figure('Total')].map((t) => t.replace(/[^\d.]/g, ''));
+  expect(before).toEqual(['26.10', '3.92', '30.02']);
+  await pickOption('Amounts are', /Excluding VAT/);
+  expect((screen.getByLabelText('Unit price, line 1') as HTMLInputElement).value).toMatch(/^8\.70?$/);
+  expect([figure('Subtotal'), figure('VAT (15%)'), figure('Total')].map((t) => t.replace(/[^\d.]/g, ''))).toEqual(before);
+  expect(screen.queryByText(/would change/)).toBeNull();
+});
+
 it('a company not registered for VAT: no VAT column or "Amounts are", untyped lines, exclusive', async () => {
   renderPage('none');
   await openAndFill('100');
@@ -141,6 +155,7 @@ it('a company not registered for VAT: no VAT column or "Amounts are", untyped li
   const body = await sent();
   expect(body.amountsAre).toBe('exclusive');
   expect('vatType' in body.lines[0]!).toBe(false);
+  expect(body.lines[0]!.taxRate).toBe(0); // explicit: a server that reads the company as registered stores zero-rated, not its default
 });
 
 it('holds, as the invoice form does: standard VAT that rounds to nothing is said and nothing is sent', async () => {

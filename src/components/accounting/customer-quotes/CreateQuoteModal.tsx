@@ -13,13 +13,13 @@ import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
 import { formatMoney as fmt } from '@/lib/money/formatMoney';
 import { useDateGate } from '@/hooks/useDateGate';
-import { formLineNet, formTotals, formVatByType, lineVatTypes, lineVatWarning } from '@/components/accounting/customer-invoices/formVat';
+import { formLineNet, formVatByType, lineVatTypes, lineVatWarning } from '@/components/accounting/customer-invoices/formVat';
 import { useTaxModeSwitch } from '@/components/accounting/customer-invoices/useTaxModeSwitch';
 import { InvoiceSettingsRow } from '@/components/accounting/customer-invoices/InvoiceSettingsRow';
 import { InvoiceTotals } from '@/components/accounting/customer-invoices/InvoiceTotals';
 import { InvoiceLineVatSelect } from '@/components/accounting/customer-invoices/InvoiceLineVatSelect';
 import { normaliseVatType, type TaxMode } from '@/components/accounting/customer-invoices/taxMode';
-import { quoteBody, storedForm, type QuoteFormHeader, type QuoteFormLine } from './quoteFormVat';
+import { quoteBody, storedForm, storedTotals, type QuoteFormHeader, type QuoteFormLine } from './quoteFormVat';
 
 /** A row of the customers list (contactDirectoryService.listCustomers): `default_vat_type` is its lines' VAT default. */
 export interface CustomerOption { id: string; name: string; default_vat_type?: string | null }
@@ -46,11 +46,11 @@ export function CreateQuoteModal({ customers, onClose, onCreated }: Props) {
   const customerVat = normaliseVatType(customers.find((c) => c.id === form.clientId)?.default_vat_type) || null;
   // Each line's type: its own, else the customer's default chain, read at render so it follows the customer (formVat).
   const types = lineVatTypes(lines, customerVat);
-  const modeSwitch = useTaxModeSwitch({ lines, setLines, taxMode, setTaxMode, types, date: form.quoteDate });
+  const modeSwitch = useTaxModeSwitch({ lines, setLines, taxMode, setTaxMode, types, date: form.quoteDate, price: storedTotals });
   const mode = modeSwitch.vatMode; // 'none' for a company not registered for VAT
   // What is stored is what is shown: an inclusive quote is stored ex-VAT (storedForm), so its totals are read there.
   const stored = storedForm(lines, types, mode, form.quoteDate);
-  const { subtotal, tax, total } = formTotals(stored.lines, types, stored.mode, form.quoteDate);
+  const { subtotal, tax, total } = storedTotals(lines, types, mode, form.quoteDate);
   const built = quoteBody(form, lines, mode, types);
   const update = (key: string, patch: Partial<QuoteFormLine>) => setLines((ls) => ls.map((l) => (l.key === key ? { ...l, ...patch } : l)));
   const busy = saving || dates.blocked;

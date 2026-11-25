@@ -31,6 +31,9 @@ export interface ModeSwitch {
   types: readonly LineVatTypeOrNone[];
   /** The invoice's currency, for the refusal's amounts (default ZAR). */
   currencyCode?: string;
+  /** What a line list comes to in a mode, for the refusal check (default formTotals). A quote stores an inclusive price
+   * ex-VAT, so it passes its own (quoteFormVat.storedTotals) and is refused only when what it STORES would move. */
+  price?: typeof formTotals;
 }
 
 /** The lines once the mode changes, or why the change is refused (see the header). */
@@ -43,9 +46,10 @@ export function switchTaxMode<L extends FormVatLine & { description?: string }>(
   }
   const convert = s.to === 'inclusive' ? grossUnitPrice : exVatUnitPrice;
   const converted = lines.map((l, i) => (readable(l.unitPrice) ? { ...l, unitPrice: convert(l.unitPrice, lineVatRate(s.types[i] ?? null, s.date)) } : l));
+  const price = s.price ?? formTotals;
   for (let i = 0; i < lines.length; i++) {
-    const before = formTotals([lines[i]!], [s.types[i] ?? null], s.from, s.date);
-    const after = formTotals([converted[i]!], [s.types[i] ?? null], s.to, s.date);
+    const before = price([lines[i]!], [s.types[i] ?? null], s.from, s.date);
+    const after = price([converted[i]!], [s.types[i] ?? null], s.to, s.date);
     if (before.subtotal !== after.subtotal || before.tax !== after.tax) {
       const name = lines[i]!.description ? `"${lines[i]!.description}"` : `line ${i + 1}`;
       return { problem: `Switching to ${LABEL[s.to]} would change ${name} from ${formatCurrencyAmount(before.total, s.currencyCode ?? 'ZAR')} to `
