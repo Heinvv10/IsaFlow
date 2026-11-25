@@ -41,14 +41,14 @@ export default function EmployeePortalLogin() {
         <div className="space-y-3">
           <p className="text-sm text-gray-700 dark:text-gray-300">Your details open more than one employer. Choose one:</p>
           {choices.map((c) => (
-            <Button key={c.accessId} variant="secondary" className="w-full" disabled={busy} onClick={() => void signIn(c.accessId)}>{c.employer}</Button>
+            <Button key={c.accessId} variant="secondary" className="w-full max-lg:min-h-11" disabled={busy} onClick={() => void signIn(c.accessId)}>{c.employer}</Button>
           ))}
         </div>
       ) : (
         <form onSubmit={submit} className="max-w-sm space-y-4">
-          <Input label="Email address" type="email" autoComplete="username" required value={email} onChange={(e) => setEmail(e.target.value)} />
-          <Input label="Password" type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} />
-          <Button type="submit" loading={busy} className="w-full">Sign in</Button>
+          <Input label="Email address" type="email" autoComplete="username" required className="max-lg:min-h-11" value={email} onChange={(e) => setEmail(e.target.value)} />
+          <Input label="Password" type="password" autoComplete="current-password" required className="max-lg:min-h-11" value={password} onChange={(e) => setPassword(e.target.value)} />
+          <Button type="submit" loading={busy} className="w-full max-lg:min-h-11">Sign in</Button>
         </form>
       )}
       {error && <p role="alert" className="mt-4 text-sm text-red-700 dark:text-red-400">{error}</p>}
