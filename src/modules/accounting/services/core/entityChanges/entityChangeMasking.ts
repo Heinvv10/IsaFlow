@@ -15,7 +15,7 @@ export const SENSITIVE_FIELDS: Readonly<Record<EntityType, readonly string[]>> =
   supplier: ['bank_account_number'],
   customer: [],
   gl_account: ['bank_account_number'],
-  payroll_employee: ['id_number', 'passport_number', 'tax_number', 'tax_directive_number', 'uif_number'],
+  payroll_employee: ['id_number', 'passport_number', 'tax_number', 'uif_number'],
   company_user: [],
   company_invitation: [],
   company_user_permission: [],
