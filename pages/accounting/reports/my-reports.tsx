@@ -95,7 +95,7 @@ export default function MyReportsPage() {
           </div>
           <Link
             href="/accounting/reports/builder"
-            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-md hover:bg-indigo-700 transition-colors"
+            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-md hover:bg-indigo-700 transition-colors max-lg:min-h-11"
           >
             <PlusCircle className="w-4 h-4" />
             New Report
@@ -126,7 +126,7 @@ export default function MyReportsPage() {
             <p className="text-sm mb-4">Create your first custom report using the Report Builder</p>
             <Link
               href="/accounting/reports/builder"
-              className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-md hover:bg-indigo-700 transition-colors"
+              className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-md hover:bg-indigo-700 transition-colors max-lg:min-h-11"
             >
               <PlusCircle className="w-4 h-4" />
               Create Report
@@ -137,7 +137,7 @@ export default function MyReportsPage() {
         {/* Template list */}
         {!isLoading && templates.length > 0 && (
           <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-            <table className="min-w-full divide-y divide-gray-200 text-sm">
+            <table className="min-w-full divide-y divide-gray-200 text-sm table-cards">
               <thead className="bg-gray-50">
                 <tr>
                   <th className="px-4 py-3 text-left text-xs tracking-[0.12em] font-semibold text-gray-500 uppercase">Name</th>
@@ -156,13 +156,13 @@ export default function MyReportsPage() {
                         <div className="text-xs text-gray-600 mt-0.5 truncate max-w-xs">{t.description}</div>
                       )}
                     </td>
-                    <td className="px-4 py-3">
+                    <td data-label="Data Source" className="px-4 py-3">
                       <span className="inline-flex items-center px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 text-xs font-medium">
                         {SOURCE_LABELS[t.dataSource] ?? t.dataSource}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-gray-500">{formatDate(t.updatedAt)}</td>
-                    <td className="px-4 py-3">
+                    <td data-label="Last Updated" className="px-4 py-3 text-gray-500">{formatDate(t.updatedAt)}</td>
+                    <td data-label="Shared" className="px-4 py-3 max-lg:empty:!hidden">
                       {t.isShared && (
                         <span className="flex items-center gap-1 text-xs text-green-600">
                           <Share2 className="w-3 h-3" /> Shared
@@ -173,20 +173,20 @@ export default function MyReportsPage() {
                       <div className="flex items-center justify-end gap-2">
                         <button
                           onClick={() => handleRun(t.id)}
-                          className="flex items-center gap-1 px-3 py-1 bg-indigo-600 text-white text-xs font-medium rounded hover:bg-indigo-700 transition-colors"
+                          className="flex items-center gap-1 px-3 py-1 bg-indigo-600 text-white text-xs font-medium rounded hover:bg-indigo-700 transition-colors max-lg:min-h-11 max-lg:min-w-11 max-lg:justify-center"
                         >
                           <Play className="w-3 h-3" /> Run
                         </button>
                         <Link
                           href={`/accounting/reports/builder?load=${t.id}`}
-                          className="flex items-center gap-1 px-3 py-1 bg-gray-100 text-gray-700 text-xs font-medium rounded hover:bg-gray-200 transition-colors"
+                          className="flex items-center gap-1 px-3 py-1 bg-gray-100 text-gray-700 text-xs font-medium rounded hover:bg-gray-200 transition-colors max-lg:min-h-11 max-lg:min-w-11 max-lg:justify-center"
                         >
                           <Edit2 className="w-3 h-3" /> Edit
                         </Link>
                         <button
                           onClick={() => handleDelete(t.id, t.name)}
                           disabled={deleting === t.id}
-                          className="flex items-center gap-1 px-3 py-1 bg-red-50 text-red-600 text-xs font-medium rounded hover:bg-red-100 transition-colors disabled:opacity-40"
+                          className="flex items-center gap-1 px-3 py-1 bg-red-50 text-red-600 text-xs font-medium rounded hover:bg-red-100 transition-colors disabled:opacity-40 max-lg:min-h-11 max-lg:min-w-11 max-lg:justify-center"
                         >
                           <Trash2 className="w-3 h-3" />
                           {deleting === t.id ? '...' : 'Delete'}
