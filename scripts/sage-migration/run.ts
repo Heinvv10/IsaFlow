@@ -22,14 +22,27 @@ import { assertLocalDatabase } from '../../src/modules/accounting/services/sage-
 import { parseSageExport } from '../../src/modules/accounting/services/sage-migration/sageExportParser';
 import { runSageMigration } from '../../src/modules/accounting/services/sage-migration/sageMigrationRunner';
 import { exitCodeForError, stopMessage } from '../../src/modules/accounting/services/sage-migration/sageStopMessage';
-import { preReportArgs, sameFile, summarize, writeRunningReport, writeStopReport } from './runReport';
+import { RunInProgressError } from '../../src/modules/accounting/services/sage-migration/sageRunLock';
+import { checkReportTarget, summarize, writeRunningReport, writeStopReport } from './runReport';
 
 const out = (s: string) => process.stdout.write(`${s}\n`);
-/** --report, read before the strict parse: a refused start writes its stop report there too, so an earlier run's report is not left. */
+/**
+ * --report once it is known to be safe to write (checkReportTarget). Every exit after that leaves a report there: the stop report of a
+ * refusal or a stop, the run's own report at the end; except a refusal by the run lock (the report belongs to the run that holds it) and a
+ * --report that could not be written (nothing more to try).
+ */
 let reportPath: string | undefined;
+/** The run's own report (or a stop report) is written: nothing more goes to --report. */
+let reportDone = false;
+class ReportUnwritableError extends Error {}
+const leaveStopReport = (err: unknown): void => {
+  if (!reportPath || reportDone || err instanceof RunInProgressError || err instanceof ReportUnwritableError) return;
+  reportDone = true;
+  writeStopReport(reportPath, err);
+};
 const fail = (s: string): never => {
   process.stderr.write(`${s}\n`);
-  if (reportPath) writeStopReport(reportPath, new Error(s));
+  leaveStopReport(new Error(s));
   process.exit(2);
 };
 
@@ -55,13 +68,13 @@ const count = (text: string | undefined): number | undefined => {
 };
 
 async function main(): Promise<void> {
-  const pre = preReportArgs(process.argv.slice(2));
-  // --report naming the export: refused before anything is written there (the export would be overwritten).
-  if (pre.report && pre.file && sameFile(pre.report, pre.file)) {
-    process.stderr.write(`--report ${pre.report} is the export --file itself: writing the report would overwrite it; give another path\n`);
+  // --report is checked before anything else, and before anything is written there (round 15, B15-1).
+  const target = checkReportTarget(process.argv.slice(2));
+  if (!target.ok) {
+    process.stderr.write(`${target.why}\n`);
     process.exit(2);
   }
-  reportPath = pre.report;
+  reportPath = target.path;
   let parsedArgs: ReturnType<typeof parseCli>;
   try { parsedArgs = parseCli(); } catch (err) { return fail(err instanceof Error ? err.message : String(err)); }
   const { values } = parsedArgs;
@@ -75,36 +88,31 @@ async function main(): Promise<void> {
   }
   if (values['po-gl-account'] !== undefined && !UUID_RE.test(values['po-gl-account'])) fail('--po-gl-account must be an expense account uuid');
 
-  let parsed: ReturnType<typeof parseSageExport>;
-  try {
-    parsed = parseSageExport(JSON.parse(readFileSync(values.file!, 'utf8')));
-  } catch (err) {
-    if (values.report) writeStopReport(values.report, err);
-    throw err;
-  }
+  const parsed = parseSageExport(JSON.parse(readFileSync(values.file!, 'utf8')));
   const expect = {
     items: count(values['expect-items']), purchaseOrders: count(values['expect-pos']),
     purchaseOrderTotalCents: values['expect-po-total'] === undefined ? undefined : cents(values['expect-po-total']),
   };
-  // From here a run is under way: an earlier run's report is replaced at once (a run killed mid-way leaves "running").
-  if (values.report) writeRunningReport(values.report);
   const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
   pool.on('error', (err) => process.stderr.write(`database pool error: ${err.message}\n`));
   try {
     const report = await runSageMigration(pool, parsed, {
       companyId: values.company!.toLowerCase(), userId: values.user!.toLowerCase(), live: values.live, skipBudgetCheck: values['skip-budget-check'], poGlAccountId: values['po-gl-account']?.toLowerCase(), runTag: values['run-tag'], allowRefusals: values['allow-refusals'] === true, allowDifferences: values['allow-differences'] === true,
       expect,
-    }).catch((err: unknown) => {
-      if (values.report) writeStopReport(values.report, err);
-      throw err;
+      // Once the run lock is held (B15-2), an earlier run's report is replaced at once (a run killed mid-way leaves "running"); a --report
+      // that cannot be written ends the run there, exit 2, nothing written (B15-3).
+      onLocked: () => {
+        if (reportPath && !writeRunningReport(reportPath)) throw new ReportUnwritableError(`--report ${reportPath} cannot be written: nothing was written`);
+      },
     });
     // The summary is printed FIRST: a committed run must always tell what it did, whatever happens to the report file.
     const { lines, code } = summarize(report, values['allow-refusals'] === true, values['allow-differences'] === true);
     for (const line of lines) (code === 4 ? process.stderr.write(`${line}\n`) : out(line));
     process.exitCode = code;
-    if (values.report) {
+    if (reportPath) {
+      reportDone = true;
       try {
-        writeFileSync(values.report, `${JSON.stringify(report, null, 2)}\n`);
+        writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`);
       } catch (err) {
         // Exit 3 only when the run would otherwise be 0: a 1 (not ok) must not be hidden by a report that
         // could not be written. The summary above says what the run did; this says what happened to the report.
@@ -122,5 +130,6 @@ async function main(): Promise<void> {
 
 main().catch((err) => {
   process.stderr.write(`${stopMessage(err)}\n`);
+  leaveStopReport(err); // every other exit path (a stop, a refusal, a summary that failed after a dry run) leaves a stop report
   process.exit(exitCodeForError(err));
 });

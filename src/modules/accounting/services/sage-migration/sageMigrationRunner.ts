@@ -137,6 +137,7 @@ export async function runSageMigration(pool: Pool, parsed: ParsedExport, opts: M
   if ((pool.options?.max ?? 10) < 2) throw new Error('the Sage migration needs a pool of at least 2 connections (the run lock holds one for the whole run)');
   const lock = await acquireRunLock(pool, opts.companyId);
   try {
+    opts.onLocked?.();
     return await runLocked(pool, parsed, opts, lock);
   } finally {
     await lock.unlock();

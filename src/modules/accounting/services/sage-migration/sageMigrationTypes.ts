@@ -125,4 +125,9 @@ export interface MigrationOptions {
   /** The explicit decision to go live WITHOUT expect.items and expect.purchaseOrders (the runner refuses otherwise). The CLI never sets it: it needs both flags. For tests and callers that check the counts another way. */
   liveWithoutCounts?: boolean;
   expect?: { items?: number; purchaseOrders?: number; purchaseOrderTotalCents?: number };
+  /**
+   * Called once this run holds the company's run lock, before it reads or writes anything else (the CLI writes its --report placeholder
+   * there, so a run refused by the lock never touches the report of the run that holds it). A throw ends the run: nothing is written.
+   */
+  onLocked?: () => void;
 }

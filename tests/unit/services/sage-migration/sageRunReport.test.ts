@@ -2,10 +2,10 @@
  * Round-14 breaker B14-3 / B14-4 and review R14-L1 / R14-L2: the --report file of run.ts (scripts/sage-migration/runReport.ts).
  */
 import { afterEach, describe, expect, it } from 'vitest';
-import { mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { linkSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { preReportArgs, sameFile, summarize, writeRunningReport, writeStopReport } from '../../../../scripts/sage-migration/runReport';
+import { checkReportTarget, sameFile, scanReportArgs, summarize, writeRunningReport, writeStopReport } from '../../../../scripts/sage-migration/runReport';
 import { MigrationStopped } from '@/modules/accounting/services/sage-migration/sageMigrationStopped';
 import type { BatchReport, MigrationReport } from '@/modules/accounting/services/sage-migration/sageMigrationTypes';
 
@@ -17,9 +17,9 @@ const b = (entity: BatchReport['entity'], n: number, over: Partial<BatchReport> 
 
 describe('B14-3: --report is found before the strict parse', () => {
   it('a mistyped option does not hide it', () => {
-    expect(preReportArgs(['--company', 'c', '--expect-po', '3', '--report', 'r.json', '--file', 'f.json'])).toEqual({ report: 'r.json', file: 'f.json' });
-    expect(preReportArgs(['--report=r.json'])).toEqual({ report: 'r.json', file: undefined });
-    expect(preReportArgs(['--live'])).toEqual({ report: undefined, file: undefined });
+    expect(scanReportArgs(['--company', 'c', '--expect-po', '3', '--report', 'r.json', '--file', 'f.json'])).toEqual({ reports: ['r.json'], files: ['f.json'] });
+    expect(scanReportArgs(['--report=r.json'])).toEqual({ reports: ['r.json'], files: [] });
+    expect(scanReportArgs(['--live'])).toEqual({ reports: [], files: [] });
   });
   it('the running placeholder replaces an earlier report at once', () => {
     const p = join(dir(), 'report.json');
@@ -71,5 +71,51 @@ describe('R14-L2: a summary that fails after a live run', () => {
   it('after a dry run (nothing written) it is thrown, as before', () => {
     expect(() => summarize(report(false), false, false, { lines: boom, code: () => 0 })).toThrow('summary bug');
     expect(summarize(report(false), false, false, { lines: () => ['a'], code: () => 1 })).toEqual({ lines: ['a'], code: 1 });
+  });
+});
+
+describe('B15-1 / R15-L1 (round 15): --report never overwrites a file that is not one of the tool\'s own reports', () => {
+  const setup = () => {
+    const d = dir();
+    const file = join(d, 'export.json');
+    writeFileSync(file, '{"Items":[],"PurchaseOrders":[]}');
+    return { d, file };
+  };
+  it('a hard link to the export is the export (dev + ino)', () => {
+    const { d, file } = setup();
+    linkSync(file, join(d, 'link.json'));
+    expect(sameFile(join(d, 'link.json'), file)).toBe(true);
+    expect(checkReportTarget(['--file', file, '--report', join(d, 'link.json')])).toMatchObject({ ok: false, why: expect.stringMatching(/is the export --file itself/) });
+  });
+  it('--file and --report swapped: the existing file at --report is not a report, so nothing is written there', () => {
+    const { d, file } = setup();
+    expect(checkReportTarget(['--report', file, '--file', join(d, 'report.json')])).toMatchObject({ ok: false, why: expect.stringMatching(/is not a report of this tool/) });
+  });
+  it('every --file token counts: --file export.json --report export.json --file --live', () => {
+    const { file } = setup();
+    expect(checkReportTarget(['--file', file, '--report', file, '--file', '--live'])).toMatchObject({ ok: false });
+  });
+  it('a value that starts with -- is not taken as the report path', () => {
+    expect(scanReportArgs(['--file', 'x.json', '--report', '--live'])).toEqual({ reports: [], files: ['x.json'] });
+    expect(scanReportArgs(['--report', '--file', 'x.json'])).toEqual({ reports: [], files: ['x.json'] });
+    expect(scanReportArgs(['--file=x.json', '--report=r.json', '--', '--report', 'y.json'])).toEqual({ reports: ['r.json'], files: ['x.json'] });
+    expect(checkReportTarget(['--file', 'x.json', '--report', '--live'])).toEqual({ ok: true, path: undefined });
+  });
+  it('two different --report paths are refused; the same one twice is one', () => {
+    expect(checkReportTarget(['--report', 'a.json', '--report', 'b.json'])).toMatchObject({ ok: false, why: expect.stringMatching(/more than once/) });
+    expect(checkReportTarget(['--report', 'a.json', '--report=a.json'])).toEqual({ ok: true, path: 'a.json' });
+  });
+  it('an absent file, or one of the tool\'s own reports (any of its statuses), may be written', () => {
+    const { d, file } = setup();
+    const r = join(d, 'r.json');
+    expect(checkReportTarget(['--file', file, '--report', r])).toEqual({ ok: true, path: r });
+    for (const status of ['running', 'stopped', 'dry_run_ok', 'dry_run_failed', 'live_blocked', 'completed', 'failed']) {
+      writeFileSync(r, JSON.stringify({ status }));
+      expect(checkReportTarget(['--file', file, '--report', r]), status).toEqual({ ok: true, path: r });
+    }
+    for (const body of ['{"status":"other"}', '[]', 'not json', '']) {
+      writeFileSync(r, body);
+      expect(checkReportTarget(['--file', file, '--report', r]).ok, body).toBe(false);
+    }
   });
 });
