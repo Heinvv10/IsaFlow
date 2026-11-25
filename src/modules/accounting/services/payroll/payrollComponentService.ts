@@ -140,6 +140,17 @@ export async function recurringEarningsEndedInPeriod(
       AND pec.effective_to >= ${periodStart}::date
       AND pec.effective_to < ${asOf}::date
       AND (pe.end_date IS NULL OR pec.effective_to < pe.end_date)
+      -- Ending before the employee started is outside employment (review #1901 M7): never read, never printed as 0 days.
+      AND pec.effective_to >= pe.start_date
+      -- A package cut this row and wrote a once-off of the same component from the next day (superseded_at, 953): that
+      -- once-off is its replacement for the rest of the month, as the last-day reader's leaver rule reads it, so the cut row's
+      -- days are not paid beside it (review M4). A row a package replaced with a RECURRING row is paid its share.
+      AND NOT (pec.superseded_at IS NOT NULL AND EXISTS (
+        SELECT 1 FROM payroll_employee_components nxt
+        WHERE nxt.id <> pec.id AND nxt.employee_id = pec.employee_id AND nxt.component_id = pec.component_id
+          AND nxt.is_recurring = FALSE AND nxt.effective_from = pec.effective_to + 1
+          AND (nxt.effective_to IS NULL OR nxt.effective_to >= nxt.effective_from)
+      ))
     ORDER BY pc.name, pec.effective_from
   `) as Row[];
   return rows.map(mapEmployeeComponent);

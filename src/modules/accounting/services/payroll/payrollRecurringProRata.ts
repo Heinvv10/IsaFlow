@@ -20,8 +20,9 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { payrollRunReadDate } from './payrollRunReadDate';
-import { insideEmploymentEdge, isApportionable } from './payrollRecurringShare';
-import { getEmployeeComponents } from './payrollComponentService';
+import { insideEmploymentEdge, isApportionable, periodBoundsOf } from './payrollRecurringShare';
+import { runShareAckBlocker } from './payrollRecurringShareAck';
+import { getEmployeeComponents, recurringEarningsEndedInPeriod } from './payrollComponentService';
 import { listPayrollRunEmployees } from './payrollEmployeeService';
 import { payFrequencyOf, runPeriodOf } from './payrollFrequency';
 import type { PayrollJournalNote } from './payrollJournalBuilder';
@@ -83,13 +84,18 @@ export async function recurringRowsNeedingProRata(
     ORDER BY e.employee_number, pc.name, pec.effective_from
   `) as DbRow[];
   const paidIds = new Set<string>();
+  // W29: the rows the run reads as having ended inside employment (payrollRecurringShareRead), so the guard and the pay
+  // agree on which rows the share pays: a package-cut row replaced by a once-off is not among them, and stays flagged.
+  const endedIds = new Set<string>();
+  const { start: periodStart } = periodBoundsOf(period);
   for (const employeeId of new Set(rows.map((r) => String(r.employee_id)))) {
     for (const c of await getEmployeeComponents(employeeId, companyId, last)) if (c.assignmentId) paidIds.add(c.assignmentId);
+    for (const c of await recurringEarningsEndedInPeriod(employeeId, companyId, periodStart, last)) if (c.assignmentId) endedIds.add(c.assignmentId);
   }
   const out: ProRataRow[] = [];
   for (const r of rows) {
     // W29: a recurring earning starting or ending inside employment is paid its share (payrollRecurringShare): not flagged.
-    if (sharePays(period, r)) continue;
+    if ((paidIds.has(String(r.id)) || endedIds.has(String(r.id))) && sharePays(period, r)) continue;
     const paid = paidIds.has(String(r.id));
     // Read in full and ending in the band: a leaver's last month (Hein), exempt. Starting in the band and read: paid in
     // full, flagged as starting. Not read: flagged as ending (also when it starts in the band too).
@@ -107,8 +113,8 @@ export async function recurringRowsNeedingProRata(
   return out;
 }
 
-/** The run apportions this row (W29): the same predicate the run's reading applies (payrollRecurringShareRead). */
-function sharePays(period: PayrollPeriod, r: DbRow): boolean {
+/** The run apportions this row when it reads it (W29): the same predicate the run's reading applies (payrollRecurringShareRead). */
+export function sharePays(period: PayrollPeriod, r: DbRow): boolean {
   const component = { componentType: String(r.component_type) };
   if (!isApportionable({ component, isRecurring: true, quantity: r.quantity == null ? null : Number(r.quantity),
     percentOfRfi: r.percent_of_rfi == null ? null : Number(r.percent_of_rfi),
@@ -144,7 +150,7 @@ export function proRataValidation(row: ProRataRow): ValidationResult {
   };
 }
 
-/** The approval refusal for the run, or null (always for an off-cycle run). Read-only. */
+/** The approval refusal for the run (pro-rata first, then an unacknowledged share beside a once-off), or null (always for an off-cycle run). Read-only. */
 export async function runProRataBlocker(companyId: string, runId: string): Promise<PayrollJournalNote | null> {
   const lines = (await sql`
     SELECT l.employee_id, e.employee_number, h.period_year, h.period_month, h.pay_frequency, h.period_start, h.period_end, h.run_kind,
@@ -167,7 +173,8 @@ export async function runProRataBlocker(companyId: string, runId: string): Promi
   );
   const liveIds = new Set(live.map((r) => r.employeeId));
   const stale = lines.filter((l) => l.flagged && !liveIds.has(String(l.employee_id))).map((l) => String(l.employee_number));
-  if (live.length === 0 && stale.length === 0) return null;
+  // W29 (review #1901 M2): with no row left to pro-rate, a share beside a once-off earning still waits for its acknowledgement.
+  if (live.length === 0 && stale.length === 0) return runShareAckBlocker(companyId, runId);
   const parts: string[] = [];
   if (live.length > 0) {
     parts.push('Recurring components start after the 27th or end between the 27th and the last day of the month, so this '

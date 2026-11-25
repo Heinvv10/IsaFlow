@@ -85,7 +85,7 @@ describe('every fixture input reaches the calculator, or has a named owner', () 
         const got = components[i]!;
         if (x.effectiveFrom === undefined) { expect(got.share).toBeUndefined(); expect(got.amount).toBe(x.amount); return; }
         expect(got).toMatchObject({ isRecurring: true, effectiveFrom: x.effectiveFrom, effectiveTo: x.effectiveTo ?? null });
-        if (got.share) expect(got.amount).toBe(Math.round(x.amount * got.share.share * 100) / 100);
+        if (got.share) expect(got.amount).toBe(Math.round((x.amount * got.share.days / got.share.of) * 100) / 100);
         else expect(got.amount).toBe(x.amount);
       });
     },
@@ -102,5 +102,8 @@ describe('every fixture input reaches the calculator, or has a named owner', () 
     expect(shareOf('recurring-start-mid-week-weekly')).toEqual(['whole', '4/7']);
     expect(shareOf('starter-mid-month-full-salary')).toEqual(['whole']);
     expect(shareOf('leaver-mid-month-full-salary')).toEqual(['whole']);
+    expect(shareOf('leaver-raise-mid-month-sums-to-window')).toEqual(['7/11', '4/11']);
+    expect(shareOf('starter-raise-mid-month-sums-to-window')).toEqual(['8/18', '10/18']);
+    expect(shareOf('weekly-split-same-amount-sums-to-whole')).toEqual(['3/7', '4/7']);
   });
 });

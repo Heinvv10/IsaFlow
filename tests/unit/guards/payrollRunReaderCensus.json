@@ -247,7 +247,9 @@
   "src/modules/accounting/services/payroll/payrollComponentService.ts": [
    {"line":59,"text":"FROM payroll_employee_components pec","class":"S","owner":"FQc","why":"FQc converted (R, F2): once-offs from the run's first day (periodStart), read on its last day; a monthly run passes neither and reads its month"},
    {"line":79,"text":"SELECT 1 FROM payroll_employee_components nxt","class":"S","owner":"FQc","why":"FQc converted (R, F2): once-offs from the run's first day (periodStart), read on its last day; a monthly run passes neither and reads its month"},
-   {"line":92,"text":"SELECT 1 FROM payroll_employee_components nxt","class":"S","owner":"FQc","why":"FQc converted (R, F2): once-offs from the run's first day (periodStart), read on its last day; a monthly run passes neither and reads its month"}
+   {"line":92,"text":"SELECT 1 FROM payroll_employee_components nxt","class":"S","owner":"FQc","why":"FQc converted (R, F2): once-offs from the run's first day (periodStart), read on its last day; a monthly run passes neither and reads its month"},
+   {"line":131,"text":"FROM payroll_employee_components pec","class":"S","owner":"PRA","why":"W29 recurringEarningsEndedInPeriod: rows ending from the run's own first day (periodStart, periodBoundsOf) to the day before its last; weekly and monthly alike"},
+   {"line":149,"text":"SELECT 1 FROM payroll_employee_components nxt","class":"S","owner":"PRA","why":"W29: the package once-off replacing a cut row, by date (the next day), no month"}
   ],
   "src/modules/accounting/services/payroll/payrollEmp201Paye.ts": [
    {"line":15,"text":"FROM   payroll_run_headers","class":"S","owner":"FQb1","why":"FQb1 converted (R): EMP201 PAYE summed per month over every run (was a header per month in a Map; EMP501 reconciliation and year-end)"},

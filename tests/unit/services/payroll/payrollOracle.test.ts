@@ -49,6 +49,7 @@ const EXPECTED_CASE_IDS = [
   'ga-emolument-attachment-capped-25pct',
   'ga-maintenance-outside-cap',
   'leaver-mid-month-full-salary', // W29 (wave 7 PRA): ruling 19 pinned
+  'leaver-raise-mid-month-sums-to-window', // W29 review #1901 H1
   'monthly-raise-averaged-with-priors',
   'offcycle-bonus-after-regular-g21',
   'offcycle-termination-leave-after-regular',
@@ -79,6 +80,7 @@ const EXPECTED_CASE_IDS = [
   'sage-2027-03-temba',
   'sdl-after-para-2-4-deductions',
   'starter-mid-month-full-salary', // W29: ruling 19 pinned
+  'starter-raise-mid-month-sums-to-window', // W29 review H1
   'statutory-2027-bracket-31pct-35000',
   'statutory-2027-bracket-36pct-55000',
   'statutory-2027-bracket-39pct-60000',
@@ -95,6 +97,7 @@ const EXPECTED_CASE_IDS = [
   'weekly-6000-fourth-week-month-uif-ceiling',
   'weekly-6000-third-week-month-uif-ceiling',
   'weekly-starter-fourth-week-averaged',
+  'weekly-split-same-amount-sums-to-whole', // W29 review M1
   'weekly-starter-g21-3-of-7-days',
   'weekly-week-53-medical-retirement',
   'weekly-week-53-pay-sunday',

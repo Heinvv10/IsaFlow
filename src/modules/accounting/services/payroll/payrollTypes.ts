@@ -162,6 +162,8 @@ export interface ValidationResult {
   loans?: string[];
   /** LOAN_DEDUCTION_MISSING only: the components missing, 'LOAN' and, when also missing, '3801'. */
   missing?: string[];
+  /** RECURRING_SHARE_BESIDE_ONCE_OFF only (W29): the rows and amounts paired; an acknowledgement names this key. */
+  pairKey?: string;
 }
 
 export interface PayrollLineInput {

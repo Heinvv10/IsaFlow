@@ -134,7 +134,7 @@ export function buildCaseInput(c: OracleCase): PayrollLineInput {
   const read = apportionRecurringRows(base, { ...employee, payFrequency: input.period.frequency ?? 'monthly' }, period);
   // As a run: fringe benefits applied and employer benefits marked non-cash, then the percent-of-RFI rows costed (RF).
   const components = [...costRfi(withFringeBenefits(withEmployerRetirement(read, input.unmodelled), input.unmodelled, input.period), input.unmodelled),
-    ...runInputUnitRows(c, employee, basic[0]?.amount ?? 0)];
+    ...runInputUnitRows(c, employee, basicInForce(c, basic))];
   const cadence = caseCadence(c, employee);
   const monthEarlier = caseMonthEarlier(c);
   return {
@@ -201,6 +201,18 @@ function caseCadence(c: OracleCase, employee: PayrollEmployee): LineCadence | un
       }), NO_ETI_PARTS)
       : null,
   };
+}
+
+/**
+ * The monthly basic overtime is priced on, as production's monthlyBasicOf reads it (payrollRunUnitsRead): the recurring
+ * 3601 rows in force on the period's last day, at their full amounts (review #1901 L3: not the first row, which after a
+ * W29 split is the row that ended).
+ */
+function basicInForce(c: OracleCase, basic: OracleCase['input']['components']): number {
+  const { period } = c.input;
+  const last = period.periodEnd ?? `${period.year}-${String(period.month).padStart(2, '0')}-${String(new Date(period.year, period.month, 0).getDate()).padStart(2, '0')}`;
+  return basic.filter(x => x.effectiveFrom === undefined || (x.effectiveFrom <= last && (x.effectiveTo == null || x.effectiveTo >= last)))
+    .reduce((t, x) => t + x.amount, 0);
 }
 
 /**

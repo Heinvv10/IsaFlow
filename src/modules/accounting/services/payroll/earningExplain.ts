@@ -7,6 +7,7 @@ import { formatMoney } from '@/lib/money/formatMoney';
 import type { EarningPart } from './payrollLineAccumulate';
 import { isEmployerFundBenefitCode } from './retirementFund';
 import { definedBenefitStep } from './definedBenefitExplain';
+import { recurringShareStep } from './recurringShareExplain';
 import { pct, type ExplainSource, type ExplainStep } from './payrollExplainTypes';
 
 const G21 = 'https://www.sars.gov.za/wp-content/uploads/Ops/Guides/PAYE-GEN-01-G21-Guide-for-Employers-iro-Employees-Tax-for-2027-External-Guide.pdf';
@@ -17,6 +18,7 @@ export function earningStep(key: string, p: EarningPart): ExplainStep {
   const fund = p.isNonCash && isEmployerFundBenefitCode(p.code) ? ', also counted as your retirement contribution' : '';
   const label = `${p.name} (${p.code})${p.isNonCash ? ', a non-cash benefit' : ''}${fund}`;
   if (p.db) return definedBenefitStep(key, label, { ...p, db: p.db });
+  if (p.share && p.rate === undefined) return recurringShareStep(key, label, p.included, p.share); // W29 (PRA)
   if (p.rate === undefined) return { key, label, amount: p.included };
   return {
     key, label, amount: p.included, formula: `${pct(p.rate)} of ${formatMoney(p.amount)}, to the cent`, source: FRINGE_SOURCE,

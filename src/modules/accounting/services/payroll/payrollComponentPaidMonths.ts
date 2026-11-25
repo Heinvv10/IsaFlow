@@ -20,8 +20,14 @@ export interface AssignmentWindow {
   employeeEnd?: string | null;
 }
 
-/** A month a paid run read, with when that run was calculated (epoch ms; null before migration 953). */
-export type PaidPeriod = PayrollPeriod & { calculatedAt?: number | null; reopened?: boolean };
+/**
+ * A month a paid run read, with when that run was calculated (epoch ms; null before migration 953) and the calculation
+ * version it was costed under (null: unstamped).
+ */
+export type PaidPeriod = PayrollPeriod & { calculatedAt?: number | null; reopened?: boolean; version?: number | null };
+
+/** The calculation version from which a run pays a recurring earning by its dates inside the month (W29, wave 7 PRA). */
+export const SHARE_BY_DATES_VERSION = 21;
 
 /** How a month was paid, for a refusal: an approved run, or a reopened one whose journal is still posted. */
 export const paidNote = (p: PaidPeriod): string => (p.reopened ? '(reopened, but its journal is still posted)' : '(approved run)');
@@ -62,7 +68,7 @@ export async function paidPeriodsOf(tx: TxSql, companyId: string, employeeId: st
   // employeeId null: every paid month of the company, whoever its run paid (a once-off back-dated into it would never
   // be paid by that run, line or not).
   const rows = (await tx`
-    SELECT DISTINCT h.period_year, h.period_month, h.status, h.journal_entry_id, h.calculated_at
+    SELECT DISTINCT h.period_year, h.period_month, h.status, h.journal_entry_id, h.calculated_at, h.calculation_version
     FROM payroll_run_headers h
     WHERE h.company_id = ${companyId}::uuid
       AND (h.status IN ('approved', 'paid') OR h.journal_entry_id IS NOT NULL)
@@ -77,15 +83,31 @@ export async function paidPeriodsOf(tx: TxSql, companyId: string, employeeId: st
       paid.push({
         year: Number(r.period_year), month: Number(r.period_month),
         calculatedAt: r.calculated_at == null ? null : new Date(r.calculated_at as string | Date).getTime(), reopened: !approved,
+        version: r.calculation_version == null ? null : Number(r.calculation_version),
       });
     }
   }
   return paid;
 }
 
+/**
+ * W29 (review #1901 M3): a run of version 21 or later paid a recurring earning starting or ending inside the month BY ITS
+ * DATES (payrollRecurringShare), so moving a recurring row's start or end that lies, before or after, inside a paid month
+ * changes what that run paid even when the row is still read. Judged for every recurring row (the window does not say
+ * whether it is an apportioned earning): this refuses more, never less.
+ */
+function shareDateMoved(p: PaidPeriod, before: AssignmentWindow, after: AssignmentWindow): boolean {
+  if (p.version == null || p.version < SHARE_BY_DATES_VERSION || !before.recurring || !after.recurring) return false;
+  const last = payrollRunReadDate(p);
+  const first = `${last.slice(0, 8)}01`;
+  const inMonth = (d: string | null) => d != null && d >= first && d <= last;
+  return (before.from !== after.from && (inMonth(before.from) || inMonth(after.from)))
+    || (before.to !== after.to && (inMonth(before.to) || inMonth(after.to)));
+}
+
 /** The paid month whose payment this change would alter, or null. */
 export function paidPeriodChanged(paid: PaidPeriod[], before: AssignmentWindow, after: AssignmentWindow): PaidPeriod | null {
-  return paid.find((p) => assignmentReadInPeriod(before, p) !== assignmentReadInPeriod(after, p)) ?? null;
+  return paid.find((p) => assignmentReadInPeriod(before, p) !== assignmentReadInPeriod(after, p) || shareDateMoved(p, before, after)) ?? null;
 }
 
 export const periodLabel = (p: PayrollPeriod): string => `${p.year}-${String(p.month).padStart(2, '0')}`;

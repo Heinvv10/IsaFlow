@@ -228,6 +228,10 @@ function validatePriorPeriods(raw: unknown, period: Obj, taxYear: number, file: 
     need((RUN_KINDS as readonly unknown[]).includes(p.runKind), file, `${at}.runKind must be one of ${RUN_KINDS.join(' | ')}`);
     need(Array.isArray(p.components), file, `${at}.components must be an array`);
     validateComponents(p.components as unknown[], `${at}.components`, file);
+    // W29 (review #1901 L4): a prior's components feed the year to date as stored figures; a window there would be read by nothing.
+    for (const [k, x] of (p.components as Obj[]).entries()) {
+      need(x.effectiveFrom === undefined && x.effectiveTo === undefined, file, `${at}.components[${k}]: effectiveFrom / effectiveTo are not read on a prior period`);
+    }
     for (const f of PRIOR_FIGURES) need(isNum(p[f]), file, `${at}.${f} must be a number`);
   });
 }
