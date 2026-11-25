@@ -48,7 +48,8 @@ describe('My Reports template list on touch', () => {
     expect(rows).toHaveLength(2);
     for (const r of rows) expect([...r.querySelectorAll('td')].map((td) => td.getAttribute('data-label'))).toEqual([null, 'Data Source', 'Last Updated', 'Shared', null]);
     for (const r of rows) expect(cls(r.querySelector('td[data-label="Shared"]')!)).toContain('max-lg:empty:!hidden');
-    expect(rows[1]!.querySelector('td[data-label="Shared"]')!.childElementCount).toBe(0);
+    expect(rows[0]!.querySelector('td[data-label="Shared"]')!.childElementCount).toBe(1); // shared: has content
+    expect(rows[1]!.querySelector('td[data-label="Shared"]')!.matches(':empty')).toBe(true); // not shared: truly empty, so max-lg:empty:!hidden applies
   });
 });
 
