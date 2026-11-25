@@ -132,6 +132,46 @@ describe('company-groups guards (Postgres)', async () => {
     });
   });
 
+  // A user whose companies all LEFT the group has no access: read or write (left_date IS NULL in both guards).
+  it.skipIf(!reachable)('a user who belongs only to departed companies is refused read and write', async () => {
+    await withGroups(async () => {
+      await sql`UPDATE company_group_members SET left_date = CURRENT_DATE WHERE group_id = ${G}::uuid`;
+      expect((await call('GET', 'attacker', {}, { action: 'accounts', group_id: G })).statusCode).toBe(403);
+      const write = await call('POST', 'attacker', { action: 'create-group-account', groupId: G, accountCode: 'G2000', accountName: 'X', accountType: 'asset' });
+      expect(write.statusCode).toBe(403);
+    });
+  });
+
+  // Write role only through a departed company: still a reader (viewer in a current one), but no writer.
+  it.skipIf(!reachable)('a write role held only in a departed company does not allow group writes', async () => {
+    await withGroups(async () => {
+      await sql`UPDATE company_group_members SET left_date = CURRENT_DATE WHERE group_id = ${G}::uuid AND company_id = ${MINE}::uuid`;
+      expect((await call('GET', 'attacker', {}, { action: 'accounts', group_id: G })).statusCode).toBe(200);
+      const write = await call('POST', 'attacker', { action: 'create-group-account', groupId: G, accountCode: 'G2000', accountName: 'X', accountType: 'asset' });
+      expect([write.statusCode, JSON.stringify(write.sent)]).toEqual([403, expect.stringContaining('does not allow this change')]);
+    });
+  });
+
+  it.skipIf(!reachable)('a company with suspended_at set grants no group access', async () => {
+    await withGroups(async () => {
+      await sql`UPDATE companies SET suspended_at = now() WHERE id = ANY(${[MINE, VIEWED]}::uuid[])`;
+      expect((await call('GET', 'attacker', {}, { action: 'accounts', group_id: G })).statusCode).toBe(403);
+    });
+  });
+
+  // addMember (999r): a current member is a 409; a departed one rejoins on its own row and left_date clears.
+  it.skipIf(!reachable)('add-member: a current member is a 409, a departed one rejoins with left_date cleared', async () => {
+    await withGroups(async () => {
+      const add = (co: string) => call('POST', 'attacker', { action: 'add-member', groupId: G, companyId: co }, {}, co);
+      const dup = await add(MINE);
+      expect([dup.statusCode, JSON.stringify(dup.sent)]).toEqual([409, expect.stringContaining('already a member')]);
+      await sql`INSERT INTO company_group_members (group_id, company_id, left_date) VALUES (${G}::uuid, ${OUTSIDE}::uuid, '2026-01-31')`;
+      expect((await add(OUTSIDE)).statusCode).toBe(200);
+      expect(await sql`SELECT left_date FROM company_group_members WHERE group_id = ${G}::uuid AND company_id = ${OUTSIDE}::uuid`).toEqual([{ left_date: null }]);
+      expect(await sql`SELECT count(*)::int AS n FROM company_group_members WHERE group_id = ${G}::uuid AND company_id = ${OUTSIDE}::uuid`).toEqual([{ n: 1 }]);
+    });
+  });
+
   // Round 11: a company that has LEFT the group is no longer one of its members for any mapping route.
   it.skipIf(!reachable)('a company that left the group is refused on every mapping route (400)', async () => {
     await withGroups(async () => {
