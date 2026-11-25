@@ -39,8 +39,20 @@ describe('deleteDraftPayrollRun: calculation history', () => {
     expect(deleted()).toBe(false);
   });
 
+  it.each([
+    ['a non-empty approval_history', { approval_history: '{["2026-10-01 10:00:00+00","2026-10-02 10:00:00+00")}' }],
+    ['approval_evidence_at (migration 1054)', { approval_evidence_at: '2026-10-01T10:00:00Z' }],
+    ['reopened_at', { reopened_at: '2026-10-02T10:00:00Z' }],
+  ])('a never-calculated draft with %s is refused as approved before (a 409, not the trigger\'s 500)', async (_what, extra) => {
+    h.header = { ...draft, calculated_at: null, approval_history: '{}', ...extra };
+    const err = await deleteDraftPayrollRun(CO, RUN, actor as never).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(RunNotDeletableError);
+    expect((err as Error).message).toMatch(/it has been approved/);
+    expect(deleted()).toBe(false);
+  });
+
   it('a draft never calculated is deleted', async () => {
-    h.header = { ...draft, calculated_at: null };
+    h.header = { ...draft, calculated_at: null, approval_history: '{}' };
     expect(await deleteDraftPayrollRun(CO, RUN, actor as never)).toBe(true);
     expect(deleted()).toBe(true);
   });

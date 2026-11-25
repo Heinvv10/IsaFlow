@@ -79,7 +79,7 @@ describe('deleting a draft pay run', () => {
       expect((await header(a, id))?.status, status).toBe(status);
     }
     expect(await audits(a, 'payroll_run')).toBe(before);
-    // Back to a draft with its stamp cleared: still a run that was approved before (1054's ever_final_at), so 409.
+    // Back to a draft with its stamp cleared: still a run that was approved before (1054's approval_evidence_at), so 409.
     await a.pool.query("UPDATE payroll_run_headers SET status = 'draft', approved_at = NULL WHERE id = $1", [id]);
     const back = await del(a, id);
     expect([back.statusCode, back.body.error?.details?.reason, back.body.error?.message])

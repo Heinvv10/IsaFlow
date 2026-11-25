@@ -29,8 +29,10 @@ export async function deleteDraftPayrollRun(companyId: string, runId: string, ac
   const run = await lockPayrollRunHeader(runId, companyId);
   if (!run) return false;
   // Migration 1054 refuses deleting a run with any past-approval evidence; judged here first so the answer is a 409.
-  const approvedBefore = run.approved_at != null || run.approval_grandfathered_at != null || run.ever_final_at != null
-    || run.reopened_at != null;
+  // approval_history arrives as the multirange's text: '{}' when empty.
+  const approvedBefore = run.approved_at != null || run.approval_grandfathered_at != null
+    || run.approval_evidence_at != null || run.reopened_at != null
+    || (run.approval_history != null && String(run.approval_history) !== '{}');
   if (run.status !== 'draft' || approvedBefore) {
     throw new RunNotDeletableError(approvedBefore ? 'it has been approved' : `it is ${String(run.status)}`);
   }

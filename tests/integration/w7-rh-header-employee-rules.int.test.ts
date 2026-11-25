@@ -4,7 +4,7 @@
  *    active, cannot delete, update or move B's rows (W9);
  *  - payroll_employees.company_id never changes for a non-superuser, BYPASSRLS roles included (W10);
  *  - a FINAL header (approved/paid with approved_at or approval_grandfathered_at) is not deleted by a direct DELETE,
- *    for app_user and platform_admin alike; nor, outside the Demo, is one with past-approval evidence (ever_final_at,
+ *    for app_user and platform_admin alike; nor, outside the Demo, is one with past-approval evidence (approval_evidence_at,
  *    which the trigger keeps and no statement clears, reopened_at, a stamp or approval_history), so no run that was
  *    approved can be deleted and inserted again with its off-cycle snapshot reset (W35); a never-final draft deletes;
  *  - a header's company is fixed, so the Demo exemption reaches only rows born in the Demo;
@@ -21,7 +21,7 @@ const [A, B, UA, UAB] = [crypto.randomUUID(), crypto.randomUUID(), crypto.random
 const [EA, EB] = [crypto.randomUUID(), crypto.randomUUID()];
 const YEAR = 2100 + Math.floor(Math.random() * 800);
 const FINAL_REFUSED = /a final pay run is not deleted \(reopen or cancel it first\)/;
-const MOVE_REFUSED = /a row's company is fixed/;
+const MOVE_REFUSED = /a row's id and company are fixed/;
 // The same words as 999x's history guard, which this rule widens (its pins in w6-oc-forge hold).
 const EVIDENCE_REFUSED = /a pay run that was approved before is not deleted; cancel it instead/;
 
@@ -161,7 +161,7 @@ describe('a header\'s company is fixed (so the Demo exemption reaches only rows 
       await c.query("SELECT set_config('app.current_company_id', $1, true)", [A]);
       await c.query('SAVEPOINT m');
       await expect(c.query('UPDATE payroll_run_headers SET company_id = $2 WHERE id = $1', [h, DEMO])).rejects
-        .toMatchObject({ code: '23514', message: expect.stringMatching(/payroll_run_headers: a row's company is fixed/) });
+        .toMatchObject({ code: '23514', message: expect.stringMatching(/payroll_run_headers: a row's id and company are fixed/) });
       await c.query('ROLLBACK TO SAVEPOINT m');
       await c.query('RESET ROLE');
       await c.query('SET LOCAL ROLE platform_admin');
@@ -203,15 +203,15 @@ describe('W35: a final header is not deleted', () => {
     });
     expect(await exists(h)).toBe(true);
   });
-  it('approve, then cancel (stamps cleared), then DELETE: refused, and ever_final_at cannot be cleared or forged', async () => {
+  it('approve, then cancel (stamps cleared), then DELETE: refused, and approval_evidence_at cannot be cleared or forged', async () => {
     const h = await header(A, 'approved', 'approved_at', 2);
     await as(owner, async (c) => {
       expect(await n(c, "UPDATE payroll_run_headers SET status = 'cancelled', approved_at = NULL WHERE id = $1", [h])).toBe(1);
-      expect(await n(c, 'UPDATE payroll_run_headers SET ever_final_at = NULL WHERE id = $1', [h])).toBe(1);
-      expect((await c.query('SELECT ever_final_at IS NOT NULL AS set FROM payroll_run_headers WHERE id = $1', [h])).rows[0].set).toBe(true);
-      const forged = (await c.query(`INSERT INTO payroll_run_headers (company_id, period_month, period_year, status, ever_final_at)
-        VALUES ($1, 9, $2, 'draft', now()) RETURNING ever_final_at`, [A, YEAR])).rows[0];
-      expect(forged.ever_final_at).toBeNull();
+      expect(await n(c, 'UPDATE payroll_run_headers SET approval_evidence_at = NULL WHERE id = $1', [h])).toBe(1);
+      expect((await c.query('SELECT approval_evidence_at IS NOT NULL AS set FROM payroll_run_headers WHERE id = $1', [h])).rows[0].set).toBe(true);
+      const forged = (await c.query(`INSERT INTO payroll_run_headers (company_id, period_month, period_year, status, approval_evidence_at)
+        VALUES ($1, 9, $2, 'draft', now()) RETURNING approval_evidence_at`, [A, YEAR])).rows[0];
+      expect(forged.approval_evidence_at).toBeNull();
       await expect(c.query('DELETE FROM payroll_run_headers WHERE id = $1', [h])).rejects.toThrow(EVIDENCE_REFUSED);
     });
   });
@@ -227,11 +227,11 @@ describe('W35: a final header is not deleted', () => {
   it.each([
     ['reopened_at set', "reopened_at = now()"], ['a cancelled run that kept its approved_at', "status = 'cancelled', approved_at = now()"],
     ['a stamp-only grandfathered run', "approval_grandfathered_at = now()"],
-  ])('a row that left final before 1054 (no ever_final_at), %s: refused', async (_what, set) => {
+  ])('a row that left final before 1054 (no approval_evidence_at), %s: refused', async (_what, set) => {
     const h = await header(A, 'calculated', null, 5);
     try {
       await su.query(`UPDATE payroll_run_headers SET ${set} WHERE id = $1`, [h]);
-      expect((await one('SELECT ever_final_at FROM payroll_run_headers WHERE id = $1', [h])).ever_final_at).toBeNull();
+      expect((await one('SELECT approval_evidence_at FROM payroll_run_headers WHERE id = $1', [h])).approval_evidence_at).toBeNull();
       await as(owner, async (c) => {
         await expect(c.query('DELETE FROM payroll_run_headers WHERE id = $1', [h])).rejects.toThrow(EVIDENCE_REFUSED);
       });

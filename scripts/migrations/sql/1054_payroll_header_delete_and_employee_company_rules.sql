@@ -1,4 +1,4 @@
--- 1054: pay run header DELETE rules and a fixed employee company (wave 7 RH: W9, W10, W35). Expand-only.
+-- 1054: pay run header DELETE and TRUNCATE rules, fixed row ids and companies (wave 7 RH: W9, W10, W35). Expand-only.
 --
 -- WHY.
 --   W9  payroll_run_headers had one app_user policy, tenant_isolation FOR ALL: USING (member of the company), WITH CHECK
@@ -15,7 +15,7 @@
 --      payroll_run_lines:
 --        select  USING (MEMBER): unchanged, the rows the old USING admitted. 999n's payroll_run_final_state emulates the
 --                header's read policy for its caller; the read rule is identical, so the emulation stays exact and no
---                SECURITY DEFINER changes (no app_definer_reviews row).
+--                SECURITY DEFINER changes for it.
 --        insert  WITH CHECK (ACTIVE)
 --        update  USING (ACTIVE), WITH CHECK (ACTIVE)
 --        delete  USING (ACTIVE)
@@ -25,44 +25,50 @@
 --      bearerPipeline / MCP, companyOwnTx, auditTx, the budget and intercompany jobs) sets the active company only for
 --      a member user. app_service keeps its USING (true) mirrors (app_service_sync_policies(), below).
 --   2. payroll_employees_company_fixed and payroll_run_headers_company_fixed (one INVOKER function,
---      payroll_row_company_fixed; BEFORE UPDATE, ENABLE ALWAYS): a row's company never changes, for every role but a
---      SUPERUSER session (999n's exemption: a superuser can disable any trigger anyway). It binds the BYPASSRLS roles
---      (platform_admin, migration_admin, production's postgres) that the policy does not. 999n already froze a FINAL
---      header's company; this covers every header (security review of 4bbded8c0b: a reopened client header moved into
---      the Demo would have met rule 3b's Demo exemption), so the Demo exemption below reaches only rows born in the
---      Demo.
---   3. W35, closed by EVIDENCE, not by the current state (security review of 22b1532807: approve, then a status flip
---      out of approved, then DELETE and INSERT again, would have passed a rule that judged only the current state).
---      payroll_run_headers.ever_final_at (new, NULL) is kept by payroll_run_headers_final_evidence (BEFORE INSERT OR
---      UPDATE, ENABLE ALWAYS, INVOKER): NULL on every INSERT but a trusted restore's (payroll_run_trusted_restore,
---      999x: it keeps what it writes); on every UPDATE, by any role, it keeps its old value, or takes the clock when
---      the old or the new row is FINAL (R-035 isPayRunFinal, payRunFinalSql: status approved or paid with approved_at
---      or approval_grandfathered_at). So every exit from final (reopen, a forged status flip, a cancel) leaves it set,
---      and no statement can clear it. Not backfilled: a row final today is stamped by the UPDATE that takes it out,
---      and the other evidence below covers rows that left final before this file.
+--      payroll_row_company_fixed; BEFORE UPDATE, ENABLE ALWAYS): a row's id and company never change, for every role
+--      but a SUPERUSER session (999n's exemption: a superuser can disable any trigger anyway). It binds the BYPASSRLS
+--      roles (platform_admin, migration_admin, production's postgres) that the policy does not. 999n froze a FINAL
+--      header's company but not its id; this covers every header: a reopened client header moved into the Demo
+--      (security review of 4bbded8c0b) would have met rule 3b's Demo exemption, and an approved header renamed to a
+--      new id (breaker B3 of fb88f3fd9d) left its old id free for a fresh row. So the Demo exemption reaches only rows
+--      born in the Demo, and an id once approved stays on its row.
+--   3. W35, closed by EVIDENCE, not by the current state (security review of 22b1532807).
+--      payroll_run_headers.approval_evidence_at (new) is kept by payroll_run_headers_approval_evidence (BEFORE INSERT
+--      OR UPDATE, ENABLE ALWAYS, INVOKER): NULL on every untrusted INSERT; on UPDATE it keeps its old value, or takes
+--      the clock when the old or the new row is FINAL (R-035 isPayRunFinal, payRunFinalSql: status approved or paid
+--      with approved_at or approval_grandfathered_at), so every exit from final (reopen, a forged status flip, a
+--      cancel) leaves it set; only a trusted identity (payroll_run_trusted_restore) may set it, and no statement
+--      clears it. Rows that left final before this file: a fail-closed backfill (breaker B5) stamps every
+--      row with any approval trace and every cancelled row (see the UPDATE). So every reopened row carries it too,
+--      and clearing reopened_at gains nothing (breaker B4).
 --      payroll_run_headers_final_no_delete (BEFORE DELETE, ENABLE ALWAYS, INVOKER), for every non-superuser:
 --        a. a FINAL header is not deleted, in every company (reopen or cancel it first);
---        b. outside the Demo company, a header with past-approval evidence is not deleted: ever_final_at,
+--        b. outside the Demo company, a header with past-approval evidence is not deleted: approval_evidence_at,
 --           reopened_at, approved_at or approval_grandfathered_at set, or a non-empty approval_history. The app has no
---           path that deletes such a run (payrollRunDelete takes never-calculated drafts; off-cycle cancel refuses a
---           run that was ever approved), and a never-approved draft or calculated run still deletes.
+--           path that deletes such a run (payrollRunDelete takes never-calculated drafts and judges the same evidence
+--           first, for a 409; off-cycle cancel refuses a run that was ever approved); a never-approved draft deletes.
+--      payroll_run_headers_no_truncate (BEFORE TRUNCATE, FOR EACH STATEMENT, ENABLE ALWAYS) refuses TRUNCATE to every
+--      non-superuser (breaker B2: a TRUNCATE fires no row trigger), and migration_admin loses TRUNCATE on the table.
 --      Exempt:
 --        * a SUPERUSER session (999n);
---        * a DELETE fired from inside another trigger (pg_trigger_depth() > 1), which is the ON DELETE CASCADE of a
---          company delete. Coordinator ruling (2026-11-25, option B; spec 4 RH and grill F6 said "refused"), as 999x's
---          history guard and 999n's line freeze already allow it: deleting a tenant removes its whole history. Census
---          (PR body): the only FK that cascades into payroll_run_headers is payroll_run_headers_company_id_fkey
---          (companies, ON DELETE CASCADE); the two gl_journal_entries FKs are NO ACTION / SET NULL; no function in
---          the database deletes headers; app_user holds only SELECT on companies, so no app session reaches it.
+--        * the ON DELETE CASCADE of a company delete: a DELETE nested in another trigger (pg_trigger_depth() > 1)
+--          whose company row no longer exists, read past RLS by payroll_company_row_exists (SECURITY DEFINER, owned
+--          by migration_admin, app_definer_reviews row). Nesting alone is not enough (breaker B1 of fb88f3fd9d: a
+--          role with TEMP fired a DELETE from a pg_temp trigger). Coordinator ruling (2026-11-25, option B; spec 4 RH
+--          and grill F6 said "refused"), as 999x's history guard and 999n's line freeze already allow it: deleting a
+--          tenant removes its whole history. Census (PR body): the only FK that cascades into payroll_run_headers is
+--          payroll_run_headers_company_id_fkey (companies, ON DELETE CASCADE); the two gl_journal_entries FKs are NO
+--          ACTION / SET NULL; app_user holds only SELECT on companies.
 --        * rule b only, the Demo company (a literal id: no GUC or role check, which the app pool could forge; 999n's
 --          reasoning). The Demo reseed runs as production's postgres, NOSUPERUSER, so it is bound: it reopens the
 --          Demo's final runs first (scripts/lib/demoReseed/payrollFinal.ts reopenFinalRuns), which satisfies rule a,
 --          and then deletes runs that carry evidence. This is exactly the exemption 999x's history guard already gives
---          the Demo for approval_history, so it reaches no row that was not deletable before; the Demo holds no real
---          money. Rule a still binds the Demo. With every header's company fixed (2 above), the exemption reaches only
---          rows created in the Demo. A role-based path for the reseed was rejected: the app pool can SET ROLE and
---          set_config('role', ...) inside a transaction, so a rule on the role is forgeable where a fixed company id is
---          not (999n, 999x); a SECURITY DEFINER wipe would need its own unforgeable caller test for the same reason.
+--          the Demo for approval_history; the Demo holds no real money. Rule a still binds the Demo. With every
+--          header's id and company fixed (2 above), the exemption reaches only rows created in the Demo. A role-based
+--          path for the reseed was rejected: the app pool can SET ROLE and set_config('role', ...) inside a
+--          transaction, so a rule on the role is forgeable where a fixed company id is not (999n, 999x).
+--      Not closed here (stated): the table's owner (postgres on production) can DISABLE TRIGGER; OWN (W7) moves
+--      ownership off the pool roles.
 --
 -- OLD COLOUR (the release before this one, against this schema). Writer census in the PR body:
 --   headers    the one app DELETE is payrollRunDelete (a never-calculated draft, by id and the request's company); every
@@ -71,19 +77,25 @@
 --   employees  every UPDATE names the request's company and none sets company_id; INSERT is the request's company.
 --   company    no header or employee writer, old or new, changes company_id (census in the PR body).
 --   reseed     the old colour's reseed also reopens before its wipe (999n), so it is not refused.
---   ever_final_at  the old colour never names it (no SELECT * that is written back); its header writes pass through
---              the evidence trigger, which keeps or stamps the column itself.
+--   approval_evidence_at  the old colour never names it (no SELECT * that is written back); its header writes pass
+--              through the evidence trigger, which keeps or stamps the column itself. It never TRUNCATEs headers and
+--              never changes a header's or employee's id.
 --   So it reads and writes the same rows as before.
 --
 -- LOCKS. DROP/CREATE POLICY take ACCESS EXCLUSIVE on each table for an instant; CREATE OR REPLACE TRIGGER and ENABLE
 -- ALWAYS take SHARE ROW EXCLUSIVE; ADD COLUMN (nullable, no default) is catalogue-only under ACCESS EXCLUSIVE for an
--- instant. All bounded by lock_timeout. No scan, no backfill.
+-- instant. All bounded by lock_timeout. One backfill UPDATE (row locks on the rows with an approval trace; payroll
+-- headers are a small table), bounded by statement_timeout.
 --
 -- Rollback (down SQL; code needs no rollback):
 --   DROP TRIGGER IF EXISTS payroll_run_headers_final_no_delete ON public.payroll_run_headers;
---   DROP TRIGGER IF EXISTS payroll_run_headers_final_evidence ON public.payroll_run_headers;
---   DROP FUNCTION IF EXISTS public.payroll_run_headers_final_evidence();
---   ALTER TABLE public.payroll_run_headers DROP COLUMN IF EXISTS ever_final_at;
+--   DROP TRIGGER IF EXISTS payroll_run_headers_approval_evidence ON public.payroll_run_headers;
+--   DROP TRIGGER IF EXISTS payroll_run_headers_no_truncate ON public.payroll_run_headers;
+--   DROP FUNCTION IF EXISTS public.payroll_run_headers_approval_evidence(), public.payroll_run_headers_no_truncate(),
+--     public.payroll_company_row_exists(uuid);
+--   DELETE FROM public.app_definer_reviews WHERE signature = 'payroll_company_row_exists(uuid)';
+--   GRANT TRUNCATE ON public.payroll_run_headers TO migration_admin;
+--   ALTER TABLE public.payroll_run_headers DROP COLUMN IF EXISTS approval_evidence_at;
 --   DROP TRIGGER IF EXISTS payroll_employees_company_fixed ON public.payroll_employees;
 --   DROP TRIGGER IF EXISTS payroll_run_headers_company_fixed ON public.payroll_run_headers;
 --   DROP FUNCTION IF EXISTS public.payroll_run_headers_final_no_delete(), public.payroll_row_company_fixed();
@@ -150,7 +162,7 @@ ALTER TABLE public.payroll_run_headers FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.payroll_employees ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.payroll_employees FORCE ROW LEVEL SECURITY;
 
--- ── 2. a row's company is fixed (employees and pay run headers) ──────────────────────────────────────────────────
+-- ── 2. a row's id and company are fixed (employees and pay run headers) ──────────────────────────────────────────
 
 CREATE OR REPLACE FUNCTION public.payroll_row_company_fixed() RETURNS trigger
 LANGUAGE plpgsql SECURITY INVOKER SET search_path = pg_catalog, public, pg_temp AS $$
@@ -158,8 +170,8 @@ BEGIN
   IF current_setting('is_superuser') = 'on' THEN
     RETURN NEW;
   END IF;
-  IF NEW.company_id IS DISTINCT FROM OLD.company_id THEN
-    RAISE EXCEPTION '%: a row''s company is fixed (create it in the other company instead)', TG_TABLE_NAME
+  IF NEW.company_id IS DISTINCT FROM OLD.company_id OR NEW.id IS DISTINCT FROM OLD.id THEN
+    RAISE EXCEPTION '%: a row''s id and company are fixed (create it in the other company instead)', TG_TABLE_NAME
       USING ERRCODE = '23514';
   END IF;
   RETURN NEW;
@@ -177,45 +189,97 @@ CREATE OR REPLACE TRIGGER payroll_run_headers_company_fixed
   FOR EACH ROW EXECUTE FUNCTION public.payroll_row_company_fixed();
 ALTER TABLE public.payroll_run_headers ENABLE ALWAYS TRIGGER payroll_run_headers_company_fixed;
 
--- ── 3. a header that was ever final is not deleted ─────────────────────────────────────────────────────────────
+-- ── 3. a header that was ever approved is not deleted ───────────────────────────────────────────────────────────
 
--- Evidence a run was once final, kept by the trigger below, never by the statement.
-ALTER TABLE public.payroll_run_headers ADD COLUMN IF NOT EXISTS ever_final_at TIMESTAMPTZ NULL;
-COMMENT ON COLUMN public.payroll_run_headers.ever_final_at IS
-  'Wave 7 RH (1054): when this run was first seen final (approved/paid with an approval stamp), by any UPDATE that enters or leaves that state. Written by payroll_run_headers_final_evidence only (a trusted restore keeps it); never cleared. A header with it set is not deleted.';
+ALTER TABLE public.payroll_run_headers ADD COLUMN IF NOT EXISTS approval_evidence_at TIMESTAMPTZ NULL;
+COMMENT ON COLUMN public.payroll_run_headers.approval_evidence_at IS
+  'Wave 7 RH (1054): when this run first carried evidence that it was, or may have been, approved. Set by payroll_run_headers_approval_evidence when an UPDATE enters or leaves final (approved/paid with an approval stamp); backfilled by 1054, fail closed, for every row with any trace of an approval and every cancelled row. Never cleared by a statement. A header with it set is not deleted (outside the Demo). It is NOT proof of approval: read approval_history and the stamps for that.';
 
-CREATE OR REPLACE FUNCTION public.payroll_run_headers_final_evidence() RETURNS trigger
+-- Fail-closed backfill (breaker B5 of fb88f3fd9d): a run that left final before 1054 has no approval_evidence_at. A
+-- row that carries any trace an approval leaves (the stamps, approved_by, lines_confirmed_at (718: stamped at approval,
+-- kept by reopen), reopened_at, a non-empty approval_history, off_cycle_payday_at (999x: frozen at the first
+-- approval), a journal link) or whose status is approved, paid or cancelled (a cancel from final could clear every
+-- other trace below the service) is stamped. Run as the migration role (the table's owner: a trusted identity for
+-- 999x's snapshot trigger, and the figures and stamps 999n freezes are not touched). Re-runs touch nothing.
+SET LOCAL statement_timeout = '120s';
+UPDATE public.payroll_run_headers
+   SET approval_evidence_at = COALESCE(approved_at, approval_grandfathered_at, reopened_at, lines_confirmed_at,
+                                       cancelled_at, updated_at, pg_catalog.now())
+ WHERE approval_evidence_at IS NULL
+   AND (status IN ('approved', 'paid', 'cancelled')
+        OR approved_at IS NOT NULL OR approval_grandfathered_at IS NOT NULL OR approved_by IS NOT NULL
+        OR lines_confirmed_at IS NOT NULL OR reopened_at IS NOT NULL OR off_cycle_payday_at IS NOT NULL
+        OR journal_entry_id IS NOT NULL OR posted_journal_entry_id IS NOT NULL
+        OR (approval_history IS NOT NULL AND NOT pg_catalog.isempty(approval_history)));
+
+-- The column is the trigger's: an untrusted INSERT starts with none; an UPDATE, by every role, keeps the old value,
+-- takes the clock when the old or the new row is final, and only a trusted identity (payroll_run_trusted_restore, 999x:
+-- a superuser, migration_admin or the owner: a restore, or this file's backfill on a re-run) may set it. No statement
+-- clears it (a superuser could only by disabling the trigger).
+CREATE OR REPLACE FUNCTION public.payroll_run_headers_approval_evidence() RETURNS trigger
 LANGUAGE plpgsql SECURITY INVOKER SET search_path = pg_catalog, public, pg_temp AS $$
 DECLARE
+  trusted boolean := public.payroll_run_trusted_restore(TG_RELID);
   was_final boolean;
   is_final boolean := COALESCE(NEW.status, '') IN ('approved', 'paid')
                       AND COALESCE(NEW.approved_at, NEW.approval_grandfathered_at) IS NOT NULL;
 BEGIN
   IF TG_OP = 'INSERT' THEN
-    -- A restore (trusted identity, 999x) keeps the value it writes; any other INSERT starts with none.
-    IF NOT public.payroll_run_trusted_restore(TG_RELID) THEN
-      NEW.ever_final_at := NULL;
+    IF NOT trusted THEN
+      NEW.approval_evidence_at := NULL;
     END IF;
     RETURN NEW;
   END IF;
   was_final := COALESCE(OLD.status, '') IN ('approved', 'paid')
                AND COALESCE(OLD.approved_at, OLD.approval_grandfathered_at) IS NOT NULL;
-  NEW.ever_final_at := COALESCE(OLD.ever_final_at,
+  NEW.approval_evidence_at := COALESCE(OLD.approval_evidence_at,
+    CASE WHEN trusted THEN NEW.approval_evidence_at END,
     CASE WHEN was_final OR is_final THEN pg_catalog.clock_timestamp() END);
   RETURN NEW;
 END
 $$;
 
-CREATE OR REPLACE TRIGGER payroll_run_headers_final_evidence
+CREATE OR REPLACE TRIGGER payroll_run_headers_approval_evidence
   BEFORE INSERT OR UPDATE ON public.payroll_run_headers
-  FOR EACH ROW EXECUTE FUNCTION public.payroll_run_headers_final_evidence();
-ALTER TABLE public.payroll_run_headers ENABLE ALWAYS TRIGGER payroll_run_headers_final_evidence;
+  FOR EACH ROW EXECUTE FUNCTION public.payroll_run_headers_approval_evidence();
+ALTER TABLE public.payroll_run_headers ENABLE ALWAYS TRIGGER payroll_run_headers_approval_evidence;
+
+-- Whether a company row still exists, read past RLS (breaker B1 of fb88f3fd9d): the DELETE rule below exempts a
+-- company delete's ON DELETE CASCADE, and a nested DELETE alone (pg_trigger_depth() > 1) is no proof of one: a role
+-- with TEMP can fire a DELETE from a pg_temp trigger. The cascade runs after its company row is gone; any other nested
+-- DELETE finds it still there. SECURITY DEFINER so a caller's RLS on companies cannot make a company look absent.
+CREATE OR REPLACE FUNCTION public.payroll_company_row_exists(p_company uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+  SELECT EXISTS (SELECT 1 FROM public.companies c WHERE c.id = p_company)
+$$;
+ALTER FUNCTION public.payroll_company_row_exists(uuid) OWNER TO migration_admin;
+REVOKE ALL ON FUNCTION public.payroll_company_row_exists(uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.payroll_company_row_exists(uuid) TO app_user, platform_admin, migration_admin, postgres;
+
+INSERT INTO public.app_definer_reviews (signature, writes, body_md5)
+SELECT 'payroll_company_row_exists(uuid)',
+       'none: reads whether one companies row exists, by id, past RLS, for the 1054 header DELETE rule (a nested DELETE is exempt only once its company row is gone: the ON DELETE CASCADE of a company delete); answers a boolean, names nothing; EXECUTE to the header deleters only',
+       public.app_definer_hash('public.payroll_company_row_exists(uuid)'::regprocedure)
+ON CONFLICT (signature) DO UPDATE SET writes = EXCLUDED.writes, body_md5 = EXCLUDED.body_md5;
 
 CREATE OR REPLACE FUNCTION public.payroll_run_headers_final_no_delete() RETURNS trigger
 LANGUAGE plpgsql SECURITY INVOKER SET search_path = pg_catalog, public, pg_temp AS $$
 BEGIN
-  IF current_setting('is_superuser') = 'on' OR pg_catalog.pg_trigger_depth() > 1 THEN
+  IF current_setting('is_superuser') = 'on' THEN
     RETURN OLD;
+  END IF;
+  -- A company delete's cascade: nested, and its company row already gone. Any trigger added later that deletes
+  -- headers is bound like a direct DELETE (breaker G3), so the census in the 1054 header stays true by construction.
+  -- Nested IFs: SQL does not promise to evaluate AND left to right, and the helper is called only when nested.
+  IF pg_catalog.pg_trigger_depth() > 1 THEN
+    IF NOT public.payroll_company_row_exists(OLD.company_id) THEN
+      RETURN OLD;
+    END IF;
   END IF;
   IF COALESCE(OLD.status, '') IN ('approved', 'paid')
      AND COALESCE(OLD.approved_at, OLD.approval_grandfathered_at) IS NOT NULL THEN
@@ -223,7 +287,7 @@ BEGIN
       USING ERRCODE = '23514';
   END IF;
   IF OLD.company_id IS DISTINCT FROM '00000000-0000-0000-0000-000000000001'::uuid
-     AND (OLD.ever_final_at IS NOT NULL OR OLD.reopened_at IS NOT NULL
+     AND (OLD.approval_evidence_at IS NOT NULL OR OLD.reopened_at IS NOT NULL
           OR OLD.approved_at IS NOT NULL OR OLD.approval_grandfathered_at IS NOT NULL
           OR (OLD.approval_history IS NOT NULL AND NOT pg_catalog.isempty(OLD.approval_history))) THEN
     RAISE EXCEPTION 'payroll_run_headers: a pay run that was approved before is not deleted; cancel it instead'
@@ -237,6 +301,24 @@ CREATE OR REPLACE TRIGGER payroll_run_headers_final_no_delete
   BEFORE DELETE ON public.payroll_run_headers
   FOR EACH ROW EXECUTE FUNCTION public.payroll_run_headers_final_no_delete();
 ALTER TABLE public.payroll_run_headers ENABLE ALWAYS TRIGGER payroll_run_headers_final_no_delete;
+
+-- TRUNCATE fires no row trigger (breaker B2 of fb88f3fd9d): refuse it for every non-superuser, also when it arrives
+-- through TRUNCATE companies CASCADE; and migration_admin, which held TRUNCATE without needing it, loses it.
+CREATE OR REPLACE FUNCTION public.payroll_run_headers_no_truncate() RETURNS trigger
+LANGUAGE plpgsql SECURITY INVOKER SET search_path = pg_catalog, public, pg_temp AS $$
+BEGIN
+  IF current_setting('is_superuser') = 'on' THEN
+    RETURN NULL;
+  END IF;
+  RAISE EXCEPTION 'payroll_run_headers: pay runs are not truncated' USING ERRCODE = '23514';
+END
+$$;
+
+CREATE OR REPLACE TRIGGER payroll_run_headers_no_truncate
+  BEFORE TRUNCATE ON public.payroll_run_headers
+  FOR EACH STATEMENT EXECUTE FUNCTION public.payroll_run_headers_no_truncate();
+ALTER TABLE public.payroll_run_headers ENABLE ALWAYS TRIGGER payroll_run_headers_no_truncate;
+REVOKE TRUNCATE ON public.payroll_run_headers FROM migration_admin;
 
 SELECT public.app_service_sync_policies();
 
