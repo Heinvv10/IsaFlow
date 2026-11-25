@@ -31,7 +31,7 @@ beforeEach(async () => {
 
 const ASK = 'SELECT public.intercompany_in_one_group($1, $2) AS ok, pg_sleep(0)';
 const SEND = `INSERT INTO intercompany_messages(connection_id, from_company_id, to_company_id, kind, source_doc_type, source_doc_id, payload)
-              VALUES ($1, $2, $3, 'payment', 'payment', gen_random_uuid(), '{}')`;
+              VALUES ($1, $2, $3, 'reject', 'payment', gen_random_uuid(), '{}')`;
 
 /** The companies whose lock row is HELD right now by some open transaction (a FOR UPDATE NOWAIT on the row fails), sorted. */
 async function held(): Promise<string[]> {

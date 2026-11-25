@@ -14,6 +14,7 @@ import { ConnectionRefusal } from './connectionTypes';
 import { loadInboxRow } from './inboxRead';
 import { loadAllocationRow } from './allocationInbox';
 import { mayApprove } from '../core/approvePermission';
+import { loanClearingEnabled } from './loanClearingGate';
 
 // checkReason lives in inboxValidation (pure, no database import); re-exported so existing callers keep working.
 export { checkReason } from './inboxValidation';
@@ -86,6 +87,48 @@ export function restoreAllocation(companyId: string, messageId: string): Promise
     UPDATE intercompany_messages SET status = 'pending'
      WHERE id = ${messageId}::UUID AND to_company_id = ${companyId}::UUID AND kind = 'allocation' AND status = 'dismissed' RETURNING id
   `) as Row[], 'restored', loadAllocationRow);
+}
+
+/** One payment message of this company, raw (id, status), or null: what reject / dismiss / restore of a payment message check first. */
+async function loadPaymentRow(companyId: string, messageId: string): Promise<Row | null> {
+  const rows = (await sql`
+    SELECT id, status FROM intercompany_messages WHERE id = ${messageId}::UUID AND to_company_id = ${companyId}::UUID AND kind = 'payment'
+  `) as Row[];
+  return rows[0] ?? null;
+}
+
+/**
+ * A payment message (F): rejected, dismissed or restored as an allocation message is. AUTHORIZATION lives HERE, not in the route: rejecting
+ * is FINAL, so it needs the receiver's dark flag `intercompany_loan_clearing` (round 1 LOW-4: 403 before anything) and Approve on Customers &
+ * AR (`mayApprove`, 403 before anything is read or written); the route adds withAuth, CSRF, the write role (withWriteAccess) and no Login-as.
+ * Dismiss and restore are reversible and touch only the message's status, so they stay allowed with the flag off (a receiver can still tidy
+ * the list); they need the write role (withWriteAccess on the route, and the database guard 1002 for every role).
+ */
+export async function rejectPayment(companyId: string, userId: string, messageId: string, reason: string): Promise<void> {
+  if (!(await loanClearingEnabled(companyId))) {
+    throw new ConnectionRefusal(403, 'Intercompany payment messages are not enabled for this company.');
+  }
+  if (!(await mayApprove(companyId, userId, 'customers'))) {
+    throw new ConnectionRefusal(403, 'You need Approve on Customers & AR to reject a payment from your group. An owner or admin can grant it in User Access.');
+  }
+  return move(companyId, messageId, ['pending'], async () => (await sql`
+    UPDATE intercompany_messages SET status = 'rejected', reason = ${reason}
+     WHERE id = ${messageId}::UUID AND to_company_id = ${companyId}::UUID AND kind = 'payment' AND status = 'pending' RETURNING id
+  `) as Row[], 'rejected', loadPaymentRow);
+}
+
+export function dismissPayment(companyId: string, messageId: string): Promise<void> {
+  return move(companyId, messageId, ['pending'], async () => (await sql`
+    UPDATE intercompany_messages SET status = 'dismissed'
+     WHERE id = ${messageId}::UUID AND to_company_id = ${companyId}::UUID AND kind = 'payment' AND status = 'pending' RETURNING id
+  `) as Row[], 'dismissed', loadPaymentRow);
+}
+
+export function restorePayment(companyId: string, messageId: string): Promise<void> {
+  return move(companyId, messageId, ['dismissed'], async () => (await sql`
+    UPDATE intercompany_messages SET status = 'pending'
+     WHERE id = ${messageId}::UUID AND to_company_id = ${companyId}::UUID AND kind = 'payment' AND status = 'dismissed' RETURNING id
+  `) as Row[], 'restored', loadPaymentRow);
 }
 
 export function restoreMessage(companyId: string, messageId: string): Promise<void> {

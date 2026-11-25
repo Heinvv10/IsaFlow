@@ -76,6 +76,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
         ON LOWER(c.email) = LOWER(el.recipient_email)
        AND c.company_id = ${companyId}
       WHERE el.company_id = ${companyId}
+        AND el.email_type <> 'welcome' -- IsaFlow's own mail to the owner, not to a customer
         AND (${customerIdVal}::UUID IS NULL OR c.id = ${customerIdVal}::UUID)
         AND (${fromVal}::DATE IS NULL   OR el.sent_at::DATE >= ${fromVal}::DATE)
         AND (${toVal}::DATE IS NULL     OR el.sent_at::DATE <= ${toVal}::DATE)
@@ -91,6 +92,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
         ON LOWER(c.email) = LOWER(el.recipient_email)
        AND c.company_id = ${companyId}
       WHERE el.company_id = ${companyId}
+        AND el.email_type <> 'welcome' -- IsaFlow's own mail to the owner, not to a customer
         AND (${customerIdVal}::UUID IS NULL OR c.id = ${customerIdVal}::UUID)
         AND (${fromVal}::DATE IS NULL   OR el.sent_at::DATE >= ${fromVal}::DATE)
         AND (${toVal}::DATE IS NULL     OR el.sent_at::DATE <= ${toVal}::DATE)

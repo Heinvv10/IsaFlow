@@ -59,6 +59,8 @@ export const BRAND = {
   textBody: '#1e293b',
   textSecondary: '#64748b',
   textMuted: '#94a3b8',
+  // Footer text on footerBg: #475569 on #f8fafc is about 7.2:1 (WCAG AA needs 4.5:1).
+  footerText: '#475569',
   fontStack: 'Arial, Helvetica, sans-serif',
 } as const;
 
@@ -93,17 +95,11 @@ export function emailLayout(content: string): string {
       <td style="background-color:${BRAND.footerBg}; padding:20px 32px; border-top:1px solid ${BRAND.borderColor};">
         <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation">
           <tr>
-            <td style="font-family:${BRAND.fontStack}; font-size:12px; color:${BRAND.textMuted}; line-height:1.5;">
-              IsaFlow &#8212; South African Cloud Accounting<br>
-              This is an automated email. Please do not reply directly.
+            <td style="font-family:${BRAND.fontStack}; font-size:12px; color:${BRAND.footerText}; line-height:1.5;">
+              IsaFlow, South African cloud accounting.
             </td>
-            <td align="right" style="font-family:${BRAND.fontStack}; font-size:12px; color:${BRAND.textMuted};">
+            <td align="right" style="font-family:${BRAND.fontStack}; font-size:12px; color:${BRAND.footerText};">
               <a href="${BRAND.appUrl}" style="color:${BRAND.primaryTeal}; text-decoration:none;">app.isaflow.co.za</a>
-            </td>
-          </tr>
-          <tr>
-            <td colspan="2" style="padding-top:12px; font-family:${BRAND.fontStack}; font-size:11px; color:${BRAND.textMuted};">
-              <a href="${BRAND.appUrl}/preferences" style="color:${BRAND.textMuted}; text-decoration:underline;">Manage email preferences</a>
             </td>
           </tr>
         </table>

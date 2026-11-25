@@ -67,7 +67,7 @@ describe('1002 over duplicate data: it refuses, naming the rows, and changes not
 
   it('two accepted messages that name one document of one company', async () => {
     const id = await plantConnection(pool, co.A, co.B);
-    const [m1, m2] = [await plantMessage(pool, id, co.A, co.B, { kind: 'payment' }), await plantMessage(pool, id, co.A, co.B, { kind: 'payment' })];
+    const [m1, m2] = [await plantMessage(pool, id, co.A, co.B, { kind: 'reject' }), await plantMessage(pool, id, co.A, co.B, { kind: 'reject' })];
     const tgt = crypto.randomUUID();
     const message = await applyOver(async (c) => {
       await c.query('DROP INDEX public.intercompany_messages_target_uq');
