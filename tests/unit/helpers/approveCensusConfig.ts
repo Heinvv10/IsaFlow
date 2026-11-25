@@ -25,6 +25,8 @@ export const SINK_MODULES: Readonly<Record<string, string>> = {
   processBatch: 'suppliers', reverseBatch: 'suppliers', approveCreditNote: '*', cancelCreditNote: '*', approveClaim: 'suppliers',
   postClaimToGl: 'suppliers', postReceiptAsPettyCashJournal: 'suppliers', runCapturePostFollowUps: 'suppliers',
   attachEvidenceAndSettleApproved: 'suppliers',
+  // a supplier merge moving the source's purchase orders (and with them its posted documents; ruling 2026-11-25): both merge paths
+  movePurchaseOrders: 'suppliers',
   // AR
   approveCustomerInvoice: 'customers', cancelCustomerInvoice: 'customers', postCustomerInvoiceToGL: 'customers',
   confirmCustomerPayment: 'customers', cancelCustomerPayment: 'customers', runRecurringInvoice: 'customers', approveWriteOff: 'customers',
@@ -157,6 +159,8 @@ export const GATES: Readonly<Record<string, GateSpec>> = {
   mayApproveSupplierInvoices: { kind: 'allow', module: 'suppliers' },
   assertMayApprove: { kind: 'assert', moduleArg: 2 },
   assertMayApproveCreditNote: { kind: 'assert', module: '*' },
+  // a supplier merge: refuses posted documents without Suppliers Approve (core/supplierMergePosted), under the merge's locks
+  assertMayMergePostedSupplierDocuments: { kind: 'assert', module: 'suppliers' },
   // an invoice delete / undo asks the invoice's own module (customers or suppliers) from its entity type
   mayApproveInvoiceDelete: { kind: 'allow', module: '*' },
 };

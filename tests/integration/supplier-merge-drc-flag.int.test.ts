@@ -13,7 +13,7 @@ import {
   SupplierMergeRefusal, assertSupplierMergeKeepsDrcFlag, mergeEntities,
 } from '@/modules/accounting/services/core/duplicateMergeService';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
-import { dropFixture, inTx, runOn, seedBill, seedFixture, seedSupplier, type Fixture } from './helpers/l1FifoFixture';
+import { dropFixture, dropFixtureMember, inTx, runOn, seedBill, seedFixture, seedFixtureMember, seedSupplier, type Fixture } from './helpers/l1FifoFixture';
 import { updateSupplier } from '@/modules/accounting/services/core/supplierWriteService';
 
 const DATABASE_URL = process.env.DATABASE_URL;
@@ -46,9 +46,11 @@ describeIfDb('supplier merge — DRC flags must agree', () => {
     plain2 = await seedSupplier(fx, 'Plain two');
     await sql`UPDATE suppliers SET subject_to_drc_vat = true WHERE id = ${flagged}::UUID`;
     await seedBill(fx, { number: 'SMD-1', date: '2026-05-01', total: 100, supplierId: plain });
+    // A member, as every real request's user is: a merge moving posted documents asks the merger's Suppliers Approve (ruling 2026-11-25).
+    await seedFixtureMember(fx);
   }, 120000);
 
-  afterAll(async () => { for (const f of [fx, other]) await dropFixture(f); }, 120000);
+  afterAll(async () => { await dropFixtureMember(fx); for (const f of [fx, other]) await dropFixture(f); }, 120000);
 
   it('refuses in either direction, naming the flag, and moves nothing', async () => {
     for (const [primary, dup] of [[flagged, plain], [plain, flagged]]) {
