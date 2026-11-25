@@ -191,7 +191,6 @@ async function runLocked(pool: Pool, parsed: ParsedExport, opts: MigrationOption
     const after = await readAfter();
     const purchaseOrders = livePos.skipped ? livePos : verified(livePos, all.purchaseOrders, after);
     const failed = categoriesVerified.failed + items.failed + purchaseOrders.failed;
-    const phaseSkipped = categoriesVerified.failed > 0 || items.failed > 0;
     // The dry run's findings count too: a live item batch that wrote nothing must not hide a change the dry run named.
     const differences = withContentDifferences(differencesFrom([...dry.categories.batches, ...dry.items.batches, ...dry.purchaseOrders.batches, ...categoriesVerified.batches, ...items.batches, ...purchaseOrders.batches]), contentDifferences);
     return {
@@ -199,7 +198,7 @@ async function runLocked(pool: Pool, parsed: ParsedExport, opts: MigrationOption
       budgetWouldHaveFailed: skipped(purchaseOrders.batches.length > 0 ? purchaseOrders : dry.purchaseOrders),
       differences,
       reconciliation: buildReconciliation({
-        parsed, plan, before, after, failedBatches: failed + (phaseSkipped ? 1 : 0), expect: opts.expect, live: true,
+        parsed, plan, before, after, failedBatches: failed, expect: opts.expect, live: true,
         // Only when the person allowed differences: otherwise a PO booked with another total keeps the run from being complete.
         differingRefs: opts.allowDifferences ? new Set(differences.purchaseOrders.flatMap((d) => before.poNumbers.get(d.poNumber)?.ref ?? [])) : undefined,
       }),

@@ -12,7 +12,7 @@ interface Input {
   plan: MigrationPlan;
   before: Snapshot;
   after: Snapshot;
-  /** Batches that failed, plus one when a failed phase kept the next from starting. */
+  /** Batches that failed (a phase skipped behind a failed one adds none: its failed batch already counts). */
   failedBatches: number;
   expect: MigrationOptions['expect'];
   live: boolean;
