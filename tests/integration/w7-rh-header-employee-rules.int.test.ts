@@ -199,6 +199,21 @@ describe('W35: a final header is not deleted', () => {
     });
     expect(await exists(h)).toBe(true);
   });
+  it.each([
+    ['reopened_at set', "reopened_at = now()"], ['a cancelled run that kept its approved_at', "status = 'cancelled', approved_at = now()"],
+    ['a stamp-only grandfathered run', "approval_grandfathered_at = now()"],
+  ])('a row that left final before 1054 (no ever_final_at), %s: refused', async (_what, set) => {
+    const h = await header(A, 'calculated', null, 5);
+    try {
+      await su.query(`UPDATE payroll_run_headers SET ${set} WHERE id = $1`, [h]);
+      expect((await one('SELECT ever_final_at FROM payroll_run_headers WHERE id = $1', [h])).ever_final_at).toBeNull();
+      await as(owner, async (c) => {
+        await expect(c.query('DELETE FROM payroll_run_headers WHERE id = $1', [h])).rejects.toThrow(EVIDENCE_REFUSED);
+      });
+    } finally {
+      await su.query('DELETE FROM payroll_run_headers WHERE id = $1', [h]);
+    }
+  });
   it('a draft, and an approved run with no approval stamp (never final), still delete', async () => {
     const d = await header(A, 'draft', null, 7);
     const unstamped = await header(A, 'approved', null, 8);
