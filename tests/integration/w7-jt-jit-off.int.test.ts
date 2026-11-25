@@ -21,7 +21,8 @@ const uuid = () => crypto.randomUUID();
 const [company, other, bank, user, tx] = [uuid(), uuid(), uuid(), uuid(), uuid()];
 
 type Query = (text: string, values?: unknown[]) => Promise<{ rows: Record<string, unknown>[] }>;
-const SETTING_READS = /set_config|current_setting/;
+// Only withJitOff's own two statements are skipped (read the setting, put it back); anything else is a data statement.
+const SETTING_READS = /^\s*SELECT (current_setting\('jit'\) AS jit\s*$|set_config\('jit', )/;
 
 /** Run `fn` the way a withAuth request does, with JIT forced on at zero cost; report the jit each data statement saw. */
 async function underForcedJit<T>(fn: () => Promise<T>) {

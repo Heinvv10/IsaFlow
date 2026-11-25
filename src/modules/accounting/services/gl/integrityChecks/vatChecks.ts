@@ -144,12 +144,16 @@ export async function testRecordsInProduction(ctx: IntegrityCheckContext): Promi
     WHERE s.company_id = ${ctx.companyId}::UUID AND s.name ~* ${TEST_NAME_PATTERN}
   `;
   // JIT off (withJitOff): the per-name rewound subqueries put the plan far past jit_above_cost (W8).
-  const [totals, rows] = await withJitOff(async () => [(await sql`
+  const [totals, rows] = await withJitOff(async () => {
+    const totalsRead = (await sql`
     SELECT COUNT(*)::INT AS count, COALESCE(SUM(ABS(c.amount)), 0) AS amount FROM (${candidates}) c
-  `) as DbRow[], (await sql`
+  `) as DbRow[];
+    const rowsRead = (await sql`
     SELECT c.id, c.name AS label, c.amount, c.kind || ' record with a test-looking name' AS detail
     FROM (${candidates}) c ORDER BY ABS(c.amount) DESC, c.name LIMIT ${ctx.limit}
-  `) as DbRow[]]);
+  `) as DbRow[];
+    return [totalsRead, rowsRead] as const;
+  });
 
   return {
     id: 'test_records_in_production',
