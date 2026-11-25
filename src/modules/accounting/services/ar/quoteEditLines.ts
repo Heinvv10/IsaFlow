@@ -32,7 +32,7 @@ import type { Quote } from './quoteService';
 
 /** A stored line as getQuote maps it. */
 export interface StoredQuoteVatLine {
-  id: string; description: string; quantity: number; unitPrice: number; taxRate: number; itemId?: string | null;
+  id: string; description: string; quantity: number; unitPrice: number; taxRate: number; itemId?: string | null; accountId?: string | null;
   /** The line's NET. */
   amount: number;
   taxAmount: number | null; vatType: string | null;
@@ -46,7 +46,7 @@ export function storedQuoteOf(q: Pick<Quote, 'subtotal' | 'taxAmount' | 'total' 
   return {
     subtotal: q.subtotal, tax: q.taxAmount, total: q.total, taxRate: q.taxRate,
     lines: (q.lines ?? []).map((l) => ({
-      id: l.id, description: l.description, quantity: l.quantity, unitPrice: l.unitPrice, taxRate: l.taxRate, amount: l.lineTotal, itemId: l.itemId,
+      id: l.id, description: l.description, quantity: l.quantity, unitPrice: l.unitPrice, taxRate: l.taxRate, amount: l.lineTotal, itemId: l.itemId, accountId: l.accountId,
       taxAmount: l.taxAmount, vatType: l.vatType,
     })),
   };
@@ -90,6 +90,12 @@ const key = (l: { description: string; quantity: unknown; unitPrice: unknown }) 
  */
 const itemChanged = (l: SentQuoteLine, s: StoredQuoteVatLine) => l.itemId !== undefined && itemOf(l) !== (s.itemId ? s.itemId.toLowerCase() : null);
 const identical = (l: SentQuoteLine, s: StoredQuoteVatLine) => key(l) === key(s) && !itemChanged(l, s);
+/**
+ * As identical, for the positional resend of a typed quote (round 6 decision): an item ADDED where the stored line had
+ * none is no change there (the line's type is kept anyway); an item changed or removed still is. The legacy
+ * "unchanged" decision uses identical, where an added item is a change (the line is re-priced).
+ */
+const identicalInPlace = (l: SentQuoteLine, s: StoredQuoteVatLine) => key(l) === key(s) && !(itemChanged(l, s) && !!s.itemId);
 const sameDescription = (l: SentQuoteLine, s: StoredQuoteVatLine) => descOf(l.description) === descOf(s.description) && !itemsDiffer(l, s);
 
 /** See the header: the same count, every line of a compatible rate, identical in its place but at most one changed in place. */
@@ -97,7 +103,7 @@ function positionalResend(sent: readonly SentQuoteLine[], stored: readonly Store
   if (sent.length !== stored.length) return false;
   if (sent.some((l, i) => idOf(l.id) !== null && idOf(l.id) !== idOf(stored[i]!.id))) return false;
   if (sent.some((l, i) => !compatible(l, stored[i]!))) return false;
-  const changed = sent.flatMap((l, i) => (idOf(l.id) === null && !identical(l, stored[i]!) ? [i] : []));
+  const changed = sent.flatMap((l, i) => (idOf(l.id) === null && !identicalInPlace(l, stored[i]!) ? [i] : []));
   // The one change keeps its description or its item; both changed is another line, never this place's type.
   if (changed.length === 0) return true;
   const [c] = changed;

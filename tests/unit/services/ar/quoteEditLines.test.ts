@@ -166,6 +166,25 @@ describe('round 6 LOW 1: an item added, changed or removed is a change, never "u
   });
 });
 
+describe('round 7: an item added on a typed quote\'s positional resend is no change; changed or removed still is', () => {
+  const plain = [stored('s', { description: 'Hosting' }), stored('e', { description: 'Rent', ...EX })];
+  it('items added to both lines (none stored): still a positional resend, types kept', () => {
+    expect(run([line({ description: 'Hosting', itemId: A }), line({ description: 'Rent', itemId: B })], plain))
+      .toEqual({ ids: ['s', 'e'], kept: ['standard', 'exempt'], refused: null });
+  });
+  it('both stored items changed, or both removed: two changes, refused', () => {
+    const withItems = [stored('s', { description: 'Hosting', itemId: A }), stored('e', { description: 'Rent', itemId: A, ...EX })];
+    expect(run([line({ description: 'Hosting', itemId: B }), line({ description: 'Rent', itemId: B })], withItems).refused).toMatch(REFUSED);
+    expect(run([line({ description: 'Hosting', itemId: null as unknown as string }), line({ description: 'Rent', itemId: '' })], withItems).refused).toMatch(REFUSED);
+  });
+  it('on the legacy "unchanged" decision an added item IS a change, and a stored upper-case item id sent lower-case is not', () => {
+    const legacy = (o: Partial<StoredQuoteVatLine>) => stored('a', { description: 'Svc', vatType: null, taxAmount: null, taxRate: 15, ...o });
+    const unchanged = (sent: SentQuoteLine[], st: StoredQuoteVatLine[]) => legacyLinesUnchanged(sent, st, matchQuoteLines(sent, st, D).matches, undefined);
+    expect(unchanged([line({ description: 'Svc', itemId: A })], [legacy({})])).toBe(false);
+    expect(unchanged([line({ description: 'Svc', itemId: A })], [legacy({ itemId: A.toUpperCase() })])).toBe(true);
+  });
+});
+
 describe('a quote of standard lines only: content passes, no refusal (nothing to mistype)', () => {
   const hosting = stored('h', { description: 'Hosting' });
   it('matches identical, then same description, then same item, anywhere; a new line has no match', () => {
