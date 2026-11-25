@@ -1,8 +1,8 @@
 /**
  * The New Quote modal and per-line VAT (migration 1024): each line has a VAT type (Standard / Zero-rated / Exempt, the
  * invoice form's picker), the customer's default types a line with none of its own, the totals under the lines carry
- * one VAT row per type, priced per line as the server stores it, and the body sends each line's vatType with the price
- * as entered and amountsAre, never a legacy taxRate. A company not registered for VAT gets no VAT column, no "Amounts
+ * one VAT row per type, priced per line as the server stores it, and the body sends each line's vatType with the ex-VAT
+ * price (an Including VAT quote is stored ex-VAT, as it always was), never a legacy taxRate. A company not registered for VAT gets no VAT column, no "Amounts
  * are" and untyped lines. A quote date is required (M1), and a picked type survives a customer change (M2). Real page;
  * only the network is scripted.
  */
@@ -118,6 +118,17 @@ it('Including VAT sends the ex-VAT price (as this modal always did); the total s
   create();
   const body = await sent();
   expect([body.amountsAre, body.lines[0]!.unitPrice, body.lines[0]!.vatType]).toEqual(['exclusive', 200, 'standard']);
+});
+
+it('Including VAT shows the totals it stores: R10 incl is 8.70 + 1.31 = 10.01, not the typed 10.00', async () => {
+  renderPage('bi-monthly');
+  await openAndFill('100');
+  await pickOption('Amounts are', /Including VAT/);
+  fireEvent.change(screen.getByLabelText('Unit price, line 1'), { target: { value: '10' } });
+  expect([figure('Subtotal'), figure('VAT (15%)'), figure('Total')].map((t) => t.replace(/[^\d.]/g, ''))).toEqual(['8.70', '1.31', '10.01']);
+  expect(within(dialog()).getAllByText(/8\.70/).length).toBeGreaterThan(1); // the line's Total cell too
+  create();
+  expect((await sent()).lines[0]!.unitPrice).toBe(8.7);
 });
 
 it('a company not registered for VAT: no VAT column or "Amounts are", untyped lines, exclusive', async () => {

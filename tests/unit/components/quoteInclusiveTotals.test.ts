@@ -3,7 +3,7 @@
  * (exVatUnitPrice) priced at one rate; it now sends the same ex-VAT price with per-line types. This replays the OLD
  * computation (quoteVat.ts, deleted: unit = exVatUnitPrice(typed), total = previewTotals at the rate) against what the
  * server prices from the body the modal now sends (the shared previewInvoiceVat), for a one-line quote over a grid of
- * quantities and VAT-inclusive prices, and against what the modal SHOWS for the same lines (formTotals over storedForm).
+ * quantities and VAT-inclusive prices (ONE line: VAT is rounded per line now, so several lines can differ by cents), and against what the modal SHOWS for the same lines (formTotals over storedForm).
  */
 import { describe, expect, it } from 'vitest';
 import { quoteBody, storedForm, type QuoteFormLine } from '@/components/accounting/customer-quotes/quoteFormVat';
@@ -26,7 +26,8 @@ describe('an Including VAT quote\'s total', () => {
       it(`${qty} x R${typed} incl: stored total = the old total = the total shown`, () => {
         const lines: QuoteFormLine[] = [{ key: 'k', description: 'W', quantity: qty, unitPrice: typed, vatType: 'standard' }];
         const built = quoteBody(form, lines, 'inclusive', ['standard']);
-        if ('problem' in built) return; // a hold (VAT rounds to nothing) is no quote at all
+        expect(built).toHaveProperty('body'); // none of the grid is held
+        if ('problem' in built) return;
         const sent = built.body;
         const server = previewInvoiceVat(sent.lines.map((l) => ({ quantity: l.quantity, unitPrice: l.unitPrice, discount: 0 })), ['standard'], DATE, sent.amountsAre);
         const old = oldTotals(qty, typed);
@@ -37,10 +38,23 @@ describe('an Including VAT quote\'s total', () => {
     }
   }
 
-  it('an exempt line is priced as typed, no VAT', () => {
-    const lines: QuoteFormLine[] = [{ key: 'k', description: 'R', quantity: 2, unitPrice: 57.5, vatType: 'exempt' }];
-    const built = quoteBody(form, lines, 'inclusive', ['exempt']);
-    expect('body' in built && built.body.lines[0]!.unitPrice).toBe(57.5);
-    expect(formTotals(lines, ['exempt'], 'inclusive', DATE)).toMatchObject({ tax: 0, total: 115 });
+  for (const type of ['exempt', 'zero_rated'] as const) {
+    it(`a ${type} line is priced as typed, no VAT, in the body and as shown`, () => {
+      const lines: QuoteFormLine[] = [{ key: 'k', description: 'R', quantity: 2, unitPrice: 57.5, vatType: type }];
+      const built = quoteBody(form, lines, 'inclusive', [type]);
+      expect('body' in built && built.body.lines[0]!.unitPrice).toBe(57.5);
+      const stored = storedForm(lines, [type], 'inclusive', DATE);
+      expect(formTotals(stored.lines, [type], stored.mode, DATE)).toMatchObject({ tax: 0, total: 115 });
+    });
+  }
+
+  it('an untyped line is left as typed', () => {
+    const lines: QuoteFormLine[] = [{ key: 'k', description: 'R', quantity: 1, unitPrice: 10 }];
+    expect(storedForm(lines, [null], 'inclusive', DATE).lines[0]!.unitPrice).toBe(10);
+  });
+
+  it('a price whose ex-VAT price carries no VAT is held on the converted price (1 x R0.04 incl)', () => {
+    const built = quoteBody(form, [{ key: 'k', description: 'W', quantity: 1, unitPrice: 0.04, vatType: 'standard' }], 'inclusive', ['standard']);
+    expect(built).toHaveProperty('problem');
   });
 });

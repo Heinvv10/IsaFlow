@@ -6,8 +6,9 @@
  *   - each line carries its OWN VAT type (standard, zero_rated, exempt), picked in the VAT column, or none of its own
  *     (`vatType` absent): the customer's default chain at render (formVat.lineVatType), so it follows the customer;
  *   - an "Including VAT" quote is sent EX-VAT, as this modal always did (storedForm): each rated line's typed price is
- *     converted at its own rate (exVatUnitPrice) and sent with `amountsAre` exclusive, so a quote's stored total is what
- *     it was before per-line VAT, and the modal shows that same total (it does not move on save);
+ *     converted at its own rate (exVatUnitPrice) and sent with `amountsAre` exclusive, so a one-line quote's stored total is
+ *     what it was before per-line VAT (VAT is now rounded on each line, so a quote of several lines can differ by cents,
+ *     as an exclusive one does), and the modal shows the total it stores (it does not move on save);
  *   - every line sent names its `vatType` and no legacy `taxRate`, so the server never reads a type off a rate (the
  *     modal only creates: quotes have no edit screen, so no line carries a stored id);
  *   - a company not registered for VAT ('none') sends untyped lines and 'exclusive': the server stores no VAT for it.
