@@ -17,9 +17,9 @@ import {
   deliveriesOf, mergeOutcomes, notYetAttempted, outcomeOf, shouldContinue, stateOf, type Delivery, type EmailOutcome, type EmailState,
 } from './payslipEmailPayloads';
 
-/** Spec §0a.18 and review #1542 S7: said plainly, on the card and in the confirmation. */
-export const WEAK_PROTECTION = 'Each PDF is protected with the employee\'s ID number, or passport number. This protection is weak '
-  + '(40-bit RC4): anyone who knows the employee\'s ID number or date of birth can open it. It only keeps a payslip from a casual reader.';
+/** Spec §0a.18 and review #1542 S7: said plainly, on the card and in the confirmation (wave 7 PX: AES-256, W15). */
+export const WEAK_PROTECTION = 'Each PDF is encrypted with AES-256, with the employee\'s ID number, or passport number, as the password. '
+  + 'The password is the weak part: anyone who knows the employee\'s ID or passport number can open it.';
 const SKIP_LABEL: Record<string, string> = {
   NO_EMAIL: 'no email address on file', NO_ID_OR_PASSPORT: 'no ID or passport number to protect the PDF with',
   ALREADY_SENT: 'already sent (or may have been) for this approval',

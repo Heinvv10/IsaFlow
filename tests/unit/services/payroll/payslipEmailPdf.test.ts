@@ -1,7 +1,8 @@
 /**
  * Wave 6 PE (grill F14): the emailed payslip PDF.
  *  - it opens only with the employee's password, and what it says then is exactly what the unprotected render says;
- *  - the same slip renders to the same bytes (fixed creation date and file id), so pdf_sha256 is reproducible;
+ *  - wave 7 PX: it is AES-256 (R 6), not RC4-40; the same slip renders to the same PLAINTEXT (fixed creation date and
+ *    file id), so plaintext_sha256 is reproducible, while each encryption is salted, so pdf_sha256 is per send;
  *  - the password is the ID number, else the passport number; neither = no password (never sent unprotected);
  *  - the mail never carries the password, and the subject cannot carry a header.
  */
@@ -41,6 +42,8 @@ describe('the emailed payslip PDF', () => {
     const { pdf } = await renderEmailPayslip(run, slip, ID, APPROVED);
     expect(pdf.subarray(0, 8).toString('latin1')).toMatch(/^%PDF-1\./);
     expect(pdf.toString('latin1')).toMatch(/\/Encrypt \d+ 0 R/);
+    expect(pdf.toString('latin1')).toMatch(/\/R 6\b/);
+    expect(pdf.toString('latin1')).toMatch(/\/AESV3\b/);
     await expect(text(pdf)).rejects.toThrow(/password/i);
     await expect(text(pdf, '8001015009088')).rejects.toThrow(/password/i);
     const plain = await text(await buildPayslipPdf({ ...run, payslips: [slip] }));
@@ -48,14 +51,21 @@ describe('the emailed payslip PDF', () => {
     expect(await text(pdf, ID)).toBe(plain);
   });
 
-  it('renders the same slip to the same bytes, and sha256 is the hash of those bytes', async () => {
+  it('the same slip has the same plaintext hash; sha256 is the hash of the bytes attached, new on every encryption', async () => {
     const a = await renderEmailPayslip(run, slip, ID, APPROVED);
     const b = await renderEmailPayslip(run, slip, ID, APPROVED);
-    expect(Buffer.compare(a.pdf, b.pdf)).toBe(0);
+    const plain = await buildPayslipPdf({ ...run, payslips: [slip] }, {
+      createdAt: APPROVED,
+      fileId: createHash('sha256').update(`payslip-email:${run.runId}:${slip.employeeId}:${APPROVED.toISOString()}`).digest('hex').slice(0, 32),
+    });
+    expect(a.plaintextSha256).toBe(createHash('sha256').update(plain).digest('hex'));
+    expect(b.plaintextSha256).toBe(a.plaintextSha256);
     expect(a.sha256).toBe(createHash('sha256').update(a.pdf).digest('hex'));
+    expect(b.sha256).not.toBe(a.sha256);
+    expect(a.sha256).not.toBe(a.plaintextSha256);
     expect(a.filename).toBe('payslip-2026-11-E-001.pdf');
     // Another approval of the run is another document.
-    expect((await renderEmailPayslip(run, slip, ID, new Date('2026-11-18T00:00:00Z'))).sha256).not.toBe(a.sha256);
+    expect((await renderEmailPayslip(run, slip, ID, new Date('2026-11-18T00:00:00Z'))).plaintextSha256).not.toBe(a.plaintextSha256);
   });
 
   it('the password: the ID number, else the passport number, else none', () => {

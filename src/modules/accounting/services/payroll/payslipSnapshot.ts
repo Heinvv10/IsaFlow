@@ -15,11 +15,17 @@
  * live row. The comparison is in TS so that a malformed approvedAt is "not frozen", never a cast error (review N1). An older colour that
  * reopens and re-approves without clearing leaves a snapshot of an earlier approval: it is never used.
  * The employee has no address on file (payroll_employees has no address column), so none is frozen.
+ *
+ * Wave 7 PX (W16): the catalogue type of each component the line's breakdown names (`componentTypes`, id -> type) is
+ * frozen too, so a component re-typed after approval cannot move a final slip's item between earnings, deductions and
+ * employer contributions. A snapshot written before PX has none: that slip reads the live types (`componentTypes`
+ * null from detailsOf).
  */
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { getCompanyDetailsFromCompany } from '@/modules/accounting/services/core/pdfShared';
 import { payslipYearToDate, type PayslipYearToDate } from './payslipYearToDate';
+import { readBreakdown } from './payslipItems';
 
 /** The employee details a slip prints, as read live (payslipModel.readLines) or from the snapshot. */
 export interface PayslipDetails {
@@ -42,21 +48,41 @@ export interface PayslipDetails {
 export interface Employer { name: string; address: string }
 
 /** The snapshot as stored: the details, the employer, and the approval it belongs to. */
-export interface PayslipSnapshot extends PayslipDetails { approvedAt: string; employer: Employer; yearToDate?: PayslipYearToDate }
+export interface PayslipSnapshot extends PayslipDetails {
+  approvedAt: string; employer: Employer; yearToDate?: PayslipYearToDate;
+  /** Wave 7 PX (W16): component id -> catalogue type at approval; absent on a snapshot written before PX. */
+  componentTypes?: Record<string, string>;
+}
+
+/** The catalogue type of each component the breakdowns name, in this company only (read live). */
+export async function componentTypesOf(companyId: string, breakdowns: unknown[]): Promise<Map<string, string>> {
+  const ids = [...new Set(breakdowns.flatMap((b) => readBreakdown(b).map((i) => String(i.componentId ?? '')).filter(Boolean)))];
+  if (ids.length === 0) return new Map();
+  const rows = (await sql`
+    SELECT id::text AS id, component_type FROM payroll_components
+     WHERE company_id = ${companyId}::uuid AND id::text = ANY(${ids}::text[])
+  `) as Array<{ id: string; component_type: string }>;
+  return new Map(rows.map((r) => [r.id, r.component_type]));
+}
 
 /** Write the snapshot on every line of this company's approved run. Returns the number of lines frozen. */
 export async function freezePayslipDetails(companyId: string, runId: string): Promise<number> {
   const lines = (await sql`
-    SELECT prl.employee_id::text AS employee_id, h.period_month, h.period_year
+    SELECT prl.employee_id::text AS employee_id, h.period_month, h.period_year, prl.component_breakdown
       FROM payroll_run_lines prl JOIN payroll_run_headers h ON h.id = prl.run_id
      WHERE h.id = ${runId}::uuid AND h.company_id = ${companyId}::uuid
-  `) as Array<{ employee_id: string; period_month: number; period_year: number }>;
+  `) as Array<{ employee_id: string; period_month: number; period_year: number; component_breakdown: unknown }>;
   if (lines.length === 0) return 0;
   const run = { id: runId, periodMonth: Number(lines[0]!.period_month), periodYear: Number(lines[0]!.period_year) };
   const ytd = await payslipYearToDate(companyId, run, lines.map((l) => l.employee_id));
   const yearToDate = JSON.stringify(Object.fromEntries(ytd));
   const company = await getCompanyDetailsFromCompany(companyId);
   const employer = JSON.stringify({ name: company.name, address: company.address });
+  // W16: each line's own components' types, keyed by employee like the year to date.
+  const types = await componentTypesOf(companyId, lines.map((l) => l.component_breakdown));
+  const componentTypes = JSON.stringify(Object.fromEntries(lines.map((l) => [l.employee_id, Object.fromEntries(
+    readBreakdown(l.component_breakdown).map((i) => String(i.componentId ?? '')).filter((id) => types.has(id)).map((id) => [id, types.get(id)!]),
+  )])));
   const rows = (await sql`
     UPDATE payroll_run_lines prl
        SET payslip_snapshot = jsonb_build_object(
@@ -68,7 +94,8 @@ export async function freezePayslipDetails(companyId: string, runId: string): Pr
              'bank_last_four', RIGHT(btrim(bd.account_number), 4), 'bank_length', char_length(btrim(bd.account_number)),
              'bank_name', bd.bank_name,
              'employer', ${employer}::jsonb,
-             'yearToDate', ${yearToDate}::jsonb -> (prl.employee_id::text))
+             'yearToDate', ${yearToDate}::jsonb -> (prl.employee_id::text),
+             'componentTypes', COALESCE(${componentTypes}::jsonb -> (prl.employee_id::text), '{}'::jsonb))
       FROM payroll_run_headers h,
            payroll_employees pe
            LEFT JOIN payroll_bank_details bd ON bd.employee_id = pe.id AND bd.company_id = pe.company_id AND bd.is_active
@@ -112,13 +139,23 @@ export function snapshotIsThisApproval(snapshotApprovedAt: string | null, header
 /** A line as payslipModel reads it: the live details, the snapshot, and whether the snapshot is this approval's. */
 export interface DetailsRow extends PayslipDetails { payslip_snapshot: unknown; details_frozen: boolean }
 
-/** The details, employer and year to date a slip prints: the snapshot's when frozen, else live (yearToDate null). */
+/** A snapshot's frozen component types; null when it has none (written before PX) or they are malformed. */
+function frozenTypes(raw: unknown): Map<string, string> | null {
+  if (raw == null || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const entries = Object.entries(raw as Record<string, unknown>);
+  return entries.every(([, v]) => typeof v === 'string') ? new Map(entries as Array<[string, string]>) : null;
+}
+
+/**
+ * The details, employer, year to date and component types a slip prints: the snapshot's when frozen, else live
+ * (yearToDate and componentTypes null: the caller reads them live).
+ */
 export function detailsOf(row: DetailsRow, liveEmployer: Employer): {
-  details: PayslipDetails; employer: Employer; yearToDate: PayslipYearToDate | null;
+  details: PayslipDetails; employer: Employer; yearToDate: PayslipYearToDate | null; componentTypes: Map<string, string> | null;
 } {
   if (row.details_frozen !== true || row.payslip_snapshot == null || typeof row.payslip_snapshot !== 'object') {
-    return { details: row, employer: liveEmployer, yearToDate: null };
+    return { details: row, employer: liveEmployer, yearToDate: null, componentTypes: null };
   }
   const snap = row.payslip_snapshot as PayslipSnapshot;
-  return { details: snap, employer: snap.employer, yearToDate: snap.yearToDate ?? null };
+  return { details: snap, employer: snap.employer, yearToDate: snap.yearToDate ?? null, componentTypes: frozenTypes(snap.componentTypes) };
 }
