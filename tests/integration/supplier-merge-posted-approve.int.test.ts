@@ -9,7 +9,7 @@
  * Fixture route: isaflow_schema_fixture (assertDisposable). Never skips.
  */
 import { afterAll, describe, expect, it } from 'vitest';
-import { Pool } from 'pg';
+import { Pool, type PoolClient } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { callRoute, dropBillFixture, makeBill, openRequest, seedBillFixture, type BillFixture } from './helpers/budgetBillFixture';
 import { seedSupplier } from './helpers/poBillLinkHarness';
@@ -98,30 +98,74 @@ describe('mergeEntities (the duplicates merge) and posted documents', () => {
       expect(await on('supplier_invoices', bill)).toBe(target);
     });
   }, 30_000);
+});
 
-  it('a draft bill approved while the merge waited on it: the UPDATE\'s RETURNING refuses it, the whole merge rolls back', async () => {
-    await withFixture('smpa-race', async (fx, target) => {
+/**
+ * Each document UPDATE's RETURNING is checked again under the merge's lock: a document approved / processed while the merge waited on
+ * its row is refused there (the pre-check read it as a draft), and the whole merge rolls back. A second connection holds the flip
+ * UNCOMMITTED (the test's own status change, triggers off, standing in for an approval); the merge starts, the probe waits until it
+ * is seen blocked on that row (sawWait, asserted: without it the pre-check could have refused and the test would pass without
+ * reaching RETURNING), the flip commits. Both entry points, as app_user, through withAuth for the route.
+ */
+interface RaceOutcome { refused: boolean; status?: number; message: string }
+const PATHS: Array<[string, (fx: BillFixture, target: string) => Promise<RaceOutcome>]> = [
+  ['mergeEntities (POST /duplicates-merge)', async (fx, target) => {
+    const { err } = await merge(fx, fx.manager, 'manager', target);
+    return { refused: err instanceof ApprovePermissionError, message: err instanceof Error ? err.message : '' };
+  }],
+  ['POST /supplier-merge', async (fx, target) => {
+    const out = await callRoute(supplierMergeRoute as never, fx, fx.manager, '/api/accounting/supplier-merge', { source_id: fx.supplier, target_id: target });
+    return { refused: out.statusCode === 403, status: out.statusCode, message: JSON.stringify(out.body) };
+  }],
+];
+const RACES: Array<[string, string, string, string, string]> = [
+  // label, table the merge blocks on, held status flip, needle in the refusal, document-kind column filter
+  ['a draft bill approved', 'supplier_invoices', 'approved', '1 approved, partly paid, paid or once-posted bill', 'bill'],
+  ['a draft payment approved', 'supplier_payments', 'approved', '1 approved, batched, processed or reconciled payment', 'payment'],
+  ['a draft payment processed', 'supplier_payments', 'processed', '1 approved, batched, processed or reconciled payment', 'payment'],
+  ['a draft credit note approved', 'credit_notes', 'approved', '1 approved, applied or once-posted credit note', 'credit_note'],
+];
+
+describe.each(PATHS)('the RETURNING re-check under the merge\'s lock: %s', (_name, run) => {
+  it.each(RACES)('%s while the merge waited: refused (403-typed), the whole merge rolled back', async (_label, table, status, needle, kind) => {
+    await withFixture(`smpa-race-${kind}-${status}`, async (fx, target) => {
       await withholdApprove(fx);
-      const pay = await payment(fx, 'draft');
+      // One draft of each kind, so a refusal part-way through shows that what moved before it was taken back.
       const bill = await makeBill(pool, fx, [{ acct: fx.acc.opex, amount: 100 }]);
-      const hold = await pool.connect();
+      const pay = await payment(fx, 'draft');
+      const note = String((await pool.query(`INSERT INTO credit_notes (company_id, credit_note_number, type, supplier_id, credit_date, total_amount, status, created_by)
+        VALUES ($1, $2, 'supplier', $3, '2026-06-10', 10, 'draft', $4) RETURNING id`, [fx.co, `SMPA-R-${kind}-${status}`, fx.supplier, fx.owner])).rows[0].id);
+      const held = { supplier_invoices: bill, supplier_payments: pay, credit_notes: note }[table]!;
+      const hold: PoolClient = await pool.connect();
+      const holdPid = Number((await hold.query('SELECT pg_backend_pid() AS pid')).rows[0].pid);
+      let sawWait = false;
       try {
         await hold.query('BEGIN');
-        await hold.query("SET LOCAL session_replication_role = replica"); // the test's own status flip, standing in for an approval
-        await hold.query("UPDATE supplier_invoices SET status = 'approved' WHERE id = $1", [bill]);
-        const merging = merge(fx, fx.manager, 'manager', target);
-        for (let i = 0; i < 160; i++) {
-          const w = (await pool.query("SELECT 1 FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND query LIKE '%UPDATE supplier_invoices SET supplier_id%'")).rows;
-          if (w.length > 0) break;
-          await new Promise((r) => setTimeout(r, 25));
+        await hold.query('SET LOCAL session_replication_role = replica');
+        await hold.query(`UPDATE ${table} SET status = $2 WHERE id = $1`, [held, status]);
+        const merging = run(fx, target);
+        for (let i = 0; i < 200 && !sawWait; i++) {
+          sawWait = (await pool.query(
+            // Blocked BY the hold connection itself (not any session waiting on a lock): no other suite's waiter can match.
+            `SELECT 1 FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND $1 = ANY (pg_blocking_pids(pid)) AND query LIKE $2`,
+            [holdPid, `%UPDATE ${table}%SET supplier_id%`])).rows.length > 0;
+          if (!sawWait) await new Promise((r) => setTimeout(r, 25));
         }
         await hold.query('COMMIT');
-        const { err } = await merging;
-        expect(err).toBeInstanceOf(ApprovePermissionError);
-        expect([await on('supplier_invoices', bill), await on('supplier_payments', pay), await live(fx.supplier)]).toEqual([fx.supplier, fx.supplier, true]);
-      } finally { hold.release(); }
+        const out = await merging;
+        // Without an observed wait the merge never reached the RETURNING check, and this test would prove nothing.
+        expect(sawWait).toBe(true);
+        expect(out.refused, out.message).toBe(true);
+        expect(out.message).toContain(needle);
+        if (out.status !== undefined) expect(out.status).toBe(403);
+        expect([await on('supplier_invoices', bill), await on('supplier_payments', pay), await on('credit_notes', note), await live(fx.supplier)])
+          .toEqual([fx.supplier, fx.supplier, fx.supplier, true]);
+      } finally {
+        await hold.query('ROLLBACK').catch(() => undefined);
+        hold.release();
+      }
     });
-  }, 30_000);
+  }, 40_000);
 });
 
 describe('posted, on the safer side (breaker of #1900: M1, M2)', () => {
