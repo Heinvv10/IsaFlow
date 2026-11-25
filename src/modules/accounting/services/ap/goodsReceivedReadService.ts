@@ -10,6 +10,7 @@
  * it is filed under: `goods_received` and the legacy `goods_receipt_note` (gate finding 4).
  */
 import { sql } from '@/lib/neon';
+import { attachReceiverNames } from './grnReceiverNames';
 import type { DbRow } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 
@@ -42,7 +43,7 @@ function noteOut(r: DbRow, compact = false) {
   const free = (v: unknown, cap: number): string | null => (v == null ? null : String(v).slice(0, compact ? LIST_TEXT_CAP : cap));
   return {
     id: String(r.id), grn_number: short(r.grn_number) ?? '', status: String(r.status), received_date: day(r.received_date),
-    received_by: free(r.received_by, TEXT_CAP), notes: free(r.notes, 500),
+    received_by: free(r.received_by_name ?? r.received_by, TEXT_CAP), notes: free(r.notes, 500),
     purchase_order_id: String(r.purchase_order_id), po_number: short(r.po_number), po_status: text(r.po_status),
     supplier_id: text(r.supplier_id), supplier_name: free(r.supplier_name, TEXT_CAP),
     external_system: short(r.external_system), external_ref: short(r.external_ref),
@@ -55,7 +56,7 @@ export async function listGoodsReceived(
   companyId: string, f: GoodsReceivedListFilters, page: { limit: number; offset: number },
 ): Promise<{ rows: Array<ReturnType<typeof noteOut> & { line_count: number; document_count: number }>; total: number }> {
   const rows = (await sql`
-    SELECT g.id, g.grn_number, g.status, g.received_date, g.received_by, g.notes, g.purchase_order_id, g.external_system, g.external_ref,
+    SELECT g.id, g.grn_number, g.status, g.received_date, g.received_by, g.created_by, g.notes, g.purchase_order_id, g.external_system, g.external_ref,
            g.cancelled_at, g.cancelled_by, g.cancel_reason, g.created_at, po.po_number, po.status AS po_status, po.supplier_id, s.name AS supplier_name,
            (SELECT count(*) FROM grn_items gi WHERE gi.grn_id = g.id)::INT AS line_count,
            (SELECT count(*) FROM procurement_documents d
@@ -78,8 +79,9 @@ export async function listGoodsReceived(
     const head = await listGoodsReceived(companyId, f, { limit: 1, offset: 0 });
     return { rows: [], total: head.total };
   }
+  const named = await attachReceiverNames(companyId, rows);
   return {
-    rows: rows.map((r) => ({ ...noteOut(r, true), line_count: Number(r.line_count), document_count: Number(r.document_count) })),
+    rows: named.map((r) => ({ ...noteOut(r, true), line_count: Number(r.line_count), document_count: Number(r.document_count) })),
     total: rows[0] ? Number(rows[0].total_rows) : 0,
   };
 }
@@ -125,7 +127,7 @@ export async function readGoodsReceivedDetail(
   `) as DbRow[];
   const total = (rows: DbRow[]) => (rows[0] ? Number(rows[0].total_rows) : 0);
   return {
-    goods_received_note: noteOut(head),
+    goods_received_note: noteOut((await attachReceiverNames(companyId, [head]))[0]!),
     items: items.map((i) => {
       const onPo = i.on_po != null;
       return {

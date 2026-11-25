@@ -43,6 +43,19 @@ describe('detailsOf', () => {
   });
 });
 
+describe('detailsOf: component types (W16, wave 7 PX)', () => {
+  it('frozen with componentTypes: those types', () => {
+    const shown = detailsOf(row(true, { ...snapshot, componentTypes: { c1: 'earning', c2: 'deduction' } }), liveEmployer);
+    expect([...shown.componentTypes!]).toEqual([['c1', 'earning'], ['c2', 'deduction']]);
+  });
+  it('a snapshot written before PX, a malformed one, or a slip not frozen: null (read live)', () => {
+    expect(detailsOf(row(true), liveEmployer).componentTypes).toBeNull();
+    expect(detailsOf(row(true, { ...snapshot, componentTypes: ['earning'] }), liveEmployer).componentTypes).toBeNull();
+    expect(detailsOf(row(true, { ...snapshot, componentTypes: { c1: 7 } }), liveEmployer).componentTypes).toBeNull();
+    expect(detailsOf(row(false, { ...snapshot, componentTypes: { c1: 'earning' } }), liveEmployer).componentTypes).toBeNull();
+  });
+});
+
 describe('snapshotIsThisApproval (F8, N1)', () => {
   // 2026-11-16T10:00:00.123456+02:00 = 08:00:00.123456Z
   const us = String(BigInt(Date.parse('2026-11-16T08:00:00Z')) * 1000n + 123456n);

@@ -16,6 +16,8 @@ import {
 } from '@/modules/accounting/services/ap/supplierInvoiceDraftUpdate';
 import { getSupplierInvoiceById } from '@/modules/accounting/services/ap/supplierInvoiceService';
 import { SupplierInvoiceLockTimeoutError } from '@/modules/accounting/services/ap/supplierInvoiceLock';
+import { BillSupplierDeletedError, DraftBillChangedError } from '@/modules/accounting/services/ap/billSupplierLive';
+import { RowLockTimeoutError } from '@/modules/accounting/services/core/rowLockBudget';
 import { MAX_LINES, SUPPLIER_INVOICE_TEXT_LIMITS as TEXT_LIMITS, parseSupplierLines } from './invoiceCreateArgs';
 import { NOT_FOUND, castableArgError, ok, strArg, toolError } from './toolHelpers';
 import { UUID_RE } from '@/lib/validation';
@@ -124,6 +126,11 @@ export const updateSupplierInvoiceTool: McpTool = {
       // The row lock is the plan's first statement, so a timeout on it is
       // write-free too — and its message says "retry", which GENERIC_FAILURE would not.
       if (err instanceof SupplierInvoiceLockTimeoutError) return toolError(err.message);
+      // The supplier locks taken before the bill (draftBillSupplierLocks, #1882): a supplier merged away, the bill moved meanwhile,
+      // or a supplier held past its budget. All before the first write, each with its own wording.
+      if (err instanceof BillSupplierDeletedError || err instanceof DraftBillChangedError || err instanceof RowLockTimeoutError) {
+        return toolError(err.message);
+      }
       throw err;
     }
 

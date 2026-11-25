@@ -1,0 +1,13 @@
+[Unit]
+Description=Daily trigger for IsaFlow trial lifecycle emails
+
+[Timer]
+# Every day at 08:30 SAST, so the email lands at the start of the reader's day.
+# The run is idempotent per company and stage (trial_lifecycle_emails, migration
+# 1040) and sends only the latest due stage, so a missed day or a retry is safe.
+OnCalendar=*-*-* 08:30:00 Africa/Johannesburg
+RandomizedDelaySec=300
+Persistent=true
+
+[Install]
+WantedBy=timers.target

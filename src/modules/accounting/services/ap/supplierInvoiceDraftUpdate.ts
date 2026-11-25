@@ -25,7 +25,9 @@ import { defaultVatClassification, type SupplierInvoiceTotals } from './supplier
 import { billEditDueDate } from './draftBillDueDate';
 import { refreshAppBillLinks } from './billPurchaseOrderLinks';
 import { applyDraftGrn, planDraftGrn, type DraftGrnPlan } from './supplierInvoiceDraftGrn';
-import { asBillSupplierDeleted } from './billSupplierLive';
+import { asBillSupplierDeleted, BillSupplierDeletedError, DraftBillChangedError } from './billSupplierLive';
+import { lockSupplierIfLive } from '../core/supplierLiveLock';
+import { lockSuppliersBeforeBill } from './draftBillSupplierLocks';
 import { asBillGrnRefused, lockNotePo } from './billGoodsReceivedLink';
 import type { DueDateSource } from '../shared/dueDateSource';
 import {
@@ -75,6 +77,8 @@ export interface SupplierInvoiceDraftUpdatePlan extends DraftGrnPlan {
   changed: string[];
   /** Supplier, number or total moved, so the duplicate fingerprint must too. */
   refingerprint: boolean;
+  /** The edit moves the bill to another supplier (locked live first in the apply). */
+  supplierChanges: boolean;
 }
 
 const EPS = 0.005;
@@ -97,7 +101,13 @@ export async function lockAndPlanSupplierInvoiceDraftUpdate(
   // caught error does not un-abort it — the registry's RELEASE would then 25P02
   // and the agent would get GENERIC_FAILURE instead of the "retry" wording.
   // The row lock itself survives the RELEASE; the parent inherits it.
+  // A supplier change takes BOTH suppliers, old and new, FOR KEY SHARE in id order BEFORE the bill (lockSuppliersBeforeBill): a merge
+  // holds both suppliers and then waits on the bill, so a bill lock first was a 40P01 when the new supplier is the merge's survivor.
+  const lockedSuppliers = await withSavepoint('usi_supplier_lock', () => lockSuppliersBeforeBill(companyId, invoiceId, patch.supplierId));
+  if (lockedSuppliers === 'not_found') throw new SupplierInvoiceDraftUpdateRefusal('Not found'); // another company's, or none (L-c)
   const row = await withSavepoint('usi_bill_lock', () => lockSupplierInvoiceForUpdate(companyId, invoiceId));
+  // Moved meanwhile (a merge, or another edit) to a supplier this edit does not hold: a retryable 409, not "merged" (L-a).
+  if (row && lockedSuppliers && !lockedSuppliers.includes(String(row.supplier_id))) throw new DraftBillChangedError();
   // One reply for absent, foreign and soft-deleted: no existence oracle.
   if (!row || row.deleted_at) throw new SupplierInvoiceDraftUpdateRefusal('Not found');
   const number = String(row.invoice_number);
@@ -206,6 +216,7 @@ export async function lockAndPlanSupplierInvoiceDraftUpdate(
     lines,
     changed,
     refingerprint: totalChanges || supplierChanges || invoiceNumber !== number,
+    supplierChanges,
   };
 }
 
@@ -234,6 +245,9 @@ export async function applySupplierInvoiceDraftUpdate(
 
   // A supplier change onto a supplier merged or deleted meanwhile (1021's supplier-live trigger) is a typed refusal; nothing is written.
   await withContentEditorStamp(companyId, plan.invoiceId, editedBy, () => withTransaction(async (tx) => {
+    // A new supplier FIRST, FOR KEY SHARE and live (supplierLiveLock), before the note's PO: a merge takes the supplier and then its
+    // POs, so the PO first and the supplier only at the UPDATE's FK was a 40P01 against a merge of it (#1882 M2). Merged away: typed.
+    if (plan.supplierChanges && !(await lockSupplierIfLive(companyId, plan.supplierId))) throw new BillSupplierDeletedError();
     // A new note: its PO FOR KEY SHARE BEFORE the UPDATE, whose grn-live trigger (1021) takes the note (Codex gate at 42de08b3, 4).
     if (plan.grnChanges && plan.grnId) await lockNotePo(companyId, plan.grnId, tx);
     await tx`
