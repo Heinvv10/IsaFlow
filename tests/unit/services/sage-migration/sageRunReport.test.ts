@@ -104,6 +104,13 @@ describe('the arguments (kept from rounds 14-15)', () => {
     expect(scanReportArgs(['--file=x.json', '--report=r.json', '--', '--report', 'y.json'])).toEqual({ reports: ['r.json'], files: ['x.json'] });
     expect(checkReportArgs(['--report=--live'], '--live')).toMatchObject({ ok: false, why: expect.stringMatching(/never taken as a path/) });
   });
+  it('a path below a FILE (a trailing / after it): refused with why, never thrown', () => {
+    const d = dir();
+    writeFileSync(join(d, 'old.json'), 'OLD');
+    const p = `${join(d, 'old.json')}/`;
+    expect(checkReportArgs(['--report', p], p)).toEqual({ ok: false, why: expect.stringMatching(/cannot be written \(ENOTDIR.*\): nothing was written$/) });
+    expect(readFileSync(join(d, 'old.json'), 'utf8')).toBe('OLD');
+  });
   it('R17-8: --report= (no path) has its own message', () => {
     expect(checkReportArgs(['--report='], '')).toEqual({ ok: false, why: '--report is given without a path (--report=): give a file path' });
   });

@@ -61,7 +61,11 @@ export function checkReportArgs(argv: readonly string[], parsed: string | undefi
   const export_ = files.find((f) => sameFile(parsed, f));
   if (export_ !== undefined) return { ok: false, why: `--report ${parsed} is the export --file itself (${export_}): writing the report would overwrite it; give another path` };
   // Said early, before any other check, so a path that exists is named as the reason; the exclusive create stays the guard (a race).
-  if (lstatSync(parsed, { throwIfNoEntry: false })) return { ok: false, why: alreadyExists(parsed) };
+  try {
+    if (lstatSync(parsed, { throwIfNoEntry: false })) return { ok: false, why: alreadyExists(parsed) };
+  } catch (err) { // ENOTDIR (a trailing / after a file), EACCES, ELOOP: the path cannot be a new file either
+    return { ok: false, why: `--report ${parsed} cannot be written (${message(err)}): nothing was written` };
+  }
   return { ok: true, path: parsed };
 }
 
