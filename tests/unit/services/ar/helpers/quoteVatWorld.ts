@@ -23,22 +23,38 @@ export interface World {
   /** The catalogue items' sales accounts (ITEM_ID, ITEM_B; active accounts of the company), null for none. */
   itemAccount: string | null;
   itemBAccount: string | null;
+  /** Items deactivated, items of ANOTHER company, accounts deactivated: the stubs answer as the scoped queries would. */
+  inactiveItems: Set<string>; foreignItems: Set<string>; inactiveAccounts: Set<string>;
 }
-export const world: World = { vatPeriod: 'bi-monthly', customerVat: null, itemVat: null, stored: [], head: {}, itemAccount: null, itemBAccount: null };
+const fresh = (): World => ({
+  vatPeriod: 'bi-monthly', customerVat: null, itemVat: null, stored: [], head: {}, itemAccount: null, itemBAccount: null,
+  inactiveItems: new Set(), foreignItems: new Set(), inactiveAccounts: new Set(),
+});
+export const world: World = fresh();
+const OTHER_COMPANY = '99999999-9999-9999-9999-999999999999';
+/** The ids a scoped stub query names (its `id = ANY(...)` array), lower-cased. */
+const idsOf = (call: unknown[]): string[] => ((call.slice(1).find(Array.isArray) as unknown[] | undefined) ?? []).map((v) => String(v).toLowerCase());
+/** The company a scoped stub query names (its first bound value). */
+const companyOf = (call: unknown[]): string => String(call[1]);
 
 /** Fresh mocks and a registered company with no stored quote; call in beforeEach. */
 export function resetWorld(): void {
   vi.clearAllMocks();
   mockSql.mockReset();
-  Object.assign(world, { vatPeriod: 'bi-monthly', customerVat: null, itemVat: null, stored: [], head: {}, itemAccount: null, itemBAccount: null });
+  Object.assign(world, fresh());
   mockSql.mockImplementation(async (...call: unknown[]) => {
     const t = text(call);
     if (t.includes('FROM companies')) return [{ vat_period: world.vatPeriod, vat_system_type: null, customer_vat: world.customerVat }];
     if (t.includes('FROM items')) {
+      // Scoped as the real query is: this company's items, of the ids asked for.
       return [{ id: ITEM_ID, sales_account_id: world.itemAccount }, { id: ITEM_B, sales_account_id: world.itemBAccount }]
-        .map((r) => ({ ...r, is_active: true, purchases_account_id: null, vat_on_sales: world.itemVat, vat_on_purchases: null }));
+        .filter((r) => idsOf(call).includes(r.id) && companyOf(call) === (world.foreignItems.has(r.id) ? OTHER_COMPANY : COMPANY_ID))
+        .map((r) => ({ ...r, is_active: !world.inactiveItems.has(r.id), purchases_account_id: null, vat_on_sales: world.itemVat, vat_on_purchases: null }));
     }
-    if (t.includes('FROM gl_accounts')) return [world.itemAccount, world.itemBAccount].flatMap((a) => (a ? [{ id: a, is_active: true }] : []));
+    if (t.includes('FROM gl_accounts')) {
+      return [world.itemAccount, world.itemBAccount].flatMap((a) => (a && idsOf(call).includes(a.toLowerCase()) && companyOf(call) === COMPANY_ID
+        ? [{ id: a, is_active: !world.inactiveAccounts.has(a) }] : []));
+    }
     if (t.includes('INSERT INTO customer_quotes')) return [{ id: QUOTE_ID }];
     if (t.includes('FROM customer_quote_lines')) return world.stored;
     if (t.includes('FROM customer_quotes')) return [{ ...header, ...world.head }];

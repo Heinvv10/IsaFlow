@@ -32,6 +32,7 @@ import {
 import { typedLinesProblem } from './invoiceVatLegs';
 import { LineValidationError, quoteAmountsAre } from './quoteLineChecks';
 import { applyItemLineDefaults } from '../items/itemLineDefaults';
+import { resolveEditLineItemsAccountId } from '../items/itemEditLines';
 
 export interface QuoteVatLineIn {
   accountId?: unknown;
@@ -100,6 +101,24 @@ async function lineRefs(
   });
 }
 
+
+/**
+ * An edit's lines through itemEditLines (the item check, its default account, inheritance), except that a line naming
+ * the item its MATCHED stored line (quoteEditLines, the notion lineRefs uses) already carries is not a new item there:
+ * it goes in as naming none, so itemEditLines neither re-checks it (an item deactivated since must not refuse the save
+ * of the line that carries it, though an identical twin of another item sits first) nor defaults its account, and
+ * comes back naming it; lineRefs writes its item and account. A genuinely new item is still checked and defaulted.
+ */
+export async function quoteEditItemLines<L extends { description: string; quantity: number; unitPrice: number; itemId?: string | null; accountId?: string; taxRate?: number | null }>(
+  companyId: string, sent: readonly L[], storedQuote: StoredQuote, quoteDate: string,
+): Promise<L[]> {
+  const { matches } = matchQuoteLines(sent, storedQuote.lines, quoteDate);
+  const own = sent.map((l, i) => normalItem(l.itemId) !== null && normalItem(l.itemId) === normalItem(matches[i]?.stored.itemId));
+  const resolved = await resolveEditLineItemsAccountId(companyId, 'sales', sent.map((l, i) => (own[i] ? { ...l, itemId: undefined } : l)),
+    storedQuote.lines.map((l) => ({ itemId: l.itemId ?? null, description: l.description, quantity: l.quantity, unitPrice: l.unitPrice })),
+    (i) => `items[${i}]`);
+  return resolved.map((l, i) => (own[i] ? { ...l, itemId: normalItem(sent[i]!.itemId) } : l));
+}
 
 const given = (v: unknown): boolean => v !== undefined && v !== null;
 type QuoteVatParties = Awaited<ReturnType<typeof invoiceVatParties>>;

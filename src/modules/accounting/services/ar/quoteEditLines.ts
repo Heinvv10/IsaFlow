@@ -6,7 +6,8 @@
  *
  *   ONLY STANDARD lines saved (nothing a wrong match could mistype): each line is matched in passes, strongest first,
  *     each stored line once: identical (description trimmed and case-insensitive, item, quantity, unit price) at its
- *     place, identical anywhere, the same description and no other item at its place / anywhere, the same description
+ *     place, identical anywhere, the same description and the same NAMED item at its place / anywhere (a line naming an
+ *     item claims it first), the same description and no other item at its place / anywhere, the same description
  *     naming another item at its place / anywhere, the same item at its place / anywhere.
  *   A ZERO-RATED or EXEMPT line saved (a legacy 0% line counts): a typeless line inherits a saved type ONLY from a
  *     POSITIONAL resend: the same number of lines, each identical to the saved line in its own place and of a
@@ -101,7 +102,10 @@ const identical = (l: SentQuoteLine, s: StoredQuoteVatLine) => key(l) === key(s)
 const identicalInPlace = (l: SentQuoteLine, s: StoredQuoteVatLine) => key(l) === key(s) && !(itemChanged(l, s) && !!s.itemId);
 /** The same line by its description, whatever item it now names (the policy: the same description is the same line). */
 const sameDescription = (l: SentQuoteLine, s: StoredQuoteVatLine) => descOf(l.description) === descOf(s.description);
-/** The same description AND no other item (the same item, or either has none): preferred, so twins of different items re-priced and reordered pair by item. */
+/** The same description and the SAME item, both named: the first description passes, so a line naming an item claims it. */
+const sameDescriptionNamedItem = (l: SentQuoteLine, s: StoredQuoteVatLine) =>
+  sameDescription(l, s) && itemOf(l) !== null && !!s.itemId && itemOf(l) === s.itemId.toLowerCase();
+/** The same description AND no other item (the same item, or either has none): after the strict passes, so twins of different items re-priced and reordered pair by item. */
 const sameDescriptionAndItem = (l: SentQuoteLine, s: StoredQuoteVatLine) =>
   sameDescription(l, s) && (itemOf(l) === null || !s.itemId || itemOf(l) === s.itemId.toLowerCase());
 
@@ -149,6 +153,8 @@ export function matchQuoteLines(sent: readonly SentQuoteLine[], stored: readonly
   });
   pass(identical, true);
   pass(identical, false);
+  pass(sameDescriptionNamedItem, true);
+  pass(sameDescriptionNamedItem, false);
   pass(sameDescriptionAndItem, true);
   pass(sameDescriptionAndItem, false);
   pass(sameDescription, true);
