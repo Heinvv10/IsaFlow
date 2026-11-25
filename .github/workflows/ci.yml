@@ -124,8 +124,8 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/apt-debs/*.deb
-          key: apt-${{ runner.os }}-ghostscript-${{ steps.aptweek.outputs.week }}
-          restore-keys: apt-${{ runner.os }}-ghostscript-
+          key: apt-${{ runner.os }}-ghostscript+qpdf-${{ steps.aptweek.outputs.week }}
+          restore-keys: apt-${{ runner.os }}-ghostscript+qpdf-
       - if: ${{ runner.environment == 'github-hosted' }}
         run: |
           echo 'Acquire::Retries "3"; Acquire::http::Timeout "30"; Acquire::https::Timeout "30";' | sudo tee /etc/apt/apt.conf.d/99ci-timeouts >/dev/null
@@ -136,7 +136,7 @@ jobs:
             2) printf '%s\n' http://archive.ubuntu.com/ubuntu/ | sudo tee /etc/apt/apt-mirrors.txt >/dev/null;;
             3) printf '%s\n' http://azure.archive.ubuntu.com/ubuntu/ http://archive.ubuntu.com/ubuntu/ | sudo tee /etc/apt/apt-mirrors.txt >/dev/null;;
             esac; }
-          for i in 1 2 3; do apt_mirror "$i"; sudo timeout 90 apt-get update -q -o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 || echo '::warning::apt-get update failed; installing from the cache and existing lists'; { sudo timeout 240 apt-get install -y -q --no-install-recommends -o Acquire::Retries=3 -o Dir::Cache::Archives="$HOME/apt-debs" ghostscript; } && break; [ "$i" = 3 ] && exit 1; echo '::warning::apt install stalled or failed; retrying'; sudo dpkg --configure -a; done
+          for i in 1 2 3; do apt_mirror "$i"; sudo timeout 90 apt-get update -q -o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 || echo '::warning::apt-get update failed; installing from the cache and existing lists'; { sudo timeout 240 apt-get install -y -q --no-install-recommends -o Acquire::Retries=3 -o Dir::Cache::Archives="$HOME/apt-debs" ghostscript qpdf; } && break; [ "$i" = 3 ] && exit 1; echo '::warning::apt install stalled or failed; retrying'; sudo dpkg --configure -a; done
 
       # --ignore-scripts: bun install otherwise runs lifecycle scripts of the
       # root, workspace members and trusted dependencies, any of which could
@@ -249,8 +249,8 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/apt-debs/*.deb
-          key: apt-${{ runner.os }}-postgresql-16+postgresql-16-pgvector+poppler-utils+libreoffice-calc-nogui-${{ steps.aptweek.outputs.week }}
-          restore-keys: apt-${{ runner.os }}-postgresql-16+postgresql-16-pgvector+poppler-utils+libreoffice-calc-nogui-
+          key: apt-${{ runner.os }}-postgresql-16+postgresql-16-pgvector+poppler-utils+qpdf+libreoffice-calc-nogui-${{ steps.aptweek.outputs.week }}
+          restore-keys: apt-${{ runner.os }}-postgresql-16+postgresql-16-pgvector+poppler-utils+qpdf+libreoffice-calc-nogui-
       - if: ${{ runner.environment == 'github-hosted' }}
         run: |
           echo 'Acquire::Retries "3"; Acquire::http::Timeout "30"; Acquire::https::Timeout "30";' | sudo tee /etc/apt/apt.conf.d/99ci-timeouts >/dev/null
@@ -261,7 +261,7 @@ jobs:
             2) printf '%s\n' http://archive.ubuntu.com/ubuntu/ | sudo tee /etc/apt/apt-mirrors.txt >/dev/null;;
             3) printf '%s\n' http://azure.archive.ubuntu.com/ubuntu/ http://archive.ubuntu.com/ubuntu/ | sudo tee /etc/apt/apt-mirrors.txt >/dev/null;;
             esac; }
-          for i in 1 2 3; do apt_mirror "$i"; sudo timeout 90 apt-get update -q -o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 || echo '::warning::apt-get update failed; installing from the cache and existing lists'; { sudo timeout 240 apt-get install -y -q --no-install-recommends -o Acquire::Retries=3 -o Dir::Cache::Archives="$HOME/apt-debs" postgresql-16 postgresql-16-pgvector poppler-utils; } && break; [ "$i" = 3 ] && exit 1; echo '::warning::apt install stalled or failed; retrying'; sudo dpkg --configure -a; done
+          for i in 1 2 3; do apt_mirror "$i"; sudo timeout 90 apt-get update -q -o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 || echo '::warning::apt-get update failed; installing from the cache and existing lists'; { sudo timeout 240 apt-get install -y -q --no-install-recommends -o Acquire::Retries=3 -o Dir::Cache::Archives="$HOME/apt-debs" postgresql-16 postgresql-16-pgvector poppler-utils qpdf; } && break; [ "$i" = 3 ] && exit 1; echo '::warning::apt install stalled or failed; retrying'; sudo dpkg --configure -a; done
           sudo locale-gen en_US.UTF-8
       - if: ${{ runner.environment == 'github-hosted' }}
         run: |
