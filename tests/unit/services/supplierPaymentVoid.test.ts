@@ -124,6 +124,7 @@ describe('voidSupplierPayment (P2.1 / audit W4)', () => {
     mockSql.mockImplementation((strings: TemplateStringsArray, ...values: unknown[]) => {
       const text = (strings as unknown as string[]).join('?');
       calls.push({ text, values });
+      if (/SELECT amount_paid FROM supplier_invoices/i.test(text)) return Promise.resolve([{ amount_paid: '115.00' }]); // the bill holds it
       if (/SELECT status, reversed_at/i.test(text)) {
         return Promise.resolve([{ status: 'posted', reversed_at: null }]);
       }
@@ -135,9 +136,9 @@ describe('voidSupplierPayment (P2.1 / audit W4)', () => {
     expect(mockReverse).toHaveBeenCalledWith(COMPANY_ID, JOURNAL_ID, USER_ID);
     const allocUpdate = calls.find((c) => /UPDATE supplier_invoices/i.test(c.text));
     expect(allocUpdate, 'allocations must be un-applied').toBeTruthy();
-    // moveSupplierBillPaid (#1728 review L1): the allocation comes off as a negative delta, floored at itself
+    // moveSupplierBillPaid (#1728 review L1): the allocation comes off as a negative delta (a bill holding all of it)
     expect(allocUpdate!.text).toMatch(/amount_paid = COALESCE\(amount_paid, 0\) \+ /);
-    expect(allocUpdate!.values[0]).toBeLessThan(0);
+    expect(allocUpdate!.values[0]).toBe(-115);
     const payUpdate = calls.find((c) => /UPDATE supplier_payments/i.test(c.text));
     expect(payUpdate!.text).toMatch(/'cancelled'/);
     expect(payUpdate!.text).toMatch(/status IN \('processed', 'reconciled'\)/); // guarded flip

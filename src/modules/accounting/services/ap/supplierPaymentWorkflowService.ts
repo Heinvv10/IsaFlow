@@ -249,11 +249,22 @@ async function voidSupplierPaymentInner(
     for (const alloc of byInvoiceId(payment.allocations)) {
       // The unapply's one write (#1728 review L1): money, status, paid_at and payment_matched(_at) together, judged on
       // the REMAINING paid amount, so a bill still fully covered by OTHER payments stays 'paid' (PR #203 review MEDIUM)
-      // and a disputed or pending bill keeps all four as the money comes off. The floor replaces the old silent clamp
-      // at 0: a bill holding less than this allocation is a defect, thrown (500, rolled back) as unapply throws it.
-      const done = await moveSupplierBillPaid(companyId, alloc.invoiceId, -alloc.amountAllocated, alloc.amountAllocated);
-      if (!done) {
-        throw new Error(`voidSupplierPayment: bill ${alloc.invoiceId} holds less than the ${alloc.amountAllocated} allocated`);
+      // and a disputed or pending bill keeps all four as the money comes off. A bill holding LESS than this allocation
+      // (a rewrite outside the writers; dev Demo has 42) is clamped at 0 as MCP void_payment's unwind clamps it, and
+      // warned: refusing would strand the payment with no repair path. Row-locked as the UPDATE locks it, in its order.
+      const [bill] = (await sql`SELECT amount_paid FROM supplier_invoices WHERE id = ${alloc.invoiceId}::UUID
+        AND company_id = ${companyId}::UUID FOR NO KEY UPDATE`) as Row[];
+      const allocatedCents = Math.round(alloc.amountAllocated * 100);
+      const heldCents = Math.max(0, Math.round(Number(bill?.amount_paid ?? 0) * 100));
+      const offCents = Math.min(allocatedCents, heldCents);
+      if (offCents < allocatedCents) {
+        log.warn('Supplier payment void: the bill holds less than this allocation; clamped at 0', {
+          companyId, paymentId: id, billId: alloc.invoiceId, allocated: allocatedCents / 100,
+          held: heldCents / 100, shortfall: (allocatedCents - offCents) / 100,
+        }, 'accounting');
+      }
+      if (!(await moveSupplierBillPaid(companyId, alloc.invoiceId, -offCents / 100))) {
+        throw new Error(`voidSupplierPayment: bill ${alloc.invoiceId} not found`);
       }
     }
 
