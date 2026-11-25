@@ -67,7 +67,7 @@ describe('F4: an empty or partial export is refused as a whole', () => {
   });
   it('a page that has a $next link', () => {
     const rows = fixture().Items.$resources;
-    expect(shape({ Items: { $totalResults: 20, $next: 'https://api.example/items?$startIndex=20', $resources: rows } })).toMatch(/Items: a page has a \$next link/);
+    expect(shape({ Items: { $totalResults: 20, $next: 'https://api.example/items?$startIndex=20', $resources: rows } })).toMatch(/Items: the last page has a \$next link/);
     expect(shape({ Items: { $next: null, $resources: rows } })).toBe('accepted');
   });
 });

@@ -60,7 +60,8 @@ export function rowsOf(value: unknown, key: string): unknown[] {
   pages.forEach((p, n) => {
     const unknownKey = Object.keys(p).find((k) => k.startsWith('$') && !PAGE_KEYS.has(k));
     if (unknownKey !== undefined) throw new SageExportShapeError(`${key}: a page carries "${unknownKey}", which is not a page key this import knows (${[...PAGE_KEYS].join(', ')}): a re-cased or unknown marker is never ignored`);
-    if (p.$next !== undefined && p.$next !== null && p.$next !== '') throw new SageExportShapeError(`${key}: a page has a $next link, so the export stops before its end`);
+    // Sage keeps $next on every page but the last: only the LAST page (a single page is the last) may not have one.
+    if (n === pages.length - 1 && p.$next !== undefined && p.$next !== null && p.$next !== '') throw new SageExportShapeError(`${key}: the last page has a $next link, so the export stops before its end`);
     // Only the first page may lack a $back link: a page that has one is not the start of the export.
     if (n === 0 && p.$back !== undefined && p.$back !== null && p.$back !== '') throw new SageExportShapeError(`${key}: a page has a $back link, so it is not the start of the export`);
     if (p.$totalResults !== undefined && p.$totalResults !== null) {

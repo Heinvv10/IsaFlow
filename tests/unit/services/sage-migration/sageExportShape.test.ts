@@ -67,3 +67,25 @@ describe('B10-3b: an unknown $-key on a page', () => {
       { $totalResults: 6, $startIndex: 3, $itemsPerPage: 3, $back: 'x', $resources: rows(3, 10) }] })).toBe('accepted');
   });
 });
+
+describe('B11-1 (round 11): $next on a page that is not the last of an array of pages', () => {
+  const U = 'https://accounting.sageone.co.za/api/2.0.0/PurchaseOrder/Get?$top=3&$skip=';
+  it('a whole 2-page export as Sage gives it ($next on page 1, $back on page 2) is accepted', () => {
+    expect(rowsOf([
+      { $totalResults: 6, $startIndex: 0, $itemsPerPage: 3, $next: `${U}3`, $resources: rows(3) },
+      { $totalResults: 6, $startIndex: 3, $itemsPerPage: 3, $back: `${U}0`, $resources: rows(3, 10) },
+    ], 'PurchaseOrders')).toHaveLength(6);
+  });
+  it('a whole 3-page export ($next on pages 1 and 2, null on page 3) is accepted', () => {
+    expect(rowsOf([
+      { $totalResults: 7, $startIndex: 0, $next: `${U}3`, $resources: rows(3) },
+      { $totalResults: 7, $startIndex: 3, $next: `${U}6`, $back: `${U}0`, $resources: rows(3, 10) },
+      { $totalResults: 7, $startIndex: 6, $next: null, $back: `${U}3`, $resources: rows(1, 20) },
+    ], 'PurchaseOrders')).toHaveLength(7);
+  });
+  it('a $next on the LAST page, or on a single page, is still a partial export', () => {
+    expect(shape({ PurchaseOrders: [{ $next: `${U}3`, $resources: rows(3) }, { $next: `${U}6`, $resources: rows(3, 10) }] })).toMatch(/the last page has a \$next link, so the export stops before its end/);
+    expect(shape({ PurchaseOrders: [{ $next: `${U}3`, $resources: rows(3) }] })).toMatch(/the last page has a \$next link/);
+    expect(shape({ PurchaseOrders: { $next: `${U}3`, $resources: rows(3) } })).toMatch(/the last page has a \$next link/);
+  });
+});
