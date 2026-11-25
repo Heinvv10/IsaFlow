@@ -8,6 +8,7 @@ import { withAuth, type AuthenticatedNextApiRequest, withWriteAccess} from '@/li
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { attachReceiverNames } from '@/modules/accounting/services/ap/grnReceiverNames';
 import { createGoodsReceived, GoodsReceivedError } from '@/modules/accounting/services/ap/goodsReceivedService';
 import type { CompanyAuthedRequest } from '@/lib/auth/withAuth';
 
@@ -20,11 +21,11 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     const { purchaseOrderId } = req.query;
     let rows: Row[];
     if (purchaseOrderId) {
-      rows = await sql`SELECT g.*, CASE WHEN g.received_by = g.created_by THEN COALESCE(public.approval_company_member_name(g.company_id, g.created_by), 'Unknown user') ELSE g.received_by END AS received_by_name, po.po_number FROM goods_received_notes g LEFT JOIN purchase_orders po ON g.purchase_order_id = po.id AND po.company_id = g.company_id WHERE g.purchase_order_id = ${String(purchaseOrderId)} AND g.company_id = ${companyId} ORDER BY g.received_date DESC` as Row[];
+      rows = await sql`SELECT g.*, po.po_number FROM goods_received_notes g LEFT JOIN purchase_orders po ON g.purchase_order_id = po.id AND po.company_id = g.company_id WHERE g.purchase_order_id = ${String(purchaseOrderId)} AND g.company_id = ${companyId} ORDER BY g.received_date DESC` as Row[];
     } else {
-      rows = await sql`SELECT g.*, CASE WHEN g.received_by = g.created_by THEN COALESCE(public.approval_company_member_name(g.company_id, g.created_by), 'Unknown user') ELSE g.received_by END AS received_by_name, po.po_number, s.name as supplier_name FROM goods_received_notes g LEFT JOIN purchase_orders po ON g.purchase_order_id = po.id AND po.company_id = g.company_id LEFT JOIN suppliers s ON po.supplier_id = s.id AND s.company_id = po.company_id WHERE g.company_id = ${companyId} ORDER BY g.received_date DESC LIMIT 200` as Row[];
+      rows = await sql`SELECT g.*, po.po_number, s.name as supplier_name FROM goods_received_notes g LEFT JOIN purchase_orders po ON g.purchase_order_id = po.id AND po.company_id = g.company_id LEFT JOIN suppliers s ON po.supplier_id = s.id AND s.company_id = po.company_id WHERE g.company_id = ${companyId} ORDER BY g.received_date DESC LIMIT 200` as Row[];
     }
-    return apiResponse.success(res, rows);
+    return apiResponse.success(res, await attachReceiverNames(companyId, rows));
   }
 
   if (req.method === 'POST') {

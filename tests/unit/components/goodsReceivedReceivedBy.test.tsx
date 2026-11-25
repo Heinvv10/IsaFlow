@@ -50,7 +50,7 @@ describe('new goods received note: Received By', () => {
     fireEvent.change(screen.getByLabelText(/Purchase order/), { target: { value: 'po1' } });
     await waitFor(() => expect(screen.getByText('Bolts')).toBeTruthy());
     fireEvent.change(screen.getByLabelText('Delivery note #'), { target: { value: 'DN-778' } });
-    fireEvent.click(screen.getByRole('button', { name: /Create|Save|Receive|Record/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^Create GRN$/ }));
     await waitFor(() => expect(calls.some((c) => c.body?.purchaseOrderId === 'po1')).toBe(true));
     const post = calls.find((c) => c.body?.purchaseOrderId === 'po1')!.body!;
     expect(post.receivedBy ?? null).toBeNull();

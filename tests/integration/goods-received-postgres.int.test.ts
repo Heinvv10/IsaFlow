@@ -126,3 +126,11 @@ it('lists the receiver by name: a receipt with no typed receiver shows the user,
   expect(rows.find(r=>r.received_by==='Fixture receiver')?.received_by_name).toBe('Fixture receiver');
   expect(rows.every(r=>r.received_by_name!==user)).toBe(true);
 });
+it('a receipt whose creator is not a member of the company shows "Unknown user", not the raw id',async()=>{
+  const stranger=crypto.randomUUID();
+  await pool.query("INSERT INTO goods_received_notes(company_id,grn_number,purchase_order_id,received_date,received_by,created_by) VALUES($1,'GRN-STRANGER',$2,'2026-09-09',$3,$3)",[first,po,stranger]);
+  const req=request({'sb-access-token':token,active_company_id:first},'GET');req.url='/api/accounting/goods-received';
+  const result=response();await goodsReceived(req,result.res);expect(result.state.statusCode).toBe(200);
+  const rows=((result.state.body as {data:Array<{received_by:string;received_by_name:string}>}).data);
+  expect(rows.find(r=>r.received_by===stranger)?.received_by_name).toBe('Unknown user');
+});
