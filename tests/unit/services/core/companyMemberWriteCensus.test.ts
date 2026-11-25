@@ -166,6 +166,9 @@ const KNOWN_MIGRATIONS: Record<string, string[]> = {
   // #1656 round 3: adds company_users.approve_withheld and sets it true for the memberships 1010 promoted from accountant /
   // bookkeeper (role_values_1656_backup). It changes no role, company or user, and grants and guards nothing.
   '1010c_company_users_approve_withheld.sql': ['alters', 'writes'],
+  // #1927: replaces create_company_with_owner(jsonb) with 513's exact body plus one PERFORM enable_mcp_connector_default
+  // after the owner membership INSERT (tested verbatim by migration1056Shape.test.ts). Changes no membership rule, guard or grant.
+  '1056_mcp_connector_default_on_self_serve.sql': ['writes'],
 };
 
 const all = (() => { let cache: SourceFile[] | undefined; return () => (cache ??= sourceFiles()); })();

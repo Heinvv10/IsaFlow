@@ -88,7 +88,7 @@ export async function dropSetupUsers(pool: Pool, users: SetupUser[]): Promise<vo
     for (const id of new Set([...owned, u.homeCompanyId])) {
       // fiscal_periods and gl_accounts (create_company_with_owner's taxonomy) do not cascade with the company.
       await pool.query('DELETE FROM gl_account_balances WHERE gl_account_id IN (SELECT id FROM gl_accounts WHERE company_id = $1)', [id]);
-      for (const t of ['gl_accounts', 'fiscal_periods']) await pool.query(`DELETE FROM ${t} WHERE company_id = $1`, [id]);
+      for (const t of ['company_feature_overrides', 'gl_accounts', 'fiscal_periods']) await pool.query(`DELETE FROM ${t} WHERE company_id = $1`, [id]);
       await pool.query('DELETE FROM companies WHERE id = $1', [id]);
     }
     await pool.query('DELETE FROM users WHERE id = $1', [u.userId]);

@@ -37,7 +37,7 @@ const createdCompanies: string[] = [];
 afterAll(async () => {
   try {
     await pool.query('DELETE FROM company_users WHERE user_id = ANY($1)', [createdUsers]);
-    for (const t of ['fiscal_periods', 'fiscal_years', 'subscriptions']) {
+    for (const t of ['company_feature_overrides', 'fiscal_periods', 'fiscal_years', 'subscriptions']) {
       await pool.query(`DELETE FROM ${t} WHERE company_id = ANY($1::uuid[])`, [createdCompanies]);
     }
     await pool.query('DELETE FROM companies WHERE id = ANY($1::uuid[])', [createdCompanies]);

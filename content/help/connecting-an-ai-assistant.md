@@ -1,15 +1,15 @@
 ---
-title: "Connecting an AI assistant to IsaFlow (MCP connector, pilot)"
+title: "Connecting an AI assistant to IsaFlow (MCP connector)"
 slug: "connecting-an-ai-assistant"
-description: "How to connect Claude, Cursor or Grok Bot to IsaFlow through the pilot MCP connector and choose its permissions."
+description: "How to connect Claude, Cursor or Grok Bot to IsaFlow through the MCP connector and choose its permissions."
 order: 7
-updated: "2026-11-04"
+updated: "2026-11-25"
 ---
 
 You can connect Claude, Cursor or Grok Bot to IsaFlow so the assistant can read your books and, if you allow it, make changes.
 
-## 1. Ask us to switch it on
-The connector is switched on per company, and it is on by default for companies created from 25 November 2026. If your assistant says `MCP connector not enabled for this company`, a company owner or admin can switch it on in IsaFlow under Settings > Developer > MCP Connector (AI agents). If that page says it was switched off by IsaFlow, contact us.
+## 1. Check the connector is switched on
+The connector is switched on per company, and it is on by default for newly created companies. If your assistant says `MCP connector not enabled for this company`, a company owner or admin can switch it on in IsaFlow under Settings > Developer > MCP Connector (AI agents). If that page says it was switched off by IsaFlow, contact us.
 
 ## 2. Connect
 Add the MCP server `https://app.isaflow.co.za/api/mcp` in your assistant, then sign in to IsaFlow in the browser window that opens, pick the company, and review the permissions.

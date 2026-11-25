@@ -109,6 +109,7 @@ export async function cleanup(pool: Pool, companies: string[], users: string[]):
     await pool.query('DELETE FROM gl_accounts WHERE company_id=ANY($1)', [companies]);
     await pool.query('DELETE FROM suppliers WHERE company_id=ANY($1)', [companies]);
     await pool.query('DELETE FROM customers WHERE company_id=ANY($1)', [companies]);
+    await pool.query('DELETE FROM company_feature_overrides WHERE company_id=ANY($1)', [companies]);
     await pool.query('DELETE FROM company_users WHERE company_id=ANY($1)', [companies]);
     await pool.query('DELETE FROM companies WHERE id=ANY($1)', [companies]);
     await pool.query('DELETE FROM users WHERE id=ANY($1::text[])', [users]);

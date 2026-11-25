@@ -139,8 +139,8 @@ describe('1056: no backfill, no global flag, no plan', () => {
     expect(sqlOnly).not.toMatch(/plan_features/);
   });
 
-  it('ends with the app_pool_reach_violations halt and carries the rollback block', () => {
-    expect(MIGRATION.trimEnd()).toMatch(/FOR v IN SELECT \* FROM public\.app_pool_reach_violations\(\) ORDER BY 1 LOOP\s+RAISE EXCEPTION '1056: %', v;\s+END LOOP;\s+END \$\$;$/);
+  it('ends with the scoped app_pool_reach_violations halt and carries the rollback block', () => {
+    expect(MIGRATION.trimEnd()).toMatch(/FOR v IN SELECT x FROM public\.app_pool_reach_violations\(\) AS x\s+WHERE x ~ 'company_feature_overrides\|create_company_with_owner\|mcp_connector_self_serve_set\|enable_mcp_connector_default'\s+ORDER BY 1 LOOP\s+RAISE EXCEPTION '1056: %', v;\s+END LOOP;\s+END \$\$;$/);
     expect(MIGRATION).toContain('-- ROLLBACK');
     expect(MIGRATION).toContain("--   DELETE FROM public.company_feature_overrides WHERE reason = 'Default on for new companies';");
     expect(MIGRATION).toContain('--   DROP FUNCTION IF EXISTS public.mcp_connector_self_serve_set(uuid, boolean);');

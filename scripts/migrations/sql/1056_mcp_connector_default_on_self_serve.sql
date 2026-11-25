@@ -368,11 +368,14 @@ BEGIN
   END LOOP;
 END $$;
 
--- 930's rules still hold, the changed create_company_with_owner included.
+-- 930's rules still hold for the objects 1056 touches (scoped like 1010d so the advisory run on
+-- production's older schema does not trip on unrelated functions such as 997b; the integration gate checks all).
 DO $$
 DECLARE v text;
 BEGIN
-  FOR v IN SELECT * FROM public.app_pool_reach_violations() ORDER BY 1 LOOP
+  FOR v IN SELECT x FROM public.app_pool_reach_violations() AS x
+    WHERE x ~ 'company_feature_overrides|create_company_with_owner|mcp_connector_self_serve_set|enable_mcp_connector_default'
+    ORDER BY 1 LOOP
     RAISE EXCEPTION '1056: %', v;
   END LOOP;
 END $$;

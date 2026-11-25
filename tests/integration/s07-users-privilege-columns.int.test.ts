@@ -83,7 +83,7 @@ afterAll(async () => {
     await pool.query('DELETE FROM company_invitations WHERE company_id = $1', [company]);
     const owned = await pool.query('SELECT company_id FROM company_users WHERE user_id = $1', [signup]);
     const companies = [company, ...owned.rows.map(r => r.company_id as string)];
-    for (const t of ['fiscal_periods', 'subscriptions', 'company_users']) {
+    for (const t of ['company_feature_overrides', 'fiscal_periods', 'subscriptions', 'company_users']) {
       await pool.query(`DELETE FROM ${t} WHERE company_id = ANY($1)`, [companies]);
     }
     await pool.query('DELETE FROM company_users WHERE user_id = ANY($1)', [[me, invitee, acceptee, signup]]);
