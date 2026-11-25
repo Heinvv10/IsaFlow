@@ -17,7 +17,7 @@ import type { BatchReport, MigrationOptions } from '@/modules/accounting/service
 const h = vi.hoisted(() => {
   let open: () => void = () => undefined;
   const s = {
-    opts: null as MigrationOptions | null, phase: 'dry' as 'dry' | 'live', poolEnded: 0,
+    opts: null as MigrationOptions | null, phase: 'dry' as 'dry' | 'live', poolEnded: 0, ignoreStop: false,
     gate: Promise.resolve(), poolGate: Promise.resolve(),
     arm() { s.gate = new Promise<void>((r) => { open = r; }); },
     release() { open(); },
@@ -37,7 +37,7 @@ vi.mock('@/modules/accounting/services/sage-migration/sageMigrationRunner', () =
     }
     await h.gate;
     const stop = opts.shouldStop?.();
-    if (stop) throw new Error(stop);
+    if (stop && !h.ignoreStop) throw new Error(stop);
     return { live: null, marker: 'THE-FINAL-REPORT' };
   }),
 }));
@@ -49,10 +49,11 @@ let out: string[];
 let err: string[];
 let exit: ReturnType<typeof vi.spyOn>;
 const EVENTS = ['SIGINT', 'SIGTERM', 'SIGHUP'] as const;
+const HOOKS = ['uncaughtException', 'unhandledRejection'] as const;
 let before: Record<string, Function[]>;
 beforeEach(() => {
   d = mkdtempSync(join(tmpdir(), 'sage-cli-signals-'));
-  Object.assign(h, { opts: null, phase: 'dry', poolEnded: 0, poolGate: Promise.resolve() });
+  Object.assign(h, { opts: null, phase: 'dry', poolEnded: 0, poolGate: Promise.resolve(), ignoreStop: false });
   h.arm();
   out = []; err = [];
   process.exitCode = undefined;
@@ -62,7 +63,7 @@ beforeEach(() => {
   exit = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never);
   vi.spyOn(process.stderr, 'write').mockImplementation((s) => { err.push(String(s)); return true; });
   vi.spyOn(process.stdout, 'write').mockImplementation((s) => { out.push(String(s)); return true; });
-  before = Object.fromEntries([...EVENTS, 'stdout-error'].map((e) => [e, e === 'stdout-error' ? process.stdout.listeners('error') : process.listeners(e)]));
+  before = Object.fromEntries([...EVENTS, ...HOOKS, 'stdout-error'].map((e) => [e, e === 'stdout-error' ? process.stdout.listeners('error') : process.listeners(e)]));
 });
 afterEach(() => { process.exitCode = undefined; vi.unstubAllEnvs(); vi.restoreAllMocks(); rmSync(d, { recursive: true, force: true }); });
 
@@ -87,8 +88,8 @@ describe('the first signal', () => {
     it(`${sig} in the dry run: shouldStop answers, stderr says nothing is written; the run stops (exit 2), handlers removed after`, async () => {
       const { done } = await start();
       fire(sig);
-      expect(h.opts!.shouldStop!()).toBe(`stopped by ${sig}: no further batch is sent`);
-      expect(err.join('')).toMatch(new RegExp(`${sig}: the run stops before its next batch; nothing is written to the books`));
+      expect(h.opts!.shouldStop!()).toBe(`stopped by ${sig}: no further batch is sent; nothing was written to the books`); // R19-6
+      expect(err.join('')).toMatch(new RegExp(`${sig}: the run stops before its next batch, if one remains; nothing is written to the books`));
       h.release();
       await done;
       expect(code()).toBe(2);
@@ -101,7 +102,8 @@ describe('the first signal', () => {
     h.phase = 'live';
     const { done } = await start(['--live', '--expect-items', '20', '--expect-pos', '10']);
     fire('SIGTERM');
-    expect(err.join('')).toMatch(/SIGTERM: the live run stops before its next batch; what it committed is listed/);
+    expect(err.join('')).toMatch(/SIGTERM: the live run stops before its next batch, if one remains; what it committed is then listed/);
+    expect(h.opts!.shouldStop!()).toBe('stopped by SIGTERM: no further batch is sent'); // live: no "nothing written"
     h.release();
     await done;
   });
@@ -118,6 +120,17 @@ describe('a second signal: the run ends at once', () => {
     expect(r).toMatchObject({ status: 'stopped', liveStarted: true, message: expect.stringMatching(/stopped at once by a second signal \(SIGTERM\).*not re-checked against the books/s) });
     expect(r.committed.map((b: BatchReport) => `${b.entity} ${b.n}`)).toEqual(['category 1']);
     expect(r.commitUnconfirmed.map((b: BatchReport) => `${b.entity} ${b.n}`)).toEqual(['item 1']);
+    h.release();
+    await done;
+    // R19-1: terminate closed the file, so the usual stop that follows (process.exit is mocked here) cannot replace the stop at once.
+    expect(json().message).toMatch(/stopped at once by a second signal/);
+  });
+  it('R19-1: an unhandled rejection ends it at once through the same path (dry: exit 2, nothing written said once)', async () => {
+    const { done } = await start();
+    fire('unhandledRejection', new Error('boom'));
+    expect(code()).toBe(2);
+    expect(json()).toMatchObject({ status: 'stopped', liveStarted: false, message: expect.stringMatching(/an unhandled rejection ended the run: boom; nothing was written to the books/) });
+    expect(err.join('').match(/nothing (was )?written/g)).toHaveLength(1); // R19-6: said once (here the file exists: no note)
     h.release();
     await done;
   });
@@ -146,14 +159,28 @@ describe('a second signal: the run ends at once', () => {
   });
 });
 
+describe('B19-2: a signal during the last batch (none left to stop before)', () => {
+  it('the run finishes as it is (exit 0, its report), and a closing line says the signal came after the last batch', async () => {
+    h.ignoreStop = true; // the runner asks shouldStop only before a batch: none followed
+    const { done } = await start();
+    fire('SIGTERM');
+    h.release();
+    await done;
+    expect(process.exitCode).toBe(0);
+    expect(json()).toMatchObject({ marker: 'THE-FINAL-REPORT' });
+    expect(err.join('')).toMatch(/SIGTERM came after the last batch was sent: the run finished; its summary and report stand \(exit 0\)/);
+  });
+});
+
 describe('B18-2: a stdout whose reader went away', () => {
   it('is no longer written; the run goes on to exit 0 with its report', async () => {
     const { done } = await start();
     fire('stdout-error', Object.assign(new Error('EPIPE: broken pipe, write'), { code: 'EPIPE' }));
+    fire('stdout-error', Object.assign(new Error('EPIPE: broken pipe, write'), { code: 'EPIPE' }));
     h.release();
     await done;
     expect(out.join('')).not.toContain('SUMMARY LINE');
-    expect(err.join('')).toMatch(/stdout is closed \(EPIPE\)/);
+    expect(err.join('').match(/stdout is closed \(EPIPE\)/g)).toHaveLength(1); // B19-3: said once
     expect(process.exitCode).toBe(0);
     expect(json()).toMatchObject({ marker: 'THE-FINAL-REPORT' });
   });

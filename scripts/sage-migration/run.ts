@@ -15,7 +15,9 @@
  * that file, through its held descriptor (scripts/sage-migration/runReport.ts). SIGINT / SIGTERM / SIGHUP stop the run before its next
  * batch (in the dry run exit 2, nothing written; once the live phase started exit 4, a stop report in --report); a second one, an uncaught
  * error or an unhandled rejection ends it at once with a stop report of what is known (scripts/sage-migration/runState.ts). A closed
- * stdout or stderr (EPIPE) is no longer written and never ends the run.
+ * stdout or stderr (EPIPE) is no longer written and never ends the run. Named limits: SIGHUP is handled like SIGTERM, so `nohup` does
+ * not keep a run going after a hangup (it stops before its next batch; run it under tmux / screen / systemd-run instead) (R19-2); an
+ * exit-4 summary goes to stderr only, so with stderr closed and no --report the committed list reaches nobody: give --report (R19-7).
  * `--no-env-file` keeps bun from loading a .env.local that names the dev database (the guard would refuse it anyway). Format and mapping: docs/design/sage-migration-export-format.md.
  */
 import { readFileSync } from 'node:fs';
@@ -48,7 +50,10 @@ let owned: OwnedReport | null = null;
 let reportAsked: string | undefined;
 /** The create failed after it made the file, and the file could not be removed (R18-4): a refusal must not say "not created". */
 let reportLeft = false;
-/** What the run did so far (the runner's onProgress): a stop at once says it. */
+/**
+ * What the run did so far (the runner's onProgress): a stop at once says it. This state and the variables above are the module's: runCli
+ * runs once per process (the CLI; each test re-imports the module) (R19-5).
+ */
 const state = new RunState();
 /**
  * A stop report through the held descriptor, then the file is closed (a second report is refused). If it cannot be written, once more,
@@ -64,9 +69,11 @@ const leaveStopReport = (err: unknown, exitCode: number): void => {
   }
   owned.close();
 };
-const notCreated = () => {
+/** The note on a refusal about --report; `said` is the message it follows, so "nothing written" is not said twice (R19-6). */
+const notCreated = (said = '') => {
   if (reportLeft) return ` (nothing written to the books; --report ${reportAsked} was created but could not be written or removed: delete it)`;
-  return owned === null && reportAsked !== undefined ? ` (nothing written; --report ${reportAsked} was not created by this run)` : '';
+  if (owned !== null || reportAsked === undefined) return '';
+  return /nothing (was )?written/.test(said) ? ` (--report ${reportAsked} was not created by this run)` : ` (nothing written; --report ${reportAsked} was not created by this run)`;
 };
 /**
  * A refused start: thrown, so every exit goes through main's one catch (the message, a stop report once --report exists, exit 2: nothing
@@ -88,7 +95,8 @@ function terminate(why: string): void {
   }
   const err = state.stoppedAtOnce(state.liveStarted ? why : `${why}; nothing was written to the books (the live phase had not started)`);
   const code = exitCodeForError(err);
-  say(`${stopMessage(err)}${notCreated()}`);
+  const said = stopMessage(err);
+  say(`${said}${notCreated(said)}`);
   leaveStopReport(err, code);
   process.exit(code);
 }
@@ -105,11 +113,12 @@ function installHandlers(): () => void {
     if (stopSignal !== null) return terminate(`stopped at once by a second signal (${sig})`);
     stopSignal = sig;
     say(state.liveStarted
-      ? `${sig}: the live run stops before its next batch; what it committed is listed (send it again to stop at once)`
-      : `${sig}: the run stops before its next batch; nothing is written to the books (send it again to stop at once)`);
+      ? `${sig}: the live run stops before its next batch, if one remains; what it committed is then listed (send it again to stop at once)`
+      : `${sig}: the run stops before its next batch, if one remains; nothing is written to the books (send it again to stop at once)`);
   };
   const crash = (kind: string) => (e: unknown) => terminate(`${kind}: ${e instanceof Error ? e.message : String(e)}`);
   const stream = (name: 'stdout' | 'stderr') => (e: NodeJS.ErrnoException) => {
+    if (gone[name]) return; // said once (B19-3)
     gone[name] = true; // EPIPE or another write error: the stream is not written again; the run goes on
     if (name === 'stdout') say(`stdout is closed (${e.code ?? e.message}): the summary is not printed there; --report holds the run's report`);
   };
@@ -179,7 +188,8 @@ async function main(): Promise<void> {
     const report = await runSageMigration(pool, parsed, {
       companyId: values.company!.toLowerCase(), userId: values.user!.toLowerCase(), live: values.live, skipBudgetCheck: values['skip-budget-check'], poGlAccountId: values['po-gl-account']?.toLowerCase(), runTag: values['run-tag'], allowRefusals: values['allow-refusals'] === true, allowDifferences: values['allow-differences'] === true,
       expect,
-      shouldStop: () => (stopSignal === null ? null : `stopped by ${stopSignal}: no further batch is sent`),
+      // Before the live phase the answer says nothing was written (R19-6): the stop is then a refused start.
+      shouldStop: () => (stopSignal === null ? null : `stopped by ${stopSignal}: no further batch is sent${state.liveStarted ? '' : '; nothing was written to the books'}`),
       onProgress: state.onProgress,
     });
     // From here to the report's write there is no await, so no signal or crash handler runs in between: an end at once after it changes
@@ -188,6 +198,8 @@ async function main(): Promise<void> {
     // The summary is printed FIRST: a committed run must always tell what it did, whatever happens to the report file.
     const { lines, code } = summarize(report, values['allow-refusals'] === true, values['allow-differences'] === true);
     for (const line of lines) (code === 4 ? say(line) : out(line));
+    // A signal that came during the last batch (no batch left to stop before): the run finished, and says so (B19-2, R19-3).
+    if (stopSignal !== null) say(`${stopSignal} came after the last batch was sent: the run finished; its summary and report stand (exit ${code})`);
     process.exitCode = code;
     if (owned) {
       const why = owned.write(report);
@@ -219,7 +231,8 @@ export async function runCli(o: { removeHandlers?: boolean } = {}): Promise<void
     await main();
   } catch (err) {
     const code = exitCodeForError(err);
-    say(`${err instanceof RefusedStart ? err.message : stopMessage(err)}${notCreated()}`);
+    const said = err instanceof RefusedStart ? err.message : stopMessage(err);
+    say(`${said}${notCreated(said)}`);
     leaveStopReport(err, code); // every other exit path after the create (a stop, a refusal, a summary that failed after a dry run) leaves a stop report
     process.exit(code);
   } finally {

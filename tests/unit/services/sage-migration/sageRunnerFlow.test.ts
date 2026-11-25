@@ -164,3 +164,17 @@ describe('round 18: dry-run stops, no stop after the last batch, progress', () =
   });
 });
 
+describe('R19-1: a stop before the live phase', () => {
+  it('is a refused start: no "phase live" event, nothing live sent', async () => {
+    const { StopRequested } = await import('@/modules/accounting/services/sage-migration/sageMigrationRunner');
+    const phases: string[] = [];
+    const err = await run({
+      shouldStop: () => (h.sent.includes('purchase_order dry') ? 'stopped by SIGTERM: no further batch is sent' : null),
+      onProgress: (p: { kind: string; phase?: string }) => { if (p.kind === 'phase') phases.push(p.phase!); },
+    }).then(() => null, (e: unknown) => e);
+    expect(err).toBeInstanceOf(StopRequested);
+    expect(phases).toEqual(['dry']);
+    expect(h.sent.filter((x) => x.endsWith('live'))).toEqual([]);
+  });
+});
+

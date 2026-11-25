@@ -14,7 +14,7 @@ import { join } from 'node:path';
 
 const h = vi.hoisted(() => ({
   behave: 'ok' as 'ok' | 'locked-out' | 'live-summary-fails',
-  code: 0, calls: 0, failFinalWrite: false, poolEndThrows: false, poolEnded: 0, failPlaceholder: false,
+  code: 0, calls: 0, failFinalWrite: false, poolEndThrows: false, poolEnded: 0, failPlaceholder: false, failStopReport: false,
 }));
 vi.mock('@/modules/accounting/services/sage-migration/sageMigrationRunner', () => ({
   runSageMigration: vi.fn(async () => {
@@ -35,6 +35,7 @@ vi.mock('node:fs', async (orig) => {
   const writeSync = ((fd: number, buf: unknown, ...rest: unknown[]) => {
     if (h.failFinalWrite && String(buf).includes('THE-FINAL-REPORT')) throw new Error('EIO: injected');
     if (h.failPlaceholder && String(buf).includes('"running"')) throw new Error('ENOSPC: injected');
+    if (h.failStopReport && String(buf).includes('"stopped"')) throw new Error('EFBIG: injected');
     return (real.writeSync as (...x: unknown[]) => number)(fd, buf, ...rest);
   }) as typeof real.writeSync;
   const unlinkSync = ((...a: Parameters<typeof real.unlinkSync>) => {
@@ -49,7 +50,7 @@ let out: string[];
 let err: string[];
 beforeEach(() => {
   d = mkdtempSync(join(tmpdir(), 'sage-cli-report-'));
-  Object.assign(h, { behave: 'ok', code: 0, calls: 0, failFinalWrite: false, poolEndThrows: false, poolEnded: 0, failPlaceholder: false });
+  Object.assign(h, { behave: 'ok', code: 0, calls: 0, failFinalWrite: false, poolEndThrows: false, poolEnded: 0, failPlaceholder: false, failStopReport: false });
   out = []; err = [];
   process.exitCode = undefined;
   vi.resetModules();
@@ -120,6 +121,14 @@ describe('after the create: every exit leaves a report in it', () => {
     expect(await runCli(report)).toBe(2);
     expect(json(report)).toMatchObject({ status: 'stopped', message: expect.stringMatching(/another Sage migration is running/) });
     expect(err.join('')).not.toMatch(/was not created/);
+  });
+  it('R19-1: a stop report that cannot be written leaves the small stop_report_not_written body, exit unchanged', async () => {
+    h.behave = 'locked-out';
+    h.failStopReport = true;
+    const report = join(d, 'report.json');
+    expect(await runCli(report)).toBe(2);
+    expect(err.join('')).toMatch(/could not be written: EFBIG: injected/);
+    expect(json(report)).toMatchObject({ status: 'stop_report_not_written', exitCode: 2 });
   });
 });
 
