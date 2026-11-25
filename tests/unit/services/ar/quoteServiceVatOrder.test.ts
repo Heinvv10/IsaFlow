@@ -134,6 +134,13 @@ describe('each step\'s edges (mutation-checked)', () => {
     expect(twins.map((r) => r.join('|')).sort()).toEqual([`${X}|${GX}`, `${Y}|${GY}`].sort());
   });
 
+  it('content: two lines inserted above identical twins of different items and one twin deleted (which?): refused', async () => {
+    world.stored = [storedLine('s0', 1, X, GX, '10.00'), storedLine('s1', 2, Y, GY, '10.00')];
+    await expect(put([{ description: 'New', quantity: 1, unitPrice: 5 }, { description: 'Other', quantity: 1, unitPrice: 6 }, svc(10)]))
+      .rejects.toThrow(AMBIGUOUS);
+    expect(wrote()).toBe(false);
+  });
+
   it('content: identical twins of different items, one re-priced after an insert above them: refused', async () => {
     world.stored = [storedLine('s0', 1, X, GX, '10.00'), storedLine('s1', 2, Y, GY, '10.00')];
     await expect(put([{ description: 'New', quantity: 1, unitPrice: 5 }, svc(10), svc(15)])).rejects.toThrow(AMBIGUOUS);
