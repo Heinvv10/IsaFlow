@@ -10,9 +10,10 @@
  * never sent unprotected), already delivered for this approval (ALREADY_SENT: any attempt sent, or 'unknown' because
  * the mail server may have taken it, a later failed resend notwithstanding (D-S4); unless `resend`), or, in a whole-run send, a last try that failed (LAST_SEND_FAILED: a
  * request names the employee to retry; review #1542 D-I1). Those are skipped and named, never refused. Then the batch's
- * employee rows are locked, every slip of the batch is rendered and AES-256 encrypted (wave 7 PX; a slip that cannot
- * be is ENCRYPTION_UNAVAILABLE 503 for the whole request, nothing sent or charged), and only then is the rate limit
- * charged for the count this request will send (`admit`; RATE_LIMITED 429; F-A1).
+ * employee rows are locked, and only then is the rate limit charged for the count this request will send (`admit`;
+ * RATE_LIMITED 429; F-A1), before any render. Then the slips to send are rendered and AES-256 encrypted (wave 7 PX,
+ * at most half the time budget; a slip that cannot be is ENCRYPTION_UNAVAILABLE 503 for the whole request, nothing
+ * sent; the daily units come back at the request's end).
  *
  * At most `limits.maxSends` slips per request, and none started once `limits.budgetMs` has passed (review #1542 A1:
  * a request must finish well inside the proxy's 60 s); the rest are `remaining`, and the caller asks again. Each
@@ -50,6 +51,8 @@ const SMTP_TIMEOUTS_MS = { connection: 5_000, greeting: 5_000, socket: 10_000 };
 /** Per request: at most 20 sends, none started after 20 s (+ one 15 s deadline = 35 s, inside nginx's 60 s). */
 export const SEND_LIMITS = { maxSends: 20, budgetMs: 20_000 } as const;
 export type SendLimits = { maxSends: number; budgetMs: number };
+/** Wave 7 PX: rendering (qpdf) may use at most this share of budgetMs; sending the rendered slips uses the rest. */
+const RENDER_SHARE = 0.5;
 
 export type SkipReason = 'NO_EMAIL' | 'NO_ID_OR_PASSPORT' | 'ALREADY_SENT' | 'LAST_SEND_FAILED';
 interface Who { employeeId: string; employeeNumber: string; employeeName: string }
@@ -198,21 +201,30 @@ export async function sendPayslipEmails(opts: {
   const batch = queue.slice(0, limits.maxSends);
   // Locked BEFORE the rate limit is charged (review #1542 F-A1): a lock or deadlock refusal leaves the buckets alone.
   const locked = await lockBatch(companyId, runId, batch.map((q) => q.slip.employeeId));
-  // Wave 7 PX: every slip of the batch is rendered and AES-256 encrypted BEFORE the first send or write (rule 12), so
-  // a host without qpdf or /dev/shm refuses the request whole (ENCRYPTION_UNAVAILABLE), with nothing sent or charged.
-  const ready: Ready[] = [];
+  // As locked: an address or ID changed since the unlocked read is the one used, or the slip is skipped.
+  const eligible: Array<{ slip: PayslipRun['payslips'][number]; who: Who; email: string; password: NonNullable<ReturnType<typeof payslipPassword>> }> = [];
   for (const { slip } of batch) {
     const who = { employeeId: slip.employeeId, employeeNumber: slip.employeeNumber, employeeName: slip.employeeName };
-    // As locked: an address or ID changed since the unlocked read is the one used, or the slip is skipped.
     const now = locked.get(slip.employeeId);
     const password = now ? payslipPassword({ idNumber: now.id_number, passportNumber: now.passport_number }) : null;
-    if (!now?.email) { out.skipped.push({ ...who, reason: 'NO_EMAIL' }); continue; }
-    if (!password) { out.skipped.push({ ...who, reason: 'NO_ID_OR_PASSPORT' }); continue; }
-    const rendered = await encrypted(run, slip, password.password, approvedAt);
-    ready.push({ who, email: now.email, message: payslipEmailMessage(run, slip, password.source), rendered });
+    if (!now?.email) out.skipped.push({ ...who, reason: 'NO_EMAIL' });
+    else if (!password) out.skipped.push({ ...who, reason: 'NO_ID_OR_PASSPORT' });
+    else eligible.push({ slip, who, email: now.email, password });
   }
-  if (ready.length > 0 && !(await opts.admit(ready.length))) {
+  // Charged BEFORE any render (wave 7 PX security review): a rate-limited request starts no qpdf. A request that
+  // then sends fewer gets the daily units back at its end (refundUnused; the 15-minute buckets count attempts).
+  if (eligible.length > 0 && !(await opts.admit(eligible.length))) {
     throw new PayslipEmailRefusal('RATE_LIMITED', 'Too many payslip emails for now. Try again later.');
+  }
+  // Wave 7 PX: the slips this request will send are rendered and AES-256 encrypted BEFORE the first send or write
+  // (rule 12), so a host without qpdf or /dev/shm refuses the request whole (ENCRYPTION_UNAVAILABLE), nothing sent.
+  // Rendering stops once half the time budget is spent (at least one slip): the rest are `remaining`, and qpdf work
+  // per request is bounded by RENDER_SHARE of budgetMs plus one render.
+  const ready: Ready[] = [];
+  for (const { slip, who, email, password } of eligible) {
+    if (ready.length > 0 && Date.now() - started > limits.budgetMs * RENDER_SHARE) break;
+    const rendered = await encrypted(run, slip, password.password, approvedAt);
+    ready.push({ who, email, message: payslipEmailMessage(run, slip, password.source), rendered });
   }
 
   const previous = await lastSentTo(companyId, ready.map((r) => r.who.employeeId));
@@ -243,7 +255,7 @@ export async function sendPayslipEmails(opts: {
     else out.failed.push({ ...who, error: 'The mail server did not accept it. Check the address and try again.' });
   }
   // Skipped under the lock and sent both count as done; the batch's unsent rest and the queue beyond it remain.
-  out.remaining = queue.length - batch.length + (ready.length - attempted);
+  out.remaining = queue.length - batch.length + (eligible.length - attempted);
   log.info('Payslips emailed', {
     companyId, runId, sent: out.sent.length, failed: out.failed.length, uncertain: out.uncertain.length, remaining: out.remaining,
   }, 'payslip-email');

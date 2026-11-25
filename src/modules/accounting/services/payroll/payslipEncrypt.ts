@@ -23,7 +23,7 @@ import path from 'path';
 import { log } from '@/lib/logger';
 
 export const PAYSLIP_TMP_ROOT = '/dev/shm';
-const QPDF_TIMEOUT_MS = 15_000;
+const QPDF_TIMEOUT_MS = 10_000;
 const MAX_OUTPUT_BYTES = 20 * 1024 * 1024;
 
 export class PayslipEncryptionFailed extends Error {
