@@ -22,5 +22,7 @@ export const PAYROLL_AUDIT_ENTITY_TYPES: readonly string[] = [
   'payroll_run',
   'payroll_run_frequency_change',
   'payslip_email',
+  // W29 (#1901 M2): an acknowledged share beside a once-off; its pairKey names one employee's rows and amounts.
+  'recurring_share_ack',
   'tax_directive',
 ];
