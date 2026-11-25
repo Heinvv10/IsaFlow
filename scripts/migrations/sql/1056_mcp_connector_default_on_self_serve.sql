@@ -252,6 +252,8 @@ BEGIN
       ('migration_admin', 'public.companies', 'SELECT'),
       ('platform_admin', 'public.company_feature_overrides', 'INSERT'),
       ('platform_admin', 'public.company_feature_overrides', 'SELECT'),
+      ('platform_admin', 'public.company_feature_overrides', 'UPDATE'),
+      ('platform_admin', 'public.company_feature_overrides', 'DELETE'),
       ('platform_admin', 'public.feature_flags', 'SELECT'),
       ('platform_admin', 'public.companies', 'SELECT')) w(role, tbl, priv)
   LOOP
@@ -300,9 +302,12 @@ BEGIN
 
   PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('mcp_connector_self_serve:' || p_company::text, 0));
 
+  -- FOR SHARE (not FOR UPDATE): migration_admin has no UPDATE on the table. Combined with the same
+  -- advisory lock on platform-admin writes, a concurrent OFF cannot sneak in after this read.
   SELECT o.enabled, COALESCE(o.set_via, 'platform_admin') INTO v_was, v_was_via
     FROM public.company_feature_overrides o
-   WHERE o.company_id = p_company AND o.feature_id = v_feature;
+   WHERE o.company_id = p_company AND o.feature_id = v_feature
+   FOR SHARE;
   v_had := FOUND;
 
   IF v_had THEN
@@ -364,6 +369,23 @@ BEGIN
     END IF;
     IF pg_catalog.has_function_privilege('app_user', d.fn, 'EXECUTE') IS DISTINCT FROM d.app THEN
       RAISE EXCEPTION '1056: app_user % execute %', CASE WHEN d.app THEN 'cannot' ELSE 'can' END, d.fn;
+    END IF;
+  END LOOP;
+END $$;
+
+-- RLS stays on, and app_user still cannot write the table directly (that would bypass the toggle's
+-- tenant, role, feature and platform-admin lock checks).
+DO $$
+DECLARE p text;
+BEGIN
+  IF NOT COALESCE((SELECT c.relrowsecurity FROM pg_catalog.pg_class c
+                    WHERE c.oid = 'public.company_feature_overrides'::pg_catalog.regclass), false) THEN
+    RAISE EXCEPTION '1056: company_feature_overrides does not have row security';
+  END IF;
+  FOREACH p IN ARRAY ARRAY['INSERT', 'UPDATE', 'DELETE'] LOOP
+    IF pg_catalog.to_regrole('app_user') IS NOT NULL
+       AND pg_catalog.has_table_privilege('app_user', 'public.company_feature_overrides', p) THEN
+      RAISE EXCEPTION '1056: app_user can % company_feature_overrides', p;
     END IF;
   END LOOP;
 END $$;

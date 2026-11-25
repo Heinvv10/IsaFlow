@@ -160,7 +160,14 @@ export async function setCompanyFeatureOverride(
   reason: string,
   setBy: string
 ): Promise<void> {
+  // Same advisory key as mcp_connector_self_serve_set, taken in this statement so it lives
+  // for the request transaction (a separate SELECT would drop the lock if this ran autocommit).
   await sql`
+    WITH taken AS (
+      SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('mcp_connector_self_serve:' || ${companyId}::text, 0))
+      FROM feature_flags
+      WHERE id = ${featureId}::uuid AND code = 'mcp_connector'
+    )
     INSERT INTO company_feature_overrides
       (company_id, feature_id, enabled, reason, set_by, set_via, created_at)
     VALUES
@@ -183,6 +190,11 @@ export async function removeCompanyFeatureOverride(
   featureId: string
 ): Promise<boolean> {
   const rows = await sql`
+    WITH taken AS (
+      SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('mcp_connector_self_serve:' || ${companyId}::text, 0))
+      FROM feature_flags
+      WHERE id = ${featureId}::uuid AND code = 'mcp_connector'
+    )
     DELETE FROM company_feature_overrides
     WHERE company_id = ${companyId}
       AND feature_id = ${featureId}

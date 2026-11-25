@@ -109,6 +109,14 @@ describe('1056: mcp_connector_self_serve_set', () => {
     expect(stripComments(b)).not.toMatch(/\bUPDATE\b/);
     expect(b).toContain("'company_admin'");
     expect(b).toContain('pg_advisory_xact_lock');
+    // The read that decides the lock happens after the advisory lock, and FOR SHARE holds the row
+    // until commit. The matching key is taken by setCompanyFeatureOverride (same migration number).
+    const lock = b.indexOf("pg_catalog.hashtextextended('mcp_connector_self_serve:' || p_company::text, 0)");
+    const read = b.indexOf("SELECT o.enabled, COALESCE(o.set_via, 'platform_admin') INTO v_was, v_was_via");
+    const share = b.indexOf('FOR SHARE;');
+    expect(lock).toBeGreaterThan(-1);
+    expect(read).toBeGreaterThan(lock);
+    expect(share).toBeGreaterThan(read);
   });
 });
 
@@ -145,5 +153,7 @@ describe('1056: no backfill, no global flag, no plan', () => {
     expect(MIGRATION).toContain("--   DELETE FROM public.company_feature_overrides WHERE reason = 'Default on for new companies';");
     expect(MIGRATION).toContain('--   DROP FUNCTION IF EXISTS public.mcp_connector_self_serve_set(uuid, boolean);');
     expect(MIGRATION).toContain('--   ALTER TABLE public.company_feature_overrides DROP COLUMN IF EXISTS set_via;');
+    expect(MIGRATION).toContain('1056: company_feature_overrides does not have row security');
+    expect(MIGRATION).toContain('1056: app_user can % company_feature_overrides');
   });
 });

@@ -8,7 +8,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { closeSql } from '../../scripts/_pg';
 import { getAuthPool } from '@/lib/auth/authPool';
-import { migration, newIds, rolledBack, setup, teardown } from './s07b-app-pool-login-role.helpers';
+import { fixture, migration, newIds, rolledBack, setup, teardown } from './s07b-app-pool-login-role.helpers';
 
 const ids = newIds(); // setup: ids.company has ids.me (admin) and ids.owner (owner); an enabled platform row for ids.company
 const M1056 = migration('1056_mcp_connector_default_on_self_serve.sql');
@@ -135,5 +135,38 @@ describe('1056: the owner/admin toggle', () => {
       await asAppUser(q, ids.owner, ids.company);
       expect((await toggle(q, ids.company, true))[0]).toMatchObject({ result: 'locked' });
     });
+  });
+
+  it('an in-flight owner toggle holds the advisory lock a platform-admin OFF also takes', async () => {
+    // Two connections: the owner transaction keeps the lock until ROLLBACK, so the admin
+    // upsert (same key as setCompanyFeatureOverride) must wait, not sneak an OFF in after the read.
+    const owner = await fixture.connect();
+    const admin = await fixture.connect();
+    const q = (c: typeof owner) => (text: string) => c.query(text);
+    try {
+      await owner.query('BEGIN');
+      await asAppUser(q(owner), ids.owner, ids.company);
+      expect((await toggle(q(owner), ids.company, false))[0]).toMatchObject({ result: 'ok' });
+
+      await admin.query('BEGIN');
+      await admin.query("SET LOCAL lock_timeout = '250ms'");
+      await expect(admin.query(
+        `WITH taken AS (
+           SELECT pg_advisory_xact_lock(hashtextextended('mcp_connector_self_serve:' || $1::text, 0))
+           FROM feature_flags WHERE code = 'mcp_connector'
+         )
+         INSERT INTO company_feature_overrides (company_id, feature_id, enabled, reason, set_by, set_via, created_at)
+         SELECT $1::uuid, id, false, 'lock', $2::uuid, 'platform_admin', now() FROM feature_flags WHERE code = 'mcp_connector'
+         ON CONFLICT (company_id, feature_id) DO UPDATE SET
+           enabled = EXCLUDED.enabled, reason = EXCLUDED.reason, set_by = EXCLUDED.set_by,
+           set_via = 'platform_admin', created_at = now()`,
+        [ids.company, ids.admin],
+      )).rejects.toMatchObject({ code: '55P03' });
+    } finally {
+      await owner.query('ROLLBACK').catch(() => undefined);
+      await admin.query('ROLLBACK').catch(() => undefined);
+      owner.release();
+      admin.release();
+    }
   });
 });
