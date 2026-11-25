@@ -7,7 +7,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const h = vi.hoisted(() => ({ now: 0, renders: 0, renderMs: 0, failRender: false, claims: 0 }));
+const h = vi.hoisted(() => ({ now: 0, renders: 0, renderMs: 0, failRender: false, claims: 0, lockedWithoutEmail: -1 }));
 
 vi.mock('@/lib/neon', () => ({
   sql: vi.fn(async () => EMPLOYEES), withSavepoint: vi.fn(), withTransaction: vi.fn(),
@@ -21,7 +21,8 @@ vi.mock('@/modules/accounting/services/payroll/payrollRunLock', () => ({
   withBoundedLockWait: vi.fn(async (_run: string, fn: (tx: unknown) => Promise<unknown>) => fn(async (strings: TemplateStringsArray) => {
     const q = strings.join('?');
     if (q.includes('payroll_run_headers')) return [{ status: 'approved', final_at: new Date('2026-11-25T10:00:00Z') }];
-    if (q.includes('payroll_employees')) return EMPLOYEES;
+    // The locked re-read: an address removed since the unlocked read (lockedWithoutEmail) is the one used.
+    if (q.includes('payroll_employees')) return EMPLOYEES.map((e, i) => (i === h.lockedWithoutEmail ? { ...e, email: null } : e));
     return [];
   })),
 }));
@@ -64,7 +65,7 @@ function send(admit: (count: number) => Promise<boolean>, limits = { maxSends: 2
 }
 
 beforeEach(() => {
-  Object.assign(h, { now: 1_000_000, renders: 0, renderMs: 0, failRender: false, claims: 0 });
+  Object.assign(h, { now: 1_000_000, renders: 0, renderMs: 0, failRender: false, claims: 0, lockedWithoutEmail: -1 });
   mailer.mockClear();
   vi.spyOn(Date, 'now').mockImplementation(() => h.now);
 });
@@ -112,5 +113,23 @@ describe('payslip email: qpdf bounded by the rate limit and the budget', () => {
     expect(err).toMatchObject({ reason: 'ENCRYPTION_UNAVAILABLE', status: 503 });
     expect(h.claims).toBe(0);
     expect(mailer).not.toHaveBeenCalled();
+  });
+
+  it('a slip skipped under the lock is done, not remaining; only the budget-deferred rest remain', async () => {
+    h.lockedWithoutEmail = 1; // E-1 lost its address after the unlocked read
+    h.renderMs = 4_000;
+    const admit = vi.fn(async () => true);
+    const out = await send(admit);
+    expect(admit).toHaveBeenCalledWith(N - 1);
+    expect(out.skipped).toMatchObject([{ employeeNumber: 'E-1', reason: 'NO_EMAIL' }]);
+    expect(out.sent).toHaveLength(3);
+    expect(out.remaining).toBe(N - 1 - 3);
+  });
+
+  it('nothing deferred: remaining is 0 after a skip under the lock', async () => {
+    h.lockedWithoutEmail = 0;
+    const out = await send(async () => true);
+    expect(out.sent).toHaveLength(N - 1);
+    expect(out.remaining).toBe(0);
   });
 });

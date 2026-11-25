@@ -13,17 +13,28 @@
  *
  * PLAINTEXT ON DISK, NAMED EXCEPTION (ruling 17): qpdf needs a seekable input file, so the unencrypted render is
  * written to a 0600 file in a fresh 0700 directory under /dev/shm (tmpfs: memory, never a disk block) and removed in
- * `finally`, whatever happens. The isaflow@ units run ProtectSystem=strict, which leaves /dev writable (proved in the
- * PR under the unit's own options). No tmpfs, no qpdf, a qpdf failure or an output that is not a PDF:
- * PayslipEncryptionFailed, and the send refuses before anything is sent (payslipDeliveryService).
+ * `finally`, whatever happens. A process killed mid-render (SIGKILL, OOM) cannot run `finally`: every render first
+ * sweeps this module's directories older than a minute (sweepStalePayslipDirs). The isaflow@ units run
+ * ProtectSystem=strict, which leaves /dev writable (proved in the PR under the unit's own options). (memfd_create is
+ * not reachable from Node without a native module, so a tmpfs file it is.)
+ *
+ * qpdf is spawned by absolute path (/usr/bin/qpdf; PAYSLIP_QPDF_PATH overrides), never through PATH. Its output is
+ * checked to be AES-256 (/Encrypt, V 5, R 6, AESV3) before it is returned. Every failure (no tmpfs, a file error, no
+ * qpdf, a qpdf failure or timeout, an output that is not AES-256, a password that is not one line) is
+ * PayslipEncryptionFailed: the send refuses 503 before anything is sent (payslipDeliveryService), never a 500.
  */
 import { spawn as nodeSpawn } from 'child_process';
-import { chmod, mkdtemp, rm, writeFile } from 'fs/promises';
+import { lstat, mkdtemp, readdir, rm, writeFile } from 'fs/promises';
 import path from 'path';
 import { log } from '@/lib/logger';
 
 export const PAYSLIP_TMP_ROOT = '/dev/shm';
+/** Absolute, so a PATH entry can never stand in for qpdf (PAYSLIP_QPDF_PATH overrides it, read at each call). */
+export const QPDF_DEFAULT_PATH = '/usr/bin/qpdf';
+const TMP_PREFIX = 'isaflow-payslip-';
 const QPDF_TIMEOUT_MS = 10_000;
+/** A plaintext directory older than this is a crashed render's (a render's qpdf is killed at 10 s): swept. */
+export const STALE_AFTER_MS = 60_000;
 const MAX_OUTPUT_BYTES = 20 * 1024 * 1024;
 
 export class PayslipEncryptionFailed extends Error {
@@ -33,7 +44,7 @@ export class PayslipEncryptionFailed extends Error {
   }
 }
 
-export interface EncryptDeps { spawn?: typeof nodeSpawn; tmpRoot?: string }
+export interface EncryptDeps { spawn?: typeof nodeSpawn; tmpRoot?: string; timeoutMs?: number; now?: () => number }
 
 /** What qpdf reads from stdin: AES-256, the password as user and owner password, print only. */
 export function qpdfArguments(password: string, inPath: string): string[] {
@@ -41,30 +52,78 @@ export function qpdfArguments(password: string, inPath: string): string[] {
     '--print=full', '--modify=none', '--extract=n', '--', inPath, '-'];
 }
 
-/** The PDF, encrypted. Throws PayslipEncryptionFailed when it cannot be (never returns the plaintext). */
+/** AES-256 as written by qpdf: an /Encrypt dictionary with V 5, R 6 and the AESV3 crypt filter. */
+export function isAes256Pdf(pdf: Buffer): boolean {
+  const text = pdf.toString('latin1');
+  return text.startsWith('%PDF-') && /\/Encrypt\s+\d+\s+\d+\s+R/.test(text)
+    && /\/V\s+5\b/.test(text) && /\/R\s+6\b/.test(text) && /\/AESV3\b/.test(text);
+}
+
+/**
+ * Removes this module's plaintext directories older than STALE_AFTER_MS under `root`: what a process killed
+ * mid-render (SIGKILL, OOM, a deploy stopping the colour) left behind. Only our own prefix, only directories, never
+ * through a symlink. Runs before every render, so a crash's plaintext lives at most until the next payslip email.
+ */
+export async function sweepStalePayslipDirs(root: string = PAYSLIP_TMP_ROOT, now: number = Date.now()): Promise<number> {
+  let names: string[];
+  try {
+    names = await readdir(root);
+  } catch (err) {
+    log.warn('Payslip plaintext sweep could not read the tmpfs root', { root, error: errCode(err) }, 'payslip-encrypt');
+    return 0;
+  }
+  let swept = 0;
+  for (const name of names.filter((n) => n.startsWith(TMP_PREFIX))) {
+    const dir = path.join(root, name);
+    try {
+      const st = await lstat(dir);
+      if (!st.isDirectory() || now - st.mtimeMs < STALE_AFTER_MS) continue;
+      await rm(dir, { recursive: true, force: true });
+      swept += 1;
+    } catch (err) {
+      log.warn('Payslip plaintext sweep could not remove a stale directory', { dir, error: errCode(err) }, 'payslip-encrypt');
+    }
+  }
+  if (swept > 0) log.warn('Swept stale payslip plaintext directories (a render was interrupted)', { root, swept }, 'payslip-encrypt');
+  return swept;
+}
+
+/**
+ * The PDF, encrypted. Throws PayslipEncryptionFailed whenever it cannot be (the route answers 503, never 500), and
+ * never returns the plaintext or anything that is not AES-256.
+ */
 export async function encryptPayslipPdf(plaintext: Buffer, password: string, deps: EncryptDeps = {}): Promise<Buffer> {
-  if (password === '' || /[\r\n\0]/.test(password)) throw new Error('A payslip password must be one line of text');
+  if (password === '' || /[\r\n\0]/.test(password)) throw new PayslipEncryptionFailed('A payslip password must be one line of text');
+  const root = deps.tmpRoot ?? PAYSLIP_TMP_ROOT;
+  await sweepStalePayslipDirs(root, (deps.now ?? Date.now)());
   let dir: string | null = null;
   try {
     try {
-      dir = await mkdtemp(path.join(deps.tmpRoot ?? PAYSLIP_TMP_ROOT, 'isaflow-payslip-'));
+      dir = await mkdtemp(path.join(root, TMP_PREFIX)); // mode 0700
+      await writeFile(path.join(dir, 'in.pdf'), plaintext, { mode: 0o600, flag: 'wx' });
     } catch (err) {
       throw new PayslipEncryptionFailed(`No private memory directory for the payslip render (${errCode(err)})`);
     }
-    await chmod(dir, 0o700);
-    const inPath = path.join(dir, 'in.pdf');
-    await writeFile(inPath, plaintext, { mode: 0o600, flag: 'wx' });
-    const out = await runQpdf(deps.spawn ?? nodeSpawn, qpdfArguments(password, inPath), password);
-    if (out.subarray(0, 5).toString('latin1') !== '%PDF-') throw new PayslipEncryptionFailed('qpdf did not write a PDF');
+    const qpdf = process.env.PAYSLIP_QPDF_PATH || QPDF_DEFAULT_PATH;
+    const out = await runQpdf(deps.spawn ?? nodeSpawn, qpdf, qpdfArguments(password, path.join(dir, 'in.pdf')), password,
+      deps.timeoutMs ?? QPDF_TIMEOUT_MS);
+    if (!isAes256Pdf(out)) throw new PayslipEncryptionFailed('qpdf did not write an AES-256 (R 6) PDF');
     return out;
   } finally {
-    if (dir !== null) await rm(dir, { recursive: true, force: true });
+    if (dir !== null) {
+      try {
+        await rm(dir, { recursive: true, force: true });
+      } catch (err) {
+        // A plaintext that could not be removed: refuse (the sweep retries it), never send.
+        throw new PayslipEncryptionFailed(`The payslip render could not be removed (${errCode(err)})`);
+      }
+    }
   }
 }
 
 const errCode = (err: unknown): string => String((err as { code?: unknown } | null)?.code ?? (err instanceof Error ? err.message : err));
 
-function runQpdf(spawn: typeof nodeSpawn, args: string[], password: string): Promise<Buffer> {
+function runQpdf(spawn: typeof nodeSpawn, qpdf: string, args: string[], password: string, timeoutMs: number): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     let settled = false;
     const finish = (err: Error | null, out?: Buffer) => {
@@ -74,11 +133,11 @@ function runQpdf(spawn: typeof nodeSpawn, args: string[], password: string): Pro
       if (err) reject(err);
       else resolve(out!);
     };
-    const child = spawn('qpdf', ['@-'], { stdio: ['pipe', 'pipe', 'pipe'] });
+    const child = spawn(qpdf, ['@-'], { stdio: ['pipe', 'pipe', 'pipe'] });
     const timer = setTimeout(() => {
       child.kill('SIGKILL');
-      finish(new PayslipEncryptionFailed(`qpdf did not finish within ${QPDF_TIMEOUT_MS} ms`));
-    }, QPDF_TIMEOUT_MS);
+      finish(new PayslipEncryptionFailed(`qpdf did not finish within ${timeoutMs} ms`));
+    }, timeoutMs);
     const chunks: Buffer[] = [];
     let size = 0;
     let stderr = '';

@@ -72,6 +72,9 @@ describe('the emailed payslip PDF', () => {
     expect(payslipPassword({ idNumber: ' 800101 5009 087 ', passportNumber: 'A1' })).toEqual({ password: ID, source: 'id_number' });
     expect(payslipPassword({ idNumber: '  ', passportNumber: 'M 1234567' })).toEqual({ password: 'M1234567', source: 'passport_number' });
     expect(payslipPassword({ idNumber: null, passportNumber: null })).toBeNull();
+    // Wave 7 PX: a control character (NUL, say) is no password; the passport is used, else none.
+    expect(payslipPassword({ idNumber: '8001\u00005009087', passportNumber: 'M1234567' })).toEqual({ password: 'M1234567', source: 'passport_number' });
+    expect(payslipPassword({ idNumber: '8001\u0000', passportNumber: 'M\u0007' })).toBeNull();
   });
 
   it('the mail names the document, never the password, and the subject is one line', () => {

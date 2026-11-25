@@ -48,7 +48,12 @@ export type Mailer = (options: EmailOptions) => Promise<EmailResult>;
 
 const SEND_DEADLINE_MS = 15_000;
 const SMTP_TIMEOUTS_MS = { connection: 5_000, greeting: 5_000, socket: 10_000 };
-/** Per request: at most 20 sends, none started after 20 s (+ one 15 s deadline = 35 s, inside nginx's 60 s). */
+/**
+ * Per request: at most 20 sends. Worst case (wave 7 PX): renders start only in the first 10 s (RENDER_SHARE) and the
+ * last one may take its jsPDF render plus qpdf's 10 s timeout (~21 s); the first send always goes, later ones only
+ * before 20 s, and a send that starts at 20-21 s may take its 15 s deadline: ~36 s plus the claim/outcome writes,
+ * inside nginx's 60 s.
+ */
 export const SEND_LIMITS = { maxSends: 20, budgetMs: 20_000 } as const;
 export type SendLimits = { maxSends: number; budgetMs: number };
 /** Wave 7 PX: rendering (qpdf) may use at most this share of budgetMs; sending the rendered slips uses the rest. */

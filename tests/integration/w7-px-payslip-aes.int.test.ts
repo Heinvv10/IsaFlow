@@ -6,7 +6,7 @@
  *  - every row (claim and outcome) records pdf_sha256 = the hash of the exact bytes attached AND plaintext_sha256 = the
  *    hash of the deterministic render; a resend is a new encryption (new pdf_sha256) of the same render (same
  *    plaintext_sha256); app_user writes the new column (1052's column GRANT) and the CHECK refuses a malformed value;
- *  - a server that cannot encrypt (no qpdf on PATH) refuses the whole request 503 ENCRYPTION_UNAVAILABLE: nothing
+ *  - a server that cannot encrypt (no qpdf at PAYSLIP_QPDF_PATH) refuses the whole request 503 ENCRYPTION_UNAVAILABLE: nothing
  *    sent, no row, no audit;
  *  - W16: the component types are frozen into payslip_snapshot at approval; re-typing a component afterwards does not
  *    move a final slip's item (the emailed PDF itemises by the frozen type);
@@ -58,13 +58,12 @@ afterAll(async () => {
 
 describe('W15: AES-256 payslip email', () => {
   it('a server that cannot encrypt refuses the whole request: 503, nothing sent, no row, no audit', async () => {
-    const path = process.env.PATH;
-    process.env.PATH = '/nonexistent-px';
+    process.env.PAYSLIP_QPDF_PATH = '/nonexistent-px/qpdf';
     try {
       const res = await send(a, run);
       expect([res.statusCode, reason(res)]).toEqual([503, 'ENCRYPTION_UNAVAILABLE']);
     } finally {
-      process.env.PATH = path;
+      delete process.env.PAYSLIP_QPDF_PATH;
     }
     expect(captured).toEqual([]);
     expect(await rows(a)).toEqual([]);

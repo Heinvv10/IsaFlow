@@ -7,13 +7,15 @@
  * Needs /usr/bin/qpdf (velo and both hosted CI apt steps install it).
  */
 import { spawn as realSpawn, type ChildProcess } from 'child_process';
-import { mkdtempSync, readdirSync, rmSync, statSync } from 'fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'fs';
 import path from 'path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 
-import { encryptPayslipPdf, PayslipEncryptionFailed, qpdfArguments } from '@/modules/accounting/services/payroll/payslipEncrypt';
+import {
+  encryptPayslipPdf, isAes256Pdf, PayslipEncryptionFailed, qpdfArguments, STALE_AFTER_MS, sweepStalePayslipDirs,
+} from '@/modules/accounting/services/payroll/payslipEncrypt';
 
 const ID_NUMBER = '8001015009087';
 let root = '';
@@ -66,7 +68,7 @@ describe('encryptPayslipPdf', () => {
     const { spawn, calls } = spySpawn();
     await encryptPayslipPdf(plaintext, ID_NUMBER, { tmpRoot: root, spawn });
     expect(calls).toHaveLength(1);
-    expect(calls[0]!.command).toBe('qpdf');
+    expect(calls[0]!.command).toBe('/usr/bin/qpdf'); // absolute: never resolved through PATH
     expect(calls[0]!.args).toEqual(['@-']);
     expect(calls[0]!.args.some((a) => a.includes(ID_NUMBER))).toBe(false);
     // What goes on stdin names the password (twice) and 256 bits.
@@ -94,6 +96,16 @@ describe('encryptPayslipPdf', () => {
     expect(readdirSync(root)).toEqual([]);
   });
 
+  it('PAYSLIP_QPDF_PATH pointing nowhere: PayslipEncryptionFailed, nothing left behind', async () => {
+    process.env.PAYSLIP_QPDF_PATH = '/nonexistent-px/qpdf';
+    try {
+      await expect(encryptPayslipPdf(plaintext, ID_NUMBER, { tmpRoot: root })).rejects.toThrow(/not installed/);
+    } finally {
+      delete process.env.PAYSLIP_QPDF_PATH;
+    }
+    expect(readdirSync(root)).toEqual([]);
+  });
+
   it('no tmpfs: PayslipEncryptionFailed, qpdf never started', async () => {
     const { spawn, calls } = spySpawn();
     await expect(encryptPayslipPdf(plaintext, ID_NUMBER, { tmpRoot: '/dev/shm/px-no-such-dir', spawn })).rejects.toBeInstanceOf(PayslipEncryptionFailed);
@@ -102,8 +114,9 @@ describe('encryptPayslipPdf', () => {
 
   it('a password that is not one line is refused before anything is written', async () => {
     const { spawn, calls } = spySpawn();
-    await expect(encryptPayslipPdf(plaintext, 'a\nb', { tmpRoot: root, spawn })).rejects.toThrow(/one line/);
-    await expect(encryptPayslipPdf(plaintext, '', { tmpRoot: root, spawn })).rejects.toThrow(/one line/);
+    for (const bad of ['a\nb', 'a\rb', 'a\0b', '']) {
+      await expect(encryptPayslipPdf(plaintext, bad, { tmpRoot: root, spawn })).rejects.toBeInstanceOf(PayslipEncryptionFailed);
+    }
     expect(calls).toEqual([]);
     expect(readdirSync(root)).toEqual([]);
   });
@@ -113,4 +126,91 @@ describe('encryptPayslipPdf', () => {
     const b = await encryptPayslipPdf(plaintext, ID_NUMBER, { tmpRoot: root });
     expect(Buffer.compare(a, b)).not.toBe(0);
   });
+
+  it('an output that is not AES-256 (R 6, AESV3) is refused, never returned', async () => {
+    // A "qpdf" that writes a plain, unencrypted PDF and exits 0.
+    const spawn = ((_c: string, _a: readonly string[], opts: object) =>
+      realSpawn('/bin/sh', ['-c', 'cat >/dev/null; printf "%%PDF-1.4 plain"'], opts)) as unknown as typeof realSpawn;
+    await expect(encryptPayslipPdf(plaintext, ID_NUMBER, { tmpRoot: root, spawn })).rejects.toThrow(/AES-256/);
+    expect(isAes256Pdf(plaintext)).toBe(false);
+    expect(isAes256Pdf(await encryptPayslipPdf(plaintext, ID_NUMBER, { tmpRoot: root }))).toBe(true);
+    expect(readdirSync(root)).toEqual([]);
+  });
+});
+
+describe('sweepStalePayslipDirs (a render killed mid-way cannot run finally)', () => {
+  it('removes only our directories older than a minute; fresh ones, other names and symlinks stay', async () => {
+    const sweepRoot = mkdtempSync('/dev/shm/px-sweep-test-');
+    try {
+      const old = (Date.now() - STALE_AFTER_MS - 5_000) / 1000;
+      mkdirSync(path.join(sweepRoot, 'isaflow-payslip-stale'));
+      writeFileSync(path.join(sweepRoot, 'isaflow-payslip-stale', 'in.pdf'), 'plaintext');
+      utimesSync(path.join(sweepRoot, 'isaflow-payslip-stale'), old, old);
+      mkdirSync(path.join(sweepRoot, 'isaflow-payslip-fresh'));
+      mkdirSync(path.join(sweepRoot, 'someone-else'));
+      utimesSync(path.join(sweepRoot, 'someone-else'), old, old);
+      const target = mkdtempSync('/dev/shm/px-sweep-target-');
+      symlinkSync(target, path.join(sweepRoot, 'isaflow-payslip-link'));
+      expect(await sweepStalePayslipDirs(sweepRoot)).toBe(1);
+      expect(readdirSync(sweepRoot).sort()).toEqual(['isaflow-payslip-fresh', 'isaflow-payslip-link', 'someone-else']);
+      expect(statSync(target).isDirectory()).toBe(true);
+      rmSync(target, { recursive: true, force: true });
+    } finally {
+      rmSync(sweepRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('every render sweeps first: a crashed render\'s plaintext is gone after the next one', async () => {
+    const old = (Date.now() - STALE_AFTER_MS - 5_000) / 1000;
+    mkdirSync(path.join(root, 'isaflow-payslip-crashed'));
+    writeFileSync(path.join(root, 'isaflow-payslip-crashed', 'in.pdf'), 'salary R 45 000.00');
+    utimesSync(path.join(root, 'isaflow-payslip-crashed'), old, old);
+    await encryptPayslipPdf(plaintext, ID_NUMBER, { tmpRoot: root });
+    expect(readdirSync(root)).toEqual([]);
+  });
+});
+
+/** Ported from the #1904 breaker's repros (px-breaker.test.ts). */
+describe('breaker repros', () => {
+  it('the real qpdf child: neither /proc/<pid>/cmdline nor /proc/<pid>/environ holds the password', async () => {
+    const seen: Array<{ cmdline: string; environ: string }> = [];
+    const spawn = ((cmd: string, args: readonly string[], opts: object): ChildProcess => {
+      const child = realSpawn(cmd, args as string[], opts);
+      for (let i = 0; i < 20000 && seen.length === 0; i += 1) {
+        try {
+          const cmdline = readFileSync(`/proc/${child.pid}/cmdline`, 'latin1');
+          if (cmdline.includes('qpdf')) seen.push({ cmdline, environ: readFileSync(`/proc/${child.pid}/environ`, 'latin1') });
+        } catch { /* the child is not exec'd yet: try again */ }
+      }
+      return child;
+    }) as unknown as typeof realSpawn;
+    await encryptPayslipPdf(plaintext, ID_NUMBER, { tmpRoot: root, spawn });
+    expect(seen).toHaveLength(1);
+    expect(seen[0]!.cmdline.split('\0').filter(Boolean)).toEqual(['/usr/bin/qpdf', '@-']);
+    expect(seen[0]!.environ).not.toContain(ID_NUMBER);
+  });
+
+  it('a qpdf failure: neither the error nor the logs carry the password', async () => {
+    const { log } = await import('@/lib/logger');
+    vi.mocked(log.error).mockClear();
+    vi.mocked(log.warn).mockClear();
+    const err = await encryptPayslipPdf(Buffer.from(`not a pdf ${ID_NUMBER}`), ID_NUMBER, { tmpRoot: root }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(PayslipEncryptionFailed);
+    const all = JSON.stringify([vi.mocked(log.error).mock.calls, vi.mocked(log.warn).mock.calls]) + String((err as Error).message) + String((err as Error).stack);
+    expect(all).not.toContain(ID_NUMBER);
+  });
+
+  it('a qpdf that hangs is killed at the timeout, and the plaintext is removed', async () => {
+    const spawn = ((_c: string, _a: readonly string[], opts: object) => realSpawn('sleep', ['60'], opts)) as unknown as typeof realSpawn;
+    const t0 = Date.now();
+    await expect(encryptPayslipPdf(plaintext, ID_NUMBER, { tmpRoot: root, spawn, timeoutMs: 500 })).rejects.toThrow(/did not finish/);
+    expect(Date.now() - t0).toBeLessThan(5_000);
+    expect(readdirSync(root)).toEqual([]);
+  });
+
+  it('40 at once: no collision, each opens with its own password, nothing left', async () => {
+    const outs = await Promise.all(Array.from({ length: 40 }, (_, i) => encryptPayslipPdf(plaintext, `${ID_NUMBER}${i}`, { tmpRoot: root })));
+    for (const [i, out] of outs.entries()) expect(await text(out, `${ID_NUMBER}${i}`)).toContain('Payslip for Zanele Slip');
+    expect(readdirSync(root)).toEqual([]);
+  }, 60_000);
 });

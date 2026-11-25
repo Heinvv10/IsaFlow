@@ -6,8 +6,11 @@
  * slip (`payslipPassword` returns null; the send skips and names them).
  *
  * ENCRYPTION (wave 7 PX, W15, ruling 2): AES-256 (PDF R 6) by qpdf over jsPDF's unencrypted render
- * (payslipEncrypt), replacing jsPDF's own RC4-40. The cipher is strong; the password is not: an SA ID number starts
- * with the date of birth, so someone who knows the employee can still open the slip. Said in the setting's help text.
+ * (payslipEncrypt), replacing jsPDF's own RC4-40. The cipher is strong; the password is not (Hein's ruling 21: keep it,
+ * say the truth). An SA ID number is the date of birth (6 digits) plus 7 digits, one a Luhn check digit and one
+ * nearly fixed, so anyone who knows or can guess the employee's date of birth can open the slip, and without the
+ * date of birth the remaining space can still be searched (cracked) in hours. Said on the card and in the
+ * confirmation (PayslipEmailCard WEAK_PROTECTION).
  *
  * Hashes (ruling 17): `plaintextSha256` is the hash of the unencrypted render, which is deterministic (F14: the
  * creation date is the run's approval time and the file id is derived from the run, the employee and that approval),
@@ -24,12 +27,18 @@ const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 
 
 export type PasswordSource = 'id_number' | 'passport_number';
 
-/** The slip's password: the ID number, else the passport number (spaces removed); null when neither is on file. */
+/** A value with a control character left after removing whitespace (NUL, say) is no password: never passed to qpdf. */
+const usable = (v: string): boolean => v !== '' && !/[\u0000-\u001f\u007f]/.test(v);
+
+/**
+ * The slip's password: the ID number, else the passport number (spaces removed); null when neither is on file as a
+ * usable value (the send skips and names the employee, NO_ID_OR_PASSPORT).
+ */
 export function payslipPassword(e: { idNumber: string | null; passportNumber: string | null }): { password: string; source: PasswordSource } | null {
   const id = (e.idNumber ?? '').replace(/\s+/g, '');
-  if (id !== '') return { password: id, source: 'id_number' };
+  if (usable(id)) return { password: id, source: 'id_number' };
   const passport = (e.passportNumber ?? '').replace(/\s+/g, '');
-  return passport !== '' ? { password: passport, source: 'passport_number' } : null;
+  return usable(passport) ? { password: passport, source: 'passport_number' } : null;
 }
 
 export interface EmailPayslipPdf { filename: string; pdf: Buffer; sha256: string; plaintextSha256: string }

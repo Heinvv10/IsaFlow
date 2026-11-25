@@ -15,9 +15,11 @@
 --           CHECK. The 999o guard trigger reads none of it.
 --   read    attemptStates / listRunDeliveries / lastSentTo name their columns; none is the new one.
 --
--- LOCKS. ADD COLUMN with no default is catalogue-only; the CHECK is added NOT VALID (brief ACCESS EXCLUSIVE) and then
--- validated (SHARE UPDATE EXCLUSIVE: writes go on; every existing row is NULL, so it passes). Bounded by lock_timeout,
--- the file by statement_timeout.
+-- LOCKS. ADD COLUMN with no default is catalogue-only. ADD COLUMN and ADD CONSTRAINT ... NOT VALID take ACCESS EXCLUSIVE,
+-- and the runner applies the file in ONE transaction, so that lock is held through the VALIDATE too (VALIDATE alone
+-- would only need SHARE UPDATE EXCLUSIVE). Harmless here: payslip_deliveries is small (one row per email attempt, and
+-- the email is off by default) and every existing row is NULL, so the VALIDATE scan is short. Bounded by lock_timeout
+-- (5 s to get the lock) and the file by statement_timeout.
 --
 -- Rollback (down SQL; roll the code back first, to a release that never writes the column):
 --   REVOKE INSERT (plaintext_sha256) ON public.payslip_deliveries FROM app_user;
