@@ -28,6 +28,7 @@ vi.mock('@/modules/accounting/services/payroll/payrollRunReopen', async (orig) =
 }));
 
 import { PayrollRunReopenRefusedError, reopenPayrollRun } from '@/modules/accounting/services/payroll/payrollRunReopen';
+import { Emp201FiledReopenError } from '@/modules/accounting/services/payroll/payrollReopenFiledMonth';
 import handler from '../../../pages/api/payroll/runs/[id]/reopen';
 
 const RUN = '22222222-2222-4222-8222-222222222222';
@@ -57,6 +58,15 @@ describe('POST /api/payroll/runs/[id]/reopen', () => {
     const { req, res } = mockReqRes();
     await handler(req, res);
     expect(res.statusCode).toBe(400);
+  });
+
+  it('wave 7 EL: a run whose month\'s EMP201 is filed is a 409 EMP201_FILED carrying the message that names it', async () => {
+    vi.mocked(reopenPayrollRun).mockRejectedValueOnce(new Emp201FiledReopenError('the EMP201 for 2026-10 is filed (reference 7123456789L00000001)'));
+    const { req, res } = mockReqRes();
+    await handler(req, res);
+    expect(res.statusCode).toBe(409);
+    expect(JSON.stringify(res.sent)).toContain('EMP201_FILED');
+    expect(JSON.stringify(res.sent)).toContain('7123456789L00000001');
   });
 
   it('PROPAGATES anything unexpected so the request rolls back', async () => {
