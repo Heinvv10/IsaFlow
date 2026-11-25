@@ -123,6 +123,16 @@ describe('B17-3 (round 17): a stop the caller asks for (shouldStop: the CLI\'s S
     expect((err as InstanceType<typeof MigrationStopped>).committed.map((b) => b.entity)).toEqual(['category']);
     expect(h.sent.filter((x) => x.endsWith('live'))).toEqual(['category live']);
   });
+  it('asked between two category batches: the second is never sent (checked before every batch, not only between phases)', async () => {
+    const two = parseSageExport({ Items: [
+      { ID: 50, Code: 'FIB-50', Description: 'a', Active: true, Physical: true, Category: { ID: 10, Description: 'Optics' } },
+      { ID: 51, Code: 'FIB-51', Description: 'b', Active: true, Physical: true, Category: { ID: 11, Description: 'Cable' } },
+    ] });
+    const err = await runSageMigration(pool, two, { companyId: 'c', userId: 'u', live: true, expect: { items: 2, purchaseOrders: 0 },
+      shouldStop: () => (h.sent.includes('category live') ? 'stopped by SIGTERM: no further batch is sent' : null) }).then(() => null, (e: unknown) => e);
+    expect(String(err)).toMatch(/stopped by SIGTERM/);
+    expect(h.sent.filter((x) => x.endsWith('live'))).toEqual(['category live']);
+  });
   it('asked before the live phase: refused, nothing live sent, not a MigrationStopped', async () => {
     const { MigrationStopped } = await import('@/modules/accounting/services/sage-migration/sageMigrationStopped');
     const err = await run({ shouldStop: () => 'stopped by SIGINT: no further batch is sent' }).then(() => null, (e: unknown) => e);
