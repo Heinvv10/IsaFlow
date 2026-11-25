@@ -56,8 +56,9 @@ afterEach(() => { vi.restoreAllMocks(); });
 
 async function openDrawer() {
   render(<IntercompanyPaymentsPage />);
+  // the section and its heading render before the list has loaded: wait for the row's own button, not for the region
   const list = await screen.findByRole('region', { name: 'Payments from your group' });
-  fireEvent.click(within(list).getByRole('button', { name: 'Details for payment SP-7' }));
+  fireEvent.click(await within(list).findByRole('button', { name: 'Details for payment SP-7' }));
   return screen.findByRole('dialog');
 }
 
@@ -66,7 +67,7 @@ describe('the Payments list', () => {
     serve({ items: [item(), item({ id: 'm-2', paymentNumber: 'SP-8', state: 'payer_gone', live: false })] });
     render(<IntercompanyPaymentsPage />);
     const list = await screen.findByRole('region', { name: 'Payments from your group' });
-    expect(within(list).getByText('Open')).toBeInTheDocument();
+    expect(await within(list).findByText('Open')).toBeInTheDocument();   // the region is there before its rows: wait for them
     expect(within(list).getByText('Payer voided or changed it')).toBeInTheDocument();
   });
 
