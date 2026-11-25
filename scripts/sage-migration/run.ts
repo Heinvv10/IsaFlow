@@ -69,11 +69,13 @@ const leaveStopReport = (err: unknown, exitCode: number): void => {
   }
   owned.close();
 };
-/** The note on a refusal about --report; `said` is the message it follows, so "nothing written" is not said twice (R19-6). */
-const notCreated = (said = '') => {
+/**
+ * The note on a refusal before --report exists. Only main's catch can need it: main runs without an await up to the create, so no signal
+ * or crash handler (terminate) runs while --report is asked for but not created.
+ */
+const notCreated = () => {
   if (reportLeft) return ` (nothing written to the books; --report ${reportAsked} was created but could not be written or removed: delete it)`;
-  if (owned !== null || reportAsked === undefined) return '';
-  return /nothing (was )?written/.test(said) ? ` (--report ${reportAsked} was not created by this run)` : ` (nothing written; --report ${reportAsked} was not created by this run)`;
+  return owned === null && reportAsked !== undefined ? ` (nothing written; --report ${reportAsked} was not created by this run)` : '';
 };
 /**
  * A refused start: thrown, so every exit goes through main's one catch (the message, a stop report once --report exists, exit 2: nothing
@@ -95,8 +97,7 @@ function terminate(why: string): void {
   }
   const err = state.stoppedAtOnce(state.liveStarted ? why : `${why}; nothing was written to the books (the live phase had not started)`);
   const code = exitCodeForError(err);
-  const said = stopMessage(err);
-  say(`${said}${notCreated(said)}`);
+  say(stopMessage(err));
   leaveStopReport(err, code);
   process.exit(code);
 }
@@ -231,8 +232,7 @@ export async function runCli(o: { removeHandlers?: boolean } = {}): Promise<void
     await main();
   } catch (err) {
     const code = exitCodeForError(err);
-    const said = err instanceof RefusedStart ? err.message : stopMessage(err);
-    say(`${said}${notCreated(said)}`);
+    say(`${err instanceof RefusedStart ? err.message : stopMessage(err)}${notCreated()}`);
     leaveStopReport(err, code); // every other exit path after the create (a stop, a refusal, a summary that failed after a dry run) leaves a stop report
     process.exit(code);
   } finally {
