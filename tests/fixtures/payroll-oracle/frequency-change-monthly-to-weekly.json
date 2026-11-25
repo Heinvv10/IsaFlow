@@ -1,0 +1,72 @@
+{
+  "id": "frequency-change-monthly-to-weekly",
+  "source": "UNVERIFIED",
+  "sourceRef": "https://www.sars.gov.za/wp-content/uploads/Ops/Guides/PAYE-GEN-01-G21-Guide-for-Employers-iro-Employees-Tax-for-2027-External-Guide.pdf ; SARS PAYE BRS V25 3.0 p. 33 (3210: periods worked counted in 3200's pay intervals)",
+  "notes": "March 2026 paid monthly at R39 000, then weekly from 6 April at R9 000: R468 000 a year. The month is 1 / F of a year, F = 365 / 30.4166 (wave-6 ruling 5's days basis; its PAYE then was tax(39 000 x F) / F = 7 374.76), so in weeks it is 52 / F = 4.33332 (UNVERIFIED: SARS is silent on a change of pay period). n = 5.33332; YTD 48 000; AE = 48 000 x 52 / 5.33332 = 468 000.83; tax = 79 998 + 31% x 84 900.83 - 17 820 = 88 497.26; liability x 5.33332 / 52 = 9 076.63; less 7 374.76 = 1 701.87 (the weekly table figure on R9 000 is 1 701.87). Counting the month as a week (n = 2) gave AE 1 248 000 and 7 624.20. Each prior's UIF is 1% capped at the March ceiling of 177.12 across the month's runs (not asserted). expectedWarnings: PAY_FREQUENCY_CHANGED_IN_YEAR, the conversion's visible UNVERIFIED caution.",
+  "input": {
+    "period": {
+      "year": 2026,
+      "month": 4,
+      "frequency": "weekly",
+      "periodStart": "2026-04-06",
+      "periodEnd": "2026-04-12",
+      "runKind": "regular"
+    },
+    "taxYear": 2027,
+    "employee": {
+      "dateOfBirth": "1986-01-01",
+      "startDate": "2020-01-06",
+      "taxStatus": "statutory",
+      "uifExcluded": false,
+      "medicalAidMainMember": false,
+      "medicalAidDependantsCount": 0,
+      "s18aReceiptHeld": false
+    },
+    "employerAnnualRemuneration": 10000000,
+    "components": [
+      {
+        "code": "3601",
+        "name": "Basic salary",
+        "type": "earning",
+        "amount": 9000,
+        "taxable": true,
+        "uif": true,
+        "sdl": true
+      }
+    ],
+    "priorPeriods": [
+      {
+        "periodStart": "2026-03-01",
+        "frequency": "monthly",
+        "runKind": "regular",
+        "components": [
+          {
+            "code": "3601",
+            "name": "Basic salary",
+            "type": "earning",
+            "amount": 39000,
+            "taxable": true,
+            "uif": true,
+            "sdl": true
+          }
+        ],
+        "paye": 7374.76,
+        "uifEmployee": 177.12,
+        "uifLeviable": 39000,
+        "periodicTaxable": 39000,
+        "annualPayments": 0,
+        "retirementDeduction": 0,
+        "medicalCredit": 0,
+        "businessKm": 0,
+        "etiRemuneration": 0,
+        "etiHours": 0
+      }
+    ]
+  },
+  "expected": {
+    "paye": 1701.87
+  },
+  "expectedWarnings": [
+    "PAY_FREQUENCY_CHANGED_IN_YEAR"
+  ]
+}

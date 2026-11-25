@@ -11,6 +11,7 @@ import { TRAVEL_CODE } from './fringeBenefits';
 import { remunerationBeforeDeductions } from './payrollLineRemuneration';
 import { cadenceTermsOf } from './payrollLineCadence';
 import { extraPayDayWarnings } from './payFrequencyPeriods';
+import { ytdInFrequency } from './payrollYearToDateFrequency';
 import { etiMonthPartsOf, pendingEti } from './payrollLineEtiMonth';
 import { outsideTablesResult, payeUnderTreatment, PSP_NO_ETI, PSP_NO_UIF, pspFacts, taxStatusTreatment } from './taxStatusTreatment';
 import { pspComponentResults, pspDirectiveResults, pspPayeBase } from './pspLineRules';
@@ -101,7 +102,10 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
   const directiveOnContractor = treatment.paye === 'none' ? input.regularPayDirective?.current ?? null : null;
   const directive = treatment.paye === 'none' ? null : input.regularPayDirective?.current ?? null;
   const onTables = treatment.paye === 'tables' && !directive;
-  const ytdForTables = onTables ? input.ytd : undefined;
+  // FQe (engine 23): the year's earlier periods in this line's frequency, warned when the frequency changed (payrollYearToDateFrequency).
+  const inFrequency = onTables && input.ytd ? ytdInFrequency(input.ytd, cadence.frequency) : undefined;
+  const ytdForTables = inFrequency?.ytd;
+  if (inFrequency) warnings.push(...inFrequency.warnings);
 
   const medicalBeneficiaries = employee.medicalAidMainMember
     ? 1 + employee.medicalAidDependantsCount
@@ -141,8 +145,10 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
   });
   warnings.push(...donation.warnings, ...validateEmploymentTerms(employee, classification, components));
   // W1: a 53rd weekly / 27th fortnightly pay day stays x 52 / x 26 and says so (ruling 9; G21 (2027) Rev 1 p. 9 is silent).
+  // Once FQe has counted a mixed year in this frequency, n > P means the same thing in it, so the mixed-year skip is lifted.
+  const unconverted = inFrequency?.warnings.length ? undefined : ytdForTables?.frequencies;
   warnings.push(...extraPayDayWarnings({ frequency: cadence.frequency, periodsWorked: trace.periods, periodsInYear: cadence.periodsInYear,
-    onTables, ...(ytdForTables?.frequencies ? { frequenciesToDate: ytdForTables.frequencies } : {}) }));
+    onTables, ...(unconverted ? { frequenciesToDate: unconverted } : {}) }));
   // Taxable remuneration BEFORE the retirement fund deduction, which is its own figure (retirementDeduction): a
   // line's record can exceed its pay (a catch-up contribution), and taxable_income must not go negative.
   const taxableIncome = regularTaxable + annualTaxable;

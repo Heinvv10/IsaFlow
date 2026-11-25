@@ -9,8 +9,15 @@ export interface PayeYearToDate {
    * frequency is among them (n then mixes periods of two lengths; fixing that divisor is FQe). Absent = not read.
    */
   frequencies?: PayFrequency[];
+  /**
+   * FQe (engine 23): `periods` by the frequency of the lines' runs, each its own frequency's periods. The calculator
+   * expresses them in the current line's frequency (payrollYearToDateFrequency). Absent = all at the current frequency.
+   */
+  periodsByFrequency?: Partial<Record<PayFrequency, number>>;
   /** Earlier periods with periodic pay or an annual payment, for the pro-rated s11F cap. */
   retirementCapPeriods?: number;
+  /** FQe: `retirementCapPeriods` by frequency, likewise. */
+  retirementCapPeriodsByFrequency?: Partial<Record<PayFrequency, number>>;
   /** Periodic taxable remuneration, after allowed s18A donations (PAYE 4c: before the retirement fund deduction). */
   periodicTaxable: number;
   /** Annual payments (3605) taxed by the annual-payment method, before the retirement fund deduction. */

@@ -1,0 +1,150 @@
+{
+  "id": "frequency-change-weekly-to-fortnightly",
+  "source": "UNVERIFIED",
+  "sourceRef": "https://www.sars.gov.za/wp-content/uploads/Ops/Guides/PAYE-GEN-01-G21-Guide-for-Employers-iro-Employees-Tax-for-2027-External-Guide.pdf ; SARS PAYE BRS V25 3.0 p. 33 (3210: periods worked counted in 3200's pay intervals)",
+  "notes": "Four weeks at R8 000 (2, 9, 16, 23 March 2026), then the first fortnight (30 March - 12 April) at R16 000: the same R416 000 a year. G21 (2027) Rev 1 p. 8-9 (Fourth Schedule para 9(1)/(2)): AE = remuneration x periods in the year / periods worked, tax x periods worked / periods in the year. SARS does not say how to count periods across a change of pay period, so the four weeks are counted as the share of a year they are, 4 / 52, in fortnights: 4 x 26 / 52 = 2 (UNVERIFIED). n = 2 + 1 = 3; YTD 48 000; AE = 48 000 x 26 / 3 = 416 000; tax(416 000) = 79 998 + 31% x 32 900 - 17 820 = 72 377; liability 72 377 x 3 / 26 = 8 351.19; less 4 x 1 391.87 (each week's tables PAYE, 72 377 / 52) = 2 783.71. Counting the weeks as fortnights (n = 5) gave AE 249 600 and nil. Each prior's UIF is 1% capped at the March ceiling of 177.12 across the month's runs (not asserted). expectedWarnings: PAY_FREQUENCY_CHANGED_IN_YEAR, the conversion's visible UNVERIFIED caution.",
+  "input": {
+    "period": {
+      "year": 2026,
+      "month": 4,
+      "frequency": "fortnightly",
+      "periodStart": "2026-03-30",
+      "periodEnd": "2026-04-12",
+      "runKind": "regular"
+    },
+    "taxYear": 2027,
+    "employee": {
+      "dateOfBirth": "1986-01-01",
+      "startDate": "2020-01-06",
+      "taxStatus": "statutory",
+      "uifExcluded": false,
+      "medicalAidMainMember": false,
+      "medicalAidDependantsCount": 0,
+      "s18aReceiptHeld": false
+    },
+    "employerAnnualRemuneration": 10000000,
+    "components": [
+      {
+        "code": "3601",
+        "name": "Basic salary",
+        "type": "earning",
+        "amount": 16000,
+        "taxable": true,
+        "uif": true,
+        "sdl": true
+      }
+    ],
+    "priorPeriods": [
+      {
+        "periodStart": "2026-03-02",
+        "frequency": "weekly",
+        "runKind": "regular",
+        "components": [
+          {
+            "code": "3601",
+            "name": "Basic salary",
+            "type": "earning",
+            "amount": 8000,
+            "taxable": true,
+            "uif": true,
+            "sdl": true
+          }
+        ],
+        "paye": 1391.87,
+        "uifEmployee": 80,
+        "uifLeviable": 8000,
+        "periodicTaxable": 8000,
+        "annualPayments": 0,
+        "retirementDeduction": 0,
+        "medicalCredit": 0,
+        "businessKm": 0,
+        "etiRemuneration": 0,
+        "etiHours": 0
+      },
+      {
+        "periodStart": "2026-03-09",
+        "frequency": "weekly",
+        "runKind": "regular",
+        "components": [
+          {
+            "code": "3601",
+            "name": "Basic salary",
+            "type": "earning",
+            "amount": 8000,
+            "taxable": true,
+            "uif": true,
+            "sdl": true
+          }
+        ],
+        "paye": 1391.87,
+        "uifEmployee": 80,
+        "uifLeviable": 8000,
+        "periodicTaxable": 8000,
+        "annualPayments": 0,
+        "retirementDeduction": 0,
+        "medicalCredit": 0,
+        "businessKm": 0,
+        "etiRemuneration": 0,
+        "etiHours": 0
+      },
+      {
+        "periodStart": "2026-03-16",
+        "frequency": "weekly",
+        "runKind": "regular",
+        "components": [
+          {
+            "code": "3601",
+            "name": "Basic salary",
+            "type": "earning",
+            "amount": 8000,
+            "taxable": true,
+            "uif": true,
+            "sdl": true
+          }
+        ],
+        "paye": 1391.87,
+        "uifEmployee": 17.12,
+        "uifLeviable": 8000,
+        "periodicTaxable": 8000,
+        "annualPayments": 0,
+        "retirementDeduction": 0,
+        "medicalCredit": 0,
+        "businessKm": 0,
+        "etiRemuneration": 0,
+        "etiHours": 0
+      },
+      {
+        "periodStart": "2026-03-23",
+        "frequency": "weekly",
+        "runKind": "regular",
+        "components": [
+          {
+            "code": "3601",
+            "name": "Basic salary",
+            "type": "earning",
+            "amount": 8000,
+            "taxable": true,
+            "uif": true,
+            "sdl": true
+          }
+        ],
+        "paye": 1391.87,
+        "uifEmployee": 0,
+        "uifLeviable": 8000,
+        "periodicTaxable": 8000,
+        "annualPayments": 0,
+        "retirementDeduction": 0,
+        "medicalCredit": 0,
+        "businessKm": 0,
+        "etiRemuneration": 0,
+        "etiHours": 0
+      }
+    ]
+  },
+  "expected": {
+    "paye": 2783.71
+  },
+  "expectedWarnings": [
+    "PAY_FREQUENCY_CHANGED_IN_YEAR"
+  ]
+}

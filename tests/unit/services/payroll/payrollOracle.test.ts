@@ -45,6 +45,9 @@ const EXPECTED_CASE_IDS = [
   'fixed-rate-directive-20pct',
   'fixed-rate-directive-20pct-with-ra',
   'fortnightly-2500-below-threshold',
+  'frequency-change-fortnightly-to-weekly', // FQe (wave 7, ruling 23)
+  'frequency-change-monthly-to-weekly', // FQe
+  'frequency-change-weekly-to-fortnightly', // FQe
   'g21-annual-bonus-statutory-table',
   'ga-emolument-attachment-capped-25pct',
   'ga-maintenance-outside-cap',
@@ -134,6 +137,8 @@ describe('payroll oracle fixtures', () => {
     expect(unverified.map(u => u.case).sort()).toEqual([
       // DBF: the s11F cap case now matches its hand figure; UNVERIFIED for the para 12D(3) formula's form only (adversarial payroll sign-off).
       'db-fund-12d-category-factor', 'db-fund-12d-s11f-cap-binds', 'director-uif-on-remuneration',
+      // FQe (ruling 23): SARS is silent on counting periods across a change of pay frequency.
+      'frequency-change-fortnightly-to-weekly', 'frequency-change-monthly-to-weekly', 'frequency-change-weekly-to-fortnightly',
       // GA (wave 6): the s65J(1A)(a) limit and maintenance outside it; statutes read, no SARS guide or vendor figure.
       'ga-emolument-attachment-capped-25pct', 'ga-maintenance-outside-cap',
       'psp-company-27pct', 'psp-trust-45pct',

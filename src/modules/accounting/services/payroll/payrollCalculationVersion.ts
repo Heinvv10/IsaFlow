@@ -42,8 +42,12 @@
  *    leaver's own rows keep full pay; the breakdown item carries `share`, the payslip prints it (W29, wave 7 PRA; rulings 7, 13, 19).
  * 22: a weekly line that is the tax year's 53rd pay day (fortnightly: 27th; n > P) carries WEEK_53_PAY_DAY, a warning: PAYE
  *    stays x 52 / x 26 per period because SARS is silent (PAYE-GEN-01-G21 (2027) Rev 1 p. 9; ruling 9) (W1, wave 7 W53).
+ * 23: after a mid-tax-year pay-frequency change the year to date's periods (PAYE's n) and s11F cap periods are counted in
+ *    the current line's frequency, each earlier period as the share of a year its own frequency gave it (share x F now /
+ *    F then; the cap x P now / P then), and the line carries PAY_FREQUENCY_CHANGED_IN_YEAR (UNVERIFIED: G21 (2027) Rev 1
+ *    p. 8-9 is silent on a change of pay period); WEEK_53_PAY_DAY then also stands in such a year (FQe, wave 7; ruling 23).
  */
-export const PAYROLL_CALCULATION_VERSION = 22;
+export const PAYROLL_CALCULATION_VERSION = 23;
 
 /** The version whose lines first carry the breakdown's onceOff marker (the 20 entry above); older lines do not. */
 export const ONCE_OFF_MARKER_VERSION = 20;

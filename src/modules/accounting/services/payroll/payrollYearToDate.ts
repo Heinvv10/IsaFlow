@@ -15,6 +15,9 @@
  *   read separately from 3605 in the stored breakdown so an annual-payment
  *   clawback cannot erase a salary period (a severance-only or
  *   donation-correction-only line has none);
+ * - periodsByFrequency / retirementCapPeriodsByFrequency (wave 7 FQe, engine 23): the same counts by each line's run
+ *   frequency (a restored legacy line, below, in its own run's), which the calculator expresses in the current line's
+ *   frequency (payrollYearToDateFrequency), so a mid-year frequency change no longer adds weeks to fortnights in n;
  * - retirementCapPeriods: those lines or a regular run's line with a pre-deduction
  *   annual payment, so each bonus-only period advances the pro-rated s11F cap (an
  *   off-cycle bonus beside its month's regular run does not, review #1679 M2);
@@ -63,7 +66,7 @@ import { loadRetirementRecord } from './payrollRetirementRecord';
 import { sdlYearToDate, type SdlYearToDateLine } from './payrollSdlYearToDate';
 import { lineRemunerationBeforeDeductionsSql } from './payrollLineRemuneration';
 import { outsideTablesFlag } from './payrollOutsideTables';
-import { restoreLegacyTaxableSplit, yearToDatePeriods } from './payrollYearToDateLegacy';
+import { restoredPeriodLineIds, restoreLegacyTaxableSplit, withRestored, yearToDatePeriods } from './payrollYearToDateLegacy';
 import { runIsBeforeSql, runOrderKeySql } from './payrollRunOrder';
 
 export { yearToDatePeriods } from './payrollYearToDateLegacy';
@@ -93,6 +96,8 @@ export async function loadPayeYearToDate(
              l.donation_receipted, l.donation_base, l.donation_deduction, h.pay_frequency,
              -- A month whose PAYE was not taken from the tables (a flat 25% or a contractor; taxStatusTreatment) is no table period.
              NOT COALESCE(l.validation_results @> ${outsideTablesFlag}::jsonb, false) AS on_tables,
+             -- A retirement-cap period (as retirement_cap_periods below): periodic pay, or an annual payment on a regular run's line.
+             (r.periodic_before_deductions > 0 OR (r.annual_before_deductions > 0 AND h.run_kind = 'regular')) AS cap_period,
              -- The share of the period employed (FQc; payFrequencyPeriods.periodShareOf, four decimals truncated): 1 a month.
              -- The share the line was costed with (stored, review #1575 M2); a line from before it, re-read from today's dates.
              CASE WHEN h.pay_frequency = 'monthly' OR h.period_start IS NULL OR h.period_end IS NULL THEN 1::numeric
@@ -139,6 +144,20 @@ export async function loadPayeYearToDate(
            COALESCE(SUM(share) FILTER (WHERE on_tables AND periodic_before_deductions > 0), 0)::float8 AS periods,
            -- W53: the frequencies the tables lines were paid at (a mixed year raises no 53rd-pay-day warning).
            array_agg(DISTINCT pay_frequency) FILTER (WHERE on_tables) AS frequencies,
+           -- FQe (engine 23): the same periods by the run's frequency, each in its own periods; the calculator converts them
+           -- into the current line's (payrollYearToDateFrequency), so a mid-year change does not add weeks to fortnights.
+           jsonb_build_object(
+             'weekly', COALESCE(SUM(share) FILTER (WHERE on_tables AND periodic_before_deductions > 0 AND pay_frequency = 'weekly'), 0),
+             'fortnightly', COALESCE(SUM(share) FILTER (WHERE on_tables AND periodic_before_deductions > 0 AND pay_frequency = 'fortnightly'), 0),
+             'monthly', COALESCE(SUM(share) FILTER (WHERE on_tables AND periodic_before_deductions > 0 AND pay_frequency = 'monthly'), 0)
+           ) AS periods_by_frequency,
+           jsonb_build_object(
+             'weekly', COALESCE(SUM(CASE WHEN periodic_before_deductions > 0 THEN share ELSE 1 END) FILTER (WHERE on_tables AND cap_period AND pay_frequency = 'weekly'), 0),
+             'fortnightly', COALESCE(SUM(CASE WHEN periodic_before_deductions > 0 THEN share ELSE 1 END) FILTER (WHERE on_tables AND cap_period AND pay_frequency = 'fortnightly'), 0),
+             'monthly', COALESCE(SUM(CASE WHEN periodic_before_deductions > 0 THEN share ELSE 1 END) FILTER (WHERE on_tables AND cap_period AND pay_frequency = 'monthly'), 0)
+           ) AS cap_periods_by_frequency,
+           -- The frequency of each line the legacy restoration may count (restoredByFrequency).
+           jsonb_object_agg(line_id::text, pay_frequency) FILTER (WHERE on_tables AND periodic_before_deductions <= 0) AS unpaid_line_frequencies,
            COALESCE(SUM(CASE WHEN periodic_before_deductions > 0 THEN share ELSE 1 END)
              -- An annual payment alone advances the cap only on a REGULAR run's line: an off-cycle bonus supplements its
              -- month's regular run, which counted the month (review #1679 M2; payeCumulative adds none for it either).
@@ -186,16 +205,22 @@ export async function loadPayeYearToDate(
       taxableSplits,
       legacyTaxableByLine,
     );
-    const restoredCapPeriods = Object.entries(legacyTaxableByLine).filter(([lineId, deduction]) => {
+    const restoredCapLines = Object.entries(legacyTaxableByLine).filter(([lineId, deduction]) => {
       const split = (taxableSplits[lineId] ?? {}) as Record<string, unknown>;
       const restorable = Math.min(deduction, Math.max(0, Number(split.originalTaxable)));
       return Object.prototype.hasOwnProperty.call(uncountedCapLines, lineId)
         && restorable > 0 && Number(split.periodic) <= 0 && Number(split.annual) <= 0;
-    }).length;
+    }).map(([lineId]) => lineId);
+    const unpaidLines = (r.unpaid_lines ?? {}) as Record<string, unknown>;
+    // FQe: a restored line counts one period of its own run's frequency (review #1928: restored lines carry frequencies too).
+    const lineFrequencies = (r.unpaid_line_frequencies ?? {}) as Record<string, unknown>;
+    const restoredPeriodLines = restoredPeriodLineIds(unpaidLines, restored.periodicByLine);
     return [String(r.employee_id), {
-      periods: yearToDatePeriods(Number(r.periods), (r.unpaid_lines ?? {}) as Record<string, unknown>, restored.periodicByLine),
-      retirementCapPeriods: Number(r.retirement_cap_periods ?? r.periods) + restoredCapPeriods,
+      periods: yearToDatePeriods(Number(r.periods), unpaidLines, restored.periodicByLine),
+      retirementCapPeriods: Number(r.retirement_cap_periods ?? r.periods) + restoredCapLines.length,
       frequencies: (r.frequencies ?? []) as PayFrequency[],
+      periodsByFrequency: withRestored(r.periods_by_frequency, restoredPeriodLines, lineFrequencies),
+      retirementCapPeriodsByFrequency: withRestored(r.cap_periods_by_frequency, restoredCapLines, lineFrequencies),
       periodicTaxable: round2(Number(r.periodic) + restored.periodic),
       annualPayments: round2(Number(r.annual) + restored.annual),
       tablePaye: round2(Number(r.table_paye)),

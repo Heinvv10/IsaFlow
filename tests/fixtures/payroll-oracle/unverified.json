@@ -58,5 +58,20 @@
     "case": "ri-eti-hourly-overtime-counted-once",
     "reason": "The overtime amount uses the BCEA s10(2) multiplier, read only in the Act as gazetted (GG 18491, 5 Dec 1997); the ETI figures (hours, minimum wage, band) are from the SARS ETI page and do not turn on it. Engine equals the hand figure.",
     "wouldVerify": "The consolidated BCEA 75 of 1997 s10(2) as currently in force, or a Sage or SimplePay payslip with ETI and overtime."
+  },
+  {
+    "case": "frequency-change-weekly-to-fortnightly",
+    "reason": "SARS is silent on counting pay periods across a mid-tax-year change of pay frequency: PAYE-GEN-01-G21 (2027) Rev 1 p. 8-9 (Fourth Schedule para 9(1)/(2)) gives AE = remuneration x periods in the year / periods worked and tax x the ratio the periods worked bear to a full year, but no example or rule for periods of two lengths; BRS V25 3.0 p. 33 (3210) counts the periods worked in 3200's interval, which fixes the unit, not the conversion. FQe (engine 23, Hein ruling 23) counts each earlier period as the share of a year its own frequency gave it (share / F: 1/52 a week, 1/26 a fortnight, 30.4166/365 a month, wave-6 ruling 5) and expresses the sum in the current frequency (x F now). The engine equals the hand figure in notes.",
+    "wouldVerify": "A SARS guide, interpretation note or ruling on the annual equivalent after a change of pay period, or a Sage or SimplePay payslip for an employee whose pay frequency changed mid tax year."
+  },
+  {
+    "case": "frequency-change-fortnightly-to-weekly",
+    "reason": "SARS is silent on counting pay periods across a mid-tax-year change of pay frequency: PAYE-GEN-01-G21 (2027) Rev 1 p. 8-9 (Fourth Schedule para 9(1)/(2)) gives AE = remuneration x periods in the year / periods worked and tax x the ratio the periods worked bear to a full year, but no example or rule for periods of two lengths; BRS V25 3.0 p. 33 (3210) counts the periods worked in 3200's interval, which fixes the unit, not the conversion. FQe (engine 23, Hein ruling 23) counts each earlier period as the share of a year its own frequency gave it (share / F: 1/52 a week, 1/26 a fortnight, 30.4166/365 a month, wave-6 ruling 5) and expresses the sum in the current frequency (x F now). The engine equals the hand figure in notes.",
+    "wouldVerify": "A SARS guide, interpretation note or ruling on the annual equivalent after a change of pay period, or a Sage or SimplePay payslip for an employee whose pay frequency changed mid tax year."
+  },
+  {
+    "case": "frequency-change-monthly-to-weekly",
+    "reason": "SARS is silent on counting pay periods across a mid-tax-year change of pay frequency: PAYE-GEN-01-G21 (2027) Rev 1 p. 8-9 (Fourth Schedule para 9(1)/(2)) gives AE = remuneration x periods in the year / periods worked and tax x the ratio the periods worked bear to a full year, but no example or rule for periods of two lengths; BRS V25 3.0 p. 33 (3210) counts the periods worked in 3200's interval, which fixes the unit, not the conversion. FQe (engine 23, Hein ruling 23) counts each earlier period as the share of a year its own frequency gave it (share / F: 1/52 a week, 1/26 a fortnight, 30.4166/365 a month, wave-6 ruling 5) and expresses the sum in the current frequency (x F now). The engine equals the hand figure in notes.",
+    "wouldVerify": "A SARS guide, interpretation note or ruling on the annual equivalent after a change of pay period, or a Sage or SimplePay payslip for an employee whose pay frequency changed mid tax year."
   }
 ]

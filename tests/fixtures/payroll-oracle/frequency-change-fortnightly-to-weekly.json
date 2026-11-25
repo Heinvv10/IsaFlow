@@ -1,0 +1,98 @@
+{
+  "id": "frequency-change-fortnightly-to-weekly",
+  "source": "UNVERIFIED",
+  "sourceRef": "https://www.sars.gov.za/wp-content/uploads/Ops/Guides/PAYE-GEN-01-G21-Guide-for-Employers-iro-Employees-Tax-for-2027-External-Guide.pdf ; SARS PAYE BRS V25 3.0 p. 33 (3210: periods worked counted in 3200's pay intervals)",
+  "notes": "Two fortnights at R16 000 (2 and 16 March 2026), then the first week (30 March - 5 April) at R8 000: R416 000 a year. G21 (2027) Rev 1 p. 8-9: the two fortnights are 2 / 26 of a year, 2 x 52 / 26 = 4 weeks (UNVERIFIED: SARS is silent on a change of pay period). n = 4 + 1 = 5; YTD 40 000; AE = 40 000 x 52 / 5 = 416 000; liability 72 377 x 5 / 52 = 6 959.33; less 2 x 2 783.73 (72 377 / 26) = 1 391.87, the weekly table figure. Counting the fortnights as weeks (n = 3) gave AE 693 333.33 and 4 038.71. Each prior's UIF is 1% capped at the March ceiling of 177.12 across the month's runs (not asserted). expectedWarnings: PAY_FREQUENCY_CHANGED_IN_YEAR, the conversion's visible UNVERIFIED caution.",
+  "input": {
+    "period": {
+      "year": 2026,
+      "month": 4,
+      "frequency": "weekly",
+      "periodStart": "2026-03-30",
+      "periodEnd": "2026-04-05",
+      "runKind": "regular"
+    },
+    "taxYear": 2027,
+    "employee": {
+      "dateOfBirth": "1986-01-01",
+      "startDate": "2020-01-06",
+      "taxStatus": "statutory",
+      "uifExcluded": false,
+      "medicalAidMainMember": false,
+      "medicalAidDependantsCount": 0,
+      "s18aReceiptHeld": false
+    },
+    "employerAnnualRemuneration": 10000000,
+    "components": [
+      {
+        "code": "3601",
+        "name": "Basic salary",
+        "type": "earning",
+        "amount": 8000,
+        "taxable": true,
+        "uif": true,
+        "sdl": true
+      }
+    ],
+    "priorPeriods": [
+      {
+        "periodStart": "2026-03-02",
+        "frequency": "fortnightly",
+        "runKind": "regular",
+        "components": [
+          {
+            "code": "3601",
+            "name": "Basic salary",
+            "type": "earning",
+            "amount": 16000,
+            "taxable": true,
+            "uif": true,
+            "sdl": true
+          }
+        ],
+        "paye": 2783.73,
+        "uifEmployee": 160,
+        "uifLeviable": 16000,
+        "periodicTaxable": 16000,
+        "annualPayments": 0,
+        "retirementDeduction": 0,
+        "medicalCredit": 0,
+        "businessKm": 0,
+        "etiRemuneration": 0,
+        "etiHours": 0
+      },
+      {
+        "periodStart": "2026-03-16",
+        "frequency": "fortnightly",
+        "runKind": "regular",
+        "components": [
+          {
+            "code": "3601",
+            "name": "Basic salary",
+            "type": "earning",
+            "amount": 16000,
+            "taxable": true,
+            "uif": true,
+            "sdl": true
+          }
+        ],
+        "paye": 2783.73,
+        "uifEmployee": 17.12,
+        "uifLeviable": 16000,
+        "periodicTaxable": 16000,
+        "annualPayments": 0,
+        "retirementDeduction": 0,
+        "medicalCredit": 0,
+        "businessKm": 0,
+        "etiRemuneration": 0,
+        "etiHours": 0
+      }
+    ]
+  },
+  "expected": {
+    "paye": 1391.87
+  },
+  "expectedWarnings": [
+    "PAY_FREQUENCY_CHANGED_IN_YEAR"
+  ]
+}

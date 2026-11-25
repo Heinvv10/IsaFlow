@@ -28,6 +28,8 @@ export const GROUP_LABEL: Record<string, string> = {
   OVERTIME_ABOVE_BCEA_THRESHOLD: 'Overtime multiplier paid above the BCEA earnings threshold — the BCEA rates do not bind; check the contract',
   // W1 (wave 7 W53): SARS's guide is silent on an extra pay day (PAYE-GEN-01-G21 (2027) Rev 1 p. 9); not blocking.
   WEEK_53_PAY_DAY: 'A 53rd weekly or 27th fortnightly pay day in the tax year — PAYE kept at ×52 / ×26 a period (SARS\'s guide is silent); an alternate tax period avoids it',
+  // FQe (wave 7, ruling 23): SARS's guide is silent on counting periods across a change of pay frequency; not blocking.
+  PAY_FREQUENCY_CHANGED_IN_YEAR: 'The pay frequency changed this tax year — PAYE counts the earlier periods in this frequency, each as its share of a year (UNVERIFIED: SARS\'s guide is silent)',
   RECURRING_NEEDS_PRO_RATA: 'A recurring component starts after the 27th or ends before month end — needs a manual pro-rata: use Edit dates on the employee\'s Pay Components, then recalculate',
 };
 
@@ -37,6 +39,7 @@ export const OWN_FIGURES: ReadonlySet<string> = new Set([
   'RECURRING_NEEDS_PRO_RATA', // the component and its dates
   'UIF_CLAWBACK', // the clawback and the UIF pay left
   'OVERTIME_ABOVE_BCEA_THRESHOLD', // the employee's earnings a year
+  'PAY_FREQUENCY_CHANGED_IN_YEAR', // the employee's earlier periods and their conversion
 ]);
 
 /** Line results the approval gate refuses on (payrollLineBlockers, payrollRecurringProRata): blocking, not warnings. */

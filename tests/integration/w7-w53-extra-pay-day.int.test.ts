@@ -100,6 +100,6 @@ describe('a 53rd weekly pay day: x 52 kept, the line warned (G21 (2027) Rev 1 p.
     expect(got.bWeek53.codes).not.toContain('WEEK_53_PAY_DAY');
     expect(got.bWeek52.codes).not.toContain('WEEK_53_PAY_DAY');
     expect(Number(got.version)).toBe(PAYROLL_CALCULATION_VERSION);
-    expect(PAYROLL_CALCULATION_VERSION).toBe(22);
+    expect(PAYROLL_CALCULATION_VERSION).toBe(23); // FQe (engine 23) follows W53
   }, 300_000);
 });

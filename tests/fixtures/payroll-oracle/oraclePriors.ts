@@ -2,7 +2,7 @@
  * The oracle's earlier-period helpers, moved out of oracleInput.ts unchanged (wave-7 PRA, refactor(split)): a prior's
  * period end, and the priors as the year to date a run's reader would return. oracleInput.ts re-exports priorYearToDate.
  */
-import type { PayeYearToDate, PayrollEmployee } from '@/modules/accounting/services/payroll/payrollTypes';
+import type { PayeYearToDate, PayFrequency, PayrollEmployee } from '@/modules/accounting/services/payroll/payrollTypes';
 import { dayNumber, isoOfDay, PERIOD_DAYS, periodShareOf } from '@/modules/accounting/services/payroll/payFrequencyPeriods';
 import type { OraclePriorPeriod } from './oracle';
 
@@ -41,11 +41,18 @@ export function priorYearToDate(priors: readonly OraclePriorPeriod[], employee?:
   const sdlPay = (p: OraclePriorPeriod) => amounts(p, x => x.type === 'earning' && x.sdl);
   const share = (p: OraclePriorPeriod) => (employee
     ? periodShareOf(p.frequency, { start: p.periodStart, end: priorEnd(p) }, employee.startDate, employee.endDate) : 1);
+  const periodOf = (p: OraclePriorPeriod) => (p.periodicTaxable > 0 ? share(p) : 0);
+  const capPeriodOf = (p: OraclePriorPeriod) => (p.periodicTaxable > 0 ? share(p) : p.annualPayments > 0 ? 1 : 0);
+  const byFrequency = (count: (p: OraclePriorPeriod) => number) => priors.reduce<Partial<Record<PayFrequency, number>>>(
+    (by, p) => ({ ...by, [p.frequency]: (by[p.frequency] ?? 0) + count(p) }), {});
   return {
     // A weekly or fortnightly prior counts the share of its period worked (FQc: a starter's 3 of 7 days = 0.4285).
-    periods: priors.filter(p => p.periodicTaxable > 0).reduce((t, p) => t + share(p), 0),
+    periods: priors.reduce((t, p) => t + periodOf(p), 0),
     frequencies: [...new Set(priors.map(p => p.frequency))],
-    retirementCapPeriods: priors.reduce((t, p) => t + (p.periodicTaxable > 0 ? share(p) : p.annualPayments > 0 ? 1 : 0), 0),
+    // FQe: the same counts by the prior's frequency, as loadPayeYearToDate returns them (the calculator converts them).
+    periodsByFrequency: byFrequency(periodOf),
+    retirementCapPeriods: priors.reduce((t, p) => t + capPeriodOf(p), 0),
+    retirementCapPeriodsByFrequency: byFrequency(capPeriodOf),
     periodicTaxable: sumOf(priors.map(p => p.periodicTaxable)),
     annualPayments: sumOf(priors.map(p => p.annualPayments)),
     tablePaye: sumOf(priors.map(p => p.paye)),
