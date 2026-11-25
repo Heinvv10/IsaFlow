@@ -158,6 +158,17 @@ describe('posted, on the safer side (breaker of #1900: M1, M2)', () => {
     });
   }, 30_000);
 
+  it('a cancelled bill with no stamp or link left, but a journal sourced from it (a DRC self-assessment), needs Approve', async () => {
+    await withFixture('smpa-m2-sourced', async (fx, target) => {
+      const bill = await makeBill(pool, fx, [{ acct: fx.acc.opex, amount: 100 }], { status: 'cancelled' });
+      const je = String((await pool.query(`INSERT INTO gl_journal_entries (company_id, entry_number, entry_date, description, status, source, source_record_id, created_by)
+        VALUES ($1, $2, '2026-06-15', 'DRC VAT', 'posted', 'auto_vat_adjustment', $3, $4) RETURNING id`, [fx.co, `SMPA-S-${bill.slice(0, 8)}`, bill, fx.owner])).rows[0].id);
+      try { await refused(fx, target, '1 approved, partly paid, paid or once-posted bill'); } finally {
+        await pool.query('DELETE FROM gl_journal_entries WHERE id = $1', [je]);
+      }
+    });
+  }, 30_000);
+
   it('a credit note approved and then cancelled (approved_by kept) needs Approve', async () => {
     await withFixture('smpa-m2-note', async (fx, target) => {
       await pool.query(`INSERT INTO credit_notes (company_id, credit_note_number, type, supplier_id, credit_date, total_amount, status, approved_by, created_by)
