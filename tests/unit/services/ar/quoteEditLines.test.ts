@@ -269,6 +269,14 @@ describe('a standard-only quote: a match needs a compatible rate and a free stor
       [a0, bq, ar]).ids).toEqual(['a', 'bq', 'ar']);
   });
 
+  it('L1 (round 14): an explicit null item at its place is ambiguous only beside a free item-less twin of another account', () => {
+    const tw = (id: string, itemId: string | null, accountId: string, unitPrice: number) => stored(id, { description: 'A', itemId, accountId, unitPrice, amount: unitPrice });
+    const sent = [line({ description: 'A', itemId: A, unitPrice: 10 }), line({ description: 'A', itemId: null, unitPrice: 15 })];
+    expect(matchQuoteLines(sent, [tw('s0', A, 'x', 10), tw('s1', A, 'x', 20), tw('s2', null, 'y', 10)], D).ambiguous).toEqual([1]);
+    const same = matchQuoteLines(sent, [tw('s0', A, 'x', 10), tw('s1', A, 'x', 20), tw('s2', null, 'x', 10)], D);
+    expect([same.ambiguous, same.matches.map((x) => x?.stored.id ?? null)]).toEqual([[], ['s0', 's1']]);
+  });
+
   it('M4 (round 14): legacy [A p, A q, B] resent [B, A, A] with no itemIds is accepted and unchanged (never re-priced)', () => {
     const lg = (id: string, description: string, itemId: string | null, accountId: string, unitPrice: number) =>
       stored(id, { description, unitPrice, amount: unitPrice, itemId, accountId, vatType: null, taxAmount: null });
