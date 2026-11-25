@@ -51,6 +51,10 @@ describe('B12-5 / R3: a chain of pages', () => {
 describe('nextLinkPosition', () => {
   it('reads $skip, skip, $startIndex, startIndex in any case; anything else is no position', () => {
     expect([`${U}6`, 'https://x/?skip=4', 'https://x/?$StartIndex=10', 'https://x/?startindex=2'].map(nextLinkPosition)).toEqual([6, 4, 10, 2]);
-    expect(['https://x/?page=2', 'not a url', 'https://x/?$skip=abc', 3, null].map(nextLinkPosition)).toEqual([null, null, null, null, null]);
+    expect(['https://x/?page=2', 'https://x/?$skip=abc', 3, null].map(nextLinkPosition)).toEqual([null, null, null, null]);
+  });
+  it('L2 (round 13): a relative link is read against a placeholder base', () => {
+    expect(['/items?$skip=100', 'items?skip=4', '?$startIndex=7'].map(nextLinkPosition)).toEqual([100, 4, 7]);
+    expect(nextLinkPosition('/items?page=2')).toBeNull(); // page=N: an open question
   });
 });

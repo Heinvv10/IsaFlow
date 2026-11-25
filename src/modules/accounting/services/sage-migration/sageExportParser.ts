@@ -38,9 +38,12 @@ const present = (v: unknown): boolean => v !== undefined && v !== null && v !== 
 const whole = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 0;
 
 /** The row position a $next link names ($skip / skip / $startIndex / startIndex in its query, any case), or null when it names none. */
+/** A relative $next ("/items?$skip=100") is read against this placeholder base: only its query is looked at. */
+const LINK_BASE = 'https://sage-export.invalid/';
+
 export function nextLinkPosition(next: unknown): number | null {
-  if (typeof next !== 'string' || !URL.canParse(next)) return null;
-  for (const [k, v] of new URL(next).searchParams) {
+  if (typeof next !== 'string' || !URL.canParse(next, LINK_BASE)) return null;
+  for (const [k, v] of new URL(next, LINK_BASE).searchParams) {
     if (['$skip', 'skip', '$startindex', 'startindex'].includes(k.toLowerCase()) && /^\d+$/.test(v)) return Number(v);
   }
   return null;
