@@ -92,7 +92,10 @@ describe('exit code and summary with differences', () => {
     expect(i).toContain('FIB-1 would be updated to Sage\'s values: sales_price');
   });
   it('B9-I (round 9): after a LIVE run an owned item or category "was updated", not "would be updated"', () => {
-    const live = (r: MigrationReport): MigrationReport => ({ ...r, live: { categories: phase, items: phase, purchaseOrders: phase } });
+    // The live batches that carried them are ok (round 10: "was updated" needs that; sageSummaryApplied.test.ts has the other cases).
+    const okItem: BatchReport = batch('item', { rows: [{ outcome: 'updated', code: 'FIB-1', changed: ['sales_price'] }] });
+    const okCategory: BatchReport = batch('category', { outcome: 'updated', name: 'Optics', changed: ['name'] });
+    const live = (r: MigrationReport): MigrationReport => ({ ...r, live: { categories: { batches: [okCategory], failed: 0 }, items: { batches: [okItem], failed: 0 }, purchaseOrders: phase } });
     const both: MigrationReport = { ...base(), differences: { purchaseOrders: [], items: [{ code: 'FIB-1', changed: ['sales_price'] }], categories: [{ name: 'Optics', changed: ['name'] }] } };
     const dry = summaryLines(both).join('\n');
     expect(dry).toContain("item FIB-1 would be updated to Sage's values: sales_price");

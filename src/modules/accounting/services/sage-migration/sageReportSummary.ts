@@ -1,6 +1,6 @@
 /** The few lines a person reads at the end of a run; the full report is the JSON file. PURE. */
 import { formatCents } from '@/lib/money/formatMoney';
-import type { MigrationReport, PhaseReport } from './sageMigrationTypes';
+import type { BatchReport, MigrationReport, PhaseReport } from './sageMigrationTypes';
 
 const money = formatCents;
 /** The console shows the start of a tool's refusal; the JSON report keeps all of it. */
@@ -9,6 +9,28 @@ const shown = (text: string | null): string =>
   text === null || text.length <= CONSOLE_ERROR_CHARS ? String(text) : `${text.slice(0, CONSOLE_ERROR_CHARS)} ... (${text.length} characters; the whole text is in the report file)`;
 const phase = (name: string, p: PhaseReport | undefined): string =>
   p && !p.skipped ? `${name}: ${p.batches.length} batches, ${p.failed} failed` : `${name}: not run`;
+
+/**
+ * What became of an owned item's / category's update (a difference the tool answered `updated`). A dry run writes nothing: "would be".
+ * After a live run it "was updated" ONLY when the live batch that carried it is ok (the phases are checked against the books before
+ * they are reported); a phase that never ran or a failed batch wrote nothing; an unconfirmed COMMIT may have. The batch is found by
+ * its position, from the answers of the dry run (always run before a live one) or of the live run.
+ */
+function updateWording(r: MigrationReport, entity: 'category' | 'item', name: string): string {
+  const would = "would be updated to Sage's values";
+  if (r.live === null) return would;
+  const [live, dry, phaseName] = entity === 'category' ? [r.live.categories, r.dryRun.categories, 'categories'] : [r.live.items, r.dryRun.items, 'items'];
+  if (live.skipped) return `${would} (not written: the ${phaseName} phase did not run)`;
+  const names = (b: BatchReport): boolean => (entity === 'category'
+    ? b.toolReported?.name === name
+    : Array.isArray(b.toolReported?.rows) && (b.toolReported.rows as Array<{ code?: unknown }>).some((x) => x.code === name));
+  const n = [...live.batches, ...dry.batches].find(names)?.n;
+  const b = n === undefined ? undefined : live.batches.find((x) => x.n === n);
+  if (!b) return "may have been updated to Sage's values (its batch is not in the report: check the books)";
+  if (b.commitUnconfirmed) return `may have been updated to Sage's values (the COMMIT of ${entity} batch ${b.n} is unconfirmed: check the books)`;
+  if (b.status !== 'ok') return `${would} (not in the books: ${entity} batch ${b.n} failed)`;
+  return "was updated to Sage's values (an IsaFlow edit of these fields was overwritten)";
+}
 
 export function summaryLines(r: MigrationReport): string[] {
   const rec = r.reconciliation;
@@ -39,9 +61,8 @@ export function summaryLines(r: MigrationReport): string[] {
   for (const p of r.differences.purchaseOrders) {
     lines.push(`DIFFERS: ${p.poNumber} is already in IsaFlow with other figures than Sage (the stored PO is not changed): ${p.differences.map((d) => `${d.field} ${String(d.existing)} -> ${String(d.requested)}`).join('; ') || 'no detail given'}`);
   }
-  // Before a live run an owned item or category WOULD be put back to Sage's values; after one, it WAS (the IsaFlow edit is overwritten).
-  const was = r.live !== null;
-  const said = (kind: string, name: string, changed: string[]) => `DIFFERS: ${kind} ${name} ${was ? "was updated to Sage's values (an IsaFlow edit of these fields was overwritten)" : "would be updated to Sage's values"}: ${changed.join(', ') || 'no detail given'}`;
+  // Before a live run an owned item or category WOULD be put back to Sage's values; after one, it WAS only if its live batch is ok.
+  const said = (kind: 'category' | 'item', name: string, changed: string[]) => `DIFFERS: ${kind} ${name} ${updateWording(r, kind, name)}: ${changed.join(', ') || 'no detail given'}`;
   for (const c of r.differences.categories) lines.push(said('category', c.name, c.changed));
   for (const i of r.differences.items) lines.push(said('item', i.code, i.changed));
   if (rec.items.presentBefore > 0) {
