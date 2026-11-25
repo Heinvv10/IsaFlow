@@ -80,9 +80,10 @@ const nonStandard = (s: StoredQuoteVatLine) => typeOf(s) === 'zero_rated' || typ
 /** A description as compared: trimmed and lower-cased; a missing or non-string one (a bare API body) reads as empty. */
 const descOf = (d: unknown) => (typeof d === 'string' ? d.trim().toLowerCase() : '');
 const idOf = (v: unknown): string | null => (typeof v === 'string' && v !== '' ? v.toLowerCase() : null);
-const itemOf = (l: SentQuoteLine): string | null => (typeof l.itemId === 'string' && l.itemId !== '' ? l.itemId.toLowerCase() : null);
+/** An item id as compared: lower-cased; null, '' and a missing one all mean no item. Shared with quoteLineTax.lineRefs. */
+export const normalItem = (v: unknown): string | null => (typeof v === 'string' && v !== '' ? v.toLowerCase() : null);
+const itemOf = (l: SentQuoteLine): string | null => normalItem(l.itemId);
 const sameItem = (l: SentQuoteLine, s: StoredQuoteVatLine) => itemOf(l) !== null && !!s.itemId && itemOf(l) === s.itemId.toLowerCase();
-const itemsDiffer = (l: SentQuoteLine, s: StoredQuoteVatLine) => itemOf(l) !== null && !!s.itemId && !sameItem(l, s);
 const key = (l: { description: string; quantity: unknown; unitPrice: unknown }) => identicalLineKey(descOf(l.description), l.quantity, l.unitPrice);
 /**
  * Whether the item a sent line names is not the stored line's: another item, one added where it had none, or one
@@ -97,7 +98,8 @@ const identical = (l: SentQuoteLine, s: StoredQuoteVatLine) => key(l) === key(s)
  * "unchanged" decision uses identical, where an added item is a change (the line is re-priced).
  */
 const identicalInPlace = (l: SentQuoteLine, s: StoredQuoteVatLine) => key(l) === key(s) && !(itemChanged(l, s) && !!s.itemId);
-const sameDescription = (l: SentQuoteLine, s: StoredQuoteVatLine) => descOf(l.description) === descOf(s.description) && !itemsDiffer(l, s);
+/** The same line by its description, whatever item it now names (the policy: the same description is the same line). */
+const sameDescription = (l: SentQuoteLine, s: StoredQuoteVatLine) => descOf(l.description) === descOf(s.description);
 
 /** See the header: the same count, every line of a compatible rate, identical in its place but at most one changed in place. */
 function positionalResend(sent: readonly SentQuoteLine[], stored: readonly StoredQuoteVatLine[], compatible: Fits): boolean {

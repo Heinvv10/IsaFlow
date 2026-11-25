@@ -26,7 +26,9 @@
 import { InvoiceLineVatRefusal, type DocumentLineVatType, type ResolvedLineVat } from './invoiceLineVatTypes';
 import { invoiceVatParties, resolveInvoiceVatFor } from './invoiceLineVatDefaults';
 import { priceInvoiceVat, type AmountsAre, type VatPricedHeader, type VatPricedLine } from './invoiceLineVatPricing';
-import { keptQuoteTypes, legacyLinesUnchanged, matchQuoteLines, unmatchedVatProblem, type LineMatch, type StoredQuote, type StoredQuoteVatLine } from './quoteEditLines';
+import {
+  keptQuoteTypes, legacyLinesUnchanged, matchQuoteLines, normalItem, unmatchedVatProblem, type LineMatch, type StoredQuote, type StoredQuoteVatLine,
+} from './quoteEditLines';
 import { typedLinesProblem } from './invoiceVatLegs';
 import { LineValidationError, quoteAmountsAre } from './quoteLineChecks';
 
@@ -61,20 +63,25 @@ const ref = (v: unknown): string | null => (typeof v === 'string' && v !== '' ? 
  * place or content: quoteEditLines, including the one line changed in place and a description match at another price)
  * keeps that stored line's item: the same line keeps its item, and the row written is the line the VAT match read
  * (itemEditLines hands items out by the raw identical key in stored order, which a case-only description change or
- * twins swapped by id would get wrong). A MATCHED line sent without an accountId and naming no new item (itemId left
- * out, or the stored item resent) keeps the stored account on every edit, so conversion credits the account the user
- * chose; a new item named takes its own default account (itemEditLines / applyItemLineDefaults); an accountId sent,
- * null included, wins. An unmatched line: the resolved line's own.
+ * twins swapped by id would get wrong). A MATCHED line sent without an accountId keeps its stored account (the user may
+ * have chosen it, and conversion credits it) unless it names a NEW item (one not the stored line's; null, '' and a
+ * missing id all mean no item, as quoteEditLines compares them) that has a default sales account, which it then takes
+ * (itemEditLines / applyItemLineDefaults). Removing an item, resending the stored one, or naming one with no default
+ * account keeps the stored account. Only an accountId sent changes it, null clearing it. An unmatched line: the resolved
+ * line's own. Accepted: a kept account comes from this quote's own stored rows, and conversion re-checks it
+ * (assertLineAccountIds refuses one deactivated since).
  */
 function lineRefs(lines: readonly QuoteVatLineIn[], sent: readonly QuoteVatLineIn[], matches: readonly (LineMatch | null)[] | undefined): QuoteLineRef[] {
   return lines.map((l, i) => {
     const m = matches?.[i];
     const s = sent[i];
-    const storedItem = m?.stored.itemId ? m.stored.itemId.toLowerCase() : null;
-    const sameItem = s?.itemId === undefined || (typeof s.itemId === 'string' && s.itemId.toLowerCase() === storedItem && storedItem !== null);
+    if (!m) return { itemId: ref(l.itemId), accountId: ref(l.accountId) };
+    const sentItem = normalItem(s?.itemId);
+    const newItem = sentItem !== null && sentItem !== normalItem(m.stored.itemId);
+    const itemDefault = newItem ? ref(l.accountId) : null; // the new item's default account, when it has one
     return {
-      itemId: m && s?.itemId === undefined ? m.stored.itemId ?? null : ref(l.itemId),
-      accountId: m && s?.accountId === undefined && sameItem ? m.stored.accountId ?? null : ref(l.accountId),
+      itemId: s?.itemId === undefined ? m.stored.itemId ?? null : ref(l.itemId),
+      accountId: s?.accountId !== undefined ? ref(l.accountId) : itemDefault ?? m.stored.accountId ?? null,
     };
   });
 }

@@ -263,6 +263,29 @@ describe('updateQuote: per-line VAT', () => {
     expect(inserted('customer_quote_lines').map((l) => l.item_id)).toEqual([null]);
   });
 
+  it('round 9 M1: itemId null or \'\' on a line that never had an item keeps its account (no item is no change)', async () => {
+    for (const itemId of [null, '']) {
+      mockSql.mockClear(); world.stored = [typedLine({ item_id: null })];
+      await updateQuote(COMPANY_ID, QUOTE_ID, { customerName: 'Acme', lines: [{ description: 'Svc', quantity: 1, unitPrice: 100, itemId }] } as never, 'u1');
+      expect(accounts()).toEqual([[null, G]]);
+    }
+  });
+
+  it('round 9 M2: removing the item (itemId null) keeps the stored account; only an accountId sent changes it', async () => {
+    world.stored = [typedLine()]; // item A, account G
+    await updateQuote(COMPANY_ID, QUOTE_ID, { customerName: 'Acme', lines: [{ description: 'Svc', quantity: 1, unitPrice: 100, itemId: null }] }, 'u1');
+    expect(accounts()).toEqual([[null, G]]);
+  });
+
+  it('round 9 L3: an item changed to one with NO default account keeps the stored account; one with a default takes it', async () => {
+    world.stored = [typedLine()];
+    await updateQuote(COMPANY_ID, QUOTE_ID, { customerName: 'Acme', lines: [{ description: 'Svc', quantity: 1, unitPrice: 100, itemId: ITEM_B }] }, 'u1');
+    expect(accounts()).toEqual([[ITEM_B, G]]);
+    mockSql.mockClear(); world.itemBAccount = G2;
+    await updateQuote(COMPANY_ID, QUOTE_ID, { customerName: 'Acme', lines: [{ description: 'Svc', quantity: 1, unitPrice: 100, itemId: ITEM_B }] }, 'u1');
+    expect(accounts()).toEqual([[ITEM_B, G2]]);
+  });
+
   it('L1: a line with no description (a bare API body) is a clean 400 naming the line, nothing written', async () => {
     await expect(updateQuote(COMPANY_ID, QUOTE_ID, { customerName: 'Acme', lines: [{ quantity: 1, unitPrice: 1 }] } as never, 'u1'))
       .rejects.toThrow('Line 1: description is required');
