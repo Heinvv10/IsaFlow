@@ -21,12 +21,11 @@ import { RUN_TAG } from '../../src/modules/accounting/services/sage-migration/sa
 import { assertLocalDatabase } from '../../src/modules/accounting/services/sage-migration/localGuard';
 import { parseSageExport } from '../../src/modules/accounting/services/sage-migration/sageExportParser';
 import { runSageMigration } from '../../src/modules/accounting/services/sage-migration/sageMigrationRunner';
-import { exitCodeFor, summaryLines } from '../../src/modules/accounting/services/sage-migration/sageReportSummary';
 import { exitCodeForError, stopMessage } from '../../src/modules/accounting/services/sage-migration/sageStopMessage';
-import { MigrationStopped } from '../../src/modules/accounting/services/sage-migration/sageMigrationStopped';
+import { preReportArgs, sameFile, summarize, writeRunningReport, writeStopReport } from './runReport';
 
 const out = (s: string) => process.stdout.write(`${s}\n`);
-/** --report, once the arguments are parsed: a refused start writes its stop report there too, so an earlier run's report is not left. */
+/** --report, read before the strict parse: a refused start writes its stop report there too, so an earlier run's report is not left. */
 let reportPath: string | undefined;
 const fail = (s: string): never => {
   process.stderr.write(`${s}\n`);
@@ -40,19 +39,14 @@ function cents(text: string): number {
   if (!m) return fail(`not an amount: ${text}`);
   return Number(m[1]) * 100 + Number((m[2] ?? '').padEnd(2, '0'));
 }
-/**
- * A run that STOPS still leaves a report at --report, so a report of an earlier run is never left there to be read as this one's: what
- * the stop knows (whether the live phase started, the message, the batches committed / failed). Best effort: the exit code is the stop's.
- */
-function writeStopReport(path: string, err: unknown): void {
-  const stopped = err instanceof MigrationStopped ? err : null;
-  const report = { status: 'stopped', liveStarted: stopped?.liveStarted ?? false, message: stopMessage(err), committed: stopped?.committed ?? [], failed: stopped?.batches.failed ?? [] };
-  try {
-    writeFileSync(path, `${JSON.stringify(report, null, 2)}\n`);
-  } catch (writeErr) {
-    process.stderr.write(`the stop report could not be written to ${path}: ${writeErr instanceof Error ? writeErr.message : String(writeErr)}\n`);
-  }
-}
+const parseCli = () => parseArgs({
+  options: {
+    company: { type: 'string' }, user: { type: 'string' }, file: { type: 'string' }, report: { type: 'string' },
+    live: { type: 'boolean', default: false }, 'skip-budget-check': { type: 'boolean', default: false }, 'po-gl-account': { type: 'string' }, 'allow-refusals': { type: 'boolean', default: false }, 'run-tag': { type: 'string' }, 'allow-differences': { type: 'boolean', default: false },
+    'expect-items': { type: 'string' }, 'expect-pos': { type: 'string' }, 'expect-po-total': { type: 'string' },
+  },
+  strict: true,
+});
 
 const count = (text: string | undefined): number | undefined => {
   if (text === undefined) return undefined;
@@ -61,15 +55,16 @@ const count = (text: string | undefined): number | undefined => {
 };
 
 async function main(): Promise<void> {
-  const { values } = parseArgs({
-    options: {
-      company: { type: 'string' }, user: { type: 'string' }, file: { type: 'string' }, report: { type: 'string' },
-      live: { type: 'boolean', default: false }, 'skip-budget-check': { type: 'boolean', default: false }, 'po-gl-account': { type: 'string' }, 'allow-refusals': { type: 'boolean', default: false }, 'run-tag': { type: 'string' }, 'allow-differences': { type: 'boolean', default: false },
-      'expect-items': { type: 'string' }, 'expect-pos': { type: 'string' }, 'expect-po-total': { type: 'string' },
-    },
-    strict: true,
-  });
-  reportPath = values.report;
+  const pre = preReportArgs(process.argv.slice(2));
+  // --report naming the export: refused before anything is written there (the export would be overwritten).
+  if (pre.report && pre.file && sameFile(pre.report, pre.file)) {
+    process.stderr.write(`--report ${pre.report} is the export --file itself: writing the report would overwrite it; give another path\n`);
+    process.exit(2);
+  }
+  reportPath = pre.report;
+  let parsedArgs: ReturnType<typeof parseCli>;
+  try { parsedArgs = parseCli(); } catch (err) { return fail(err instanceof Error ? err.message : String(err)); }
+  const { values } = parsedArgs;
   try { assertLocalDatabase(); } catch (err) { fail(err instanceof Error ? err.message : String(err)); }
   if (!values.company || !UUID_RE.test(values.company)) fail('--company <uuid> is required');
   if (!values.user || !UUID_RE.test(values.user)) fail('--user <uuid> is required');
@@ -87,22 +82,25 @@ async function main(): Promise<void> {
     if (values.report) writeStopReport(values.report, err);
     throw err;
   }
+  const expect = {
+    items: count(values['expect-items']), purchaseOrders: count(values['expect-pos']),
+    purchaseOrderTotalCents: values['expect-po-total'] === undefined ? undefined : cents(values['expect-po-total']),
+  };
+  // From here a run is under way: an earlier run's report is replaced at once (a run killed mid-way leaves "running").
+  if (values.report) writeRunningReport(values.report);
   const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
   pool.on('error', (err) => process.stderr.write(`database pool error: ${err.message}\n`));
   try {
     const report = await runSageMigration(pool, parsed, {
       companyId: values.company!.toLowerCase(), userId: values.user!.toLowerCase(), live: values.live, skipBudgetCheck: values['skip-budget-check'], poGlAccountId: values['po-gl-account']?.toLowerCase(), runTag: values['run-tag'], allowRefusals: values['allow-refusals'] === true, allowDifferences: values['allow-differences'] === true,
-      expect: {
-        items: count(values['expect-items']), purchaseOrders: count(values['expect-pos']),
-        purchaseOrderTotalCents: values['expect-po-total'] === undefined ? undefined : cents(values['expect-po-total']),
-      },
+      expect,
     }).catch((err: unknown) => {
       if (values.report) writeStopReport(values.report, err);
       throw err;
     });
     // The summary is printed FIRST: a committed run must always tell what it did, whatever happens to the report file.
-    for (const line of summaryLines(report)) out(line);
-    const code = exitCodeFor(report, values['allow-refusals'] === true, values['allow-differences'] === true);
+    const { lines, code } = summarize(report, values['allow-refusals'] === true, values['allow-differences'] === true);
+    for (const line of lines) (code === 4 ? process.stderr.write(`${line}\n`) : out(line));
     process.exitCode = code;
     if (values.report) {
       try {

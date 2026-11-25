@@ -3,10 +3,16 @@
  *   - B14-1: a VAT-inclusive Sage PO whose lines carry no Tax is refused, never booked a cent off each way (header totals hid it, exit 0);
  *     the same PO with each line's own Exclusive and Tax is booked at exactly Sage's line figures;
  *   - B14-2: a re-run PO batch that wrote nothing (every PO there), one PO then deleted, is "answered ok, nothing new written" in the stop,
- *     never "committed" or "What the batch wrote was written".
+ *     never "committed" or "What the batch wrote was written";
+ *   - B14-3 / R14-L1: the --report file: a mistyped option still replaces an earlier report; --report naming the export is refused; a
+ *     run killed mid-live leaves "running".
  * Fixture route: isaflow_schema_fixture (assertDisposable). Never skips.
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { spawnSync } from 'node:child_process';
+import { copyFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { Pool } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { cleanupWorld } from './helpers/itemsWorld';
@@ -75,4 +81,44 @@ describe('B14-2 (B14-A2): a re-run PO batch that wrote nothing, one of its POs t
     expect(m).not.toMatch(/\ncommitted: purchase_order batch 1 /);
     expect(po1.error ?? '').not.toMatch(/What the batch wrote was written|next phase/);
   });
+});
+
+describe('B14-3 / R14-L1 (round 14): the --report file', () => {
+  const cli = (args: string[], env: Record<string, string> = {}, preload?: string) => spawnSync('bun', ['--no-env-file', ...(preload ? ['--preload', join(process.cwd(), preload)] : []),
+    'scripts/sage-migration/run.ts', '--company', s.companyId, '--user', s.userId, ...args], { encoding: 'utf8', timeout: 170_000, env: { ...process.env, DATABASE_SSL: 'disable', ...env } });
+  const FILE = 'tests/fixtures/sage-export/sage-export.json';
+  it('a mistyped option (the strict parse throws) still replaces an earlier run\'s report with a stop report', () => {
+    const d = mkdtempSync(join(tmpdir(), 'sage-r17-'));
+    try {
+      const report = join(d, 'report.json');
+      writeFileSync(report, JSON.stringify({ status: 'completed', note: 'an earlier run' }));
+      const r = cli(['--file', FILE, '--live', '--expect-items', '20', '--expect-po', '10', '--report', report]);
+      expect(r.status).toBe(2);
+      expect(JSON.parse(readFileSync(report, 'utf8'))).toMatchObject({ status: 'stopped', liveStarted: false, message: expect.stringMatching(/Unknown option '--expect-po'/) });
+    } finally { rmSync(d, { recursive: true, force: true }); }
+  }, 180_000);
+  it('--report naming the export itself is refused (exit 2) and the export is left as it was', () => {
+    const d = mkdtempSync(join(tmpdir(), 'sage-r17-'));
+    try {
+      const file = join(d, 'export.json');
+      copyFileSync(FILE, file);
+      const before = readFileSync(file, 'utf8');
+      for (const report of [file, join(d, '.', 'export.json')]) {
+        const r = cli(['--file', file, '--report', report]);
+        expect(r.status).toBe(2);
+        expect(r.stderr).toMatch(/is the export --file itself/);
+      }
+      expect(readFileSync(file, 'utf8')).toBe(before);
+    } finally { rmSync(d, { recursive: true, force: true }); }
+  }, 180_000);
+  it('a run killed mid-live (SIGKILL) leaves "running", never the earlier run\'s report', () => {
+    const d = mkdtempSync(join(tmpdir(), 'sage-r17-'));
+    try {
+      const report = join(d, 'report.json');
+      writeFileSync(report, JSON.stringify({ status: 'completed', note: 'an earlier run' }));
+      const r = cli(['--file', FILE, '--live', '--expect-items', '20', '--expect-pos', '10', '--report', report], { SAGE_DIE_AT_COMMIT: '2' }, 'tests/integration/helpers/sageDieAtCommitPreload.ts');
+      expect(r.signal).toBe('SIGKILL');
+      expect(JSON.parse(readFileSync(report, 'utf8'))).toMatchObject({ status: 'running' });
+    } finally { rmSync(d, { recursive: true, force: true }); }
+  }, 180_000);
 });

@@ -123,7 +123,10 @@ describe('note (round 12): a stopped CLI run and the --report file of an earlier
       const json = JSON.parse(readFileSync(report, 'utf8'));
       expect(json).toMatchObject({ status: 'stopped', liveStarted: true });
       expect(json.message).toMatch(/commit unconfirmed: item batch 1 \(/);
-      expect(json.committed.map((b: { entity: string; n: number }) => `${b.entity} ${b.n}`)).toEqual(['category 1', 'category 2', 'category 3', 'category 4', 'item 1']);
+      // By outcome since round 14 (B14-4): the categories wrote; the item batch's COMMIT is unconfirmed.
+      const ids = (k: string) => (json[k] as Array<{ entity: string; n: number }>).map((b) => `${b.entity} ${b.n}`);
+      expect(ids('committed')).toEqual(['category 1', 'category 2', 'category 3', 'category 4']);
+      expect(ids('commitUnconfirmed')).toEqual(['item 1']);
     } finally { rmSync(dir, { recursive: true, force: true }); }
   }, 180_000);
 });
