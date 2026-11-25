@@ -8,6 +8,7 @@ import { withAuth, type AuthenticatedNextApiRequest, withWriteAccess} from '@/li
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { attachReceiverNames } from '@/modules/accounting/services/ap/grnReceiverNames';
 import { createGoodsReceived, GoodsReceivedError } from '@/modules/accounting/services/ap/goodsReceivedService';
 import type { CompanyAuthedRequest } from '@/lib/auth/withAuth';
 
@@ -24,7 +25,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     } else {
       rows = await sql`SELECT g.*, po.po_number, s.name as supplier_name FROM goods_received_notes g LEFT JOIN purchase_orders po ON g.purchase_order_id = po.id AND po.company_id = g.company_id LEFT JOIN suppliers s ON po.supplier_id = s.id AND s.company_id = po.company_id WHERE g.company_id = ${companyId} ORDER BY g.received_date DESC LIMIT 200` as Row[];
     }
-    return apiResponse.success(res, rows);
+    return apiResponse.success(res, await attachReceiverNames(companyId, rows));
   }
 
   if (req.method === 'POST') {
