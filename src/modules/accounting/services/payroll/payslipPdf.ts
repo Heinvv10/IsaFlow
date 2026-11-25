@@ -13,7 +13,7 @@
  * after layout so a slip that flows onto more pages carries them too.
  */
 import { COLORS, type JsPdfDoc } from '@/modules/accounting/services/core/pdfShared';
-import { payslipPeriodTitle, payslipPeriodToken } from './payslipPeriod';
+import { isMonthlyRegular, payslipPeriodTitle, payslipPeriodToken } from './payslipPeriod';
 import { cleanAddress, money, particulars, shortDate } from './payslipFacts';
 import { BENEFIT_NOTE, notItemisedNote, PAID_DIRECTLY_NOTE, type PayslipItem } from './payslipItems';
 import type { Payslip, PayslipRun } from './payslipModel';
@@ -28,8 +28,6 @@ const round2 = (n: number): number => Math.round(n * 100) / 100;
 type AutoTable = (doc: JsPdfDoc, opts: Record<string, unknown>) => void;
 
 const pad = (n: number) => String(n).padStart(2, '0');
-
-const isMonthlyRegular = (run: PayslipRun): boolean => run.runKind === 'regular' && run.payFrequency === 'monthly';
 
 export function payPeriodLabel(month: number, year: number): string {
   const last = new Date(Date.UTC(year, month, 0)).getUTCDate();

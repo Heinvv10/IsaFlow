@@ -7,6 +7,8 @@
 import { formatDayRange, formatMonth } from './payrollPayWeek';
 
 export interface PeriodFacts {
+  /** The run's id: an off-cycle run's file name carries its first 8 characters (two bonus runs in a month differ). */
+  runId?: string;
   periodMonth: number;
   periodYear: number;
   /** The run's own dates; null on a monthly run (it carries none, payrollFrequency.runPeriodOf). */
@@ -24,6 +26,9 @@ export const monthName = (f: Pick<PeriodFacts, 'periodMonth' | 'periodYear'>): s
 
 const REASON_WORDS: Record<string, string> = { bonus: 'Bonus', termination: 'Termination' };
 
+/** The one definition of "a monthly regular run": its label is the calendar month with the month's dates. */
+export const isMonthlyRegular = (f: Pick<PeriodFacts, 'runKind' | 'payFrequency'>): boolean => f.runKind === 'regular' && f.payFrequency === 'monthly';
+
 /** 'Week 22–28 Feb 2027', 'Fortnight 8–21 Feb 2027', 'Bonus, Nov 2026', 'November 2026'. */
 export function payslipPeriodTitle(f: PeriodFacts): string {
   if (f.runKind === 'off_cycle') return `${REASON_WORDS[f.offCycleReason ?? ''] ?? 'Off-cycle'}, ${formatMonth(f.periodYear, f.periodMonth)}`;
@@ -35,7 +40,11 @@ export function payslipPeriodTitle(f: PeriodFacts): string {
 /** The part of a slip's file name that tells its runs apart: the month, else the period's first day, else month-reason. */
 export function payslipPeriodToken(f: PeriodFacts): string {
   const ym = `${f.periodYear}-${String(f.periodMonth).padStart(2, '0')}`;
-  if (f.runKind === 'off_cycle') return `${ym}-${String(f.offCycleReason ?? 'offcycle').replace(/[^a-z]/g, '') || 'offcycle'}`;
+  if (f.runKind === 'off_cycle') {
+    const reason = String(f.offCycleReason ?? 'offcycle').replace(/[^a-z]/g, '') || 'offcycle';
+    const id = String(f.runId ?? '').replace(/[^0-9a-f]/gi, '').slice(0, 8);
+    return id ? `${ym}-${reason}-${id}` : `${ym}-${reason}`;
+  }
   if ((f.payFrequency === 'weekly' || f.payFrequency === 'fortnightly') && f.periodStart) return f.periodStart;
   return ym;
 }

@@ -29,6 +29,12 @@ describe('payslipFilename', () => {
     expect(name(monthly)).toBe('payslip-2026-11-E-001.pdf');
     expect(name(week('2026-11-09', '2026-11-15'))).toBe('payslip-2026-11-09-E-001.pdf');
     expect(name(week('2026-11-16', '2026-11-22'))).not.toBe(name(week('2026-11-09', '2026-11-15')));
-    expect(name({ ...monthly, runKind: 'off_cycle', offCycleReason: 'bonus' })).toBe('payslip-2026-11-bonus-E-001.pdf');
+    const bonus = { ...monthly, runKind: 'off_cycle', offCycleReason: 'bonus' };
+    expect(name({ ...bonus, runId: 'a1b2c3d4-0000-4000-8000-000000000001' })).toBe('payslip-2026-11-bonus-a1b2c3d4-E-001.pdf');
+  });
+
+  it('two bonus runs of one month give different names (L1)', () => {
+    const bonus = { ...monthly, runKind: 'off_cycle', offCycleReason: 'bonus' };
+    expect(name({ ...bonus, runId: 'a1b2c3d4-0000-4000-8000-000000000001' })).not.toBe(name({ ...bonus, runId: 'e5f6a7b8-0000-4000-8000-000000000002' }));
   });
 });
