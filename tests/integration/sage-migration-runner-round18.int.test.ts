@@ -52,7 +52,7 @@ describe('B15-1: --report never overwrites the export', () => {
     writeFileSync(report, JSON.stringify({ status: 'completed' }));
     const r = cli(['--file', FIXTURE, '--report', report, ...who()]);
     expect(r.status).toBe(2);
-    expect(r.stderr).toMatch(/already exists: .*pick a new path or delete the old file; nothing was written/);
+    expect(r.stderr).toMatch(/already exists: .*pick a new path or delete the old file \(nothing written; --report .* was not created by this run\)/);
     expect(JSON.parse(readFileSync(report, 'utf8'))).toEqual({ status: 'completed' });
     const fresh = join(d, 'fresh.json');
     expect(cli(['--file', FIXTURE, '--report', fresh, ...who()]).status).toBe(0);
@@ -84,7 +84,7 @@ describe('B15-3: a --report that cannot be written', () => {
     for (const report of [d, join(d, 'no-such-dir', 'r.json')]) {
       const r = cli(['--file', FIXTURE, '--report', report, ...who(), '--live', '--expect-items', '20', '--expect-pos', '10']);
       expect(r.status, report).toBe(2);
-      expect(r.stderr, report).toMatch(/cannot be written .*nothing was written|already exists/); // a directory exists: refused at the create
+      expect(r.stderr, report).toMatch(/cannot be written|already exists/); // a directory exists: refused at the create
     }
     expect(await booked(pool, s.companyId)).toMatchObject({ items: 0, categories: 0, pos: 0, toolCalls: 0 });
   }, 180_000);

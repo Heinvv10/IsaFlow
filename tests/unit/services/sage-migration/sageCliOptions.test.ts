@@ -26,8 +26,9 @@ describe('R1: run.ts never passes liveWithoutCounts', () => {
     process.argv = [argv[0]!, 'scripts/sage-migration/run.ts', '--company', COMPANY, '--user', USER, '--file', 'tests/fixtures/sage-export/sage-export.json',
       '--live', '--expect-items', '20', '--expect-pos', '10', '--expect-po-total', '1.00'];
     try {
-      await import('../../../../scripts/sage-migration/run');
-      await vi.waitFor(() => expect(exit).toHaveBeenCalled());
+      const { runCli } = await import('../../../../scripts/sage-migration/run');
+      await runCli();
+      expect(exit).toHaveBeenCalled();
     } finally { process.argv = argv; }
     expect(seen.opts).toHaveLength(1);
     const o = seen.opts[0] as MigrationOptions;

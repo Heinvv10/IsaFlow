@@ -54,7 +54,7 @@ beforeEach(() => {
 afterEach(() => { process.exitCode = undefined; vi.unstubAllEnvs(); vi.restoreAllMocks(); rmSync(d, { recursive: true, force: true }); });
 
 const COMPANY = '00000000-0000-4000-8000-000000000001';
-/** Runs run.ts; resolves with the exit code (process.exit, or process.exitCode once the pool closed). */
+/** Runs run.ts's runCli; resolves with the exit code (process.exit, or process.exitCode once the pool closed). */
 async function runCli(report: string, extra: string[] = [], file = 'tests/fixtures/sage-export/sage-export.json'): Promise<number | undefined> {
   const exit = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never);
   vi.spyOn(process.stderr, 'write').mockImplementation((s) => { err.push(String(s)); return true; });
@@ -62,9 +62,8 @@ async function runCli(report: string, extra: string[] = [], file = 'tests/fixtur
   const argv = process.argv;
   process.argv = [argv[0]!, 'scripts/sage-migration/run.ts', '--company', COMPANY, '--user', '00000000-0000-4000-8000-000000000002', '--file', file, '--report', report, ...extra];
   try {
-    await import('../../../../scripts/sage-migration/run');
-    await vi.waitFor(() => expect(exit.mock.calls.length + h.poolEnded).toBeGreaterThan(0));
-    await new Promise((r) => setTimeout(r, 20));
+    const { runCli: cli } = await import('../../../../scripts/sage-migration/run');
+    await cli();
   } finally { process.argv = argv; }
   return exit.mock.calls.length > 0 ? Number(exit.mock.calls[0]![0]) : (process.exitCode as number | undefined);
 }
@@ -77,7 +76,7 @@ describe('a refusal before the create: nothing written anywhere', () => {
     const cases = [
       [['--run-tag', 'bad tag!'], undefined, /^--run-tag must be 1-32 letters/],
       [['--live', '--expect-items', '12x', '--expect-pos', '1'], undefined, /^not a count: 12x/],
-      [[], bad, /^sage migration stopped: .*status/],
+      [[], bad, /^--file .*bad\.json cannot be used: .*status/], // R18-5: a refused start, not a "stop"
     ] as const;
     for (const [extra, file, said] of cases) {
       vi.resetModules();
@@ -86,7 +85,7 @@ describe('a refusal before the create: nothing written anywhere', () => {
       expect(await runCli(report, [...extra], file), extra.join(' ')).toBe(2);
       expect(existsSync(report), extra.join(' ')).toBe(false);
       expect(err.join(''), extra.join(' ')).toMatch(said); // a refusal is said as it is, not as a "stop"
-      expect(err.join(''), extra.join(' ')).toMatch(/\(nothing written; --report .* was not created\)\n$/);
+      expect(err.join(''), extra.join(' ')).toMatch(/\(nothing written; --report .* was not created by this run\)\n$/);
     }
     expect(h.calls).toBe(0);
   });

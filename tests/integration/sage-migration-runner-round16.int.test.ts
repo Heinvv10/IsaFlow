@@ -99,7 +99,7 @@ describe('L4 / B13-3 (round 13): a refused start of the CLI and the --report fil
         const r = spawnSync('bun', [...base, ...extra], { encoding: 'utf8', timeout: 170_000, env: { ...process.env, DATABASE_SSL: 'disable' } });
         expect(r.status, extra.join(' ')).toBe(2);
         expect(r.stderr, extra.join(' ')).toMatch(why);
-        expect(r.stderr, extra.join(' ')).toMatch(/\(nothing written; --report .* was not created\)/);
+        expect(r.stderr, extra.join(' ')).toMatch(/\(nothing written; --report .* was not created by this run\)/);
         expect(existsSync(report), extra.join(' ')).toBe(false);
       }
       // A company the user is not a member of is refused by the database: after the create, so its stop report is there.
