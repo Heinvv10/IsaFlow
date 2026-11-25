@@ -25,7 +25,7 @@ import { keyFor, planBatches, sendBatch, type PlannedBatches, type Send } from '
 import { ownershipProblem } from './sageOwnership';
 import { recordSent, settleCommitted, stoppedBatches, unconfirmedBatch, verified, verifiedCategories, verifiedItems, type Sent } from './sageVerify';
 import { MigrationStopped } from './sageMigrationStopped';
-import { CommitUnconfirmedError } from './sageToolSession';
+import { CommitUnconfirmedError, LostBeforeCommitError } from './sageToolSession';
 import { budgetWouldHaveFailed } from './sageBudgetReport';
 import { differencesFrom } from './sageDifferences';
 import { buildLineLinks } from './sageLineLinks';
@@ -96,6 +96,7 @@ async function livePhase(pool: Pool, o: MigrationOptions, list: Send[], before: 
     // beyond the loss. Thrown outside the batch's own try, so it stops the run, listing what was committed. A stop asked for, too.
     await beforeBatch();
     let b: BatchReport;
+    let lostBeforeCommit = false;
     o.onProgress?.({ kind: 'sending', batch: { entity: s.entity, n: s.n, size: s.size, key: keyFor(s, before, false) } });
     try {
       b = await withToolSession(pool, o.companyId, o.userId, true, (session) => sendBatch(session, s, before, false));
@@ -106,7 +107,9 @@ async function livePhase(pool: Pool, o: MigrationOptions, list: Send[], before: 
       log.error('sage migration: batch failed', { entity: s.entity, n: s.n, message }, 'sage-migration');
       b = { entity: s.entity, n: s.n, size: s.size, key: keyFor(s, before, false), status: 'failed', allRowsAlreadyPresent: false, rowsAbsent: 0, toolReported: null, error: message };
       // An unconfirmed COMMIT may have landed: keep the LIVE tool answer the request had before its COMMIT (what the batch did if it landed).
-      if (err instanceof CommitUnconfirmedError) b = unconfirmedBatch(b, err.result as BatchReport | undefined, err.connectionLost, err.lostDuringRequest);
+      if (err instanceof CommitUnconfirmedError) b = unconfirmedBatch(b, err.result as BatchReport | undefined, err.connectionLost);
+      // Lost before its COMMIT was sent: failed, nothing written; the run still stops here (below): the connection went away mid-run.
+      if (err instanceof LostBeforeCommitError) lostBeforeCommit = true;
     }
     p.batches.push(b);
     if (b.status === 'failed') p.failed++;
@@ -118,6 +121,7 @@ async function livePhase(pool: Pool, o: MigrationOptions, list: Send[], before: 
     if (b.commitUnconfirmed) {
       throw new Error(`the COMMIT of ${b.entity} batch ${b.n} (${b.key}) did not answer (${b.error ?? 'no detail'}): it may still land, so no further batch is sent. Check the books; a re-run resumes`);
     }
+    if (lostBeforeCommit) throw new Error(`${b.entity} batch ${b.n} (${b.key}) failed: ${b.error}; no further batch is sent, a re-run resumes`);
   }
   return p;
 }
@@ -224,6 +228,6 @@ async function runLocked(pool: Pool, parsed: ParsedExport, opts: MigrationOption
     };
   } catch (err) {
     const committed = await settled(sent.committed, all, () => withToolSession(pool, opts.companyId, opts.userId, false, () => readSnapshot(opts.companyId)));
-    throw new MigrationStopped(err, true, committed, stoppedBatches(sent, dry));
+    throw new MigrationStopped(err, true, committed, stoppedBatches(sent));
   }
 }

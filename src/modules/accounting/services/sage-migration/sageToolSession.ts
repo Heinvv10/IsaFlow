@@ -13,7 +13,7 @@ import { getCompanyMembership } from '@/lib/auth/companyMembership';
 import { normalizeCompanyRole } from '@/lib/auth/companyRoles';
 import { isActiveUserAccount } from '@/lib/auth/userAccountStatus';
 import { mcpRegistry } from '@/lib/mcp/toolIndex';
-import { rollbackFailed } from '@/lib/rollbackFailed';
+import { rollbackError, rollbackFailed } from '@/lib/rollbackFailed';
 import type { McpToolContext } from '@/lib/mcp/types';
 
 export const MIGRATION_SCOPES = ['read:items', 'write:items', 'read:invoices', 'write:invoices', 'read:contacts'];
@@ -46,12 +46,23 @@ export function setCommitBoundForTests(ms: number): () => void {
 /**
  * The COMMIT of a request transaction did not answer (or failed): whether it landed is unknown. Any other failure rolled the batch back.
  * `result` is what the request's work returned before the COMMIT (a live batch: the tool's own answer), so a caller can say what the batch
- * did if the COMMIT landed, never falling back on the dry run's answer. `connectionLost`: the connection was lost (B19-1, R20-2).
- * `lostDuringRequest`: it was lost BEFORE the COMMIT was sent, so a failure the tool answered was that loss, not a refusal; lost at the
- * COMMIT itself, the tool's answer stands, a refusal among them (B21-1).
+ * did if the COMMIT landed, never falling back on the dry run's answer. `connectionLost`: the connection was lost DURING (or after) the
+ * COMMIT (R20-2): the tool's answer stands, a refusal among them (B21-1). A loss seen before the COMMIT is LostBeforeCommitError instead.
  */
 export class CommitUnconfirmedError extends Error {
-  constructor(message: string, readonly result: unknown, readonly connectionLost = false, readonly lostDuringRequest = false) { super(message); }
+  constructor(message: string, readonly result: unknown, readonly connectionLost = false) { super(message); }
+}
+
+/**
+ * The connection of a committing request was lost BEFORE its COMMIT was sent (round 22, the structural rule): pg marks such a client not
+ * queryable, so no COMMIT can reach the server, and the server rolls the transaction back. The batch FAILED and nothing of it was
+ * written, whatever the tool answered (its answer is not needed to say so). `cause` is the error the loss came with.
+ */
+export class LostBeforeCommitError extends Error {
+  constructor(cause: unknown) {
+    super(`the connection was lost before its COMMIT was sent (${cause instanceof Error ? cause.message : String(cause)}); nothing of it was written`, { cause });
+    this.name = 'LostBeforeCommitError';
+  }
 }
 
 /**
@@ -145,15 +156,18 @@ export async function withToolSession<T>(
     };
     const result = await runOwnedContext(txCtx, () => fn(session));
     if (!commit) {
-      unusable = await rollbackFailed(client, 'sage-migration');
-      rolledBack = true;
-      // Checked AFTER the ROLLBACK: a loss first seen there (R21-2) is a loss too, and a ROLLBACK that failed left the connection unusable.
-      if (lost !== null || unusable) throw new ConnectionLostError(lost ?? new Error('its ROLLBACK failed'));
+      const rollback = await rollbackError(client, 'sage-migration');
+      [unusable, rolledBack] = [rollback !== null, true];
+      // Checked AFTER the ROLLBACK: a loss first seen there is a loss too (R21-2). A ROLLBACK that failed or did not answer for another
+      // reason costs only its connection (released as broken): what the request read stands (R22-1).
+      if (lost !== null) throw new ConnectionLostError(lost);
+      if (rollback !== null && connectionEnded(rollback)) throw new ConnectionLostError(rollback);
       return result;
     }
+    // Lost before the COMMIT is sent: pg would not send it (the client is not queryable): the batch wrote nothing (round 22).
+    if (lost !== null) throw new LostBeforeCommitError(lost);
     if (txCtx.rollbackOnly) throw new Error(`the request transaction was marked rollback-only: ${txCtx.rollbackOnly}`);
     let commitTimer: ReturnType<typeof setTimeout> | undefined;
-    const lostBeforeCommit = lost !== null; // B21-1: lost during the request (the tool's failure was the loss), or at the COMMIT itself
     try {
       // Bounded like the ROLLBACK: a connection that never answers must not hang the run. A timeout is "unconfirmed", never "failed".
       await Promise.race([
@@ -163,7 +177,7 @@ export async function withToolSession<T>(
     } catch (err) {
       // A backend killed DURING the COMMIT rejects it with a FATAL (57P01-03) before the client emits 'error' (R20-2): lost too.
       if (lost === null && connectionEnded(err)) lost = err as Error;
-      throw new CommitUnconfirmedError(err instanceof Error ? err.message : String(err), result, lost !== null, lostBeforeCommit);
+      throw new CommitUnconfirmedError(err instanceof Error ? err.message : String(err), result, lost !== null);
     } finally {
       clearTimeout(commitTimer);
     }
@@ -172,7 +186,8 @@ export async function withToolSession<T>(
     return result;
   } catch (err) {
     if (!rolledBack) unusable = await rollbackFailed(client, 'sage-migration');
-    if (!commit && !(err instanceof ConnectionLostError) && (lost !== null || connectionEnded(err))) throw new ConnectionLostError(lost ?? err);
+    const lossNotYetSaid = !(err instanceof ConnectionLostError || err instanceof LostBeforeCommitError || err instanceof CommitUnconfirmedError);
+    if (lossNotYetSaid && (lost !== null || connectionEnded(err))) throw commit ? new LostBeforeCommitError(lost ?? err) : new ConnectionLostError(lost ?? err);
     throw err;
   } finally {
     client.off('error', onError);

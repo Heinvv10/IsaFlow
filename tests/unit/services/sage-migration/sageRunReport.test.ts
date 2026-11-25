@@ -134,7 +134,7 @@ describe('the arguments (kept from rounds 14-15)', () => {
 describe('the bodies and the exit codes', () => {
   it('B14-4: the stop report lists by outcome; a refused start lists nothing', () => {
     const err = new MigrationStopped(new Error('boom'), true, [b('item', 1), b('purchase_order', 1, { allRowsAlreadyPresent: true }),
-      b('item', 2, { status: 'failed', commitUnconfirmed: true, toolRefused: true, toolReported: null, error: 'refused' })], { failed: [b('item', 3, { status: 'failed' })], dryRun: [] });
+      b('item', 2, { status: 'failed', commitUnconfirmed: true, toolRefused: true, toolReported: null, error: 'refused' })], { failed: [b('item', 3, { status: 'failed' })] });
     const body = stopReportBody(err) as Record<string, BatchReport[]>;
     const ids = (k: string) => body[k]!.map((x) => `${x.entity} ${x.n}`);
     expect([ids('committed'), ids('nothingWritten'), ids('commitUnconfirmed'), ids('failed')]).toEqual([['item 1'], ['purchase_order 1'], ['item 2'], ['item 3']]);

@@ -4,7 +4,7 @@
  *   - committed (with the owned items / categories its LIVE answer says it put back to Sage's values: those IsaFlow edits are overwritten,
  *     and a dry run after the stop no longer shows them; rows the books check found changed since are said so), answered ok but wrote
  *     nothing, or answered from a stored answer (the registry said so) and wrote nothing;
- *   - commit unconfirmed (with what its live answer says it may have updated; the dry run's answer only when there is no live one);
+ *   - commit unconfirmed (with what its LIVE answer says it may have updated; never the dry run's answer: every listed batch was sent);
  *   - failed, nothing written (the request rolled back, or the tool refused before writing), with the reason.
  * Any other error wrote nothing and says only why. PURE.
  */
@@ -43,21 +43,21 @@ export function stopMessage(err: unknown): string {
   const why = `sage migration stopped: ${err instanceof Error ? err.message : String(err)}`;
   if (!(err instanceof MigrationStopped) || !err.liveStarted) return why;
   const line = (b: BatchReport, what: string) => `\n${what}: ${b.entity} batch ${b.n} (${b.key})`;
-  const dryOf = (b: BatchReport) => err.batches.dryRun.find((d) => d.entity === b.entity && d.n === b.n);
   const committed = err.committed.map((b) => {
     const outcome = batchOutcome(b);
     if (outcome === 'replayed') {
-      // A replay writes no rows, landed or not; its COMMIT not confirmed (a lost connection) is said under it (R21-6).
-      const lost = b.commitUnconfirmed ? `\n  ${cut(b.error)}` : '';
+      // A replay writes no rows, landed or not, so it stays nothing written (R22-7: in nothingWritten, a bucket of what the books got);
+      // its COMMIT not confirmed is said under it (R21-6).
+      const lost = b.commitUnconfirmed ? `\n  its COMMIT was not confirmed, which changes nothing for a replay (${cut(b.error)})` : '';
       return (b.rowsAbsent > 0 ? line(b, 'replayed: rows absent, nothing written (use --run-tag for a fresh import)') : line(b, 'answered from a stored answer, nothing written')) + lost;
     }
     // The tool refused it: nothing written, whether or not its COMMIT landed; its refusal is said, not "may have been updated" (L3).
     if (outcome === 'commit_unconfirmed' && b.toolRefused) return `${line(b, 'commit unconfirmed')}\n  ${cut(b.error)}`;
     if (outcome === 'commit_unconfirmed') {
-      // The live answer the request had before its COMMIT; only without one, the dry run's answer for that batch (said so).
+      // Only the live answer the request had before its COMMIT, never the dry run's (round 22): without one, what it did is not known.
       return line(b, 'commit unconfirmed') + (b.toolReported !== null
         ? updates(b, () => "may have been updated to Sage's values (check the books)")
-        : updates(dryOf(b), () => "may have been updated to Sage's values (from the dry run's answer: check the books)"));
+        : '\n  what it may have updated is not known (no live answer): check the books');
     }
     if (outcome === 'none') return '';
     const changed = b.changedAfterCommit ? ` (then changed or removed in the books by another writer: ${(b.changedRows ?? []).join(', ') || 'see the books'}: check)` : '';

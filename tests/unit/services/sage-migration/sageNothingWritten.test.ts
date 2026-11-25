@@ -41,7 +41,7 @@ describe('stopMessage and the stop report of a batch that wrote nothing, then ch
   const wrote = b('item', 1, { toolReported: { rows: [{ code: 'FIB-1', outcome: 'updated', changed: ['description'] }] } });
   const lost = b('purchase_order', 2, { status: 'failed', commitUnconfirmed: true, toolReported: null });
   const refused = b('item', 2, { status: 'failed', commitUnconfirmed: true, toolRefused: true, toolReported: null, error: 'the tool refused this batch (x)' });
-  const err = new MigrationStopped(new Error('boom'), true, [wrote, nothing, lost, refused], { failed: [b('item', 3, { status: 'failed', toolReported: null, error: 'no' })], dryRun: [] });
+  const err = new MigrationStopped(new Error('boom'), true, [wrote, nothing, lost, refused], { failed: [b('item', 3, { status: 'failed', toolReported: null, error: 'no' })] });
   it('the message says it wrote nothing, then names what changed; it is never "committed"', () => {
     const m = stopMessage(err);
     expect(m).toContain('answered ok, nothing new written (its rows were already there): purchase_order batch 1 (k-purchase_order-1) (then changed or removed in the books by another writer: PO-1: check)');
@@ -62,7 +62,7 @@ describe('R15-L2 (round 15): a replayed batch in the stop report', () => {
   it('is listed under nothingWritten (no tool ran), also when its COMMIT is unconfirmed; never under committed', () => {
     const replayed = b('item', 1, { replayed: true });
     const replayedLost = b('item', 2, { replayed: true, status: 'failed', commitUnconfirmed: true });
-    const r = stopReportBatches(new MigrationStopped(new Error('x'), true, [replayed, replayedLost], { failed: [], dryRun: [] }));
+    const r = stopReportBatches(new MigrationStopped(new Error('x'), true, [replayed, replayedLost], { failed: [] }));
     expect(r.nothingWritten.map((x) => x.n)).toEqual([1, 2]);
     expect([r.committed, r.commitUnconfirmed]).toEqual([[], []]);
   });

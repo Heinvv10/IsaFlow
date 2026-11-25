@@ -1,7 +1,6 @@
 /**
  * An error that stopped a run AFTER its live phase started. It carries what was committed before it (the batches that came back ok, and
- * the one whose COMMIT is unconfirmed), the batches that failed before it (nothing of them written), and the dry run's category and item
- * batches (what an unconfirmed batch may have updated), so the caller can print that even though the final reconciliation could not be
+ * the one whose COMMIT is unconfirmed) and the batches that failed before it (nothing of them written), so the caller can print that even though the final reconciliation could not be
  * read. An error before the live phase (a bad file, not a member, the guard, the account check, the dry run) is thrown as it is: nothing
  * was written, and nothing says otherwise.
  */
@@ -10,12 +9,10 @@ import type { BatchReport } from './sageMigrationTypes';
 export interface StoppedBatches {
   /** Live batches that failed before the stop and wrote nothing (refused by the tool, or their request rolled back). */
   failed: BatchReport[];
-  /** The dry run's category and item batches: their answers say what each live batch of the same position would update. */
-  dryRun: BatchReport[];
 }
 
 export class MigrationStopped extends Error {
-  constructor(readonly reason: unknown, readonly liveStarted: boolean, readonly committed: BatchReport[], readonly batches: StoppedBatches = { failed: [], dryRun: [] }) {
+  constructor(readonly reason: unknown, readonly liveStarted: boolean, readonly committed: BatchReport[], readonly batches: StoppedBatches = { failed: [] }) {
     super(reason instanceof Error ? reason.message : String(reason));
     this.name = 'MigrationStopped';
   }

@@ -59,15 +59,14 @@ describe('verifiedCategories', () => {
 });
 
 describe('recordSent and stoppedBatches', () => {
-  it('ok and unconfirmed batches are committed, the others failed; the stop gets the failed ones and the dry run\'s category and item batches', () => {
+  it('ok and unconfirmed batches are committed, the others failed; the stop gets the failed ones (round 22: no dry run batches)', () => {
     const sent: Sent = { committed: [], failed: [] };
     const ok = batch('item', 1);
     const lost = batch('item', 2, { status: 'failed', commitUnconfirmed: true });
     const refused = batch('item', 3, { status: 'failed', toolReported: null, error: 'refused' });
     for (const b of [ok, lost, refused]) recordSent(sent, b);
     expect(sent).toEqual({ committed: [ok, lost], failed: [refused] });
-    const dry = { categories: phase(batch('category', 1)), items: phase(batch('item', 1), batch('item', 2)) };
-    expect(stoppedBatches(sent, dry)).toEqual({ failed: [refused], dryRun: [batch('category', 1), batch('item', 1), batch('item', 2)] });
+    expect(stoppedBatches(sent)).toEqual({ failed: [refused] });
   });
 });
 
@@ -83,14 +82,11 @@ describe('unconfirmedBatch (B12-1, L3 round 13)', () => {
     expect(unconfirmedBatch(failed, refused)).toMatchObject({ commitUnconfirmed: true, toolRefused: true, toolReported: null,
       error: 'the tool refused this batch (code_in_use: FIB-1); its COMMIT was not confirmed (COMMIT did not answer)' });
   });
+  it('round 22: a lost COMMIT with no live answer: no answer (never a dry run\'s), the loss said', () => {
+    expect(unconfirmedBatch(failed, undefined, true)).toMatchObject({ commitUnconfirmed: true, toolReported: null, error: 'the connection was lost; its COMMIT was not confirmed (COMMIT did not answer)' });
+  });
   it('no result at all: no answer', () => {
     expect(unconfirmedBatch(failed, undefined)).toMatchObject({ commitUnconfirmed: true, toolReported: null });
-  });
-  it('B19-1: the connection was lost DURING the request: its failed answer was the loss: never "the tool refused", no live answer', () => {
-    const refusedByLoss = batch('item', 2, { status: 'failed', toolReported: { error: 'The operation failed.' }, error: 'The operation failed. Please try again or contact support.' });
-    const b = unconfirmedBatch(failed, refusedByLoss, true, true);
-    expect(b).toMatchObject({ commitUnconfirmed: true, toolReported: null, error: 'the connection was lost; its COMMIT was not confirmed (COMMIT did not answer)' });
-    expect(b.toolRefused).toBeUndefined();
   });
   it('R20-1: lost during the COMMIT of an OK live answer: the live answer (and replayed) is kept, never the dry run\'s', () => {
     const live = batch('item', 2, { toolReported: { rows: [{ code: 'FIB-1', outcome: 'updated' }] } });
@@ -102,7 +98,7 @@ describe('unconfirmedBatch (B12-1, L3 round 13)', () => {
   it('B21-1: a REFUSAL whose COMMIT then lost its connection (not during the request): the refusal is kept, and the loss said', () => {
     const refused = batch('item', 2, { status: 'failed', toolReported: null, error: 'b21: the books refuse this item' });
     const failedAtCommit = batch('item', 2, { status: 'failed', toolReported: null, error: 'terminating connection due to administrator command' });
-    const b = unconfirmedBatch(failedAtCommit, refused, true, false);
+    const b = unconfirmedBatch(failedAtCommit, refused, true);
     expect(b).toMatchObject({ commitUnconfirmed: true, toolRefused: true, toolReported: null,
       error: 'the tool refused this batch (b21: the books refuse this item); its COMMIT was not confirmed: the connection was lost (terminating connection due to administrator command)' });
   });

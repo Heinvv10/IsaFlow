@@ -16,14 +16,25 @@ const h = vi.hoisted(() => ({
   fail: new Set<string>(), // "<entity> <dry|live>" batches answered failed
   updated: false, // the dry and live item answers say "updated" (a difference)
   sent: [] as string[],
+  loseBeforeCommit: null as string | null, // "<entity> live": that request loses its connection before its COMMIT is sent
 }));
 const SUPPLIER = '0f7d6a3e-2b1c-4d5e-8f90-a1b2c3d4e5f6';
 vi.mock('@/modules/accounting/services/sage-migration/localGuard', () => ({ assertLocalDatabase: () => undefined, assertLocalPool: () => undefined }));
 vi.mock('@/modules/accounting/services/sage-migration/sageRunLock', () => ({ acquireRunLock: async () => ({ check: async () => undefined, unlock: async () => undefined }) }));
-vi.mock('@/modules/accounting/services/sage-migration/sageToolSession', () => ({
-  CommitUnconfirmedError: class extends Error {},
-  withToolSession: async (_p: unknown, _c: unknown, _u: unknown, _commit: boolean, fn: (s: unknown) => unknown) => fn({ companyId: 'c', call: async () => ({ isError: false, text: '{}', body: {} }) }),
-}));
+vi.mock('@/modules/accounting/services/sage-migration/sageToolSession', () => {
+  class LostBeforeCommitError extends Error {}
+  return {
+    CommitUnconfirmedError: class extends Error {},
+    LostBeforeCommitError,
+    withToolSession: async (_p: unknown, _c: unknown, _u: unknown, commit: boolean, fn: (s: unknown) => unknown) => {
+      const r = await fn({ companyId: 'c', call: async () => ({ isError: false, text: '{}', body: {} }) });
+      if (commit && h.loseBeforeCommit !== null && h.sent.at(-1) === h.loseBeforeCommit) {
+        throw new LostBeforeCommitError('the connection was lost before its COMMIT was sent (Connection terminated unexpectedly); nothing of it was written');
+      }
+      return r;
+    },
+  };
+});
 vi.mock('@/modules/accounting/services/sage-migration/sageSuppliers', () => ({ resolveSuppliers: async () => new Map([['301', { id: SUPPLIER }]]) }));
 vi.mock('@/modules/accounting/services/sage-migration/sageSnapshot', () => ({
   readSnapshot: async (): Promise<Snapshot> => ({
@@ -60,7 +71,7 @@ const parsed = () => parseSageExport({
 const pool = { options: { max: 4 } } as never;
 const run = (over: Record<string, unknown> = {}) => runSageMigration(pool, parsed(), { companyId: 'c', userId: 'u', live: true, expect: { items: 1, purchaseOrders: 1 }, ...over });
 
-beforeEach(() => { h.books.cats = []; h.books.items = []; h.books.pos = new Map(); h.fail.clear(); h.updated = false; h.sent.length = 0; });
+beforeEach(() => { h.books.cats = []; h.books.items = []; h.books.pos = new Map(); h.fail.clear(); h.updated = false; h.sent.length = 0; h.loseBeforeCommit = null; });
 
 describe('the dry run', () => {
   it('a failed category batch keeps the items and the POs from starting', async () => {
@@ -175,6 +186,21 @@ describe('R19-1: a stop before the live phase (a PIN of the existing order, R20-
     expect(err).toBeInstanceOf(StopRequested);
     expect(phases).toEqual(['dry']);
     expect(h.sent.filter((x) => x.endsWith('live'))).toEqual([]);
+  });
+});
+
+describe('round 22: a live batch whose connection is lost before its COMMIT is sent', () => {
+  it('is FAILED, nothing written (never commit unconfirmed); the run stops there (exit 4), no further batch sent', async () => {
+    h.loseBeforeCommit = 'item live';
+    const { MigrationStopped } = await import('@/modules/accounting/services/sage-migration/sageMigrationStopped');
+    const err = await run().then(() => null, (e: unknown) => e) as InstanceType<typeof MigrationStopped>;
+    expect(err).toBeInstanceOf(MigrationStopped);
+    expect(err.liveStarted).toBe(true);
+    expect(err.message).toMatch(/^item batch 1 \(.*\) failed: the connection was lost before its COMMIT was sent .*nothing of it was written; no further batch is sent/);
+    expect(err.committed.map((b) => b.entity)).toEqual(['category']);
+    expect(err.batches.failed).toEqual([expect.objectContaining({ entity: 'item', n: 1, status: 'failed', error: expect.stringMatching(/before its COMMIT was sent/) })]);
+    expect(err.batches.failed[0]!.commitUnconfirmed).toBeUndefined();
+    expect(h.sent.filter((x) => x.endsWith('live'))).toEqual(['category live', 'item live']); // the PO batch never sent
   });
 });
 

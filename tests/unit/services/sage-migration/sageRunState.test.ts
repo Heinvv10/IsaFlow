@@ -44,10 +44,12 @@ describe('RunState', () => {
     const e = s.stoppedAtOnce('x') as MigrationStopped;
     expect(e.committed).toEqual([expect.objectContaining({ entity: 'item', n: 3, commitUnconfirmed: true, status: 'failed', error: expect.stringMatching(/in flight/) })]);
   });
-  it('keeps the dry run\'s category and item batches (what an unconfirmed batch may have updated), not its PO batches', () => {
+  it('round 22: keeps nothing of the dry run (a stop never words a live batch from the dry run\'s answer)', () => {
     const s = new RunState();
-    for (const x of [b('category', 1), b('item', 1), b('purchase_order', 1)]) s.onProgress({ kind: 'recorded', phase: 'dry', batch: x });
+    for (const x of [b('category', 1), b('item', 1)]) s.onProgress({ kind: 'recorded', phase: 'dry', batch: x });
     s.onProgress({ kind: 'phase', phase: 'live' });
-    expect((s.stoppedAtOnce('x') as MigrationStopped).batches.dryRun.map((x) => x.entity)).toEqual(['category', 'item']);
+    const e = s.stoppedAtOnce('x') as MigrationStopped;
+    expect(e.committed).toEqual([]);
+    expect(e.batches).toEqual({ failed: [] });
   });
 });

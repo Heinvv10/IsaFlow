@@ -14,13 +14,12 @@ export class RunState {
   finished = false;
   readonly committed: BatchReport[] = [];
   readonly failed: BatchReport[] = [];
-  readonly dryRun: BatchReport[] = [];
   inFlight: Pick<BatchReport, 'entity' | 'n' | 'size' | 'key'> | null = null;
 
   readonly onProgress = (p: MigrationProgress): void => {
     if (p.kind === 'phase') this.phase = p.phase;
     else if (p.kind === 'sending') this.inFlight = p.batch;
-    else if (p.phase === 'dry') { if (p.batch.entity !== 'purchase_order') this.dryRun.push(p.batch); }
+    else if (p.phase === 'dry') return; // a dry batch wrote nothing: a stop has nothing to say of it
     else {
       this.inFlight = null;
       (p.batch.status === 'ok' || p.batch.commitUnconfirmed ? this.committed : this.failed).push(p.batch);
@@ -40,6 +39,6 @@ export class RunState {
       ...this.inFlight, status: 'failed', allRowsAlreadyPresent: false, rowsAbsent: 0, toolReported: null, commitUnconfirmed: true,
       error: 'in flight when the run was stopped at once: its COMMIT may or may not have landed',
     }] : [];
-    return new MigrationStopped(reason, true, [...this.committed, ...inFlight], { failed: this.failed, dryRun: this.dryRun });
+    return new MigrationStopped(reason, true, [...this.committed, ...inFlight], { failed: this.failed });
   }
 }
