@@ -153,8 +153,8 @@ const SITES: Readonly<Record<string, Readonly<Record<number, string>>>> = {
     217: 'createdBy: String(row.created_by),',
   },
   ['src/modules/admin/services/sarsCodesAdminService.ts']: {
-    135: 'source_document, source_url, official_excerpt, brs_version, imported_by',
-    154: 'imported_by = EXCLUDED.imported_by',
+    134: 'source_document, source_url, official_excerpt, brs_version, imported_by',
+    153: 'imported_by = EXCLUDED.imported_by',
   },
 };
 
@@ -182,7 +182,7 @@ const VALUE_BINDS: Readonly<Record<string, Readonly<Record<number, string>>>> = 
   [`${S}reports/vatSubmissionService.ts`]: { 224: "${userId}, -- TEXT since 999w (HYb): the real user id, not resolveUserUuid's stand-in" },
   [`${S}reports/vatAdjustmentService.ts`]: { 63: '${input.adjustmentType}, ${input.amount}, ${input.reason}, ${userId}' },
   ['src/modules/admin/services/sarsCodesAdminService.ts']: {
-    139: '${r.sourceDocument}, ${r.sourceUrl}, ${r.officialExcerpt}, ${opts.brsVersion}, ${opts.importedBy}',
+    138: '${r.sourceDocument}, ${r.sourceUrl}, ${r.officialExcerpt}, ${opts.brsVersion}, ${opts.importedBy}',
   },
 };
 
@@ -246,11 +246,12 @@ describe('actor ids on the payroll, SARS and tax tables are bound as text (HYa c
   });
 });
 
-describe('payroll_employees.tax_directive_number is dead (HYa; migration 999b marks it deprecated, wave 7 drops it)', () => {
-  it('nothing outside the change-log masking list (and its test) names it', () => {
+describe('payroll_employees.tax_directive_number is dead (HYa marked it deprecated in 999b; migration 1055 drops it)', () => {
+  // The change-log mask stays for good: entity_change rows written before the drop keep the key in before/after.
+  it('nothing outside the migrations, the change-log masking list (and its test) and this file names it', () => {
     const named = execFileSync('git', ['ls-files', '--', 'src', 'pages', 'scripts', 'tests'], { cwd: ROOT, encoding: 'utf8' })
       .split('\n').filter((f) => /\.(tsx?|mjs|js|sql)$/.test(f) && !f.startsWith('scripts/migrations/')
-        && f !== 'tests/unit/guards/actorIdTextCensus.test.ts')
+        && f !== 'tests/unit/guards/actorIdTextCensus.test.ts' && f !== 'tests/integration/w7-mh-employee-column-drop.int.test.ts')
       .flatMap((f) => lines(f).flatMap((l, i) => (/\btax_directive_number\b/.test(l) ? [`${f}:${i + 1}`] : [])));
     expect(named).toEqual([
       `${S}core/entityChanges/entityChangeMasking.ts:18`,

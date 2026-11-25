@@ -10,6 +10,7 @@ const role = vi.hoisted(() => ({ current: 'admin' as string | null }));
 vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ companyRole: role.current }) }));
 
 import { EmployeeBankCard } from '@/components/payroll/EmployeeBankCard';
+import { loadReadiness, clearReadinessReads } from '@/components/payroll/employeeBankState';
 
 const EMP = '11111111-1111-4111-8111-111111111111';
 const ROW_ID = '22222222-2222-4222-8222-222222222222';
@@ -130,6 +131,29 @@ describe('buttons by role', () => {
     expect(JSON.parse((put[1] as RequestInit).body as string)).toEqual({
       bankName: 'Capitec', branchCode: '470010', accountNumber: '1357924680', accountType: 'cheque', accountHolder: 'K One',
     });
+  });
+});
+
+describe('a save and the readiness card', () => {
+  it('a save drops the shared readiness read, so a card mounted a moment later asks again', async () => {
+    clearReadinessReads();
+    role.current = 'manager';
+    let saved = false;
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      const u = String(url);
+      if (u.endsWith('/readiness')) return ok({ bank: saved ? 'on-file' : 'none', runs: [], hasFinalRun: false });
+      if (u.includes('/bank-details') && init?.method === 'PUT') { saved = true; return ok(masked); }
+      if (u.includes('/bank-details')) return ok(saved ? masked : null);
+      return ok({ items: [], nextCursor: null });
+    });
+    expect((await loadReadiness(EMP, 0)).bank).toBe('none');
+    render(<EmployeeBankCard employeeId={EMP} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Add bank details' }));
+    fillAll();
+    fireEvent.click(screen.getByRole('button', { name: 'Save bank details' }));
+    expect(await screen.findByText('•••• 1234')).toBeTruthy();
+    // The page is left and opened again inside the sharing window: key 0 once more.
+    expect((await loadReadiness(EMP, 0)).bank).toBe('on-file');
   });
 });
 

@@ -91,6 +91,7 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { resolveUserUuid } from '../gl/journalEntryCrudService';
 import { lockContactForRefund } from '../core/paymentLock';
+import { isSupplierLive, SUPPLIER_NOT_LIVE_REFUSAL } from '../core/supplierLiveLock';
 import { lockSupplierCredit } from './supplierCreditLock';
 import { getSupplierOnAccountCredit } from './supplierOnAccountCredit';
 
@@ -159,6 +160,8 @@ export async function planSupplierRefund(
   // BEFORE the read, and held for the rest of the request. A ceiling read
   // without this lock is a number two concurrent refunds both satisfy.
   await lockContactForRefund(companyId, 'supplier', supplierId);
+  // Live, read under that lock: a refund onto a supplier merged away or deleted is refused before any journal (#1882 L1).
+  if (!(await isSupplierLive(companyId, supplierId))) throw new SupplierRefundRefusal(SUPPLIER_NOT_LIVE_REFUSAL);
   // Then the credit key, which every application of posted cash holds from its plan to its COMMIT: held by
   // another request, this refuses (retryable) instead of counting cash an application is spending.
   await lockSupplierCredit(companyId, supplierId);

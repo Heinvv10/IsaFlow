@@ -7,12 +7,15 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import CompanySettingsPage from '../../../pages/accounting/company-settings';
 import { apiFetch } from '@/lib/apiFetch';
 import { typeDate } from '../helpers/dateFields';
+import { editSettingsForm } from '../helpers/editSettingsForm';
 
 let activeCompanyId = 'company-a';
 vi.mock('@/contexts/CompanyContext', () => ({
   useCompany: () => ({ activeCompany: { id: activeCompanyId }, loading: false }), useCompanyRoleOrNull: () => 'owner',
 }));
-vi.mock('next/router', () => ({ useRouter: () => ({ query: { tab: 'general' } }) }));
+vi.mock('next/router', () => ({
+  useRouter: () => ({ query: { tab: 'general' }, asPath: '/', beforePopState: vi.fn() }), default: { router: null },
+}));
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: ReactNode }) => children }));
 vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
 useApiJsonOverMock();
@@ -31,11 +34,14 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.resetAllMocks(); });
 
 const save = () => screen.getByRole('button', { name: /Save Changes/ }) as HTMLButtonElement;
+// An untouched form keeps Save closed, so each test edits first: then only the lockdown can close it.
+const edit = () => editSettingsForm('Currency Symbol');
 const puts = () => vi.mocked(apiFetch).mock.calls.filter(([, init]) => (init as RequestInit | undefined)?.method === 'PUT');
 
 it('a refused Lockdown Date blocks Save; a good date unblocks it', async () => {
   render(<CompanySettingsPage />);
   const field = await screen.findByRole('textbox', { name: 'Lockdown Date' });
+  await edit();
   await waitFor(() => expect(save().disabled).toBe(false));
   typeDate(field, 'garbage');
   await waitFor(() => expect(save().disabled).toBe(true));
@@ -47,7 +53,8 @@ it('a refused Lockdown Date blocks Save; a good date unblocks it', async () => {
 
 it('switching the lockdown off drops the refused entry, so Save is open again', async () => {
   render(<CompanySettingsPage />);
-  typeDate(await screen.findByRole('textbox', { name: 'Lockdown Date' }), 'garbage');
+  await edit();
+  typeDate(screen.getByRole('textbox', { name: 'Lockdown Date' }), 'garbage');
   await waitFor(() => expect(save().disabled).toBe(true));
   fireEvent.click(screen.getByRole('switch', { name: /Enable Lockdown Date/ }));
   await waitFor(() => expect(save().disabled).toBe(false));
@@ -55,7 +62,8 @@ it('switching the lockdown off drops the refused entry, so Save is open again', 
 
 it('leaving the General tab drops the refused entry (the field shows the saved date on return), so Save is open', async () => {
   render(<CompanySettingsPage />);
-  typeDate(await screen.findByRole('textbox', { name: 'Lockdown Date' }), 'garbage');
+  await edit();
+  typeDate(screen.getByRole('textbox', { name: 'Lockdown Date' }), 'garbage');
   await waitFor(() => expect(save().disabled).toBe(true));
   fireEvent.click(screen.getAllByRole('button', { name: /VAT Settings/ })[0] as HTMLElement);
   await waitFor(() => expect(screen.queryByRole('textbox', { name: 'Lockdown Date' })).toBeNull());
@@ -64,7 +72,8 @@ it('leaving the General tab drops the refused entry (the field shows the saved d
 
 it('switching company drops the refused entry and unblocks Save for the new company', async () => {
   const view = render(<CompanySettingsPage />);
-  const field = await screen.findByRole('textbox', { name: 'Lockdown Date' });
+  await edit();
+  const field = screen.getByRole('textbox', { name: 'Lockdown Date' });
   typeDate(field, 'garbage');
   await waitFor(() => expect(save().disabled).toBe(true));
 
@@ -72,12 +81,14 @@ it('switching company drops the refused entry and unblocks Save for the new comp
   view.rerender(<CompanySettingsPage />);
 
   await screen.findByDisplayValue('28 Feb 2026');
+  await edit();
   await waitFor(() => expect(save().disabled).toBe(false));
 });
 
 it('the save handler itself refuses while Lockdown Date is refused, not only the disabled button', async () => {
   render(<CompanySettingsPage />);
-  typeDate(await screen.findByRole('textbox', { name: 'Lockdown Date' }), 'garbage');
+  await edit();
+  typeDate(screen.getByRole('textbox', { name: 'Lockdown Date' }), 'garbage');
   await waitFor(() => expect(save().disabled).toBe(true));
   // React drops clicks on a disabled button, so call the handler React holds for it, as another path would.
   const key = Object.keys(save()).find((k) => k.startsWith('__reactProps'));

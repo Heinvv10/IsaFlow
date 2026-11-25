@@ -5,7 +5,7 @@
  * the real route:
  *   - after the merge the source carries deleted_at and merged_into_id, its name and is_active untouched; list_suppliers no longer
  *     offers it; its purchase order moved to the survivor (get_purchase_order names the survivor);
- *   - a bill create racing the REAL route (paused at its bill UPDATE, holding both suppliers FOR UPDATE) waits at its FK check and
+ *   - a bill create racing the REAL route (paused at its bill UPDATE, holding both suppliers FOR UPDATE) waits at its supplier lock and
  *     is then refused, typed (1021's supplier-live trigger): no bill on the merged-away supplier.
  * Fixture route: isaflow_schema_fixture (assertDisposable). Never skips.
  */
@@ -66,7 +66,7 @@ describe('the REST merge soft-deletes its source and records the survivor', () =
 });
 
 describe('a bill create racing the REAL REST merge', () => {
-  it('waits at its FK check while the paused route holds the suppliers, then is refused typed; no bill on the merged-away supplier', async () => {
+  it('waits at its supplier lock while the paused route holds the suppliers, then is refused typed; no bill on the merged-away supplier', async () => {
     await withFixture('rest-merge-race', async (fx, target) => {
       const plain = await (async () => {
         const r = await openRequest(pool, fx, fx.owner);
@@ -83,7 +83,8 @@ describe('a bill create racing the REAL REST merge', () => {
         expect(await waitsOnLock('UPDATE supplier_invoices')).toBe(true);
         creating = c.run(() => createSupplierInvoice(fx.co, billInput(fx), fx.owner))
           .then(async (v) => { await c.commit(); return v; }, async (e) => { await c.rollback(); return e; });
-        expect(await waitsOnLock('INSERT INTO supplier_invoices')).toBe(true);
+        // The create takes its supplier FOR KEY SHARE first (supplierLiveLock, #1699), before any PO or the INSERT's FK.
+        expect(await waitsOnLock('SELECT id FROM suppliers')).toBe(true);
       } finally { await hold.query('ROLLBACK'); hold.release(); }
       expect((await merging).statusCode).toBe(200);
       const created = await creating;

@@ -17,12 +17,16 @@ export const LOAN_RECON_HREF = '/accounting/settings/intercompany/loan-reconcili
 /** Intercompany F: the receiver's Payments inbox and the payer's unsent list (Sales > Intercompany Payments). */
 export const IC_PAYMENTS_HREF = '/accounting/customer-payments/intercompany';
 
+/** Self-serve upgrade from trial (owner only), dark behind its flag. The page and its API check the flag and the owner role themselves. */
+export const TRIAL_UPGRADE_HREF = '/accounting/settings/billing/upgrade';
+
 /** Page path → the feature flag code it needs. */
 const FLAGGED_SURFACES: Readonly<Record<string, string>> = {
   [THREE_WAY_HREF]: 'budgets_three_way',
   [LOAN_RECON_HREF]: 'intercompany_loan_clearing',
   // intercompany F: the receiver's Payments inbox and the payer's unsent list (the dark flag; the routes refuse without it)
   [IC_PAYMENTS_HREF]: 'intercompany_loan_clearing',
+  [TRIAL_UPGRADE_HREF]: 'trial_self_serve_upgrade',
 };
 
 /** The marker `useNavFlags` puts in the set when the user may read `moduleKey`. */
