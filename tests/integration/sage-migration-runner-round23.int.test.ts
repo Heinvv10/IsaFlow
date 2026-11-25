@@ -6,6 +6,7 @@
  * idle in transaction, is killed in the hold; its FATAL reaches the client in the same chunk as that answer.
  *   - refgap: a GENUINE refusal (a trigger refuses the live update of FIB-0001; the dry run's passed and answered "updated");
  *   - okgap: the tool answered ok.
+ * R23-5 / B23-1: the dry run's ROLLBACK blackholed (never answers; the backend keeps its writes and number lock): a refused start (exit 2).
  * Fixture route: isaflow_schema_fixture (assertDisposable). Never skips.
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -86,4 +87,22 @@ describe('round 22: lost before the COMMIT was sent', () => {
     expect(r.err).not.toMatch(/it may still land|commit unconfirmed/);
     expect(await booked(pool, s.companyId)).toMatchObject({ categories: 4, items: 0 });
   }, 400_000);
+});
+
+describe('R23-5 / B23-1: the dry run\'s ROLLBACK never answers (blackholed: the backend stays idle in transaction, holding its writes)', () => {
+  it('a refused start: exit 2, "the dry run\'s ROLLBACK was not confirmed (...)"; the live run is not started; nothing written', async () => {
+    proxy = await holdProxy({ upstreamPort: upstreamPort(), p1: 'RELEASE SAVEPOINT mcp_bulk_upsert_items', p2: 'ROLLBACK\u0000', blackhole: true });
+    const report = join(d, 'report.json');
+    // spawn, not spawnSync: the proxy runs in this process and must keep serving while the CLI runs.
+    const p = spawn('bun', args(report), { env: env(url(proxy.port)) });
+    let stderr = '';
+    p.stderr.on('data', (b) => { stderr += String(b); });
+    const r = { status: await new Promise<number | null>((res) => p.on('close', res)), stderr };
+    expect(r.status, r.stderr).toBe(2);
+    expect(r.stderr).toMatch(/the dry run's ROLLBACK was not confirmed \(ROLLBACK did not answer within \d+ms\); its writes may still be held, so the live run was not started/);
+    expect(JSON.parse(readFileSync(report, 'utf8'))).toMatchObject({ status: 'stopped', liveStarted: false, committed: [] });
+    await proxy.close(); // the server side ends: the dry transaction rolls back
+    proxy = null;
+    expect(await booked(pool, s.companyId)).toMatchObject({ categories: 0, items: 0 });
+  }, 180_000);
 });

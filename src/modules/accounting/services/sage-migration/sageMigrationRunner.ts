@@ -85,7 +85,7 @@ async function dryRun(pool: Pool, o: MigrationOptions, all: PlannedBatches, befo
     const items = categories.failed === 0 ? await run(all.items) : skippedPhase();
     const purchaseOrders = categories.failed + items.failed === 0 ? await run(all.purchaseOrders) : skippedPhase();
     return { categories, items, purchaseOrders, clean: categories.failed + items.failed + purchaseOrders.failed === 0 };
-  });
+  }, { wrote: true }); // the dry run WRITES (rolled back): its ROLLBACK must be confirmed (R23-5)
 }
 
 async function livePhase(pool: Pool, o: MigrationOptions, list: Send[], before: Snapshot, sent: Sent, beforeBatch: () => Promise<void>): Promise<PhaseReport> {

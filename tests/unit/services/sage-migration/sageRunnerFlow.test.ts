@@ -17,17 +17,22 @@ const h = vi.hoisted(() => ({
   updated: false, // the dry and live item answers say "updated" (a difference)
   sent: [] as string[],
   loseBeforeCommit: null as string | null, // "<entity> live": that request loses its connection before its COMMIT is sent
+  loseAtCommit: null as string | null, // "<entity> live": that request's COMMIT fails on a lost connection (its answer ok)
+  sessions: [] as Array<{ commit: boolean; wrote: boolean }>,
 }));
 const SUPPLIER = '0f7d6a3e-2b1c-4d5e-8f90-a1b2c3d4e5f6';
 vi.mock('@/modules/accounting/services/sage-migration/localGuard', () => ({ assertLocalDatabase: () => undefined, assertLocalPool: () => undefined }));
 vi.mock('@/modules/accounting/services/sage-migration/sageRunLock', () => ({ acquireRunLock: async () => ({ check: async () => undefined, unlock: async () => undefined }) }));
 vi.mock('@/modules/accounting/services/sage-migration/sageToolSession', () => {
   class LostBeforeCommitError extends Error {}
+  class CommitUnconfirmedError extends Error { constructor(m: string, readonly result: unknown, readonly connectionLost = false) { super(m); } }
   return {
-    CommitUnconfirmedError: class extends Error {},
+    CommitUnconfirmedError,
     LostBeforeCommitError,
-    withToolSession: async (_p: unknown, _c: unknown, _u: unknown, commit: boolean, fn: (s: unknown) => unknown) => {
+    withToolSession: async (_p: unknown, _c: unknown, _u: unknown, commit: boolean, fn: (s: unknown) => unknown, o?: { wrote?: boolean }) => {
+      h.sessions.push({ commit, wrote: o?.wrote === true });
       const r = await fn({ companyId: 'c', call: async () => ({ isError: false, text: '{}', body: {} }) });
+      if (commit && h.loseAtCommit !== null && h.sent.at(-1) === h.loseAtCommit) throw new CommitUnconfirmedError('Connection terminated unexpectedly', r, true);
       if (commit && h.loseBeforeCommit !== null && h.sent.at(-1) === h.loseBeforeCommit) {
         throw new LostBeforeCommitError('the connection was lost before its COMMIT was sent (Connection terminated unexpectedly); nothing of it was written');
       }
@@ -71,7 +76,7 @@ const parsed = () => parseSageExport({
 const pool = { options: { max: 4 } } as never;
 const run = (over: Record<string, unknown> = {}) => runSageMigration(pool, parsed(), { companyId: 'c', userId: 'u', live: true, expect: { items: 1, purchaseOrders: 1 }, ...over });
 
-beforeEach(() => { h.books.cats = []; h.books.items = []; h.books.pos = new Map(); h.fail.clear(); h.updated = false; h.sent.length = 0; h.loseBeforeCommit = null; });
+beforeEach(() => { h.books.cats = []; h.books.items = []; h.books.pos = new Map(); h.fail.clear(); h.updated = false; h.sent.length = 0; h.loseBeforeCommit = null; h.loseAtCommit = null; h.sessions.length = 0; });
 
 describe('the dry run', () => {
   it('a failed category batch keeps the items and the POs from starting', async () => {
@@ -201,6 +206,27 @@ describe('round 22: a live batch whose connection is lost before its COMMIT is s
     expect(err.batches.failed).toEqual([expect.objectContaining({ entity: 'item', n: 1, status: 'failed', error: expect.stringMatching(/before its COMMIT was sent/) })]);
     expect(err.batches.failed[0]!.commitUnconfirmed).toBeUndefined();
     expect(h.sent.filter((x) => x.endsWith('live'))).toEqual(['category live', 'item live']); // the PO batch never sent
+  });
+});
+
+describe('R23-3: a live COMMIT lost at the COMMIT, through livePhase', () => {
+  it('the batch is commit unconfirmed with the lost-connection wording and its live answer kept; the run stops, no later batch sent', async () => {
+    h.loseAtCommit = 'item live';
+    const { MigrationStopped } = await import('@/modules/accounting/services/sage-migration/sageMigrationStopped');
+    const err = await run().then(() => null, (e: unknown) => e) as InstanceType<typeof MigrationStopped>;
+    expect(err).toBeInstanceOf(MigrationStopped);
+    const item = err.committed.find((b) => b.entity === 'item');
+    expect(item).toMatchObject({ commitUnconfirmed: true, error: 'the connection was lost; its COMMIT was not confirmed (Connection terminated unexpectedly)' });
+    expect(item!.toolReported).not.toBeNull();
+    expect(h.sent.filter((x) => x.endsWith('live'))).toEqual(['category live', 'item live']);
+  });
+});
+
+describe('R23-5: only the dry run\'s session is marked as one that wrote', () => {
+  it('the plan and the reads are not; the dry run is; live batches commit', async () => {
+    await run();
+    expect(h.sessions.filter((x) => x.wrote)).toEqual([{ commit: false, wrote: true }]);
+    expect(h.sessions.filter((x) => !x.commit && !x.wrote).length).toBeGreaterThan(0);
   });
 });
 

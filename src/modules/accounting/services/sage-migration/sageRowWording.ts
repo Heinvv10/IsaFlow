@@ -2,8 +2,8 @@
  * THE wording of what a live run did to an owned item or category (round-12 structural rule), for the summary and the stop message alike.
  * PURE. Every "was / may have been / would be updated" and every "nothing written" comes from the LIVE tool answer of the batch that carried
  * the row:
- *   - the dry run's answer is read only to find a row's batch when that live batch has no answer (it rolled back), or, in a stop, for an
- *     unconfirmed batch whose live answer is missing;
+ *   - the dry run's answer is read only, in the summary, to find a row's batch when that live batch has no answer (it rolled back); a stop
+ *     never reads the dry run (round 22: an unconfirmed batch without a live answer says what it may have updated is not known);
  *   - "nothing written" only when the batch rolled back or the registry SAID it served a stored answer (`replayed`);
  *   - the books check after the COMMIT never turns a write into "nothing written": it only adds "then changed in the books since" to the
  *     rows it named (`changedRows`), and "another row of its batch changed since" to the others.

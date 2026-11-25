@@ -20,7 +20,7 @@ vi.mock('@/lib/rollbackFailed', () => {
 });
 
 import { EventEmitter } from 'node:events';
-import { CommitUnconfirmedError, ConnectionLostError, LostBeforeCommitError, withToolSession } from '@/modules/accounting/services/sage-migration/sageToolSession';
+import { CommitUnconfirmedError, ConnectionLostError, DryRollbackUnconfirmedError, LostBeforeCommitError, withToolSession } from '@/modules/accounting/services/sage-migration/sageToolSession';
 
 const sent: string[] = [];
 const pool = { connect: async () => Object.assign(new EventEmitter(), { query: async (text: string) => { sent.push(text); return { rows: [] }; }, release: () => undefined }) } as never;
@@ -227,6 +227,20 @@ describe('R21-2: a loss first seen during the dry request\'s own ROLLBACK', () =
     expect(err).toBeInstanceOf(ConnectionLostError);
     expect((err as Error).message).toMatch(/lost \(Connection terminated unexpectedly\)/);
     expect(rollbacks).toHaveLength(1); // the catch does not roll back a second time
+  });
+  it('R23-5: the DRY RUN (it wrote): a ROLLBACK that fails or does not answer is a refused start, its writes may still be held', async () => {
+    for (const why of ['ROLLBACK did not answer within 5000ms', 'Client was closed']) {
+      const client = Object.assign(new EventEmitter(), { query: async (text: string) => { if (text === 'ROLLBACK') throw new Error(why); return { rows: [] }; }, release: vi.fn() });
+      const err = await withToolSession({ connect: async () => client } as never, 'c1', 'u1', false, async () => 'the dry run', { wrote: true }).then(() => null, (r: unknown) => r);
+      expect(err, why).toBeInstanceOf(DryRollbackUnconfirmedError);
+      expect((err as Error).message, why).toBe(`the dry run's ROLLBACK was not confirmed (${why}); its writes may still be held, so the live run was not started`);
+      expect(client.release, why).toHaveBeenCalledWith(true);
+    }
+  });
+  it('R23-5: the dry run\'s ROLLBACK lost with its connection: still ConnectionLostError (the server rolls a lost session back)', async () => {
+    const client = Object.assign(new EventEmitter(), { query: async (text: string) => { if (text === 'ROLLBACK') throw new Error('Connection terminated unexpectedly'); return { rows: [] }; }, release: vi.fn() });
+    const err = await withToolSession({ connect: async () => client } as never, 'c1', 'u1', false, async () => 'x', { wrote: true }).then(() => null, (r: unknown) => r);
+    expect(err).toBeInstanceOf(ConnectionLostError);
   });
   it('R22-1: a ROLLBACK that fails or does not answer for another reason: what the request read stands; the connection released as broken', async () => {
     for (const why of ['ROLLBACK did not answer within 5000ms', 'Client was closed']) {

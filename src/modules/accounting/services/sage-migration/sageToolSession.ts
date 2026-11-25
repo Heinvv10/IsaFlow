@@ -78,6 +78,18 @@ export class ConnectionLostError extends Error {
 }
 
 /**
+ * The dry run's ROLLBACK failed or did not answer for a reason other than a lost connection (R23-5): the dry run WROTE (it calls the live
+ * tools in a transaction), so its rows and its number lock may still be held on the server, and the live batches would wait on them. A
+ * refused start (exit 2): the live run is not started. `cause` is the ROLLBACK's error.
+ */
+export class DryRollbackUnconfirmedError extends Error {
+  constructor(cause: Error) {
+    super(`the dry run's ROLLBACK was not confirmed (${cause.message}); its writes may still be held, so the live run was not started`, { cause });
+    this.name = 'DryRollbackUnconfirmedError';
+  }
+}
+
+/**
  * The error of a connection that ended: the server terminated the backend (57P01-03), or pg's own client error (no code) for a
  * connection that ended. Nothing else (R21-1, B21-2): not a cancel or timeout (57014), a constraint, a serialization failure, a refused
  * connect, nor a code or a message that only looks like a loss (an 08006 or "terminating connection" raised by the books' own SQL on a
@@ -106,11 +118,12 @@ export function toolOutcome(text: string, isError: boolean): ToolOutcome {
 }
 
 /**
- * Runs `fn` in one request transaction. Throws NotAMemberError when `userId` is not an active member of `companyId`.
+ * Runs `fn` in one request transaction. Throws NotAMemberError when `userId` is not an active member of `companyId`. `o.wrote`: a request
+ * that commits nothing but WRITES (the dry run): its ROLLBACK must be confirmed (DryRollbackUnconfirmedError).
  * A transaction the tools marked rollbackOnly, or whose COMMIT fails, is an error (`commit: true`), never a silent success.
  */
 export async function withToolSession<T>(
-  pool: Pool, companyId: string, userId: string, commit: boolean, fn: (s: ToolSession) => Promise<T>,
+  pool: Pool, companyId: string, userId: string, commit: boolean, fn: (s: ToolSession) => Promise<T>, o: { wrote?: boolean } = {},
 ): Promise<T> {
   const client = await pool.connect();
   // pg-pool drops its idle 'error' listener while a client is checked out: without one, a backend that dies mid-request is an uncaught
@@ -162,6 +175,8 @@ export async function withToolSession<T>(
       // reason costs only its connection (released as broken): what the request read stands (R22-1).
       if (lost !== null) throw new ConnectionLostError(lost);
       if (rollback !== null && connectionEnded(rollback)) throw new ConnectionLostError(rollback);
+      // A request that WROTE (the dry run) must have its ROLLBACK confirmed: else its writes may still be held (R23-5). Plain reads need not.
+      if (rollback !== null && o.wrote === true) throw new DryRollbackUnconfirmedError(rollback);
       return result;
     }
     // Lost before the COMMIT is sent: pg would not send it (the client is not queryable): the batch wrote nothing (round 22).
@@ -186,7 +201,8 @@ export async function withToolSession<T>(
     return result;
   } catch (err) {
     if (!rolledBack) unusable = await rollbackFailed(client, 'sage-migration');
-    const lossNotYetSaid = !(err instanceof ConnectionLostError || err instanceof LostBeforeCommitError || err instanceof CommitUnconfirmedError);
+    const lossNotYetSaid = !(err instanceof ConnectionLostError || err instanceof LostBeforeCommitError || err instanceof CommitUnconfirmedError
+      || err instanceof DryRollbackUnconfirmedError);
     if (lossNotYetSaid && (lost !== null || connectionEnded(err))) throw commit ? new LostBeforeCommitError(lost ?? err) : new ConnectionLostError(lost ?? err);
     throw err;
   } finally {
