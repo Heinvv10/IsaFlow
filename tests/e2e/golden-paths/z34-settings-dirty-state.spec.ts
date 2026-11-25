@@ -27,11 +27,6 @@ async function seriousAxe(page: Page): Promise<string[]> {
     .flatMap((v) => v.nodes.map((n) => `${v.id} (${v.impact}): ${n.target.join(' ')}`));
 }
 
-/** next dev paints a thrown routeChangeStart (how Next documents cancelling a route change) as an error overlay; production does not. */
-async function hideDevOverlay(page: Page): Promise<void> {
-  await page.evaluate(() => document.querySelectorAll('nextjs-portal').forEach((n) => ((n as HTMLElement).style.display = 'none')));
-}
-
 for (const theme of THEMES) {
   test(`Save follows the form's dirty state and leaving with edits asks first (${theme})`, async ({ page, context, baseURL }) => {
     const u = new URL(baseURL!);
@@ -44,6 +39,9 @@ for (const theme of THEMES) {
     } finally {
       await api.dispose();
     }
+    const errors: string[] = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.addInitScript(() => window.addEventListener('unhandledrejection', (e) => ((window as unknown as { __rej: string[] }).__rej ??= []).push(String(e.reason))));
     await seedTheme(page, theme);
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto('/accounting/company-settings', { waitUntil: 'domcontentloaded' });
@@ -78,7 +76,6 @@ for (const theme of THEMES) {
     await page.getByRole('link', { name: 'Dashboard' }).first().click();
     const dialog = page.getByRole('alertdialog', { name: 'Leave without saving?' });
     await expect(dialog).toBeVisible();
-    await hideDevOverlay(page);
     await expect(dialog).toHaveAttribute('aria-modal', 'true');
     expect(await seriousAxe(page)).toEqual([]);
     if (EVIDENCE_DIR) await page.screenshot({ path: `${EVIDENCE_DIR}/settings-leave-dialog-${theme}.png` });
@@ -89,8 +86,9 @@ for (const theme of THEMES) {
 
     await page.getByRole('link', { name: 'Dashboard' }).first().click();
     await expect(dialog).toBeVisible();
-    await hideDevOverlay(page);
     await page.getByRole('button', { name: 'Leave' }).click();
     await expect(page).not.toHaveURL(/company-settings/, { timeout: 30_000 });
+    expect(errors, 'the leave guard raised no page error').toEqual([]);
+    expect(await page.evaluate(() => (window as unknown as { __rej?: string[] }).__rej ?? []), 'no unhandled rejection').toEqual([]);
   });
 }
