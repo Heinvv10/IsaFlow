@@ -13,7 +13,7 @@ import { sql, withSavepoint } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { assertVatGateClear } from '@/modules/accounting/services/reports/vatGateOverrideService';
-import { markSubmitted, saveDraftSubmission, type SARSSubmission } from '@/modules/accounting/services/reports/sarsComplianceService';
+import { markSubmitted, saveDraftSubmission, takeDraftPeriodLock, type SARSSubmission } from '@/modules/accounting/services/reports/sarsComplianceService';
 import { logAuditOrThrow } from '@/modules/accounting/services/core/auditTrailService';
 import { lockCompanyPayrollApprovals } from '@/modules/accounting/services/payroll/payrollRunLock';
 import { periodSendUncertain } from '@/modules/accounting/services/reports/sarsEfilingRepo';
@@ -94,6 +94,10 @@ export async function markReturnFiled(
       + 'with fields under the wrong SARS codes, so it cannot be marked filed. Amend the return and finalise it again, then '
       + 'download the new file and file that one.', 'FILING_FILE_OLD_LAYOUT');
   }
+  // Wave 7 EL (W26): the period's draft key BEFORE the filing-reference key, as an off-cycle create takes them (draft,
+  // then PRN: payrollOffCycleRun lockMonthFilings). Taken after them (inside saveDraftSubmission) it made a cycle: a
+  // filing holding the PRN key waited on the month's draft key an off-cycle create held while it waited on the PRN key.
+  await takeDraftPeriodLock(companyId, v.formType, v.periodStart, v.periodEnd);
   const prnWarning = await assertFilingReferenceIsTheCompanys(companyId, v, ref);
   if (v.formType === 'VAT201' && !(v.vatPeriodLockId && await isLockActive(companyId, v.vatPeriodLockId))) {
     throw new ReturnRefusal(409,
