@@ -34,8 +34,12 @@ writes nothing else: no GL row, no change to a bill, a PO or a line.
 `INSERT ... ON CONFLICT (company_id, purchase_order_id, supplier_invoice_id) DO NOTHING`: a pair that already has a link
 (any source) is never touched, so a second run writes 0 and a link an operator or the app made or unlinked-and-remade is
 left alone. Two limits, stated so nobody is surprised: (1) a pair a user UNLINKED since 1006 is re-linked (the unlink deletes the row;
-the backfill cannot tell it from a bill never linked); (2) a bill whose header was re-pointed by a writer other than the app
-keeps its old `backfill` link and gains one for the new PO. The integration test proves the normal shapes; (2) is probed there too.
+the backfill cannot tell it from a bill never linked); (2) a bill whose header was re-pointed from PO A to PO B by a writer other than the app keeps its `backfill` link to A and gains one
+to B: the function counts only links it does not own when it sizes a header-only PO, so A + B can exceed the bill's subtotal (probed on the
+throwaway database: A 100.00 and B 100.00 on a 100.00 bill). The app's own sync remakes a draft's links on its next edit and unlinking removes
+one, so this needs a non-app header edit of a bill that already carried a backfill link; it is the function's behaviour since 1006/1022 and this
+migration does not change it (a change would be a function redefinition and its own design decision). The integration test proves the normal
+shapes stay within the subtotal.
 
 ## Rollback
 
