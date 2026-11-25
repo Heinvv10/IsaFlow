@@ -36,12 +36,82 @@ const storedLine = (id: string, sort: number, item: string | null, account: stri
 const rows = () => inserted('customer_quote_lines').map((l) => [l.item_id, l.gl_account_id]);
 const put = (lines: Record<string, unknown>[]) => updateQuote(COMPANY_ID, QUOTE_ID, { customerName: 'Acme', lines } as never, 'u1');
 
-describe('a standard-only quote\'s twins of different items, reordered and re-priced, pair by item', () => {
-  it.each([[false], [true]])('each line keeps its own item\'s account (items with default accounts: %s)', async (defaults) => {
+const AMBIGUOUS = /more than one line of this description with different items or accounts/;
+
+describe('round 12 structural rule: twins of different items pair only by place, id, or an explicit itemId + accountId', () => {
+  it.each([[false], [true]])('twins reordered and re-priced with no ids: refused, nothing written (item defaults: %s)', async (defaults) => {
     if (defaults) { world.itemAccount = DX; world.itemBAccount = DY; }
     world.stored = [storedLine('s0', 1, X, GX, '100.00'), storedLine('s1', 2, Y, GY, '200.00')];
-    await put([{ description: 'Svc', quantity: 1, unitPrice: 250, itemId: Y }, { description: 'Svc', quantity: 1, unitPrice: 150, itemId: X }]);
+    await expect(put([{ description: 'Svc', quantity: 1, unitPrice: 250, itemId: Y }, { description: 'Svc', quantity: 1, unitPrice: 150, itemId: X }]))
+      .rejects.toThrow(AMBIGUOUS);
+    expect(wrote()).toBe(false);
+  });
+
+  it('the same edit by id keeps each line\'s own item and account', async () => {
+    world.stored = [storedLine('s0', 1, X, GX, '100.00'), storedLine('s1', 2, Y, GY, '200.00')];
+    await put([{ id: 's1', description: 'Svc', quantity: 1, unitPrice: 250, itemId: Y }, { id: 's0', description: 'Svc', quantity: 1, unitPrice: 150, itemId: X }]);
     expect(rows()).toEqual([[Y, GY], [X, GX]]);
+  });
+
+  it('twins re-priced in their own places keep their items and accounts; an explicit itemId + accountId is never refused', async () => {
+    world.stored = [storedLine('s0', 1, X, GX, '100.00'), storedLine('s1', 2, Y, GY, '200.00')];
+    await put([{ description: 'Svc', quantity: 1, unitPrice: 110 }, { description: 'svc ', quantity: 1, unitPrice: 210 }]);
+    expect(rows()).toEqual([[X, GX], [Y, GY]]);
+    resetWorld();
+    world.stored = [storedLine('s0', 1, X, GX, '100.00'), storedLine('s1', 2, Y, GY, '200.00')];
+    await put([{ description: 'Svc', quantity: 1, unitPrice: 250, itemId: Y, accountId: GY }, { description: 'Svc', quantity: 1, unitPrice: 150, itemId: X, accountId: GX }]);
+    expect(rows()).toEqual([[Y, GY], [X, GX]]);
+  });
+
+  it('MEDIUM: [no item 110, itemId X 210] against s0 X / s1 Y: line 1 names the item its twin carries: refused', async () => {
+    world.stored = [storedLine('s0', 1, X, GX, '100.00'), storedLine('s1', 2, Y, GY, '200.00')];
+    await expect(put([{ description: 'Svc', quantity: 1, unitPrice: 110 }, { description: 'Svc', quantity: 1, unitPrice: 210, itemId: X }])).rejects.toThrow(AMBIGUOUS);
+    await expect(put([{ description: 'Svc', quantity: 1, unitPrice: 110, itemId: null }, { description: 'Svc', quantity: 1, unitPrice: 210, itemId: X }])).rejects.toThrow(AMBIGUOUS);
+    expect(wrote()).toBe(false);
+  });
+
+  it('Cases A / B (a line naming the item its twin carries, by place): refused', async () => {
+    world.stored = [storedLine('s0', 1, X, GX, '100.00'), storedLine('s1', 2, Y, GY, '200.00')];
+    await expect(put([{ description: 'Svc', quantity: 1, unitPrice: 250, itemId: Y }, { description: 'Svc', quantity: 1, unitPrice: 150 }])).rejects.toThrow(AMBIGUOUS);
+    world.stored = [storedLine('s0', 1, null, GX, '100.00'), storedLine('s1', 2, Y, GY, '200.00')];
+    await expect(put([{ description: 'Svc', quantity: 1, unitPrice: 250, itemId: Y }, { description: 'Svc', quantity: 1, unitPrice: 150, itemId: null }])).rejects.toThrow(AMBIGUOUS);
+    expect(wrote()).toBe(false);
+  });
+
+  it('three twins [X, Y, Y]: resent re-priced in place keep theirs; sent [Y, Y, X] is refused', async () => {
+    world.stored = [storedLine('s0', 1, X, GX, '100.00'), storedLine('s1', 2, Y, GY, '100.00'), storedLine('s2', 3, Y, GY, '100.00')];
+    const three = (items: (string | undefined)[], price: number) => items.map((itemId) => ({ description: 'Svc', quantity: 1, unitPrice: price, ...(itemId ? { itemId } : {}) }));
+    await put(three([undefined, undefined, undefined], 120));
+    expect(rows()).toEqual([[X, GX], [Y, GY], [Y, GY]]);
+    await expect(put(three([Y, Y, X], 120))).rejects.toThrow(AMBIGUOUS);
+  });
+
+  it('not at their places (a line deleted above): twins of different items are refused; interchangeable twins pair freely', async () => {
+    const other = { ...storedLine('o', 1, null, GX, '1.00'), description: 'Other' };
+    const two = [{ description: 'Svc', quantity: 1, unitPrice: 120 }, { description: 'Svc', quantity: 1, unitPrice: 130 }];
+    world.stored = [other, storedLine('s1', 2, X, GX, '100.00'), storedLine('s2', 3, Y, GY, '100.00')];
+    await expect(put(two)).rejects.toThrow(AMBIGUOUS);
+    world.stored = [other, storedLine('s1', 2, X, GX, '100.00'), storedLine('s2', 3, X, GY, '100.00')];
+    await expect(put(two)).rejects.toThrow(AMBIGUOUS); // one item, different accounts: still told apart by nothing
+    world.stored = [other, storedLine('s1', 2, X, GX, '100.00'), storedLine('s2', 3, X, GX, '100.00')];
+    await put(two);
+    expect(rows()).toEqual([[X, GX], [X, GX]]);
+  });
+
+  it('a line renamed at its place naming the item a twin of that place carries is a new line, not refused', async () => {
+    world.stored = [storedLine('s0', 1, X, GX, '100.00'), storedLine('s1', 2, Y, GY, '200.00')];
+    await put([{ description: 'Other', quantity: 1, unitPrice: 100, itemId: Y }, { description: 'Svc', quantity: 1, unitPrice: 210 }]);
+    expect(rows()).toEqual([[Y, null], [Y, GY]]);
+  });
+
+  it('a unique description pairs anywhere (moved); a line renamed at its place naming the place\'s own item keeps its account', async () => {
+    world.stored = [{ ...storedLine('h', 1, null, GY, '50.00'), description: 'Hosting' }, storedLine('s1', 2, X, GX, '100.00')];
+    await put([{ description: 'Svc', quantity: 1, unitPrice: 120 }, { description: 'Hosting', quantity: 1, unitPrice: 60 }]);
+    expect(rows()).toEqual([[X, GX], [null, GY]]);
+    resetWorld();
+    world.stored = [storedLine('s0', 1, X, GX, '100.00')];
+    await put([{ description: 'Svc (Nov)', quantity: 1, unitPrice: 100, itemId: X }]);
+    expect(rows()).toEqual([[X, GX]]);
   });
 });
 
@@ -67,21 +137,7 @@ describe('a matched line\'s new item is judged against the MATCHED stored line',
   });
 });
 
-describe('round 11: a line naming an item claims the stored line of THAT item before lenient description matches', () => {
-  it('Case A: [Y 250, no item 150] against s0 X / s1 Y: the Y line takes s1 (GY), the item-less line keeps s0\'s X (GX)', async () => {
-    world.stored = [storedLine('s0', 1, X, GX, '100.00'), storedLine('s1', 2, Y, GY, '200.00')];
-    await put([{ description: 'Svc', quantity: 1, unitPrice: 250, itemId: Y }, { description: 'Svc', quantity: 1, unitPrice: 150 }]);
-    expect(rows()).toEqual([[Y, GY], [X, GX]]);
-  });
-
-  it('Case B: [Y 250, itemId null 150] against s0 (no item, GX) / s1 Y (GY): the Y line takes s1, the other s0', async () => {
-    world.stored = [storedLine('s0', 1, null, GX, '100.00'), storedLine('s1', 2, Y, GY, '200.00')];
-    await put([{ description: 'Svc', quantity: 1, unitPrice: 250, itemId: Y }, { description: 'Svc', quantity: 1, unitPrice: 150, itemId: null }]);
-    expect(rows()).toEqual([[Y, GY], [null, GX]]);
-  });
-});
-
-describe('round 11 LOW 2: the lenient pass lets a line or a stored line with no item fit (pinned by place)', () => {
+describe('by place: an item-less line or stored line pairs at its own place', () => {
   const G0 = 'a1a1a1a1-0000-4000-8000-000000000010';
   const G2 = 'a1a1a1a1-0000-4000-8000-000000000012';
   it('two item-less lines re-priced against [none, X, none]: the second keeps s1 (X, GX) by place, not the item-less s2', async () => {
@@ -102,6 +158,13 @@ describe('round 11: the item check judges "new" against the matched stored line 
     world.stored = [storedLine('s0', 1, X, GX, '100.00'), storedLine('s1', 2, Y, GY, '100.00')];
     await put([{ id: 's1', description: 'Svc', quantity: 1, unitPrice: 100, itemId: Y }]);
     expect(rows()).toEqual([[Y, GY]]);
+  });
+
+  it('LOW 1 (round 12): s1 sent by id naming X, which only its twin s0 carries: X is NEW to s1 and checked (inactive: refused)', async () => {
+    world.inactiveItems.add(X);
+    world.stored = [storedLine('s0', 1, X, GX, '100.00'), storedLine('s1', 2, Y, GY, '100.00')];
+    await expect(put([{ id: 's1', description: 'Svc', quantity: 1, unitPrice: 100, itemId: X, accountId: GY }])).rejects.toThrow(/inactive item/);
+    expect(wrote()).toBe(false);
   });
 
   it('a genuinely NEW item is still checked: inactive, another company\'s, or with an inactive default account: refused, nothing written', async () => {

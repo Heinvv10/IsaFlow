@@ -1,7 +1,8 @@
 /**
  * A quote edit's sent lines matched to the stored ones (quoteEditLines), review round 4's STRUCTURAL rule:
  *   - an `id` takes its stored line;
- *   - a quote holding ONLY standard lines matches by content in passes (nothing a wrong match could mistype);
+ *   - a quote holding ONLY standard lines matches at its own place or by a description that tells its item and account
+ *     apart (round 12; the refusals are in quoteServiceVatRefs.test);
  *   - a quote holding a zero-rated or exempt line (a legacy 0% line counts) lets a typeless line inherit a saved type
  *     ONLY from a positional resend (same count, each identical to its own place but at most one changed in place);
  *     any other shape refuses every line with neither id nor vatType (nor a legacy rate above 0).
@@ -187,10 +188,10 @@ describe('round 7: an item added on a typed quote\'s positional resend is no cha
 
 describe('a quote of standard lines only: content passes, no refusal (nothing to mistype)', () => {
   const hosting = stored('h', { description: 'Hosting' });
-  it('matches identical, then same description, then same item, anywhere; a new line has no match', () => {
+  it('a unique description pairs anywhere; a line of a new description (renamed elsewhere) is a new line', () => {
     const r = run([line({ description: 'New', unitPrice: 5 }), line({ description: 'hosting', unitPrice: 120 }), line({ unitPrice: 1, description: 'W2', itemId: A })],
       [hosting, stored('w', { itemId: A })]);
-    expect(r).toEqual({ ids: [null, 'h', 'w'], kept: [null, 'standard', 'standard'], refused: null });
+    expect(r).toEqual({ ids: [null, 'h', null], kept: [null, 'standard', null], refused: null });
   });
 });
 
@@ -219,5 +220,21 @@ describe('legacyLinesUnchanged', () => {
 
   it('a typed quote is never "legacy unchanged"', () => {
     expect(check([{ description: 'Widget', quantity: 1, unitPrice: 100 }], undefined, [std])).toBe(false);
+  });
+});
+
+describe('a standard-only quote: a match needs a compatible rate and a free stored line', () => {
+  const other = stored('o', { description: 'Other', unitPrice: 1, amount: 1 });
+  const w = stored('w', { itemId: A });
+
+  it('a line resent at a legacy rate its stored line does not have matches nothing, at its place or by content', () => {
+    expect(run([line({ taxRate: 0 })], [w]).ids).toEqual([null]);
+    expect(run([line({ taxRate: 0 })], [other, w]).ids).toEqual([null]);
+    expect(run([line({ taxRate: 15 })], [other, w]).ids).toEqual(['w']);
+  });
+
+  it('two sent lines of a unique stored description: the one at its place pairs, the other is a new line', () => {
+    expect(run([line({}), line({ unitPrice: 120 })], [other, w]).ids).toEqual([null, 'w']);
+    expect(run([line({}), line({ unitPrice: 120 })], [w, other]).ids).toEqual(['w', null]);
   });
 });
