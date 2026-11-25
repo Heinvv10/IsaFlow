@@ -58,18 +58,23 @@ const ref = (v: unknown): string | null => (typeof v === 'string' && v !== '' ? 
 
 /**
  * The item and account each line is written with. A line sent WITHOUT an itemId that matched a stored line (by id,
- * place or content: quoteEditLines) takes that stored line's item, so the row written is the line the VAT match read
+ * place or content: quoteEditLines, including the one line changed in place and a description match at another price)
+ * keeps that stored line's item: the same line keeps its item, and the row written is the line the VAT match read
  * (itemEditLines hands items out by the raw identical key in stored order, which a case-only description change or
- * twins swapped by id would get wrong). On a legacy quote kept as stored, a line sent without an accountId keeps the
- * stored account. Otherwise the resolved line's own (itemEditLines' inheritance for an unmatched line).
+ * twins swapped by id would get wrong). A MATCHED line sent without an accountId and naming no new item (itemId left
+ * out, or the stored item resent) keeps the stored account on every edit, so conversion credits the account the user
+ * chose; a new item named takes its own default account (itemEditLines / applyItemLineDefaults); an accountId sent,
+ * null included, wins. An unmatched line: the resolved line's own.
  */
-function lineRefs(lines: readonly QuoteVatLineIn[], sent: readonly QuoteVatLineIn[], matches: readonly (LineMatch | null)[] | undefined, kept: boolean): QuoteLineRef[] {
+function lineRefs(lines: readonly QuoteVatLineIn[], sent: readonly QuoteVatLineIn[], matches: readonly (LineMatch | null)[] | undefined): QuoteLineRef[] {
   return lines.map((l, i) => {
     const m = matches?.[i];
     const s = sent[i];
+    const storedItem = m?.stored.itemId ? m.stored.itemId.toLowerCase() : null;
+    const sameItem = s?.itemId === undefined || (typeof s.itemId === 'string' && s.itemId.toLowerCase() === storedItem && storedItem !== null);
     return {
       itemId: m && s?.itemId === undefined ? m.stored.itemId ?? null : ref(l.itemId),
-      accountId: kept && m && s?.accountId === undefined ? m.stored.accountId ?? null : ref(l.accountId),
+      accountId: m && s?.accountId === undefined && sameItem ? m.stored.accountId ?? null : ref(l.accountId),
     };
   });
 }
@@ -124,7 +129,7 @@ export async function priceQuoteLines(companyId: string, args: {
     return {
       lines: matches.map((m) => ({ qty: m!.stored.quantity, price: m!.stored.unitPrice, amount: m!.stored.amount, taxAmount: null, vatType: null, taxRate: m!.stored.taxRate })),
       header: { subtotal, tax, total, taxRate, amountsAre: null },
-      refs: lineRefs(args.lines, sent, matches, true),
+      refs: lineRefs(args.lines, sent, matches),
     };
   }
   const parties = await invoiceVatParties(companyId, args.clientId);
@@ -141,5 +146,5 @@ export async function priceQuoteLines(companyId: string, args: {
     { subtotal: priced.header.subtotal, taxAmount: priced.header.tax, totalAmount: priced.header.total, invoiceDate: args.quoteDate, amountsAre },
   );
   if (problem) throw new InvoiceLineVatRefusal(`This quote could not be invoiced as priced: ${problem}`);
-  return { ...priced, refs: lineRefs(args.lines, sent, matches, false) };
+  return { ...priced, refs: lineRefs(args.lines, sent, matches) };
 }
