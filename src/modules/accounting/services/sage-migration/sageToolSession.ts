@@ -55,17 +55,22 @@ export class CommitUnconfirmedError extends Error {
 
 /**
  * The connection of a request that commits nothing (the dry run, the plan, a read) was lost (B20-1): said so, never a tool's generic
- * failure blamed on a batch. Nothing of the request was written; before the live phase that makes it a refused start (exit 2).
+ * failure blamed on a batch. The words name that request only (R21-3): after the live phase started, other batches may have committed.
+ * Before the live phase it is a refused start (exit 2). `cause` is the error the loss came with.
  */
 export class ConnectionLostError extends Error {
   constructor(cause: unknown) {
-    super(`the connection to the database was lost (${cause instanceof Error ? cause.message : String(cause)}); this request commits nothing, so nothing of it was written`);
+    super(`the connection to the database was lost (${cause instanceof Error ? cause.message : String(cause)}) in a request that writes nothing (the dry run, the plan or a read of the books): that request wrote nothing`, { cause });
+    this.name = 'ConnectionLostError';
   }
 }
 
-/** The error of a connection that ended: the server terminated the backend (57P01-03), a connection exception (08xxx), or pg's own. */
+/**
+ * The error of a connection that ended: the server terminated the backend (57P01-03), a connection exception (08xxx), or pg's own
+ * message. Nothing else: a cancel or timeout (57014), a constraint, a serialization failure or a refused connect is not a loss (R21-1).
+ */
 const connectionEnded = (err: unknown): boolean => {
-  const code = (err as { code?: unknown }).code;
+  const code = typeof err === 'object' && err !== null ? (err as { code?: unknown }).code : undefined; // a thrown null / undefined (R21-4)
   return (typeof code === 'string' && (/^57P0[123]$/.test(code) || code.startsWith('08')))
     || /Connection terminated|terminating connection/i.test(err instanceof Error ? err.message : String(err));
 };
@@ -102,6 +107,7 @@ export async function withToolSession<T>(
   let committed = false;
   let owned: RequestContext | null = null;
   let unusable = false; // set when a ROLLBACK fails: the connection may still be inside its transaction
+  let rolledBack = false; // the dry request's own ROLLBACK ran: the catch does not run another
   try {
     await client.query('BEGIN');
     await client.query('SET LOCAL ROLE app_user');
@@ -135,9 +141,11 @@ export async function withToolSession<T>(
       },
     };
     const result = await runOwnedContext(txCtx, () => fn(session));
-    if (!commit && lost !== null) throw new ConnectionLostError(lost);
     if (!commit) {
       unusable = await rollbackFailed(client, 'sage-migration');
+      rolledBack = true;
+      // Checked AFTER the ROLLBACK: a loss first seen there (R21-2) is a loss too, and a ROLLBACK that failed left the connection unusable.
+      if (lost !== null || unusable) throw new ConnectionLostError(lost ?? new Error('its ROLLBACK failed'));
       return result;
     }
     if (txCtx.rollbackOnly) throw new Error(`the request transaction was marked rollback-only: ${txCtx.rollbackOnly}`);
@@ -149,7 +157,7 @@ export async function withToolSession<T>(
         new Promise<never>((_, reject) => { commitTimer = setTimeout(() => reject(new Error(`COMMIT did not answer within ${commitBoundMs}ms`)), commitBoundMs); commitTimer.unref?.(); }),
       ]);
     } catch (err) {
-      // A backend killed DURING the COMMIT rejects it with a FATAL (57P0x) before the client emits 'error' (R20-2): lost too.
+      // A backend killed DURING the COMMIT rejects it with a FATAL (57P01-03) before the client emits 'error' (R20-2): lost too.
       if (lost === null && connectionEnded(err)) lost = err as Error;
       throw new CommitUnconfirmedError(err instanceof Error ? err.message : String(err), result, lost !== null);
     } finally {
@@ -159,7 +167,7 @@ export async function withToolSession<T>(
     drainAfterCommit(txCtx);
     return result;
   } catch (err) {
-    unusable = await rollbackFailed(client, 'sage-migration');
+    if (!rolledBack) unusable = await rollbackFailed(client, 'sage-migration');
     if (!commit && !(err instanceof ConnectionLostError) && (lost !== null || connectionEnded(err))) throw new ConnectionLostError(lost ?? err);
     throw err;
   } finally {

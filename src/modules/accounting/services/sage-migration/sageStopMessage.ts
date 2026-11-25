@@ -47,7 +47,9 @@ export function stopMessage(err: unknown): string {
   const committed = err.committed.map((b) => {
     const outcome = batchOutcome(b);
     if (outcome === 'replayed') {
-      return b.rowsAbsent > 0 ? line(b, 'replayed: rows absent, nothing written (use --run-tag for a fresh import)') : line(b, 'answered from a stored answer, nothing written');
+      // A replay writes no rows, landed or not; its COMMIT not confirmed (a lost connection) is said under it (R21-6).
+      const lost = b.commitUnconfirmed ? `\n  ${cut(b.error)}` : '';
+      return (b.rowsAbsent > 0 ? line(b, 'replayed: rows absent, nothing written (use --run-tag for a fresh import)') : line(b, 'answered from a stored answer, nothing written')) + lost;
     }
     // The tool refused it: nothing written, whether or not its COMMIT landed; its refusal is said, not "may have been updated" (L3).
     if (outcome === 'commit_unconfirmed' && b.toolRefused) return `${line(b, 'commit unconfirmed')}\n  ${cut(b.error)}`;

@@ -6,7 +6,8 @@
  *   - a batch refused earlier in the run is listed "failed, nothing written" with its reason.
  */
 import { describe, expect, it } from 'vitest';
-import { stopMessage } from '@/modules/accounting/services/sage-migration/sageStopMessage';
+import { stopMessage, stopReportBatches } from '@/modules/accounting/services/sage-migration/sageStopMessage';
+import { unconfirmedBatch } from '@/modules/accounting/services/sage-migration/sageVerify';
 import { MigrationStopped } from '@/modules/accounting/services/sage-migration/sageMigrationStopped';
 import type { BatchReport } from '@/modules/accounting/services/sage-migration/sageMigrationTypes';
 
@@ -83,3 +84,19 @@ describe('L3 (round 13): an unconfirmed batch the tool refused', () => {
     expect(m).not.toMatch(/may have been updated|FIB-0016/);
   });
 });
+
+describe('R21-6: a replayed answer whose COMMIT was lost', () => {
+  it('is listed nothing written (a replay writes no rows), and its line says both: replayed, and the connection lost', () => {
+    const failed = base('item', 1, { status: 'failed', error: 'Client has encountered a connection error and is not queryable' });
+    const b = unconfirmedBatch(failed, base('item', 1, { replayed: true, toolReported: itemsAnswer(['FIB-0002', 'updated', ['description']]) }), true);
+    const stop = new MigrationStopped(new Error('boom'), true, [b]);
+    expect(stopReportBatches(stop).nothingWritten).toEqual([b]);
+    expect(stopMessage(stop)).toContain('answered from a stored answer, nothing written: item batch 1 (key-item-1)\n  the connection was lost; its COMMIT was not confirmed (Client has encountered a connection error and is not queryable)');
+  });
+  it('a replayed answer whose COMMIT was confirmed keeps its plain line', () => {
+    const m = stopMessage(new MigrationStopped(new Error('boom'), true, [base('item', 1, { replayed: true })]));
+    expect(m).toContain('answered from a stored answer, nothing written: item batch 1 (key-item-1)');
+    expect(m).not.toContain('connection was lost');
+  });
+});
+

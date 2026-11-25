@@ -13,7 +13,8 @@ vi.mock('@/lib/mcp/toolIndex', () => ({ mcpRegistry: { listTools: () => [{ name:
 vi.mock('@/lib/auth/companyMembership', () => ({ getCompanyMembership: async () => ({ rows: [{ account_user_id: 'u1', role: 'owner' }] }) }));
 vi.mock('@/lib/auth/userAccountStatus', () => ({ isActiveUserAccount: () => true }));
 vi.mock('@/lib/afterCommit', () => ({ runOwnedContext: (_ctx: unknown, fn: () => unknown) => fn(), drainAfterCommit: () => undefined, settleAfterRollback: () => undefined }));
-vi.mock('@/lib/rollbackFailed', () => ({ rollbackFailed: async (c: { query: (t: string) => Promise<unknown> }) => { await c.query('ROLLBACK'); return false; } }));
+// The real semantics: a ROLLBACK that fails is swallowed and reported (true: the connection is unusable).
+vi.mock('@/lib/rollbackFailed', () => ({ rollbackFailed: async (c: { query: (t: string) => Promise<unknown> }) => c.query('ROLLBACK').then(() => false, () => true) }));
 
 import { EventEmitter } from 'node:events';
 import { CommitUnconfirmedError, ConnectionLostError, withToolSession } from '@/modules/accounting/services/sage-migration/sageToolSession';
@@ -107,7 +108,9 @@ describe('(d) B20-1: a connection lost in a request that commits nothing (the dr
     });
     const err = await withToolSession({ connect: async () => client } as never, 'c1', 'u1', false, (s) => s.call('w', { idempotency_key: 'k' })).then(() => null, (e: unknown) => e);
     expect(err).toBeInstanceOf(ConnectionLostError);
-    expect((err as Error).message).toBe('the connection to the database was lost (Connection terminated unexpectedly); this request commits nothing, so nothing of it was written');
+    expect((err as Error).message).toBe('the connection to the database was lost (Connection terminated unexpectedly) in a request that writes nothing (the dry run, the plan or a read of the books): that request wrote nothing');
+    expect((err as Error & { cause?: unknown }).cause).toEqual(new Error('Connection terminated unexpectedly')); // R21-5
+    expect((err as Error).name).toBe('ConnectionLostError');
     expect(client.release).toHaveBeenCalledWith(true);
   });
   it('a query rejected by a terminated backend (57P01) inside the request: ConnectionLostError', async () => {
@@ -115,13 +118,78 @@ describe('(d) B20-1: a connection lost in a request that commits nothing (the dr
     const client = lossClient(async (text: string) => { if (text.startsWith('SELECT snapshot')) throw fatal; return { rows: [] }; });
     const err = await withToolSession({ connect: async () => client } as never, 'c1', 'u1', false, async () => { await client.query('SELECT snapshot'); }).then(() => null, (e: unknown) => e);
     expect(err).toBeInstanceOf(ConnectionLostError);
-    expect((err as Error).message).toMatch(/lost \(terminating connection due to administrator command\); .*nothing of it was written/);
+    expect((err as Error).message).toMatch(/lost \(terminating connection due to administrator command\) in a request that writes nothing/);
   });
   it('any other failure of such a request is thrown as it is', async () => {
     const client = lossClient(async () => ({ rows: [] }));
     const err = await withToolSession({ connect: async () => client } as never, 'c1', 'u1', false, async () => { throw new Error('a plain bug'); }).then(() => null, (e: unknown) => e);
     expect(err).not.toBeInstanceOf(ConnectionLostError);
     expect((err as Error).message).toBe('a plain bug');
+  });
+});
+
+/** R21-1: errors that are NOT a lost connection (a cancel/timeout, a constraint, a serialization failure, a refused or full server). */
+const notLost = () => [
+  Object.assign(new Error('canceling statement due to statement timeout'), { code: '57014' }),
+  Object.assign(new Error('duplicate key value violates unique constraint'), { code: '23505' }),
+  Object.assign(new Error('could not serialize access due to concurrent update'), { code: '40001' }),
+  new Error('connect ECONNREFUSED 127.0.0.1:5432: connection refused'),
+  Object.assign(new Error('sorry, too many clients already'), { code: '53300' }),
+];
+
+describe('R21-1: the classifier\'s negative side', () => {
+  it('a COMMIT rejected for any of these is unconfirmed but NOT connectionLost', async () => {
+    for (const e of notLost()) {
+      const client = Object.assign(new EventEmitter(), { query: async (text: string) => { if (text === 'COMMIT') throw e; return { rows: [] }; }, release: vi.fn() });
+      registry.call.mockResolvedValueOnce(ok('{"created":1}'));
+      const err = await withToolSession({ connect: async () => client } as never, 'c1', 'u1', true, (x) => x.call('w', { idempotency_key: 'k' })).then(() => null, (r: unknown) => r);
+      expect(err, e.message).toBeInstanceOf(CommitUnconfirmedError);
+      expect((err as CommitUnconfirmedError).connectionLost, e.message).toBe(false);
+    }
+  });
+  it('a request that commits nothing failing with any of these: thrown as it is, never ConnectionLostError', async () => {
+    for (const e of notLost()) {
+      const client = Object.assign(new EventEmitter(), { query: async () => ({ rows: [] }), release: vi.fn() });
+      const err = await withToolSession({ connect: async () => client } as never, 'c1', 'u1', false, async () => { throw e; }).then(() => null, (r: unknown) => r);
+      expect(err, e.message).toBe(e);
+    }
+  });
+});
+
+describe('R21-4: a null or undefined thrown', () => {
+  it('is thrown as it is (the classifier does not replace it with a TypeError), on both paths', async () => {
+    for (const thrown of [null, undefined]) {
+      const client = Object.assign(new EventEmitter(), { query: async () => ({ rows: [] }), release: vi.fn() });
+      const dry = await withToolSession({ connect: async () => client } as never, 'c1', 'u1', false, async () => { throw thrown; }).then(() => 'resolved', (r: unknown) => r);
+      expect(dry).toBe(thrown);
+      const committing = Object.assign(new EventEmitter(), { query: async (text: string) => { if (text === 'COMMIT') throw thrown; return { rows: [] }; }, release: vi.fn() });
+      registry.call.mockResolvedValueOnce(ok('{"created":1}'));
+      const err = await withToolSession({ connect: async () => committing } as never, 'c1', 'u1', true, (x) => x.call('w', { idempotency_key: 'k' })).then(() => null, (r: unknown) => r);
+      expect((err as CommitUnconfirmedError).connectionLost).toBe(false);
+    }
+  });
+});
+
+describe('R21-2: a loss first seen during the dry request\'s own ROLLBACK', () => {
+  it('is ConnectionLostError, not the failed answer blamed on the batch', async () => {
+    const client = Object.assign(new EventEmitter(), {
+      query: async (text: string) => {
+        if (text === 'ROLLBACK') { client.emit('error', new Error('Connection terminated unexpectedly')); throw new Error('Connection terminated unexpectedly'); }
+        return { rows: [] };
+      },
+      release: vi.fn(),
+    });
+    registry.call.mockResolvedValueOnce({ content: [{ type: 'text', text: 'The operation failed.' }], isError: true });
+    const err = await withToolSession({ connect: async () => client } as never, 'c1', 'u1', false, (x) => x.call('w', { idempotency_key: 'k' })).then(() => null, (r: unknown) => r);
+    expect(err).toBeInstanceOf(ConnectionLostError);
+    expect(client.release).toHaveBeenCalledWith(true);
+  });
+  it('a dry ROLLBACK that fails with no client error (the connection unusable) is a lost connection too', async () => {
+    const client = Object.assign(new EventEmitter(), { query: async (text: string) => { if (text === 'ROLLBACK') throw new Error('Client was closed'); return { rows: [] }; }, release: vi.fn() });
+    registry.call.mockResolvedValueOnce(ok('{"created":1}'));
+    const err = await withToolSession({ connect: async () => client } as never, 'c1', 'u1', false, (x) => x.call('w', { idempotency_key: 'k' })).then(() => null, (r: unknown) => r);
+    expect(err).toBeInstanceOf(ConnectionLostError);
+    expect((err as Error).message).toMatch(/its ROLLBACK failed/);
   });
 });
 

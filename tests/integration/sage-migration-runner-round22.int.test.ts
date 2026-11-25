@@ -115,10 +115,9 @@ describe('B20-1: the dry run\'s backend killed while it waits', () => {
     await release();
     const code = await done;
     expect(code, err).toBe(2);
-    expect(err).toMatch(/sage migration stopped: the connection to the database was lost \(.*\); this request commits nothing, so nothing of it was written/);
+    expect(err).toMatch(/sage migration stopped: the connection to the database was lost \(.*\) in a request that writes nothing \(the dry run, the plan or a read of the books\): that request wrote nothing/);
     expect(err).not.toMatch(/FAILED item batch|an uncaught error/);
     expect(JSON.parse(readFileSync(report, 'utf8'))).toMatchObject({ status: 'stopped', liveStarted: false, committed: [] });
     expect(await booked(pool, s.companyId)).toMatchObject({ categories: 0, items: 0 });
   }, 180_000);
 });
-
