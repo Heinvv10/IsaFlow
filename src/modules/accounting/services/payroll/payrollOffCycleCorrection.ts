@@ -31,10 +31,11 @@ export function wasApprovedBefore(history: unknown): boolean {
 }
 
 /**
- * What covers a month's EMP201 (wave 7 EL, W25): a filed version (its PRN), a legacy submitted or accepted submission
- * (its recorded reference, if any), or a finalised version not filed yet (no PRN: its version number). In that order of
- * preference, so the refusal names the strongest record. Null when none covers the month. A plain read: the reopen judges
- * it under the payroll approval lock, which a filing takes before its drift check, so the two see each other.
+ * What covers a month's EMP201 (wave 7 EL, W25): a version that was filed (filed_at set, so a filed version later
+ * amended still counts: SARS holds that filing; its PRN), a legacy submitted or accepted submission no version names
+ * (its recorded reference, if any; a submission the lifecycle filed is named by its version and judged there), or a
+ * finalised version not filed yet (no PRN: its version number). In that order of preference, the latest filed version
+ * first, so the refusal names the strongest record. Null when none covers the month. A plain read.
  */
 export interface Emp201Filing {
   source: 'filed_version' | 'legacy_submission' | 'finalised_version';
@@ -45,10 +46,11 @@ export interface Emp201Filing {
 export async function emp201FilingFor(companyId: string, year: number, month: number, db: TxSql = sql): Promise<Emp201Filing | null> {
   const rows = (await db`
     SELECT x.source, x.reference, x.version_no FROM (
-      SELECT CASE WHEN v.status = 'filed' THEN 'filed_version' ELSE 'finalised_version' END AS source,
-             v.filed_reference AS reference, v.version_no, CASE WHEN v.status = 'filed' THEN 0 ELSE 2 END AS rank
+      SELECT CASE WHEN v.filed_at IS NOT NULL THEN 'filed_version' ELSE 'finalised_version' END AS source,
+             v.filed_reference AS reference, v.version_no, CASE WHEN v.filed_at IS NOT NULL THEN 0 ELSE 2 END AS rank
         FROM tax_return_versions v
-       WHERE v.company_id = ${companyId}::uuid AND v.form_type = 'EMP201' AND v.status IN ('finalised', 'filed')
+       WHERE v.company_id = ${companyId}::uuid AND v.form_type = 'EMP201'
+         AND (v.status IN ('finalised', 'filed') OR v.filed_at IS NOT NULL)
          AND v.period_start <= (make_date(${year}::int, ${month}::int, 1) + INTERVAL '1 month - 1 day')::date
          AND v.period_end >= make_date(${year}::int, ${month}::int, 1)
       UNION ALL
@@ -57,6 +59,7 @@ export async function emp201FilingFor(companyId: string, year: number, month: nu
        WHERE s.company_id = ${companyId}::uuid AND s.form_type = 'EMP201' AND s.status IN ('submitted', 'accepted')
          AND s.period_start <= (make_date(${year}::int, ${month}::int, 1) + INTERVAL '1 month - 1 day')::date
          AND s.period_end >= make_date(${year}::int, ${month}::int, 1)
+         AND NOT EXISTS (SELECT 1 FROM tax_return_versions t WHERE t.company_id = s.company_id AND t.sars_submission_id = s.id)
     ) x
     ORDER BY x.rank, x.version_no DESC NULLS LAST
     LIMIT 1
@@ -74,7 +77,7 @@ export function emp201FilingText(f: Emp201Filing): string {
   return f.source === 'filed_version' ? `is filed (${ref})` : `was submitted outside the return lifecycle (${ref})`;
 }
 
-/** A finalised or filed EMP201 (or a legacy submitted or accepted one) covers the month. */
+/** A finalised or filed EMP201 (a version once filed, or a legacy submitted or accepted one) covers the month. */
 export async function emp201FiledForMonth(companyId: string, year: number, month: number, db: TxSql = sql): Promise<boolean> {
   return (await emp201FilingFor(companyId, year, month, db)) !== null;
 }

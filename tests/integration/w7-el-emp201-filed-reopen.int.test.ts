@@ -110,7 +110,19 @@ describeIfDb('W25: a regular run whose month\'s EMP201 is filed is not reopened'
     await expectRefused(bare, /EMP201 for 2025-03 was submitted outside the return lifecycle \(no reference recorded\)/);
   });
 
-  it('a weekly run straddling two months is judged on its pay date\'s month, not the month its period starts in', async () => {
+  it('filed, then amended: still refused naming the filed PRN (SARS holds that filing); after the next version is filed, its PRN', async () => {
+    const run = await approvedRun(2025, 1);
+    const v1 = await finaliseMonth(2025, 1);
+    expect((await fileVersion(v1, 711)).status).toBe(200);
+    expect((await amendV(v1, { reason: 'W7 EL: amend after filing' }, rf.admin.token, 'emp201')).status).toBe(200);
+    // The lifecycle's own submission (named by v1) is not a legacy filing; v1 was filed, so the month stays filed.
+    await expectRefused(run, new RegExp(`EMP201 for 2025-01 is filed \\(reference ${PRN('emp201', 711)}\\)\\. The filed declaration stands`));
+    const v2 = await finaliseMonth(2025, 1);
+    expect((await fileVersion(v2, 712)).status).toBe(200);
+    await expectRefused(run, new RegExp(`EMP201 for 2025-01 is filed \\(reference ${PRN('emp201', 712)}\\)`));
+  });
+
+  it('a weekly run straddling two months is judged on its period month (its pay date\'s month), not the month its period starts in', async () => {
     // Paid Friday 2026-01-02 for 27 Dec to 2 Jan: declared in January (payrollFrequencyGuard keeps period month = pay month).
     const run = await approvedRun(2026, 1, { freq: 'weekly', start: '2025-12-27', end: '2026-01-02', runDate: '2026-01-02' });
     await legacyRow(2025, 12, 'LEGACY-EL-DEC');
@@ -121,10 +133,14 @@ describeIfDb('W25: a regular run whose month\'s EMP201 is filed is not reopened'
     await expectRefused(run, /EMP201 for 2026-01 was submitted outside the return lifecycle \(reference LEGACY-EL-JAN\)/);
   });
 
-  it('a monthly run paid early in the next month: refused when the pay date\'s month is filed', async () => {
+  it('a monthly November run paid 2 December is judged on November, the month the EMP201 declares it in (#1903 B2)', async () => {
     const run = await approvedRun(2024, 11, { runDate: '2024-12-02' });
     await legacyRow(2024, 12, 'LEGACY-EL-PAID-DEC');
-    await expectRefused(run, /EMP201 for 2024-12 was submitted outside the return lifecycle \(reference LEGACY-EL-PAID-DEC\)/);
+    await reopen(run);
+    expect((await header(run)).status).toBe('calculated');
+    await sql`UPDATE payroll_run_headers SET status = 'approved', approved_at = now() WHERE id = ${run}::UUID`;
+    await legacyRow(2024, 11, 'LEGACY-EL-NOV');
+    await expectRefused(run, /EMP201 for 2024-11 was submitted outside the return lifecycle \(reference LEGACY-EL-NOV\)/);
   });
 });
 
