@@ -4,7 +4,7 @@
  *      attests the bank paid it as made when a creditor's details changed since (else 409 CREDITOR_DETAILS_CHANGED).
  * POST /api/payroll/runs/[id]/bank-file/[fileId]/void     { notSentToBank: true } void a generated file never sent.
  *
- * Owner / admin, a person's own session, never Login-as (payrollBankFileApi). Confirm never writes the run header: the
+ * Owner / admin with Payroll Approve (GC2: confirm posts a journal), a person's own session, never Login-as (payrollBankFileApi). Confirm never writes the run header: the
  * run stays `approved` and reopenable (spec 0a.17). Refusals are judged before the write (payrollBankFileConfirm).
  */
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -18,6 +18,7 @@ import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
 import { bankFileWriter, respondIfBankFileRefused, UUID } from '@/lib/payrollBankFileApi';
 import { settleBankFile } from '@/modules/accounting/services/payroll/payrollBankFileConfirm';
 import { withPayrollModule } from '@/lib/auth/withPayrollModule';
+import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['POST']);
@@ -29,6 +30,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   const actor = await bankFileWriter(req, res);
   if (!actor) return;
+  // Wave 7 GC2: confirming posts the garnishee creditors' journal (#1656: every posting entry point asks the module's
+  // Approve). Asked for void too: one gate before the one service call, and a void settles the same file.
+  if (await refuseWithoutApprove(res, companyId, actor.userId, 'payroll', 'salary bank files')) return;
   try {
     const body = req.body as { notSentToBank?: unknown; paidAsGenerated?: unknown } | undefined;
     const notSentToBank = body?.notSentToBank === true;
