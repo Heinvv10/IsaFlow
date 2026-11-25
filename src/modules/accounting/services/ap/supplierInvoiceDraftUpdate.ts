@@ -25,7 +25,8 @@ import { defaultVatClassification, type SupplierInvoiceTotals } from './supplier
 import { billEditDueDate } from './draftBillDueDate';
 import { refreshAppBillLinks } from './billPurchaseOrderLinks';
 import { applyDraftGrn, planDraftGrn, type DraftGrnPlan } from './supplierInvoiceDraftGrn';
-import { asBillSupplierDeleted } from './billSupplierLive';
+import { asBillSupplierDeleted, BillSupplierDeletedError } from './billSupplierLive';
+import { lockSupplierIfLive } from '../core/supplierLiveLock';
 import { asBillGrnRefused, lockNotePo } from './billGoodsReceivedLink';
 import type { DueDateSource } from '../shared/dueDateSource';
 import {
@@ -75,6 +76,8 @@ export interface SupplierInvoiceDraftUpdatePlan extends DraftGrnPlan {
   changed: string[];
   /** Supplier, number or total moved, so the duplicate fingerprint must too. */
   refingerprint: boolean;
+  /** The edit moves the bill to another supplier (locked live first in the apply). */
+  supplierChanges: boolean;
 }
 
 const EPS = 0.005;
@@ -206,6 +209,7 @@ export async function lockAndPlanSupplierInvoiceDraftUpdate(
     lines,
     changed,
     refingerprint: totalChanges || supplierChanges || invoiceNumber !== number,
+    supplierChanges,
   };
 }
 
@@ -234,6 +238,9 @@ export async function applySupplierInvoiceDraftUpdate(
 
   // A supplier change onto a supplier merged or deleted meanwhile (1021's supplier-live trigger) is a typed refusal; nothing is written.
   await withContentEditorStamp(companyId, plan.invoiceId, editedBy, () => withTransaction(async (tx) => {
+    // A new supplier FIRST, FOR KEY SHARE and live (supplierLiveLock), before the note's PO: a merge takes the supplier and then its
+    // POs, so the PO first and the supplier only at the UPDATE's FK was a 40P01 against a merge of it (#1882 M2). Merged away: typed.
+    if (plan.supplierChanges && !(await lockSupplierIfLive(companyId, plan.supplierId))) throw new BillSupplierDeletedError();
     // A new note: its PO FOR KEY SHARE BEFORE the UPDATE, whose grn-live trigger (1021) takes the note (Codex gate at 42de08b3, 4).
     if (plan.grnChanges && plan.grnId) await lockNotePo(companyId, plan.grnId, tx);
     await tx`

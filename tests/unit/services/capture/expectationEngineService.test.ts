@@ -19,7 +19,10 @@ const { sqlMock } = vi.hoisted(() => {
 });
 
 // withTransaction hands its callback the same mock: the upsert runs on `tx` after the supplier live lock.
-vi.mock('@/lib/neon', () => ({ sql: sqlMock, withTransaction: (fn: (tx: typeof sqlMock) => unknown) => fn(sqlMock) }));
+const { savepointSpy } = vi.hoisted(() => ({ savepointSpy: vi.fn((_n: string, fn: () => unknown) => fn()) }));
+vi.mock('@/lib/neon', () => ({
+  sql: sqlMock, withTransaction: (fn: (tx: typeof sqlMock) => unknown) => fn(sqlMock), withSavepoint: savepointSpy,
+}));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
@@ -31,6 +34,7 @@ vi.mock('@/modules/accounting/services/core/contactDirectoryService', () => ({
 }));
 
 import {
+  recomputeAllForCompany,
   recomputeForSupplier,
   ExpectationSupplierNotLiveError,
   type SupplierExpectation,
@@ -262,3 +266,23 @@ describe('recomputeForSupplier', () => {
     expect(result.expectedAmount).toBeCloseTo(105, 0);
   });
 });
+
+describe('recomputeAllForCompany (#1882 L3)', () => {
+  it('recomputes each supplier in its own savepoint, so one failure leaves the request usable for the next', async () => {
+    vi.mocked(sqlMock).mockReset();
+    savepointSpy.mockClear();
+    vi.mocked(sqlMock)
+      .mockResolvedValueOnce([{ supplier_id: 'sup-a' }, { supplier_id: 'sup-b' }] as never) // suppliers with bills
+      .mockRejectedValueOnce(new Error('first supplier fails')) // sup-a: its invoice read
+      .mockResolvedValueOnce([] as never) // sup-b: invoices
+      .mockResolvedValueOnce([] as never) // sup-b: existing expectation
+      .mockResolvedValueOnce([{ id: 'sup-b' }] as never) // sup-b: live, FOR KEY SHARE
+      .mockResolvedValueOnce([makeExpRow({ cadence: 'irregular', sample_size: 0, status: 'learning' })] as never);
+
+    const result = await recomputeAllForCompany(COMPANY_ID);
+
+    expect(savepointSpy.mock.calls.map((c) => c[0])).toEqual(['recompute_expectation', 'recompute_expectation']);
+    expect(result.processed).toBe(1);
+  });
+});
+

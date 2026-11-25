@@ -93,3 +93,11 @@ export async function lockPayeeOfBill(companyId: string, billId: string): Promis
   const supplierId = String(rows[0].supplier_id);
   return { supplierId, live: await lockSupplierIfLive(companyId, supplierId) };
 }
+
+/** Whether the supplier is live, for a caller that already holds its row locked (a refund's FOR UPDATE): a plain read, no lock. */
+export async function isSupplierLive(companyId: string, supplierId: string): Promise<boolean> {
+  const rows = (await sql`
+    SELECT 1 FROM suppliers WHERE id = ${supplierId}::UUID AND company_id = ${companyId}::UUID AND deleted_at IS NULL
+  `) as DbRow[];
+  return rows.length > 0;
+}

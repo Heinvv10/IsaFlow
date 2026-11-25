@@ -3,7 +3,8 @@
  * Learns supplier billing cadence and upserts supplier_expectations.
  */
 
-import { sql, withTransaction } from '@/lib/neon';
+import { sql, withSavepoint, withTransaction } from '@/lib/neon';
+import { RowLockTimeoutError, withRowLockBudget } from '../core/rowLockBudget';
 import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/lib/neon';
@@ -208,11 +209,13 @@ export async function recomputeForSupplier(
   // merge takes the supplier rows and then moves the expectation, so this waits for it and finds the supplier merged away (refused),
   // or holds it until the upsert commits. Never an expectation on a merged-away supplier (breaker of aad49a02, L4).
   const rows = await withTransaction(async (tx) => {
-    const live = await tx`
+    // Bounded (withRowLockBudget, 5 s, a typed retryable RowLockTimeoutError) inside a request; the cron has no request client and
+    // waits for the merge's commit, as every unbounded lock outside a request does (#1882 L3).
+    const live = await withRowLockBudget(async () => await tx`
       SELECT id FROM suppliers
        WHERE id = ${supplierId}::uuid AND company_id = ${companyId}::uuid AND deleted_at IS NULL
          FOR KEY SHARE
-    ` as Row[];
+    ` as Row[], () => new RowLockTimeoutError('A supplier being merged'));
     if (!live[0]) throw new ExpectationSupplierNotLiveError(supplierId);
     return await tx`
     INSERT INTO supplier_expectations (
@@ -267,7 +270,9 @@ export async function recomputeAllForCompany(
 
   for (const row of supplierRows) {
     try {
-      const exp = await recomputeForSupplier(companyId, String(row.supplier_id));
+      // Its own savepoint per supplier: inside a request (the POST recompute-all) a failed statement, a lock timeout above all, would
+      // otherwise abort the request transaction and every later supplier would fail with 25P02 (#1882 L3).
+      const exp = await withSavepoint('recompute_expectation', () => recomputeForSupplier(companyId, String(row.supplier_id)));
       processed++;
       if (exp.status === 'locked') locked++;
     } catch (err) {

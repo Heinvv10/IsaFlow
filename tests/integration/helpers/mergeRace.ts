@@ -71,3 +71,20 @@ export async function dropMergeRaceExtras(pool: Pool, fx: BillFixture): Promise<
     await c.query('COMMIT');
   } catch (err) { await c.query('ROLLBACK'); throw err; } finally { c.release(); }
 }
+
+/** A posted, imported bank line of `amount` (negative: money out) on a fresh bank GL account, in an open June 2026 period. */
+export async function seedBankLine(pool: Pool, fx: BillFixture, amount: number): Promise<string> {
+  const bank = crypto.randomUUID();
+  await pool.query(`INSERT INTO gl_accounts (id, company_id, account_code, account_name, account_type, account_subtype, normal_balance, level, is_active)
+                    VALUES ($1, $2, $3, 'Bank', 'asset', 'bank', 'debit', 3, true)`, [bank, fx.co, `BB-11${bank.slice(0, 4)}`]);
+  await pool.query(`INSERT INTO fiscal_periods (company_id, period_name, period_number, fiscal_year, start_date, end_date, status)
+                    SELECT $1, 'Jun 2026', 4, 2027, '2026-06-01', '2026-06-30', 'open'
+                     WHERE NOT EXISTS (SELECT 1 FROM fiscal_periods WHERE company_id = $1 AND start_date = '2026-06-01')`, [fx.co]);
+  return String((await pool.query(`INSERT INTO bank_transactions (company_id, bank_account_id, transaction_date, amount, description, status)
+                    VALUES ($1, $2, '2026-06-20', $3, 'EFT', 'imported') RETURNING id`, [fx.co, bank, amount])).rows[0].id);
+}
+
+/** The cluster's deadlock count (pg_stat_database): a race test asserts it did not move. */
+export const deadlocks = async (pool: Pool): Promise<number> =>
+  Number((await pool.query('SELECT deadlocks FROM pg_stat_database WHERE datname = current_database()')).rows[0].deadlocks);
+

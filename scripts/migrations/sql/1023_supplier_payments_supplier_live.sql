@@ -4,7 +4,9 @@
 -- racing a supplier merge waited at its FK check (KEY SHARE on the supplier) for the merge's FOR UPDATE and then landed on the
 -- merged-away source, and a payment form opened before the merge wrote onto it with nothing to stop it. The app now locks the payee
 -- live first (core/supplierLiveLock: createSupplierPayment, createBatch via assertBatchAllocatable, the bank-line supplier payment);
--- this trigger is the rule for EVERY writer (old code during a deploy, MCP paths, a direct statement): fail-closed.
+-- this trigger backstops the writers that skip it (old code during a deploy, a path not yet locked): fail-closed. It is SECURITY
+-- INVOKER and reads suppliers under the caller's row security, so a session with no company GUC (outside withAuth) sees no supplier
+-- row and is NOT refused: it covers the app's request writers, not every session.
 --
 -- AFTER INSERT OR UPDATE OF supplier_id, FOR EACH ROW, named so it fires after the FK's RI trigger (AFTER ROW triggers of one event
 -- fire in name order, C collation; 'RI_ConstraintTrigger_c_<oid>' sorts before any lower-case name), so the FK has already waited for

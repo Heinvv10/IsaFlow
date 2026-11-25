@@ -14,6 +14,7 @@ import type { JournalLineInput } from '../../types/gl.types';
 import { planSupplierRefund } from '../ap/supplierRefundDocument';
 import { planCustomerRefund } from '../ar/customerRefundDocument';
 import { BankAllocationRefusal } from './bankAllocationRefusal';
+import { lockSupplierIfLive, SUPPLIER_NOT_LIVE_REFUSAL } from '../core/supplierLiveLock';
 import { isBankEvidenced } from '../ap/bankLinePaymentGate';
 import { assertNoDuplicateTransfer } from './transferDuplicateGuard';
 import { lockTransferPair } from './transferPairLock';
@@ -87,6 +88,10 @@ export async function buildAllocationArm(input: AllocationArmInput): Promise<All
       ];
     }
   } else if (allocType === 'supplier' && entityId) {
+    // A payment's supplier FOR KEY SHARE and live before the journal (supplierLiveLock; bank line -> supplier -> payment): a merge
+    // waits, and a supplier merged away since the screen opened is refused here, not by the payment trigger after the journal
+    // (#1882 L1). A refund takes it FOR UPDATE in planSupplierRefund, which checks it live too.
+    if (isSpent && !(await lockSupplierIfLive(companyId, entityId))) throw new BankAllocationRefusal(SUPPLIER_NOT_LIVE_REFUSAL);
     const apAccountId = await getSystemAccountId('payable', companyId);
     const supRows = (await sql`SELECT name FROM suppliers WHERE id = ${entityId}::UUID AND company_id = ${companyId}::UUID`) as Row[];
     const supName = supRows.length > 0 ? String(supRows[0]!.name) : `Supplier #${entityId}`;
