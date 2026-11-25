@@ -45,7 +45,7 @@ export function foreignCurrencyReasons(o: Raw): string[] {
 /** The VAT rate of a line: its TaxPercentage and/or its TaxTypeId, checked against the rate that applied on the PO date. */
 function lineRate(o: Raw, why: string[], date: string): number | undefined {
   const pct = readNumber(o, 'TaxPercentage', why, { cents: 'any' });
-  const typeId = readId(o, 'TaxTypeId', why, false);
+  const typeId = readId(o, 'TaxTypeId', why, false, true);
   if (pct === undefined || typeId === undefined) return undefined;
   const t = typeId === null ? null : taxTypeFor(typeId);
   if (typeId !== null && !t) { why.push(`TaxTypeId ${typeId} is not a tax type this migration knows (1 standard, 2 zero, 3 exempt)`); return undefined; }
@@ -102,8 +102,8 @@ function parseLine(raw: unknown, i: number, why: string[], date: string): SagePo
   const exclusive = readNumber(raw, 'Exclusive', sub, { cents: 'whole' });
   const tax = readNumber(raw, 'Tax', sub, { cents: 'whole' });
   const rate = lineRate(raw, sub, date);
-  const itemId = readId(raw, 'ItemId', sub, false);
-  const selection = readId(raw, 'SelectionId', sub, false);
+  const itemId = readId(raw, 'ItemId', sub, false, true);
+  const selection = readId(raw, 'SelectionId', sub, false, true);
   if (typeof itemId === 'string' && typeof selection === 'string' && itemId !== selection) sub.push('ItemId and SelectionId name different items');
   why.push(...sub.map((s) => `${at}${s}`));
   if (why.length > before) return undefined;

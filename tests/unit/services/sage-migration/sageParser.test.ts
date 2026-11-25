@@ -99,7 +99,7 @@ describe('container shapes', () => {
     for (const file of [
       { Items: [item], PurchaseOrders: [po({ ItemId: 0 })] }, { Items: [item], PurchaseOrders: [po({ SelectionId: '0' })] },
       { Items: [{ ...item, TaxTypeIdSales: 0 }] }, { Items: [{ ...item, Category: {} }] }, { Items: [{ ...item, Category: { ID: 0, Description: '' } }] },
-    ]) expect(reasons(file)).toMatch(/id 0 \/ empty object: unknown whether Sage means none/);
+    ]) expect(reasons(file)).toMatch(/id 0 \/ empty: unknown whether Sage means none/);
     // still refused, never read as "no item" / "no category"
     expect(parseSageExport({ Items: [item], PurchaseOrders: [po({ ItemId: 0 })] }).purchaseOrders).toHaveLength(0);
     expect(parseSageExport({ Items: [{ ...item, Category: {} }] }).items).toHaveLength(0);

@@ -8,18 +8,27 @@ export type Raw = Record<string, unknown>;
 
 export const isRaw = (v: unknown): v is Raw => typeof v === 'object' && v !== null && !Array.isArray(v);
 
-/** A Sage ID: a positive-looking integer as a number or a digit string. Returned as a string. */
-export function readId(o: Raw, key: string, why: string[], required = true): string | null | undefined {
+/** The words of every refusal of a field Sage may fill with 0 / "" / {} for "none" (an open question: see the design doc). */
+export const SAGE_NONE_UNKNOWN = 'id 0 / empty: unknown whether Sage means none (the row is refused, not guessed)';
+
+/**
+ * A Sage ID: a positive-looking integer as a number or a digit string. Returned as a string.
+ * `mayMeanNone`: a field where Sage may write 0 or "" for "none" (a line's ItemId / SelectionId, a TaxTypeId, a Category's ID). There 0
+ * and "" (or blanks) are refused with SAGE_NONE_UNKNOWN, never read as absent; elsewhere (a row's own ID, SupplierId) 0 is a plain bad id.
+ */
+export function readId(o: Raw, key: string, why: string[], required = true, mayMeanNone = false): string | null | undefined {
   const v = o[key];
-  if (v === undefined || v === null || v === '') {
+  const blank = typeof v === 'string' && v.trim() === '';
+  if (v === undefined || v === null || (blank && !mayMeanNone)) {
     if (required) why.push(`${key} is required`);
     return required ? undefined : null;
   }
+  if (blank) { why.push(`${key} is empty: ${SAGE_NONE_UNKNOWN}`); return undefined; }
   if (typeof v === 'number' && Number.isSafeInteger(v) && v !== 0) return String(v);
   if (typeof v === 'string' && /^-?[1-9]\d{0,17}$/.test(v.trim())) return v.trim();
-  // 0 is Sage's "none" in places, but this export's meaning is not confirmed: the row is refused, never read as "no such id".
-  if (v === 0 || (typeof v === 'string' && /^0+$/.test(v.trim()))) why.push(`${key} is 0: id 0 / empty object: unknown whether Sage means none (the row is refused, not guessed)`);
-  else why.push(`${key} must be a Sage numeric id`);
+  const zero = v === 0 || (typeof v === 'string' && /^0+$/.test(v.trim()));
+  if (zero && mayMeanNone) why.push(`${key} is 0: ${SAGE_NONE_UNKNOWN}`);
+  else why.push(`${key} must be a Sage numeric id${zero ? ' (0 is not one)' : ''}`);
   return undefined;
 }
 

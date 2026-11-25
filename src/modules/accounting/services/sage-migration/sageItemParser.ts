@@ -6,11 +6,11 @@
  * is not stored on SageItem, so nothing downstream can import it as opening stock.
  */
 import type { RowResult, SageItem } from './sageExportTypes';
-import { isRaw, readBool, readId, readNumber, readText, type Raw } from './sageValues';
+import { isRaw, readBool, readId, readNumber, readText, SAGE_NONE_UNKNOWN, type Raw } from './sageValues';
 import { taxTypeFor } from './sageTaxTypes';
 
 function taxField(o: Raw, key: string, why: string[]): SageItem['taxSales'] | undefined {
-  const id = readId(o, key, why, false);
+  const id = readId(o, key, why, false, true);
   if (id === undefined) return undefined;
   if (id === null) return null;
   const t = taxTypeFor(id);
@@ -23,13 +23,15 @@ function category(o: Raw, why: string[]): SageItem['category'] | undefined {
   if (c === undefined || c === null) return null;
   if (!isRaw(c)) { why.push('Category must be an object {ID, Description} or null'); return undefined; }
   const before = why.length;
-  const id = readId(c, 'ID', why);
+  const id = readId(c, 'ID', why, true, true);
   const description = readText(c, 'Description', 255, why);
   if (why.length > before) {
     // An invalid_text fault keeps its own reason (it names the field); any other fault is "needs both".
     if (!why.slice(before).some((w) => w.includes('(invalid_text)'))) {
-      const none = Object.keys(c).length === 0 || why.slice(before).some((w) => w.includes('id 0 /')) || c.Description === '';
-      why.splice(before, why.length - before, none ? 'Category is an empty object, has id 0 or an empty Description: id 0 / empty object: unknown whether Sage means none (the row is refused, not guessed); give both ID and Description, or null for no category' : 'Category needs both ID and Description');
+      // A Description of '' and one of blanks are the same question (readText trims both to nothing).
+      const blankDescription = typeof c.Description === 'string' && c.Description.trim() === '';
+      const none = Object.keys(c).length === 0 || why.slice(before).some((w) => w.includes(SAGE_NONE_UNKNOWN)) || blankDescription;
+      why.splice(before, why.length - before, none ? `Category is an empty object, has an ID of 0 or "", or an empty Description: ${SAGE_NONE_UNKNOWN}; give both ID and Description, or null for no category` : 'Category needs both ID and Description');
     }
     else why.splice(before, why.length - before, ...why.slice(before).map((w) => `Category.${w}`));
     return undefined;
