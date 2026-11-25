@@ -7,7 +7,7 @@ throwaway dump of `runCase` over every fixture at both heads (the five new cases
 harness refuses their `effectiveFrom` / `effectiveTo` / `endDate` keys).
 
 Result: **every existing case is unchanged on every field** (none has a dated component or an end date, so
-`apportionRecurringRows` returns its rows as they were); the ten new cases equal their hand computation exactly; no
+`apportionRecurringRows` returns its rows as they were); the eleven new cases equal their hand computation exactly; no
 `knownGaps.json` or `unverified.json` entry changes.
 
 Review #1901 round 1 (regenerated at that head): three cases added (H1 `leaver-raise-mid-month-sums-to-window`,
@@ -17,6 +17,13 @@ not a four-decimal share): `recurring-start-mid-week-weekly` 1385.98 -> 1386.00.
 
 Review #1901 round 2 (regenerated at that head): two cases added (R2-M1 `leaver-row-ends-on-end-date-mid-month-full`,
 R2-L1 `three-rows-one-amount-sums-to-month`). No `expected` edited; every earlier case unchanged.
+
+Review #1901 round 3 (regenerated at that head): one case added (`leaver-row-after-end-not-paid`, the coordinator's decision
+that a recurring earning starting after the last day is not paid). REPRO 8 (the two leaver readers' successor rule) is a
+reader rule the oracle cannot express (the harness passes components straight to the calculator; rule 11): it is covered
+on real rows by `w7-pra-review3.int` (every successor shape, both readers). Two unmerged cases' INPUT names were made
+equal (`three-rows-one-amount-sums-to-month`, `weekly-split-same-amount-sums-to-whole`) because the harness now keys
+dated rows by code + name; no `expected` edited.
 
 | Case | Source | Expected | Engine before | Engine after | Delta (c) | Disposition |
 |---|---|---|---|---|---|---|
@@ -43,6 +50,7 @@ R2-L1 `three-rows-one-amount-sums-to-month`). No `expected` edited; every earlie
 | ga-maintenance-outside-cap | UNVERIFIED | paye 2115, net 8707.88 | paye 2115, net 8707.88 | paye 2115, net 8707.88 | 0 | unchanged: no field moved (no dated row, no end date) |
 | leaver-mid-month-full-salary | sars-guide:SARS PAYE-GEN-01-G21 Guide … | paye 0, uifEmployee 50, uifEmployer 50, sdl 50, net 4950 | new case (not loadable before) | paye 0, uifEmployee 50, uifEmployer 50, sdl 50, net 4950 | n/a | new W29 case: engine equals expected on every asserted field |
 | leaver-raise-mid-month-sums-to-window | sars-guide:SARS PAYE-GEN-01-G21 Guide … | paye 0, uifEmployee 42.91, uifEmployer 42.91, sdl 42.91, net 4247.99 | new case (not loadable before) | paye 0, uifEmployee 42.91, uifEmployer 42.91, sdl 42.91, net 4247.99 | n/a | new W29 case: engine equals expected on every asserted field |
+| leaver-row-after-end-not-paid | sars-guide:SARS PAYE-GEN-01-G21 Guide … | paye 0, uifEmployee 50, uifEmployer 50, sdl 50, net 4950 | new case (not loadable before) | paye 0, uifEmployee 50, uifEmployer 50, sdl 50, net 4950 | n/a | new W29 case: engine equals expected on every asserted field |
 | leaver-row-ends-on-end-date-mid-month-full | sars-guide:SARS PAYE-GEN-01-G21 Guide … | paye 0, uifEmployee 50, uifEmployer 50, sdl 50, net 4950 | new case (not loadable before) | paye 0, uifEmployee 50, uifEmployer 50, sdl 50, net 4950 | n/a | new W29 case: engine equals expected on every asserted field |
 | monthly-raise-averaged-with-priors | sars-guide:SARS PAYE-GEN-01-G21 Guide … | paye 4579, uifEmployee 177.12, net 25243.88 | paye 4579.03, uifEmployee 177.12, net 25243.85 | paye 4579.03, uifEmployee 177.12, net 25243.85 | 0 | unchanged: no field moved (no dated row, no end date) |
 | offcycle-bonus-after-regular-g21 | sars-guide:SARS PAYE-GEN-01-G21 Guide … | paye 3848, uifEmployee 0, uifEmployer 0 | paye 3848, uifEmployee 0, uifEmployer 0 | paye 3848, uifEmployee 0, uifEmployer 0 | 0 | unchanged: no field moved (no dated row, no end date) |
