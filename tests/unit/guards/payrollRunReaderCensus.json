@@ -62,6 +62,9 @@
   {"file":"src/modules/accounting/services/ask/askTax.ts","line":69,"text":"const run = await getDeclarablePayRun(companyId, t ? { year: t.y, month: t.m } : null);","class":"S","owner":"FQb2","why":"a named month answers with that month's regular run (getDeclarablePayRun prefers it, FQb1); the month's other final runs are named with the combined gross (askPayRunMonth, review #1549 L4)"}
  ],
  "rows": {
+  "pages/api/payroll/runs/[id]/recurring-share.ts": [
+   {"line":33,"text":"const row = ((await sql`SELECT id FROM payroll_run_headers WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid`) as DbRow[])[0];","class":"S","owner":"PRA","why":"W29 review #1901 M2: by run id"}
+  ],
   "pages/api/payroll/runs/[id]/frequency-change.ts": [
    {"line":33,"text":"const row = ((await sql`SELECT * FROM payroll_run_headers WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid`) as DbRow[])[0];","class":"S","owner":"FQb1","why":"FQd (breaker #1622 M2): by run id"}
   ],
@@ -437,6 +440,10 @@
   ],
   "src/modules/accounting/services/payroll/payrollRunOrder.ts": [
    {"line":43,"text":"const ref = `FROM payroll_run_headers order_ref WHERE order_ref.id = ${literal(runId)} AND order_ref.company_id = ${literal(companyId)}`;","class":"S","owner":"FQc","why":"runIsBeforeSql: the reference run, by id and company"}
+  ],
+  "src/modules/accounting/services/payroll/payrollRecurringShareAck.ts": [
+   {"line":39,"text":"JOIN payroll_run_headers h ON h.id = l.run_id AND h.company_id = ${companyId}::uuid","class":"S","owner":"PRA","why":"W29 review M2: the run's own lines, by run id"},
+   {"line":49,"text":"JOIN payroll_run_headers h ON h.id = a.entity_id AND h.company_id = ${companyId}::uuid","class":"S","owner":"PRA","why":"W29 review M2: acknowledgements bound to this company's run, by run id"}
   ],
   "src/modules/accounting/services/payroll/payrollRunPeriodInputsRead.ts": [
    {"line":47,"text":"SELECT pec.id FROM payroll_employee_components pec","class":"S","owner":"FQc","why":"FQc converted (R, F2): once-off inputs keyed by the run's own dates (monthBounds uses period start/end)"},
