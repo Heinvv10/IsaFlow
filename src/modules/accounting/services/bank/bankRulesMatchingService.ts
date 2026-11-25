@@ -8,10 +8,9 @@ import { sql, withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { getSystemAccountId } from '../gl/systemAccountResolver';
 import type { RuleApplyResult } from '../../types/bank.types';
-import {
-  findMatchingTxs, MAX_RULE_CANDIDATES, type RuleAllocType,
-} from './bankRulesMatchingHelpers';
+import { findMatchingTxs, MAX_RULE_CANDIDATES, type RuleAllocType } from './bankRulesMatchingHelpers';
 import { applySuggestionRules, rulePattern } from './bankRulesSuggestionPass';
+import { MergedRuleSkips } from './bankRuleSupplierMerged';
 import { autoPostRuleLine } from './bankRuleAutoPostLine';
 import { autoPostRuleTransferLine } from './bankRuleTransferLine';
 import { sweepLineSkip } from './bankRuleSweepSkips';
@@ -123,7 +122,7 @@ export async function applyRules(
     const transferLocks = bankGlAccountId ? await preLockRuleTransfers(companyId, bankAccountId, bankGlAccountId, autoCreateRules,
       ruleAccountIsBank, ruleAccountIsControl) : { matches: new Map<string, Record<string, unknown>[]>(), contended: new Set<string>() };
     const postedThisRun = new Set<string>(); // #1494 rev 2: this sweep's own posts, kept out of later transfer rules
-    let autoPostSkippedOwnBankContra = 0, autoPostSkippedDuplicateTransfer = 0; // onto the swept bank itself; already in the ledger
+    let autoPostSkippedOwnBankContra = 0, autoPostSkippedDuplicateTransfer = 0; const merged = new MergedRuleSkips(); // own bank; in ledger; merged supplier (#1882 M1)
 
     for (const rule of (bankGlAccountId ? autoCreateRules : [])) {
       const pattern = rulePattern(rule);
@@ -248,10 +247,12 @@ export async function applyRules(
           else if (skip === 'duplicate_transfer') autoPostSkippedDuplicateTransfer++;
           else if (skip === 'approval_required') autoPostSkippedApprovalRequired++;
           else if (skip === 'closed_period') autoPostSkippedClosedPeriod++; // a period closed under a transfer line
+          else if (skip === 'supplier_merged') merged.add(ruleName, ruleSupplierId ?? ''); // a refund's supplier merged meanwhile
           else autoPostSkippedLocked++;
           continue;
         }
         if (outcome.kind === 'raced') { autoPostSkippedRaced++; continue; }
+        if (outcome.kind === 'supplier_merged') { merged.add(ruleName, ruleSupplierId ?? ''); continue; } // re-point the rule
         if (outcome.kind === 'no_period') { autoPostSkippedNoPeriod++; continue; }
         if (outcome.kind === 'closed_period') { autoPostSkippedClosedPeriod++; continue; }
         if (outcome.kind === 'vat_period_locked') { autoPostSkippedVatLocked++; continue; }
@@ -288,7 +289,7 @@ export async function applyRules(
       autoPostSkippedHeaderAccount, autoPostSkippedControlAccount, autoPostSkippedUnknownVatCode, autoPostSkippedRefundCeiling, autoPostSkippedApprovalRequired, autoPostSkippedRaced,
       autoPostSkippedLocked, autoPostRulesSkippedForeignContact,
       autoPostTruncatedRules, autoPostVatDenied, autoPostNonSupply,
-      autoPostSkippedOwnBankContra, autoPostSkippedDuplicateTransfer,
+      autoPostSkippedOwnBankContra, autoPostSkippedDuplicateTransfer, autoPostSkippedSupplierMerged: merged.count, autoPostSupplierMergedRules: await merged.describe(companyId),
     };
     log.info('Applied bank rules', { bankAccountId, applied: totalApplied, skipped, ...counts }, 'accounting');
     return { applied: totalApplied, skipped, entries, ...counts };

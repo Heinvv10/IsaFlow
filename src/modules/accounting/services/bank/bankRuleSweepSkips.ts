@@ -9,10 +9,11 @@ import { VatPeriodLockedError } from '../gl/journalVatLockGuard';
 import { isHeaderAccountRefusal } from '../gl/headerAccountGuard';
 import { isSupplierRefundRefusal } from '../ap/supplierRefundDocument';
 import { transferRuleSkip } from './bankRuleTransferLine';
+import { SUPPLIER_NOT_LIVE_REFUSAL } from '../core/supplierLiveLock';
 
 export type SweepLineSkip =
   | 'vat_locked' | 'header_account' | 'refund_ceiling' | 'locked' | 'duplicate_transfer' | 'approval_required'
-  | 'closed_period';
+  | 'closed_period' | 'supplier_merged';
 
 export function sweepLineSkip(lineErr: unknown): SweepLineSkip | null {
   // createJournalEntry refuses a VAT-moving line dated in a locked VAT period before its draft exists; the line's
@@ -20,6 +21,8 @@ export function sweepLineSkip(lineErr: unknown): SweepLineSkip | null {
   if (lineErr instanceof VatPeriodLockedError) return 'vat_locked';
   // Refused before its draft exists, like the VAT lock: a skip the run reports, never a run-wide abort.
   if (isHeaderAccountRefusal(lineErr)) return 'header_account';
+  // A refund whose supplier was merged away between the line's liveness read and planSupplierRefund's lock: not a ceiling (#1882 M1).
+  if (isSupplierRefundRefusal(lineErr) && (lineErr as Error).message === SUPPLIER_NOT_LIVE_REFUSAL) return 'supplier_merged';
   if (isSupplierRefundRefusal(lineErr)) return 'refund_ceiling'; // AP or AR refund ceiling
   // WP2 row 5: a transfer rule's movement already in the ledger, or a line an enforced rule / the importer control
   // holds (allocateTransaction's own refusals, from reads before the first write).

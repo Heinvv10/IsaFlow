@@ -42,6 +42,7 @@ import { lockStandingChainHead } from '../shared/journalChainHead';
 import { JournalReversalLockTimeoutError } from '../gl/journalEntryReversalClaim';
 import { SupplierPaymentRefusal } from './supplierPaymentRefusal';
 import { withRowLockBudget } from '../core/rowLockBudget';
+import { lockSupplierIfLive, SUPPLIER_NOT_LIVE_REFUSAL } from '../core/supplierLiveLock';
 import { assertBankLineMayPaySupplier } from './bankLinePaymentGate';
 import { assertImporterMayAllocate } from '../bank/bankLineImporterGate';
 
@@ -131,7 +132,7 @@ export async function claimEvidencedProvisional(
   actorUserId: string,
 ): Promise<ProvisionalClaim | null> {
   const [inv] = (await sql`
-    SELECT source_document_id, invoice_date FROM supplier_invoices
+    SELECT source_document_id, invoice_date, supplier_id::TEXT AS supplier_id FROM supplier_invoices
     WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID
   `) as DbRow[];
   if (!inv?.source_document_id) return null;
@@ -201,6 +202,10 @@ export async function claimEvidencedProvisional(
     await assertBankLineMayPaySupplier(companyId, c, bankAmount);
     // Step 2 (Hein, decision 2): nor may the person who imported the line's statement settle it — BankControlError 403.
     await assertImporterMayAllocate(companyId, c, actorUserId, 'supplier_payment');
+    // The settlement writes a supplier payment: its supplier live, FOR KEY SHARE, here before the bill's journal (supplierLiveLock),
+    // so a supplier deleted meanwhile is this refusal, not the payment trigger's raw 23503 after the journal (#1882 L1). Taken only
+    // when a claim is returned: the payment INSERT's FK took the same supplier lock later, after the journal; now it comes first.
+    if (!(await lockSupplierIfLive(companyId, String(inv.supplier_id)))) throw new SupplierPaymentRefusal(SUPPLIER_NOT_LIVE_REFUSAL);
     return {
       journalEntryId: jeId, entryNumber, bankTxId: String(c.bt_id), bankAccountId, bankAmount, settleLines, reclassDate,
     };

@@ -25,7 +25,7 @@ const releases = [
 ];
 const code = {
   code: '3601', effective_year: 2027, category: 'income', description: 'Salary', status: 'active', foreign_code: '3651',
-  code_pair: null, applicability_note: null, source_document: null, source_url: null, official_excerpt: null,
+  code_pair: null, applicability_note: null, source_document: null, source_url: null,
   brs_version: '24.0.1', imported_at: '2026-03-01', used_by_companies: 3,
 };
 let confirmSpy: ReturnType<typeof vi.fn>;

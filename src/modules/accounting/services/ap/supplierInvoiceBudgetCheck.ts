@@ -22,6 +22,7 @@ import { fmtDate } from '@/lib/fmtDate';
 import { buildExpenseLines } from './supplierInvoiceExpenseLines';
 import { getSupplierInvoiceById } from './supplierInvoiceService';
 import { lockSupplierInvoiceForUpdate } from './supplierInvoiceLock';
+import { lockSettlingPayeeBeforeBill } from './draftBillSupplierLocks';
 import {
   checkDocumentBudget, evaluateDocumentLines, gateFor, readCheckPolicy,
 } from '../budgets/budgetCheck';
@@ -57,6 +58,8 @@ export function openBillBudgetGate(companyId: string, ctx: BudgetCheckContext | 
  */
 export async function lockBillAfterBudgetGate(companyId: string, id: string, ctx: BudgetCheckContext | undefined): Promise<BudgetGate | null> {
   const gate = await openBillBudgetGate(companyId, ctx);
+  // Gate -> supplier -> bill: a bill a bank-first provisional may settle writes a supplier payment, so its supplier first (#1882 L1).
+  await lockSettlingPayeeBeforeBill(companyId, id);
   return (await lockSupplierInvoiceForUpdate(companyId, id)) ? gate : null;
 }
 

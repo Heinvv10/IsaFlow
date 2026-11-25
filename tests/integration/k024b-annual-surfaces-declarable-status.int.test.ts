@@ -6,9 +6,9 @@
  * surfaces on the same table were left behind:
  *   - pages/api/payroll/irp5/summary.ts had NO status predicate at all, so the
  *     review screen disagreed with the file it previews.
- *   - pages/api/payroll/year-end/status.ts carried the same wrong triple
- *     ('approved','posted','calculated') the reconciliation had, giving a
- *     second EMP501 balance check that disagrees with the first.
+ *   - pages/api/payroll/year-end/status.ts (deleted, W31) carried the same wrong
+ *     triple ('approved','posted','calculated') the reconciliation had; its
+ *     assertions now run on the EMP501 reconciliation, the surviving balance check.
  *
  * These tests pin every annual surface to the same run set, and pin the 400 on
  * a malformed taxYear that three of these routes were missing.
@@ -18,7 +18,6 @@ import { Pool } from 'pg';
 import { SignJWT } from 'jose';
 import irp5Summary from '../../pages/api/payroll/irp5/summary';
 import easyfileExport from '../../pages/api/payroll/irp5/easyfile-export';
-import yearEndStatus, { type YearEndStatus } from '../../pages/api/payroll/year-end/status';
 import reconciliation, { type Emp501Summary } from '../../pages/api/payroll/emp501/reconciliation';
 import { assertDisposable, request } from './mfa-impersonation-postgres.helpers';
 
@@ -160,28 +159,23 @@ it('the IRP5 summary screen aggregates the same runs the e@syFile export writes'
   expect(String(result.state.body).split(/\r?\n/)).toContain(`3601,${hopper?.totalGross}`);
 });
 
-it('the year-end checklist reports the same runs and agrees with the EMP501 reconciliation', async () => {
-  const status = await call<YearEndStatus>(yearEndStatus, '/api/payroll/year-end/status');
-  expect(status.status).toBe(200);
+it('the EMP501 reconciliation reports the declarable runs only: two months, balanced against the IRP5 summary (W31: moved from the year-end checklist)', async () => {
   // Two declarable months (Mar approved, Jun paid), not the calculated or
   // cancelled ones and not the prior tax year.
-  expect(status.data.payrollRuns).toMatchObject({ monthsCovered: 2, totalPaye: 3000 });
-  expect(status.data.emp501).toMatchObject({
-    balanced: true, totalEmp201: 3000, totalIrp5: 3000, totalVariance: 0,
-  });
-  expect(status.data.employees.withPayroll).toBe(1);
-
-  // The second EMP501 balance check must not disagree with the first.
   const recon = await call<Emp501Summary>(reconciliation, '/api/payroll/emp501/reconciliation');
-  expect(status.data.emp501.totalEmp201).toBe(recon.data.totalEmp201);
-  expect(status.data.emp501.totalIrp5).toBe(recon.data.totalIrp5);
+  expect(recon.status).toBe(200);
+  expect(recon.data).toMatchObject({ totalEmp201: 3000, totalIrp5: 3000, totalVariance: 0 });
+  expect(recon.data.rows.filter((r) => r.emp201Paye > 0)).toHaveLength(2);
+  expect(recon.data.rows.every((r) => r.status === 'balanced' || r.status === 'no_data')).toBe(true);
+  const summary = await call<Irp5SummaryPayload>(irp5Summary, '/api/payroll/irp5/summary');
+  expect(summary.data.employees.filter((e) => e.totalGross > 0)).toHaveLength(1);
+  expect(recon.data.totalIrp5).toBe(summary.data.totalPayeSubmitted);
 });
 
 it('rejects a malformed taxYear with 400 rather than a Postgres 22P02', async () => {
   for (const [name, handler] of [
     ['easyfile-export', easyfileExport],
     ['reconciliation', reconciliation],
-    ['year-end/status', yearEndStatus],
   ] as const) {
     const result = await call(handler as never, `/api/payroll/${name}`, 'abc');
     expect(result.status, name).toBe(400);
@@ -195,9 +189,6 @@ it('an approved run with no approval time is on no annual surface and each names
   const summary = await call<Irp5SummaryPayload & { runWarnings: string[] }>(irp5Summary, '/api/payroll/irp5/summary');
   expect(summary.data.totalPayeSubmitted).toBe(3000);
   expect(named(summary.data.runWarnings)).toHaveLength(1);
-  const status = await call<YearEndStatus>(yearEndStatus, '/api/payroll/year-end/status');
-  expect(status.data.payrollRuns).toMatchObject({ monthsCovered: 2, totalPaye: 3000 });
-  expect(named(status.data.runWarnings)).toHaveLength(1);
   const recon = await call<Emp501Summary>(reconciliation, '/api/payroll/emp501/reconciliation');
   expect(recon.data.totalEmp201).toBe(3000);
   expect(named(recon.data.runWarnings)).toHaveLength(1);

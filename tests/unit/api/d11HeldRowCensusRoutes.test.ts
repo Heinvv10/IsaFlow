@@ -7,6 +7,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { NextApiRequest, NextApiResponse } from 'next';
 
+// The supplier live lock needs a request transaction (core/supplierLiveLock). Here it runs its one statement through the mocked
+// `sql`, as it did before it asserted the transaction, so the queued answers line up; its wait and refusal are integration-tested.
+vi.mock('@/modules/accounting/services/core/supplierLiveLock', async (orig) => {
+  const { sql: q } = await import('@/lib/neon');
+  return {
+    ...(await orig<typeof import('@/modules/accounting/services/core/supplierLiveLock')>()),
+    lockSupplierIfLive: async () => ((await q`SELECT id FROM suppliers FOR KEY SHARE`) as unknown[] | undefined ?? []).length > 0,
+  };
+});
 vi.mock('@/modules/accounting/services/bank/bankAllocationPeriod', () => ({ allocationPeriodFor: async () => 'fp-open' })); // WP2 row 12: proven in bank-wp2-12-posters.int
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 vi.mock('@/lib/auth/permissionService', async (orig) => (await import('../helpers/modulePermissionMock')).permissionServiceAllowing(await orig<object>())); // #1656: the module gate is proven in approvePermissionPaths / payrollModuleCensus

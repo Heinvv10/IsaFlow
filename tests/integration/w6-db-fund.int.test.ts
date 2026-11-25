@@ -17,7 +17,6 @@ import approve from '../../pages/api/payroll/runs/[id]/approve';
 import journalPlan from '../../pages/api/payroll/runs/[id]/journal-plan';
 import calculate from '../../pages/api/payroll/runs/[id]/calculate';
 import irp5Summary from '../../pages/api/payroll/irp5/summary';
-import yearEndStatus from '../../pages/api/payroll/year-end/status';
 import { assignEmployeeComponentTool } from '../../src/lib/mcp/tools/writeEmployees';
 import { employerFundContributionFields } from '../../src/modules/accounting/services/payroll/easyFileRetirementFields';
 import { getIrp5EmployeeTotals } from '../../src/modules/accounting/services/payroll/irp5DataService';
@@ -293,7 +292,7 @@ describe('para 12D(6) member with a 4001: warned at calculate, refused at IRP5 r
     expect(fringe).toEqual([{ sourceCode: '3817', amount: 0, employerPaid: 0, retiredMemberPaid: 2000 }]);
   });
 
-  it('the IRP5 summary names the employee with IRP5_DB_RETIRED_MEMBER_4001 (error); the year-end status counts it; A has none', async () => {
+  it('the IRP5 summary names the employee with IRP5_DB_RETIRED_MEMBER_4001 (error); A has none', async () => {
     const name = (await pool.query<{ n: string }>("SELECT first_name || ' ' || last_name AS n FROM payroll_employees WHERE id = $1", [emp[C]])).rows[0]!.n;
     const sum = await callC(irp5Summary as Route, 'GET', '/api/payroll/irp5/summary', undefined, { company: C, query: { taxYear: '2027' } });
     expect(sum.statusCode).toBe(200);
@@ -301,12 +300,11 @@ describe('para 12D(6) member with a 4001: warned at calculate, refused at IRP5 r
       .employees.find((e) => e.employeeId === emp[C])!;
     const msg = row.messages.find((m) => m.code === 'IRP5_DB_RETIRED_MEMBER_4001');
     expect([msg?.severity, msg?.message.startsWith(`${name}: a retired defined-benefit fund member`), msg?.message.includes('"4001 must be zero"')]).toEqual(['error', true, true]);
-    // C has one employee: the year-end count is that row's errors, this one included (the fixture's SARS code table is empty,
-    // so IRP5_UNKNOWN_CODE errors sit beside it in both).
+    // The row carries this one error once (the fixture's SARS code table is empty, so IRP5_UNKNOWN_CODE errors sit beside it).
+    // W31: the year-end checklist's readiness.errors count was this same row's errors; the summary is the surviving reader.
     const errors = row.messages.filter((m) => m.severity === 'error');
     expect(errors.filter((m) => m.code === 'IRP5_DB_RETIRED_MEMBER_4001')).toHaveLength(1);
-    const status = await callC(yearEndStatus as Route, 'GET', '/api/payroll/year-end/status', undefined, { company: C, query: { taxYear: '2027' } });
-    expect((status.body.data as { readiness: { errors: number } }).readiness.errors).toBe(errors.length);
+    expect(row.status).toBe('incomplete');
     const sumA = await call(irp5Summary as Route, 'GET', '/api/payroll/irp5/summary', undefined, { company: A, query: { taxYear: '2027' } });
     expect(JSON.stringify(sumA.body.data)).not.toContain('IRP5_DB_RETIRED_MEMBER_4001');
   });
