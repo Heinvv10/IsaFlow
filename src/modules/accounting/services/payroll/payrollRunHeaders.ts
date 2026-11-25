@@ -42,6 +42,12 @@ export interface PayrollRunSummary {
   /** A cancelled off-cycle run (wave 6 OC): when, and who by (getPayrollRun only); null otherwise. */
   cancelledAt?: string | null;
   cancelledByName?: string | null;
+  /** Wave 7 MP (migration 1053): a run marked paid: when it was recorded, the payment date, the typed bank reference (null when a
+   *  confirmed bank file evidenced it) and who recorded it (getPayrollRun only). Null otherwise. */
+  paidAt?: string | null;
+  paidOn?: string | null;
+  paidReference?: string | null;
+  paidByName?: string | null;
   /** Final (payRunIsFinal: approved or paid, with an approval time), where the row read carries the stamps (the list). */
   final?: boolean;
 }
@@ -68,6 +74,10 @@ export function mapRunRow(r: Row): PayrollRunSummary {
     periodEnd: dateColumnOf(r.period_end),
     runDate: dateColumnOf(r.run_date),
     cancelledAt: r.cancelled_at == null ? null : new Date(String(r.cancelled_at instanceof Date ? r.cancelled_at.toISOString() : r.cancelled_at)).toISOString(),
+    paidAt: r.paid_at == null ? null : new Date(String(r.paid_at instanceof Date ? r.paid_at.toISOString() : r.paid_at)).toISOString(),
+    paidOn: dateColumnOf(r.paid_on),
+    paidReference: r.paid_reference == null ? null : String(r.paid_reference),
+    ...(r.paid_by_name !== undefined ? { paidByName: r.paid_by_name == null ? null : String(r.paid_by_name) } : {}),
     ...(r.cancelled_by_name !== undefined ? { cancelledByName: r.cancelled_by_name == null ? null : String(r.cancelled_by_name) } : {}),
     ...('approved_at' in r ? { final: payRunIsFinal({ status: String(r.status), approvedAt: r.approved_at, approvalGrandfatheredAt: r.approval_grandfathered_at }) } : {}),
   };
@@ -155,7 +165,10 @@ export async function getPayrollRun(
   // The canceller's name through approval_company_member_name (mig 714), the company's own member view (wave 6 OC).
   const rows = (await sql`
     SELECT h.*, CASE WHEN h.cancelled_by IS NULL THEN NULL
-                     ELSE public.approval_company_member_name(h.company_id, h.cancelled_by::text) END AS cancelled_by_name
+                     ELSE public.approval_company_member_name(h.company_id, h.cancelled_by::text) END AS cancelled_by_name,
+           -- paid_by through to_jsonb (migration 1053): this read also runs on a database that has not applied it yet.
+           CASE WHEN to_jsonb(h) ->> 'paid_by' IS NULL THEN NULL
+                ELSE public.approval_company_member_name(h.company_id, to_jsonb(h) ->> 'paid_by') END AS paid_by_name
       FROM payroll_run_headers h
      WHERE h.id = ${id}::uuid AND h.company_id = ${companyId}::uuid
   `) as Row[];

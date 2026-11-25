@@ -2,7 +2,8 @@
  * Wave 6 FQd, breaker #1622 L-J: the legacy EMP201 mark_submitted judges the month's runs under the lock the lifecycle
  * finalise takes (FOR SHARE on the month's run headers, in the request's transaction, held to its commit). A reopen
  * started after that check cannot commit before the mark does: it waits on the header (or gives up on its lock
- * bound), so the month is never marked filed with a run reopened under it.
+ * bound), so the month is never marked filed with a run reopened under it. Since wave 7 EL (W25) the reopen, finishing
+ * after the mark, is refused (409 EMP201_FILED): the run stays approved under the submitted EMP201.
  *
  * The window: emp201NotFinalRefusal is wrapped to pause after the check, while a reopen of the month's run is sent.
  *
@@ -49,7 +50,7 @@ beforeAll(async () => {
 afterAll(async () => { await dropReturnRows(a.pool, a.company); await cleanup(a); });
 
 describe('L-J: a reopen racing the legacy mark_submitted', () => {
-  it('cannot commit between the check and the mark: it finishes after the mark, or gives up', async () => {
+  it('cannot commit between the check and the mark: it finishes after the mark and is refused, or gives up', async () => {
     let release!: () => void;
     gate.pause = new Promise<void>((r) => { release = r; });
     const reached = new Promise<void>((r) => { gate.reached = r; });
@@ -65,8 +66,11 @@ describe('L-J: a reopen racing the legacy mark_submitted', () => {
     const [m, r] = await Promise.all([mark, reopen]);
     expect(m.statusCode).toBe(200);
     expect(order[0]).toBe('mark');
-    // The reopen then runs (200) or gave up on its lock bound (503): never before the mark.
-    expect([200, 503]).toContain(r.statusCode);
+    // Wave 7 EL (W25): the reopen judges the month after the mark committed, so it sees the month's EMP201 submitted and
+    // is refused 409 EMP201_FILED (or gave up on its lock bound, 503). A 200 would be a run reopened under a filed EMP201.
+    expect([409, 503]).toContain(r.statusCode);
+    if (r.statusCode === 409) expect(JSON.stringify(r.body)).toContain('EMP201_FILED');
+    expect((await a.pool.query('SELECT status FROM payroll_run_headers WHERE id = $1', [run])).rows[0]!.status).toBe('approved');
     expect((await a.pool.query('SELECT status FROM sars_submissions WHERE id = $1', [draft])).rows[0]!.status).toBe('submitted');
   }, 60_000);
 });

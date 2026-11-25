@@ -44,7 +44,15 @@ describe('pay-run approval mutation census', () => {
       }
     }
     expect(writers.length).toBeGreaterThan(0); // the scan finds the approve UPDATE, so it is not vacuous
-    expect(writers.filter((w) => w.endsWith('MISSING approved_at'))).toEqual([]);
+    // Wave 7 MP: mark paid moves an ALREADY final run approved -> paid. It must keep the approval's approved_at (999n
+    // freezes the stamps while a run stays approved/paid; payslip finality reads them), so it names no approved_at.
+    // Exempt only while its UPDATE is predicated on status = 'approved' (it never finalises a run that was not final).
+    const KEEPS_APPROVED_AT = 'src/modules/accounting/services/payroll/payrollRunMarkPaid.ts';
+    const markPaid = source(KEEPS_APPROVED_AT).match(/UPDATE\s+payroll_run_headers[^`]*/)?.[0] ?? '';
+    expect(markPaid).toMatch(/SET status = 'paid'/);
+    expect(markPaid).toMatch(/WHERE[^`]*AND status = 'approved'/);
+    expect(markPaid).not.toMatch(/approved_at\s*=/);
+    expect(writers.filter((w) => w.endsWith('MISSING approved_at') && !w.startsWith(`${KEEPS_APPROVED_AT}:`))).toEqual([]);
   });
 
   it('records the six distinct human/control stages plus decline', () => {

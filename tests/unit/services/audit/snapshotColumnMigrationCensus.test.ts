@@ -111,6 +111,10 @@ const READ_BY_HAND = new Set([
   // 999n (2026-11-17, wave 6 FZ freeze): EXECUTE only as EXECUTE FUNCTION in its CREATE TRIGGERs (some on
   // gl_journal_entries / gl_journal_lines) and GRANT EXECUTE ON FUNCTION. Triggers only: no column added, renamed or rebuilt.
   '999n_freeze_final_pay_runs_and_posted_journals.sql',
+  // 1053 (2026-11-25, wave 7 MP mark paid): EXECUTE only as EXECUTE FUNCTION in its CREATE TRIGGERs on payroll_run_headers;
+  // "journal" is the header's journal_entry_id read through gl_journal_in_force (1018) and comments. Its ALTERs are on
+  // payroll_run_headers only: no DDL on gl_journal_entries / gl_journal_lines, no dynamic SQL.
+  '1053_payroll_run_mark_paid.sql',
   // 999r (2026-11-17, company-group row security): EXECUTE only as EXECUTE FUNCTION in CREATE TRIGGER; "journal" is the
   // read-only definer rls_intercompany_parties_ok's check that a journal entry id belongs to its company. No DDL on
   // gl_journal_entries / gl_journal_lines, no dynamic SQL.
