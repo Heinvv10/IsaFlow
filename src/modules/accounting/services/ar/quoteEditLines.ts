@@ -2,16 +2,20 @@
  * A quote edit's sent lines matched to its stored lines (quoteLineTax), for two things: the VAT type a sent line with
  * no type of its own keeps, and whether a LEGACY quote's edit left its lines exactly as stored.
  *
- * A line with an `id` takes that stored line. Otherwise one rule decides, by what the saved quote holds:
+ * A line with an `id` takes that stored line; an `id` this quote does not hold (another quote's, or one sent twice) is
+ * never guessed: refused (unknownIdProblem, a 400). Otherwise one rule decides, by what the saved quote holds:
  *
- *   ONLY STANDARD lines saved (the VAT type is not at risk; the item and account are), round 12's STRUCTURAL rule: a
- *     line with no id takes a stored line's item and account ONLY (a) at its OWN place, on the same description
- *     (trimmed, case-insensitive), or renamed there naming the place's own item; or (b) by a description UNIQUE among
- *     the stored lines. Same-description stored twins all carrying the same item and account are interchangeable and
- *     pair freely (so does a unique one: sent twins of it pair in order, the rest are new lines). Any other line whose description has stored twins of different items or
- *     accounts is AMBIGUOUS, and refused (unmatchedVatProblem: a 400 asking for the saved line's id, or an explicit
- *     itemId and accountId), as is a line at its place naming an item that ANOTHER same-description twin carries (moved
- *     or re-itemed: it cannot be told). A line with no stored line of its description is a new line.
+ *   ONLY STANDARD lines saved (the VAT type is not at risk; the item and account are), round 13's ORDER of decision for
+ *     a line with no id (descriptions trimmed, case-insensitive; every step needs a free stored line of a compatible rate):
+ *       1. CONTENT: identical (description, quantity, price, the item if sent) to exactly one free stored line, or to
+ *          twins all carrying one item and account (interchangeable, paired in order): that line;
+ *       2. PLACE: the same description as the stored line at its own place: that line, unless it names an item that
+ *          another same-description stored line (free before this step) carries: moved or re-itemed, AMBIGUOUS;
+ *       3. UNIQUE: a description held by one stored line, or by twins all carrying one item and account: that line;
+ *       4. RENAMED: a description NO stored line holds, naming the item of the stored line at its own place: that line;
+ *       5. otherwise a line whose description has stored twins of different items or accounts, one of them still free,
+ *          is AMBIGUOUS and refused (unmatchedItemProblem: a 400 asking for the saved line's id, or an explicit itemId
+ *          and accountId); any other line is a new line.
  *   A ZERO-RATED or EXEMPT line saved (a legacy 0% line counts): a typeless line inherits a saved type ONLY from a
  *     POSITIONAL resend: the same number of lines, each identical to the saved line in its own place and of a
  *     compatible rate, except at most one changed in place (its price, quantity, or its description or its item, not
@@ -87,6 +91,8 @@ const nonStandard = (s: StoredQuoteVatLine) => typeOf(s) === 'zero_rated' || typ
 /** A description as compared: trimmed and lower-cased; a missing or non-string one (a bare API body) reads as empty. */
 const descOf = (d: unknown) => (typeof d === 'string' ? d.trim().toLowerCase() : '');
 const idOf = (v: unknown): string | null => (typeof v === 'string' && v !== '' ? v.toLowerCase() : null);
+/** A line that carries an id (anything but missing, null or ''): it is matched by that id or refused, never by content. */
+const hasId = (l: SentQuoteLine) => l.id !== undefined && l.id !== null && l.id !== '';
 /** An item id as compared: lower-cased; null, '' and a missing one all mean no item. Shared with quoteLineTax.lineRefs. */
 export const normalItem = (v: unknown): string | null => (typeof v === 'string' && v !== '' ? v.toLowerCase() : null);
 const itemOf = (l: SentQuoteLine): string | null => normalItem(l.itemId);
@@ -127,7 +133,7 @@ export function matchQuoteLines(sent: readonly SentQuoteLine[], stored: readonly
   const out: (LineMatch | null)[] = sent.map(() => null);
   const compatible = (l: SentQuoteLine, s: StoredQuoteVatLine) => !given(l.taxRate) || Number(l.taxRate) === rateOn(s, date);
   const free = (j: number) => j >= 0 && j < stored.length && !used.has(j);
-  // The ONE place a match is made, by every path (id, positional, the standard-only rule): `identical` (what "unchanged" reads) also
+  // The ONE place a match is made, by every path (id, positional, the standard-only order): `identical` (what "unchanged" reads) also
   // needs a compatible rate, so a line sent by id at another legacy rate keeps its identity but is never unchanged.
   const take = (i: number, j: number) => {
     used.add(j);
@@ -146,35 +152,43 @@ export function matchQuoteLines(sent: readonly SentQuoteLine[], stored: readonly
   return { matches: out, sensitive, positional: false, ambiguous: standardOnly(sent, stored, out, free, take, compatible) };
 }
 
-/** Item and account by the standard-only structural rule (see the header); returns the ambiguous lines. */
+/** Item and account by the standard-only order of decision (see the header); returns the ambiguous lines. */
 function standardOnly(sent: readonly SentQuoteLine[], stored: readonly StoredQuoteVatLine[], out: readonly (LineMatch | null)[],
   free: (j: number) => boolean, take: (i: number, j: number) => void, compatible: Fits): number[] {
   const ambiguous: number[] = [];
-  const twinsOf = (l: SentQuoteLine) => stored.flatMap((s, j) => (sameDescription(l, s) ? [j] : []));
-  const itemAccount = (s: StoredQuoteVatLine) => `${normalItem(s.itemId)}|${s.accountId ?? ''}`;
-  // (a) At its own place: the same description, or renamed there naming the place's own item. A line naming an item that
-  // another same-description twin carries is not resolved by its place (moved, or re-itemed: it cannot be told).
+  const open = (i: number) => !out[i] && !hasId(sent[i]!) && !ambiguous.includes(i);
+  const twinsOf = (l: { description: string }) => stored.flatMap((s, j) => (descOf(l.description) === descOf(s.description) ? [j] : []));
+  const itemAccount = (j: number) => `${normalItem(stored[j]!.itemId)}|${stored[j]!.accountId ?? ''}`;
+  const oneKind = (js: readonly number[]) => js.length > 0 && new Set(js.map(itemAccount)).size === 1;
+  const fits = (l: SentQuoteLine, j: number) => free(j) && compatible(l, stored[j]!);
+  // 1. Content: identical to exactly one free stored line, or to interchangeable twins (the first free one).
   sent.forEach((l, i) => {
-    if (out[i] || !free(i) || !compatible(l, stored[i]!)) return;
-    const here = stored[i]!;
-    const named = itemOf(l);
-    if (named !== null && named !== normalItem(here.itemId) && sameDescription(l, here)
-      && twinsOf(here).some((j) => j !== i && normalItem(stored[j]!.itemId) === named)) { ambiguous.push(i); return; }
-    if (sameDescription(l, here) || (named !== null && named === normalItem(here.itemId))) take(i, i);
+    if (!open(i)) return;
+    const js = stored.flatMap((s, j) => (fits(l, j) && identical(l, s) ? [j] : []));
+    if (oneKind(js)) take(i, js[0]!);
   });
-  // (b) By content: a description unique among the stored lines, or twins all of one item and account, pairs (the first
-  // free one, so sent twins of it pair in order and the rest are new lines); twins of different items or accounts: ambiguous.
+  // 2. Place: the same description at its own place, unless it names an item another free twin of that place carries.
+  const freeBefore = stored.map((_, j) => free(j));
   sent.forEach((l, i) => {
-    if (out[i] || ambiguous.includes(i)) return;
+    if (!open(i) || i >= stored.length || !fits(l, i) || !sameDescription(l, stored[i]!)) return;
+    const named = itemOf(l);
+    const elsewhere = named !== null && named !== normalItem(stored[i]!.itemId)
+      && twinsOf(stored[i]!).some((j) => j !== i && freeBefore[j] && normalItem(stored[j]!.itemId) === named);
+    if (elsewhere) ambiguous.push(i);
+    else take(i, i);
+  });
+  // 3. Unique (or interchangeable twins); 5. twins of different items or accounts with one still free: ambiguous.
+  sent.forEach((l, i) => {
+    if (!open(i)) return;
     const js = twinsOf(l);
-    if (js.length === 0) return; // a new line
-    // One stored line of the description (unique), or twins all of one item and account: nothing to tell apart.
-    if (new Set(js.map((j) => itemAccount(stored[j]!))).size === 1) {
-      const j = js.find((k) => free(k) && compatible(l, stored[k]!));
-      if (j !== undefined) take(i, j);
-      return;
-    }
-    ambiguous.push(i);
+    const j = js.find((k) => fits(l, k));
+    if (oneKind(js)) { if (j !== undefined) take(i, j); }
+    else if (js.length > 0 && js.some(free)) ambiguous.push(i);
+  });
+  // 4. Renamed at its place: a description no stored line holds, naming the item of the stored line at its own place.
+  sent.forEach((l, i) => {
+    if (!open(i) || i >= stored.length || twinsOf(l).length > 0 || !fits(l, i)) return;
+    if (itemOf(l) !== null && itemOf(l) === normalItem(stored[i]!.itemId)) take(i, i);
   });
   return ambiguous;
 }
@@ -202,8 +216,16 @@ export function unmatchedItemProblem(sent: readonly SentQuoteLine[], m: LineMatc
   const i = m.ambiguous.find((k) => sent[k]!.itemId === undefined || sent[k]!.accountId === undefined);
   if (i === undefined) return null;
   return `items[${i}]: the saved quote has more than one line of this description with different items or accounts, and this `
-    + 'line is not in its saved place (or names an item another of them carries), so which one it is cannot be told: '
+    + 'line is neither identical to one of them nor in its saved place (or names an item another of them carries), so which one it is cannot be told: '
     + 'send the saved line\'s id, or name its itemId and accountId.';
+}
+
+/** Why a sent line's id cannot be used, or null: an id this quote does not hold, or one an earlier line already took. */
+export function unknownIdProblem(sent: readonly SentQuoteLine[], m: LineMatches): string | null {
+  const i = sent.findIndex((l, k) => hasId(l) && !m.matches[k]);
+  if (i < 0) return null;
+  return `items[${i}]: the id sent is not a line of this quote (or another line already sent it): send the saved line's id, `
+    + 'or leave the id out for a new line.';
 }
 
 /** The type each sent line keeps from its match (storedLineVatType: a legacy line reads standard above 0, else zero_rated). */

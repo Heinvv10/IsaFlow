@@ -1,8 +1,9 @@
 /**
  * Per-line VAT on quotes, the EDIT's item and account per line (quoteLineTax.lineRefs; review round 10, split from
  * quoteServiceVatEdit.test.ts at the 300-line cap): on a standard-only quote twins of different items re-priced and
- * reordered pair by item, and a matched line's "new item" is judged against THE MATCHED stored line, never against
- * itemEditLines' first identical one, so the account written is the matched line's or its new item's default.
+ * reordered are refused unless ids are sent (round 12; the round-13 order is in quoteServiceVatOrder.test), and a matched
+ * line's "new item" is judged against THE MATCHED stored line, so the account written is the matched line's or its new
+ * item's default.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 

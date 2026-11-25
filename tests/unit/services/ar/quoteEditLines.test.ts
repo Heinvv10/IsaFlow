@@ -233,8 +233,17 @@ describe('a standard-only quote: a match needs a compatible rate and a free stor
     expect(run([line({ taxRate: 15 })], [other, w]).ids).toEqual(['w']);
   });
 
-  it('two sent lines of a unique stored description: the one at its place pairs, the other is a new line', () => {
-    expect(run([line({}), line({ unitPrice: 120 })], [other, w]).ids).toEqual([null, 'w']);
-    expect(run([line({}), line({ unitPrice: 120 })], [w, other]).ids).toEqual(['w', null]);
+  it('two sent lines of a unique stored description: the identical one pairs (content before place), the other is new', () => {
+    expect(run([line({}), line({ unitPrice: 120 })], [other, w]).ids).toEqual(['w', null]);
+    expect(run([line({ unitPrice: 120 }), line({})], [w, other]).ids).toEqual([null, 'w']);
+  });
+
+  it('M3: legacy twins of one item and account resent reordered but unchanged stay unchanged (content, never re-priced)', () => {
+    const lg = (id: string, unitPrice: number) => stored(id, { unitPrice, amount: unitPrice, itemId: A, accountId: 'g', vatType: null, taxAmount: null });
+    const st = [lg('x10', 10), lg('x20', 20)];
+    const sent = [line({ unitPrice: 20, taxRate: 15 }), line({ unitPrice: 10, taxRate: 15 })];
+    const m = matchQuoteLines(sent, st, D);
+    expect(m.matches.map((x) => x?.stored.id)).toEqual(['x20', 'x10']);
+    expect(legacyLinesUnchanged(sent, st, m.matches, undefined)).toBe(true);
   });
 });
