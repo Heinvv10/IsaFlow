@@ -1,7 +1,7 @@
 /**
  * Which recorded values are masked (Hein's decision 2, 2026-10-10): bank
- * account numbers and ID / tax numbers are stored in full and shown as their
- * last four characters to everyone; owner / admin may reveal one change in
+ * account numbers, ID / tax numbers and addresses are stored in full, shown as
+ * their last four characters to everyone; owner / admin may reveal one change in
  * full (entityChangeReveal.ts, audited). A changed value stays visibly
  * changed: …1234 → …9876. An employee's bank details also mask the branch
  * code (last two) and the holder (first letter), as their GET does for a
@@ -15,7 +15,11 @@ export const SENSITIVE_FIELDS: Readonly<Record<EntityType, readonly string[]>> =
   supplier: ['bank_account_number'],
   customer: [],
   gl_account: ['bank_account_number'],
-  payroll_employee: ['id_number', 'passport_number', 'tax_number', 'tax_directive_number', 'uif_number'],
+  payroll_employee: ['id_number', 'passport_number', 'tax_number', 'tax_directive_number', 'uif_number',
+    // Wave 7 EA1 (1056): the residential and postal address, personal information (POPIA s1), last four as the rest.
+    'residential_unit_number', 'residential_complex', 'residential_street_number', 'residential_street', 'residential_suburb',
+    'residential_city', 'residential_postal_code', 'residential_country_code', 'postal_address_line1', 'postal_address_line2',
+    'postal_address_line3', 'postal_address_line4', 'postal_address_code', 'postal_address_country_code'],
   company_user: [],
   company_invitation: [],
   company_user_permission: [],

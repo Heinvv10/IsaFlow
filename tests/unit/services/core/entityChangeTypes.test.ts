@@ -114,7 +114,10 @@ describe('888, 952, 961, 962 and their TypeScript agree', () => {
       supplier: ['bank_account_number'],
       customer: [],
       gl_account: ['bank_account_number'],
-      payroll_employee: ['id_number', 'passport_number', 'tax_number', 'tax_directive_number', 'uif_number'],
+      payroll_employee: ['id_number', 'passport_number', 'tax_number', 'tax_directive_number', 'uif_number',
+        'residential_unit_number', 'residential_complex', 'residential_street_number', 'residential_street', 'residential_suburb',
+        'residential_city', 'residential_postal_code', 'residential_country_code', 'postal_address_line1', 'postal_address_line2',
+        'postal_address_line3', 'postal_address_line4', 'postal_address_code', 'postal_address_country_code'],
       company_user: [],
       company_invitation: [],
       company_user_permission: [],
@@ -152,6 +155,12 @@ describe('masking', () => {
       { key: 'bank_account_number', before: '1111222233', after: '9999888877', masked: false });
     expect(changeFields('payroll_employee', ['id_number'], null, { id_number: '8001015009087' })[0]).toEqual(
       { key: 'id_number', before: null, after: '…9087', masked: true });
+    // Wave 7 EA1: an address is masked to its last four, its structure flag is not.
+    expect(changeFields('payroll_employee', ['postal_same_as_residential', 'residential_street'], { residential_street: 'Main Road' },
+      { residential_street: 'Church Street', postal_same_as_residential: false })).toEqual([
+      { key: 'postal_same_as_residential', before: null, after: false, masked: false },
+      { key: 'residential_street', before: '…Road', after: '…reet', masked: true },
+    ]);
     expect(changeFields('payroll_bank_detail', ['account_number', 'bank_name'], null, { account_number: '62000123456', bank_name: 'FNB' })).toEqual([
       { key: 'account_number', before: null, after: '…3456', masked: true },
       { key: 'bank_name', before: null, after: 'FNB', masked: false },

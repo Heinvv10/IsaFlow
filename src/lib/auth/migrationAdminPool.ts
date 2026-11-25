@@ -31,6 +31,9 @@
  *     on the same login in a pool of their own with a 2 s lock wait
  *     (routeAdminPool.ts), not here, so a blocked delete never holds a sign-in's
  *     connection.
+ *   - one read (wave 7 EA1): the employee portal's bank line, the bank name and
+ *     right(account_number, 4) of the session's own employee
+ *     (employeePortalDetails.ts); payroll_bank_details has no service-pool policy (952).
  */
 import pg from 'pg';
 import { buildQuery, type TxSql } from '@/lib/neon';
