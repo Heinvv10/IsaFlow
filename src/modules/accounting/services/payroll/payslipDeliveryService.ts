@@ -11,7 +11,9 @@
  * the mail server may have taken it, a later failed resend notwithstanding (D-S4); unless `resend`), or, in a whole-run send, a last try that failed (LAST_SEND_FAILED: a
  * request names the employee to retry; review #1542 D-I1). Those are skipped and named, never refused. Then the batch's
  * employee rows are locked, and only then is the rate limit charged for the count this request will send (`admit`;
- * RATE_LIMITED 429; F-A1).
+ * RATE_LIMITED 429; F-A1), before any render. Then the slips to send are rendered and AES-256 encrypted (wave 7 PX,
+ * at most half the time budget; a slip that cannot be is ENCRYPTION_UNAVAILABLE 503 for the whole request, nothing
+ * sent; the daily units come back at the request's end).
  *
  * At most `limits.maxSends` slips per request, and none started once `limits.budgetMs` has passed (review #1542 A1:
  * a request must finish well inside the proxy's 60 s); the rest are `remaining`, and the caller asks again. Each
@@ -35,7 +37,8 @@ import { hasFeature } from '@/modules/admin/services/featureFlagService';
 import { withBoundedLockWait } from './payrollRunLock';
 import { PayrollLoanLockTimeoutError } from './payrollLoanLock';
 import { getPayslips, PayslipNotFound, type PayslipRun } from './payslipModel';
-import { payslipEmailMessage, payslipPassword, renderEmailPayslip } from './payslipEmailPdf';
+import { payslipEmailMessage, payslipPassword, renderEmailPayslip, type EmailPayslipPdf } from './payslipEmailPdf';
+import { PayslipEncryptionFailed } from './payslipEncrypt';
 import { PayslipEmailRefusal } from './payslipDeliveryRefusal';
 import { companyPayslipEmailEnabled, PAYSLIP_EMAIL_FLAG } from './payslipEmailSettings';
 import type { EmployeeEmailActor } from './payrollEmployeeEmail';
@@ -45,9 +48,16 @@ export type Mailer = (options: EmailOptions) => Promise<EmailResult>;
 
 const SEND_DEADLINE_MS = 15_000;
 const SMTP_TIMEOUTS_MS = { connection: 5_000, greeting: 5_000, socket: 10_000 };
-/** Per request: at most 20 sends, none started after 20 s (+ one 15 s deadline = 35 s, inside nginx's 60 s). */
+/**
+ * Per request: at most 20 sends. Worst case (wave 7 PX): renders start only in the first 10 s (RENDER_SHARE) and the
+ * last one may take its jsPDF render plus qpdf's 10 s timeout (~21 s); the first send always goes, later ones only
+ * before 20 s, and a send that starts at 20-21 s may take its 15 s deadline: ~36 s plus the claim/outcome writes,
+ * inside nginx's 60 s.
+ */
 export const SEND_LIMITS = { maxSends: 20, budgetMs: 20_000 } as const;
 export type SendLimits = { maxSends: number; budgetMs: number };
+/** Wave 7 PX: rendering (qpdf) may use at most this share of budgetMs; sending the rendered slips uses the rest. */
+const RENDER_SHARE = 0.5;
 
 export type SkipReason = 'NO_EMAIL' | 'NO_ID_OR_PASSPORT' | 'ALREADY_SENT' | 'LAST_SEND_FAILED';
 interface Who { employeeId: string; employeeNumber: string; employeeName: string }
@@ -137,6 +147,20 @@ async function deliver(mailer: Mailer, options: EmailOptions): Promise<{ status:
   }
 }
 
+interface Ready { who: Who; email: string; message: { subject: string; html: string }; rendered: EmailPayslipPdf }
+
+/** The slip rendered and encrypted; a failure to encrypt refuses the whole request before anything is sent. */
+async function encrypted(run: PayslipRun, slip: PayslipRun['payslips'][number], password: string, approvedAt: Date): Promise<EmailPayslipPdf> {
+  try {
+    return await renderEmailPayslip(run, slip, password, approvedAt);
+  } catch (err) {
+    if (!(err instanceof PayslipEncryptionFailed)) throw err;
+    log.error('Payslip email refused: the PDF could not be encrypted', { runId: run.runId, error: err.message }, 'payslip-email');
+    throw new PayslipEmailRefusal('ENCRYPTION_UNAVAILABLE',
+      'Payslips cannot be protected on this server right now, so none was sent. Try again later or download them instead.');
+  }
+}
+
 export async function sendPayslipEmails(opts: {
   companyId: string; runId: string; employeeIds?: string[]; resend: boolean; actor: EmployeeEmailActor;
   mailer: Mailer; admit: (count: number) => Promise<boolean>; limits?: SendLimits;
@@ -182,25 +206,39 @@ export async function sendPayslipEmails(opts: {
   const batch = queue.slice(0, limits.maxSends);
   // Locked BEFORE the rate limit is charged (review #1542 F-A1): a lock or deadlock refusal leaves the buckets alone.
   const locked = await lockBatch(companyId, runId, batch.map((q) => q.slip.employeeId));
-  if (!(await opts.admit(batch.length))) {
-    throw new PayslipEmailRefusal('RATE_LIMITED', 'Too many payslip emails for now. Try again later.');
-  }
-
-  const previous = await lastSentTo(companyId, batch.map((q) => q.slip.employeeId));
-  let attempted = 0;
+  // As locked: an address or ID changed since the unlocked read is the one used, or the slip is skipped.
+  const eligible: Array<{ slip: PayslipRun['payslips'][number]; who: Who; email: string; password: NonNullable<ReturnType<typeof payslipPassword>> }> = [];
   for (const { slip } of batch) {
-    if (attempted > 0 && Date.now() - started > limits.budgetMs) break;
-    attempted += 1;
     const who = { employeeId: slip.employeeId, employeeNumber: slip.employeeNumber, employeeName: slip.employeeName };
-    // As locked: an address or ID changed since the unlocked read is the one used, or the slip is skipped.
     const now = locked.get(slip.employeeId);
     const password = now ? payslipPassword({ idNumber: now.id_number, passportNumber: now.passport_number }) : null;
-    if (!now?.email) { out.skipped.push({ ...who, reason: 'NO_EMAIL' }); continue; }
-    if (!password) { out.skipped.push({ ...who, reason: 'NO_ID_OR_PASSPORT' }); continue; }
-    const email = now.email;
-    const { filename, pdf, sha256 } = await renderEmailPayslip(run, slip, password.password, approvedAt);
-    const message = payslipEmailMessage(run, slip, password.source);
-    const record = { companyId, runId, employeeId: slip.employeeId, email, subject: message.subject, sha256, resend, actor };
+    if (!now?.email) out.skipped.push({ ...who, reason: 'NO_EMAIL' });
+    else if (!password) out.skipped.push({ ...who, reason: 'NO_ID_OR_PASSPORT' });
+    else eligible.push({ slip, who, email: now.email, password });
+  }
+  // Charged BEFORE any render (wave 7 PX security review): a rate-limited request starts no qpdf. A request that
+  // then sends fewer gets the daily units back at its end (refundUnused; the 15-minute buckets count attempts).
+  if (eligible.length > 0 && !(await opts.admit(eligible.length))) {
+    throw new PayslipEmailRefusal('RATE_LIMITED', 'Too many payslip emails for now. Try again later.');
+  }
+  // Wave 7 PX: the slips this request will send are rendered and AES-256 encrypted BEFORE the first send or write
+  // (rule 12), so a host without qpdf or /dev/shm refuses the request whole (ENCRYPTION_UNAVAILABLE), nothing sent.
+  // Rendering stops once half the time budget is spent (at least one slip): the rest are `remaining`, and qpdf work
+  // per request is bounded by RENDER_SHARE of budgetMs plus one render.
+  const ready: Ready[] = [];
+  for (const { slip, who, email, password } of eligible) {
+    if (ready.length > 0 && Date.now() - started > limits.budgetMs * RENDER_SHARE) break;
+    const rendered = await encrypted(run, slip, password.password, approvedAt);
+    ready.push({ who, email, message: payslipEmailMessage(run, slip, password.source), rendered });
+  }
+
+  const previous = await lastSentTo(companyId, ready.map((r) => r.who.employeeId));
+  let attempted = 0;
+  for (const { who, email, message, rendered } of ready) {
+    if (attempted > 0 && Date.now() - started > limits.budgetMs) break;
+    attempted += 1;
+    const { filename, pdf, sha256, plaintextSha256 } = rendered;
+    const record = { companyId, runId, employeeId: who.employeeId, email, subject: message.subject, sha256, plaintextSha256, resend, actor };
     // D-S1: "may have been sent" is committed BEFORE the mail leaves; if it cannot be, nothing is sent (it throws).
     await recordClaim(record);
     const sentResult = await deliver(mailer, {
@@ -212,16 +250,17 @@ export async function sendPayslipEmails(opts: {
     // and the answer says so rather than a retryable 503 that would invite a second send.
     const result = await recordOutcome({ ...record, ...sentResult }).then(() => sentResult, (err: unknown) => {
       log.error('Payslip email outcome not recorded; the claim stands as "may have been sent"', {
-        companyId, runId, employeeId: slip.employeeId, error: err instanceof Error ? err.message : String(err),
+        companyId, runId, employeeId: who.employeeId, error: err instanceof Error ? err.message : String(err),
       }, 'payslip-email');
       return { ...sentResult, status: 'unknown' as const };
     });
-    const before = previous.get(slip.employeeId);
+    const before = previous.get(who.employeeId);
     if (result.status === 'sent') out.sent.push({ ...who, sha256, addressChanged: before !== undefined && before !== email });
     else if (result.status === 'unknown') out.uncertain.push(who);
     else out.failed.push({ ...who, error: 'The mail server did not accept it. Check the address and try again.' });
   }
-  out.remaining = queue.length - attempted;
+  // Skipped under the lock and sent both count as done; the batch's unsent rest and the queue beyond it remain.
+  out.remaining = queue.length - batch.length + (eligible.length - attempted);
   log.info('Payslips emailed', {
     companyId, runId, sent: out.sent.length, failed: out.failed.length, uncertain: out.uncertain.length, remaining: out.remaining,
   }, 'payslip-email');
