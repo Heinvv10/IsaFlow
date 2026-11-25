@@ -166,3 +166,13 @@ it('M2: a type picked on a line stays when the customer changes; a line with non
   create();
   expect((await sent()).lines.map((l) => [l.description, l.vatType])).toEqual([['Widget', 'zero_rated'], ['Rent', 'exempt']]);
 });
+
+it('L3: the price headers follow the effective mode: inclusive picked, then the company reads as not registered, says no "(incl. VAT)"', async () => {
+  const { rerender } = renderPage('bi-monthly');
+  await openAndFill('100');
+  await pickOption('Amounts are', /Including VAT/);
+  expect(screen.getByRole('columnheader', { name: /Unit Price \(incl\. VAT\)/ })).toBeTruthy();
+  rerender(<CompanyContext.Provider value={{ activeCompany: { id: 'co-1', vatPeriod: 'none' }, loading: false } as never}><QuotesPage /></CompanyContext.Provider>);
+  await waitFor(() => expect(screen.queryByRole('combobox', { name: 'Amounts are' })).toBeNull());
+  expect(screen.queryByText(/\(incl\. VAT\)|\(excl\. VAT\)/)).toBeNull();
+});
