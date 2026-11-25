@@ -1,12 +1,11 @@
 /**
  * The --report file of scripts/sage-migration/run.ts. ONE rule (team-lead decision, round 16, after rounds 14-16 each found another way the
- * report overwrote a file it did not own): --report names a path that does NOT exist; the run creates it exclusively (open 'wx') as its
- * first write, right after the arguments are parsed, and from then on writes ONLY to the file it created: each write goes to a temp file in
- * the same directory and is renamed over the path only while the path is still the inode this run last put there (a path changed under
- * the run, replaced, linked or deleted, is never written: stderr, exit 3). So an export, an earlier run's report, another tool's file and
- * a running run's report are never touched: their path exists, so the run refuses to start (exit 2, nothing written anywhere).
+ * report overwrote a file it did not own): --report names a path that does NOT exist; the run creates it exclusively (open 'wx') once
+ * every argument is checked and the export is read, before its first database step, and from then on writes ONLY through the descriptor
+ * of that create (round 17: no temp file, no rename, no path lookup). So an export, an earlier run's report, another tool's file and a
+ * running run's report are never touched: their path exists, so the run refuses to start (exit 2, nothing written anywhere).
  */
-import { closeSync, existsSync, fstatSync, lstatSync, openSync, readFileSync, realpathSync, renameSync, statSync, unlinkSync, writeSync } from 'node:fs';
+import { closeSync, existsSync, fstatSync, fsyncSync, ftruncateSync, lstatSync, openSync, realpathSync, statSync, unlinkSync, writeSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import type { MigrationReport } from '../../src/modules/accounting/services/sage-migration/sageMigrationTypes';
 import { MigrationStopped } from '../../src/modules/accounting/services/sage-migration/sageMigrationStopped';
@@ -55,6 +54,7 @@ export function checkReportArgs(argv: readonly string[], parsed: string | undefi
   const distinct = [...new Set(reports)];
   if (distinct.length > 1) return { ok: false, why: `--report is given more than once (${distinct.join(', ')}): give one path` };
   if (parsed === undefined) return { ok: true, path: undefined };
+  if (parsed === '') return { ok: false, why: '--report is given without a path (--report=): give a file path' };
   if (distinct[0] !== parsed) return { ok: false, why: `--report ${parsed}: a value that starts with -- is never taken as a path; give a file path` };
   const export_ = files.find((f) => sameFile(parsed, f));
   if (export_ !== undefined) return { ok: false, why: `--report ${parsed} is the export --file itself (${export_}): writing the report would overwrite it; give another path` };
@@ -65,13 +65,19 @@ const json = (body: unknown) => `${JSON.stringify(body, null, 2)}\n`;
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
 /**
- * The report file this run created: the inode it last put at that path AND the bytes it wrote there (a freed inode number is reused by
- * the file system, so a file put there by someone else can carry the same one; it does not carry the same bytes). The only file it writes.
+ * The report file this run created, written ONLY through the file descriptor of its exclusive create, held open for the whole run
+ * (team-lead decision, round 17): ftruncate(0) + write at offset 0 + fsync. No temp file, no rename, no path lookup after the create: the
+ * run can only ever write the inode it created. If the path is swapped meanwhile, the run writes its own moved or unlinked file, never
+ * another one. A kill in the middle of a write can leave a partial file of the run's OWN inode (named limit).
  */
 export class OwnedReport {
-  private constructor(readonly path: string, private dev: number, private ino: number, private bytes: string) {}
+  private open = true;
+  private constructor(readonly path: string, private readonly fd: number) {}
 
-  /** Create --report exclusively, holding the "running" placeholder. A path that exists, or a directory that cannot take it, is refused. */
+  /**
+   * Create --report exclusively, holding the "running" placeholder. A path that exists, or a directory that cannot take it, is refused. If
+   * the placeholder cannot be written (a full disk), the file it just created is removed again (only while the path is still that file).
+   */
   static create(path: string): OwnedReport | { why: string } {
     let fd: number;
     try { fd = openSync(path, 'wx', 0o644); } catch (err) {
@@ -80,39 +86,38 @@ export class OwnedReport {
         ? `--report ${path} already exists: the run writes only a new file, so pick a new path or delete the old file; nothing was written`
         : `--report ${path} cannot be written (${message(err)}): nothing was written` };
     }
+    const owned = new OwnedReport(path, fd);
+    const why = owned.write({ status: 'running', startedAt: new Date().toISOString(), pid: process.pid });
+    if (why === null) return owned;
+    // R17-5: never leave an empty file behind. Unlinked only while the path is still the inode this run created.
     try {
-      const bytes = json({ status: 'running', startedAt: new Date().toISOString(), pid: process.pid });
-      writeSync(fd, bytes);
-      const s = fstatSync(fd);
-      return new OwnedReport(path, s.dev, s.ino, bytes);
-    } finally { closeSync(fd); }
+      const [mine, now] = [fstatSync(fd), lstatSync(path, { throwIfNoEntry: false })];
+      if (now && now.dev === mine.dev && now.ino === mine.ino) unlinkSync(path);
+    } catch (err) { process.stderr.write(`--report ${path}: the file this run created could not be removed: ${message(err)}\n`); }
+    owned.close();
+    return { why: `${why}; nothing was written` };
   }
 
-  /** Replace the report with `body`, atomically, only while the path is still this run's file. Returns why not, or null when written. */
+  /** Replace the whole report with `body` through the held descriptor. Returns why not, or null when written; never throws. */
   write(body: unknown): string | null {
-    const tmp = join(dirname(this.path), `.${basename(this.path)}.${process.pid}.${Date.now()}.tmp`);
-    let fd: number | undefined;
+    if (!this.open) return `--report ${this.path} could not be written: the file is closed`;
     try {
-      const bytes = json(body);
-      fd = openSync(tmp, 'wx', 0o644);
-      writeSync(fd, bytes);
-      const s = fstatSync(fd);
-      closeSync(fd);
-      fd = undefined;
-      const now = lstatSync(this.path, { throwIfNoEntry: false });
-      // A symlink, a hard link or another file put at the path has another inode (lstat: a symlink's own); a reused inode number, other bytes.
-      if (!now || now.dev !== this.dev || now.ino !== this.ino || readFileSync(this.path, 'utf8') !== this.bytes) {
-        unlinkSync(tmp);
-        return `--report ${this.path} is no longer the file this run created (it was replaced, linked or removed during the run): it is not written`;
-      }
-      renameSync(tmp, this.path);
-      [this.dev, this.ino, this.bytes] = [s.dev, s.ino, bytes];
+      const bytes = Buffer.from(json(body));
+      ftruncateSync(this.fd, 0);
+      let at = 0;
+      while (at < bytes.length) at += writeSync(this.fd, bytes, at, bytes.length - at, at);
+      fsyncSync(this.fd);
       return null;
     } catch (err) {
-      if (fd !== undefined) closeSync(fd);
-      if (existsSync(tmp)) unlinkSync(tmp);
       return `--report ${this.path} could not be written: ${message(err)}`;
     }
+  }
+
+  /** Close the descriptor at the end of the run; an error closing it is reported, never thrown. */
+  close(): void {
+    if (!this.open) return;
+    this.open = false;
+    try { closeSync(this.fd); } catch (err) { process.stderr.write(`--report ${this.path}: closing it failed: ${message(err)}\n`); }
   }
 }
 

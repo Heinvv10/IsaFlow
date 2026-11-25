@@ -1,6 +1,6 @@
 /**
- * The --report file of run.ts (scripts/sage-migration/runReport.ts), under the round-16 rule: the path must NOT exist; the run creates it
- * exclusively and from then on writes only the file it created (temp + rename, only while the path is still its inode).
+ * The --report file of run.ts (scripts/sage-migration/runReport.ts), under the round-16 rule (the path must NOT exist; the run creates it
+ * exclusively) and the round-17 decision (it is written only through the descriptor of that create: no temp file, no rename).
  * Kept from earlier rounds: --report as any --file is refused (B15-1, a clear message), a value starting with `--` is never a path,
  * two different --report paths are refused, the stop report lists batches by outcome (B14-4), a summary failing after live is exit 4 (R14-L2).
  */
@@ -48,41 +48,53 @@ describe('round-16 rule: --report must not exist; the run creates it exclusively
   });
 });
 
-describe('round-16 rule: the run writes only the file it created', () => {
-  it('replaces it atomically (temp + rename): the content changes, no temp file is left', () => {
+describe('round-17 decision: the report is written only through the descriptor of the create', () => {
+  it('each write replaces the whole file in place; no temp file is ever made beside it', () => {
     const d = dir();
     const r = OwnedReport.create(join(d, 'report.json')) as OwnedReport;
-    expect(r.write({ status: 'completed' })).toBeNull();
-    expect(r.write({ status: 'completed', again: true })).toBeNull(); // the second write follows the inode the first put there
-    expect(read(join(d, 'report.json'))).toEqual({ status: 'completed', again: true });
+    expect(r.write({ status: 'completed', rows: 'x'.repeat(5000) })).toBeNull();
+    expect(r.write({ status: 'stopped' })).toBeNull(); // shorter: truncated, no tail of the longer one left
+    expect(read(join(d, 'report.json'))).toEqual({ status: 'stopped' });
     expect(readdirSync(d)).toEqual(['report.json']);
+    r.close();
   });
-  it('a path replaced, hard-linked over or removed during the run is never written (the path swapped mid-run)', () => {
+  it('B17-1: a file planted at any other name in the directory is never touched (there is no temp name to collide with)', () => {
+    const d = dir();
+    const r = OwnedReport.create(join(d, 'report.json')) as OwnedReport;
+    for (let n = 0; n < 50; n++) writeFileSync(join(d, `.report.json.${process.pid}.${Date.now() + n}.tmp`), `planted ${n}`);
+    expect(r.write({ status: 'completed' })).toBeNull();
+    expect(readdirSync(d).filter((f) => f.endsWith('.tmp'))).toHaveLength(50);
+    for (const f of readdirSync(d).filter((x) => x.endsWith('.tmp'))) expect(readFileSync(join(d, f), 'utf8')).toMatch(/^planted \d+$/);
+    r.close();
+  });
+  it('B17-2: a file moved onto the path during the run is never written; the run writes its own (moved) file', () => {
     const d = dir();
     const p = join(d, 'report.json');
-    const exportFile = join(d, 'export.json');
-    for (const change of [
-      () => { unlinkSync(p); writeFileSync(p, 'someone else'); },
-      () => { writeFileSync(exportFile, 'EXPORT'); unlinkSync(p); linkSync(exportFile, p); },
-      () => { writeFileSync(exportFile, 'EXPORT'); unlinkSync(p); symlinkSync(exportFile, p); },
-      () => { unlinkSync(p); },
-    ]) {
-      rmSync(p, { force: true });
-      const r = OwnedReport.create(p) as OwnedReport;
-      change();
-      const before = existsSync(exportFile) ? readFileSync(exportFile, 'utf8') : null;
-      expect(r.write({ status: 'stopped' })).toMatch(/is no longer the file this run created .*it is not written/);
-      if (before !== null) expect(readFileSync(exportFile, 'utf8')).toBe(before);
-      expect(readdirSync(d).filter((f) => f.endsWith('.tmp'))).toEqual([]);
-      rmSync(exportFile, { force: true });
-    }
+    const r = OwnedReport.create(p) as OwnedReport;
+    renameSync(p, join(d, 'moved-away.json'));
+    writeFileSync(join(d, 'victim.json'), 'VICTIM');
+    renameSync(join(d, 'victim.json'), p); // the victim now sits at the report path
+    expect(r.write({ status: 'completed' })).toBeNull();
+    expect(readFileSync(p, 'utf8')).toBe('VICTIM');
+    expect(read(join(d, 'moved-away.json'))).toEqual({ status: 'completed' });
+    r.close();
   });
-  it('a rename by the run itself keeps the file its own (the inode is followed)', () => {
+  it('a hard link to an export put at the path after an unlink: the export is never written', () => {
     const d = dir();
-    const r = OwnedReport.create(join(d, 'report.json')) as OwnedReport;
-    expect(r.write({ status: 'stopped' })).toBeNull();
-    renameSync(join(d, 'report.json'), join(d, 'moved.json')); // someone moves it away: the path is no longer this run's
-    expect(r.write({ status: 'completed' })).toMatch(/is no longer the file this run created/);
+    const p = join(d, 'report.json');
+    writeFileSync(join(d, 'export.json'), 'EXPORT');
+    const r = OwnedReport.create(p) as OwnedReport;
+    unlinkSync(p);
+    linkSync(join(d, 'export.json'), p);
+    expect(r.write({ status: 'completed' })).toBeNull(); // written to the run's own unlinked inode
+    expect(readFileSync(join(d, 'export.json'), 'utf8')).toBe('EXPORT');
+    r.close();
+  });
+  it('write after close is refused, never thrown; close twice is harmless', () => {
+    const r = OwnedReport.create(join(dir(), 'report.json')) as OwnedReport;
+    r.close();
+    r.close();
+    expect(r.write({ status: 'x' })).toMatch(/could not be written: the file is closed/);
   });
 });
 
@@ -91,6 +103,9 @@ describe('the arguments (kept from rounds 14-15)', () => {
     expect(scanReportArgs(['--file', 'x.json', '--report', '--live'])).toEqual({ reports: [], files: ['x.json'] });
     expect(scanReportArgs(['--file=x.json', '--report=r.json', '--', '--report', 'y.json'])).toEqual({ reports: ['r.json'], files: ['x.json'] });
     expect(checkReportArgs(['--report=--live'], '--live')).toMatchObject({ ok: false, why: expect.stringMatching(/never taken as a path/) });
+  });
+  it('R17-8: --report= (no path) has its own message', () => {
+    expect(checkReportArgs(['--report='], '')).toEqual({ ok: false, why: '--report is given without a path (--report=): give a file path' });
   });
   it('two different --report paths are refused; the same one twice is one', () => {
     expect(checkReportArgs(['--report', 'a.json', '--report', 'b.json'], 'b.json')).toMatchObject({ ok: false, why: expect.stringMatching(/more than once/) });
