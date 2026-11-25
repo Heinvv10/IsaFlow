@@ -8,6 +8,7 @@
 import type { RowResult, SageItem } from './sageExportTypes';
 import { isRaw, readBool, readId, readNumber, readText, recasedFieldReasons, SAGE_NONE_UNKNOWN, type Raw } from './sageValues';
 import { taxTypeFor } from './sageTaxTypes';
+import { discountReasons, ITEM_DISCOUNT_MARK } from './sageMoneyFields';
 
 /** The fields of an item row this import reads (QuantityOnHand only for the count): any other spelling of one is refused. */
 const ITEM_FIELDS = ['ID', 'Code', 'Description', 'Active', 'Physical', 'PriceExclusive', 'LastCost', 'AverageCost', 'TaxTypeIdSales', 'TaxTypeIdPurchases', 'Category', 'QuantityOnHand'] as const;
@@ -62,13 +63,13 @@ export function parseSageItem(raw: unknown, index: number): RowResult<SageItem> 
   const taxSales = taxField(o, 'TaxTypeIdSales', why);
   const taxPurchases = taxField(o, 'TaxTypeIdPurchases', why);
   const cat = category(o, why);
-  why.push(...recasedFieldReasons(o, ITEM_FIELDS));
+  why.push(...recasedFieldReasons(o, ITEM_FIELDS), ...discountReasons(o, ITEM_DISCOUNT_MARK));
   if (why.length > 0) {
     return {
       ok: false,
       refusal: {
         entity: 'item', sageId: typeof id === 'string' ? id : null,
-        label: typeof code === 'string' ? code : `items[${index}]`, code: why.some((w) => w.includes('(invalid_text)')) ? 'invalid_text' : 'invalid_row', reasons: why,
+        label: typeof code === 'string' ? code : `items[${index}]`, code: why.some((w) => w.includes(ITEM_DISCOUNT_MARK)) ? 'item_discount_unsupported' : why.some((w) => w.includes('(invalid_text)')) ? 'invalid_text' : 'invalid_row', reasons: why,
       },
     };
   }

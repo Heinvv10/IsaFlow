@@ -10,11 +10,12 @@ import { isRaw, readDate, readId, readNumber, readText, recasedFieldReasons, typ
 import { hasWholeCents } from '@/lib/money/wholeCents';
 import { VatRateDateError } from '@/lib/vat/standardRate';
 import { rateOf, standardRateOn, taxTypeFor } from './sageTaxTypes';
+import { discountReasons, MONEY_FIELD_MARK, PO_DISCOUNT_MARK, unreadMoneyReasons } from './sageMoneyFields';
 
 const MAX_LINES = 200;
 /** The fields of a PO row and of a line this import reads (currency fields are matched in any case already): any other spelling of one is refused. */
 const PO_FIELDS = ['ID', 'DocumentNumber', 'Date', 'DeliveryDate', 'Status', 'Reference', 'Comments', 'SupplierId', 'SupplierName', 'Exclusive', 'Tax', 'Total', 'PdfFile', 'Lines'] as const;
-const LINE_FIELDS = ['Description', 'Quantity', 'UnitPriceExclusive', 'Exclusive', 'Tax', 'TaxPercentage', 'TaxTypeId', 'ItemId', 'SelectionId', 'LineType'] as const;
+const LINE_FIELDS = ['Description', 'Quantity', 'UnitPriceExclusive', 'Exclusive', 'Tax', 'Total', 'TaxPercentage', 'TaxTypeId', 'ItemId', 'SelectionId', 'LineType'] as const;
 const CURRENCY_KEY = /currenc|exchange/i;
 const RATE_KEY = /exchange.*rate|^rate$/i;
 
@@ -105,11 +106,16 @@ function parseLine(raw: unknown, i: number, why: string[], date: string): SagePo
   const unit = readNumber(raw, 'UnitPriceExclusive', sub, { required: true, cents: 'any' });
   const exclusive = readNumber(raw, 'Exclusive', sub, { cents: 'whole' });
   const tax = readNumber(raw, 'Tax', sub, { cents: 'whole' });
+  // Read so it cannot carry a discount the other figures do not: when given, it is Exclusive + Tax.
+  const total = readNumber(raw, 'Total', sub, { cents: 'whole' });
+  if (typeof total === 'number' && typeof exclusive === 'number' && typeof tax === 'number' && Math.round(exclusive * 100) + Math.round(tax * 100) !== Math.round(total * 100)) {
+    sub.push(`Total ${total} is not Exclusive ${exclusive} + Tax ${tax}`);
+  }
   const rate = lineRate(raw, sub, date);
   const itemId = readId(raw, 'ItemId', sub, false, true);
   const selection = readId(raw, 'SelectionId', sub, false, true);
   if (typeof itemId === 'string' && typeof selection === 'string' && itemId !== selection) sub.push('ItemId and SelectionId name different items');
-  sub.push(...recasedFieldReasons(raw, LINE_FIELDS));
+  sub.push(...recasedFieldReasons(raw, LINE_FIELDS), ...discountReasons(raw, PO_DISCOUNT_MARK), ...unreadMoneyReasons(raw, LINE_FIELDS));
   why.push(...sub.map((s) => `${at}${s}`));
   if (why.length > before) return undefined;
   return {
@@ -146,7 +152,7 @@ export function parseSagePurchaseOrder(raw: unknown, index: number): RowResult<S
     && Math.round(exclusive * 100) + Math.round(tax * 100) !== Math.round(total * 100)) {
     why.push(`Exclusive ${exclusive} + Tax ${tax} is not Total ${total}`);
   }
-  why.push(...recasedFieldReasons(o, PO_FIELDS));
+  why.push(...recasedFieldReasons(o, PO_FIELDS), ...discountReasons(o, PO_DISCOUNT_MARK), ...unreadMoneyReasons(o, PO_FIELDS));
   const foreign = foreignCurrencyReasons(o);
   why.push(...foreign);
   if (why.length > 0) {
@@ -154,7 +160,7 @@ export function parseSagePurchaseOrder(raw: unknown, index: number): RowResult<S
       ok: false,
       refusal: {
         entity: 'purchase_order', sageId: typeof id === 'string' ? id : null,
-        label: typeof documentNumber === 'string' ? documentNumber : `purchase_orders[${index}]`, code: foreign.length > 0 ? 'foreign_currency' : why.some((w) => w.includes(ACCOUNT_LINE_MARK)) ? 'po_account_line_unsupported' : why.some((w) => w.includes(UNKNOWN_LINE_TYPE_MARK)) ? 'po_line_type_unknown' : why.some((w) => w.includes('(invalid_text)')) ? 'invalid_text' : 'invalid_row', reasons: why,
+        label: typeof documentNumber === 'string' ? documentNumber : `purchase_orders[${index}]`, code: foreign.length > 0 ? 'foreign_currency' : why.some((w) => w.includes(PO_DISCOUNT_MARK)) ? 'po_discount_unsupported' : why.some((w) => w.includes(MONEY_FIELD_MARK)) ? 'po_money_field_unsupported' : why.some((w) => w.includes(ACCOUNT_LINE_MARK)) ? 'po_account_line_unsupported' : why.some((w) => w.includes(UNKNOWN_LINE_TYPE_MARK)) ? 'po_line_type_unknown' : why.some((w) => w.includes('(invalid_text)')) ? 'invalid_text' : 'invalid_row', reasons: why,
       },
     };
   }

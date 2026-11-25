@@ -232,7 +232,7 @@ describe('F4 more: a page that is not the whole export', () => {
 
 describe('L5 (round 5): whole-cent checks hold at large amounts (an absolute tolerance on n*100 refused them)', () => {
   const big = (over: Row, line: Row = {}) => parseSagePurchaseOrder(po({ Exclusive: 123456789.1, Tax: 18518518.37, Total: 141975307.47, ...over,
-    Lines: [{ ...(po().Lines as Row[])[0], UnitPriceExclusive: 123456789.1, Quantity: 1, Exclusive: 123456789.1, Tax: 18518518.37, ...line }] }), 0);
+    Lines: [{ ...(po().Lines as Row[])[0], UnitPriceExclusive: 123456789.1, Quantity: 1, Exclusive: 123456789.1, Tax: 18518518.37, Total: undefined, ...line }] }), 0); // the line Total is checked elsewhere (sageMoneyFields)
   it('a header and a line of R123 456 789.10 + R18 518 518.37 are accepted', () => {
     expect(refusedFor(big({}))).toBe('NOT REFUSED');
   });

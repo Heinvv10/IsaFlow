@@ -234,7 +234,7 @@ describe('purchase order rows', () => {
     expect(refusedFor(run(line({ TaxPercentage: 0, TaxTypeId: 1 })))).toMatch(/TaxPercentage 0 disagrees with TaxTypeId 1/);
     expect(refusedFor(run(line({ TaxPercentage: undefined, TaxTypeId: undefined })))).toMatch(/needs TaxPercentage or TaxTypeId/);
     expect(refusedFor(run(line({ TaxTypeId: 9 })))).toMatch(/TaxTypeId 9 is not a tax type/);
-    const viaType = parseSagePurchaseOrder(po({ Exclusive: 100, Tax: 15, Total: 115, Lines: [line({ TaxPercentage: undefined, TaxTypeId: 1, Quantity: 1, UnitPriceExclusive: 100, Exclusive: 100, Tax: 15 })] }), 0);
+    const viaType = parseSagePurchaseOrder(po({ Exclusive: 100, Tax: 15, Total: 115, Lines: [line({ TaxPercentage: undefined, TaxTypeId: 1, Quantity: 1, UnitPriceExclusive: 100, Exclusive: 100, Tax: 15, Total: 115 })] }), 0);
     expect(viaType.ok && viaType.value.lines[0]!.taxRate).toBe(15);
   });
   it('line quantity: positive, at most two decimals', () => {

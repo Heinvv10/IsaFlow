@@ -41,7 +41,7 @@ describe('B11-5: a known field in another case', () => {
     }
   });
   it('fields this import does not read, in any case, stay ignored; the exact spelling reads', () => {
-    expect(refusal({ Items: [item(1, { priceinclusive: 1, created: 'x', Modified: 'y' })], PurchaseOrders: [po({ total: 115 })] }).codes).toEqual([]);
+    expect(refusal({ Items: [item(1, { priceinclusive: 1, created: 'x', Modified: 'y' })], PurchaseOrders: [po({ note: 'x', Unit: 'each' })] }).codes).toEqual([]);
     expect(parseSageExport({ Items: [item(50)], PurchaseOrders: [po({ ItemId: 50 })] }).purchaseOrders[0]!.lines[0]!.itemId).toBe('50');
   });
 });

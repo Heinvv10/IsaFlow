@@ -127,3 +127,16 @@ describe('note (round 12): a stopped CLI run and the --report file of an earlier
     } finally { rmSync(dir, { recursive: true, force: true }); }
   }, 180_000);
 });
+
+describe('team-lead decision (after round 12): a discount that is not zero', () => {
+  it('refuses its PO as po_discount_unsupported (a Discount: 0 passes); the rest of the file is booked', async () => {
+    const f = exportFile();
+    const pos = f.PurchaseOrders as Row[];
+    pos[0] = { ...pos[0], Lines: (pos[0]!.Lines as Row[]).map((l, i) => (i === 0 ? { ...l, DiscountPercentage: 50 } : { ...l, Discount: 0 })) };
+    const r = await runSageMigration(pool, parsedExport(f), opts({ expect: { items: 20, purchaseOrders: 9 } }));
+    expect(r.status).toBe('completed');
+    expect(r.refused.map((x) => [x.label, x.code])).toEqual([[String(pos[0]!.DocumentNumber), 'po_discount_unsupported']]);
+    expect(r.refused[0]!.reasons.join(' ')).toMatch(/Lines\[0\]\.DiscountPercentage is 50: a discount is not imported/);
+    expect(await booked(pool, s.companyId)).toMatchObject({ items: 20, pos: 9 });
+  });
+});

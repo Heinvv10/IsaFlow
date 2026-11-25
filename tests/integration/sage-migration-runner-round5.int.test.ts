@@ -74,7 +74,7 @@ describe('L3: --allow-differences and a PO booked with another total', () => {
     const f = exportFile();
     const po = posOf(f)[0]!; // PO0000197: its first line goes from 1200 to 1300 a unit, so Sage's total is R230 more
     const lines = po.Lines as Row[];
-    lines[0] = { ...lines[0], UnitPriceExclusive: 1300, Exclusive: 2600, Tax: 390 };
+    lines[0] = { ...lines[0], UnitPriceExclusive: 1300, Exclusive: 2600, Tax: 390, Total: 2990 }; // a line Total must be Exclusive + Tax
     posOf(f)[0] = { ...po, Lines: lines, Exclusive: (po.Exclusive as number) + 200, Tax: (po.Tax as number) + 30, Total: (po.Total as number) + 230 };
     const r = await run({}, f);
     expect(r.status).toBe('completed');
