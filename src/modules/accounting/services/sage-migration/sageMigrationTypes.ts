@@ -48,10 +48,10 @@ export interface Reconciliation {
     exportRowsWithoutTotal: number;
     sentTotalCents: number;
     notSentTotalCents: number;
-    /** Sum of purchase_orders.total of the sent POs now in the books. */
-    bookedTotalCents: number;
-    /** sent - booked: 0 when every sent PO is in the books at the export's own total. */
-    differenceCents: number;
+    /** Sum of purchase_orders.total of the sent POs now in the books. null on a dry run (it books nothing). */
+    bookedTotalCents: number | null;
+    /** sent - booked: 0 when every sent PO is in the books at the export's own total. null on a dry run. */
+    differenceCents: number | null;
   };
   /**
    * What the person said to expect (--expect-*) against what was SENT (a dry run) or BOOKED (a live run) in this run: a refused row is

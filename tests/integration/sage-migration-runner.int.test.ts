@@ -51,7 +51,7 @@ describe('the dry run', () => {
   it('reports what it would do: counts in and out, the PO total, the PDFs, and nothing booked', async () => {
     const r = (await runSageMigration(pool, parsedExport(), opts())).reconciliation;
     expect(r.items).toMatchObject({ inExport: 20, refused: 0, sent: 20, presentBefore: 0, presentAfter: 0, addedByRun: 0 });
-    expect(r.purchaseOrders).toMatchObject({ inExport: 10, refused: 0, sent: 10, notSentTotalCents: 0, bookedTotalCents: 0 });
+    expect(r.purchaseOrders).toMatchObject({ inExport: 10, refused: 0, sent: 10, notSentTotalCents: 0, bookedTotalCents: null, differenceCents: null }); // a dry run books nothing (L3, round 10)
     expect(r.purchaseOrders.sentTotalCents).toBe(r.purchaseOrders.exportTotalCents);
     expect(r.attachments).toMatchObject({ posWithPdf: 10, uploadedByRunner: 0 });
     expect(r.allSentBooked).toBe(false); // a dry run books nothing

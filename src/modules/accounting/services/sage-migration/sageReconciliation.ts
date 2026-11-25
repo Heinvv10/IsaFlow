@@ -53,7 +53,8 @@ export function buildReconciliation(i: Input): Reconciliation {
       presentBefore: poIds.filter((id) => before.poTotals.has(id)).length, presentAfter: posAfter,
       addedByRun: after.poTotals.size - before.poTotals.size,
       exportTotalCents: parsed.exportPoTotalCents, exportRowsWithoutTotal: parsed.exportRowsWithoutTotal, sentTotalCents, notSentTotalCents: parsed.exportPoTotalCents - sentTotalCents,
-      bookedTotalCents, differenceCents,
+      // A dry run books nothing: the books as they were before it are not what it booked (the console prints n/a too).
+      bookedTotalCents: i.live ? bookedTotalCents : null, differenceCents: i.live ? differenceCents : null,
     },
     expected: {
       items: check(i.expect?.items, i.live ? itemsAfter : itemIds.length, basis),
