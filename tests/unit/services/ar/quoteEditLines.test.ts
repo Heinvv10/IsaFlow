@@ -187,10 +187,10 @@ describe('round 7: an item added on a typed quote\'s positional resend is no cha
 
 describe('a quote of standard lines only: content passes, no refusal (nothing to mistype)', () => {
   const hosting = stored('h', { description: 'Hosting' });
-  it('matches identical, then same description, then same item, anywhere; a new line has no match', () => {
+  it('a unique description pairs anywhere; a line of a new description (renamed elsewhere) is a new line', () => {
     const r = run([line({ description: 'New', unitPrice: 5 }), line({ description: 'hosting', unitPrice: 120 }), line({ unitPrice: 1, description: 'W2', itemId: A })],
       [hosting, stored('w', { itemId: A })]);
-    expect(r).toEqual({ ids: [null, 'h', 'w'], kept: [null, 'standard', 'standard'], refused: null });
+    expect(r).toEqual({ ids: [null, 'h', null], kept: [null, 'standard', null], refused: null });
   });
 });
 

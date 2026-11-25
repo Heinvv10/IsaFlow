@@ -27,11 +27,12 @@ import { InvoiceLineVatRefusal, type DocumentLineVatType, type ResolvedLineVat }
 import { invoiceVatParties, resolveInvoiceVatFor } from './invoiceLineVatDefaults';
 import { priceInvoiceVat, type AmountsAre, type VatPricedHeader, type VatPricedLine } from './invoiceLineVatPricing';
 import {
-  keptQuoteTypes, legacyLinesUnchanged, matchQuoteLines, normalItem, unmatchedVatProblem, type LineMatch, type StoredQuote, type StoredQuoteVatLine,
+  keptQuoteTypes, legacyLinesUnchanged, matchQuoteLines, normalItem, unmatchedItemProblem, unmatchedVatProblem, type LineMatch, type StoredQuote,
+  type StoredQuoteVatLine,
 } from './quoteEditLines';
 import { typedLinesProblem } from './invoiceVatLegs';
 import { LineValidationError, quoteAmountsAre } from './quoteLineChecks';
-import { applyItemLineDefaults } from '../items/itemLineDefaults';
+import { applyItemLineDefaults, ItemLineRefusal } from '../items/itemLineDefaults';
 import { resolveEditLineItemsAccountId } from '../items/itemEditLines';
 
 export interface QuoteVatLineIn {
@@ -62,62 +63,59 @@ const ref = (v: unknown): string | null => (typeof v === 'string' && v !== '' ? 
 
 /**
  * The item and account each line is written with. A line sent WITHOUT an itemId that matched a stored line (by id,
- * place or content: quoteEditLines, including the one line changed in place and a description match at another price)
- * keeps that stored line's item: the same line keeps its item, and the row written is the line the VAT match read
- * (itemEditLines hands items out by the raw identical key in stored order, which a case-only description change or
- * twins swapped by id would get wrong). A MATCHED line sent without an accountId keeps its stored account (the user may
- * have chosen it, and conversion credits it) unless it names a NEW item, judged against THAT matched stored line (null,
- * '' and a missing id all mean no item, as quoteEditLines compares them), with a default sales account, which it then
- * takes: read here by applyItemLineDefaults for exactly those lines, so itemEditLines' own "new item" view (the first
- * identical stored line) never decides a matched line's account. Removing an item, resending the stored one, or naming
- * one with no default account keeps the stored account. Only an accountId sent changes it, null clearing it. An
- * unmatched line: the resolved line's own. Accepted: a kept account comes from this quote's own stored rows, and
- * conversion re-checks it (assertLineAccountIds refuses one deactivated since).
+ * place or content: quoteEditLines) keeps that stored line's item: the row written is the line the match read. A
+ * MATCHED line sent without an accountId keeps its stored account (the user may have chosen it, and conversion credits
+ * it) unless it names a NEW item (one its matched stored line does not carry; null, '' and a missing id all mean no
+ * item) with a default sales account, which it then takes: quoteEditItemLines judged that item against the same
+ * matched line and put its default on the resolved line. Removing an item, resending the stored one, or naming one with
+ * no default account keeps the stored account. Only an accountId sent changes it, null clearing it. An unmatched line:
+ * the resolved line's own. Accepted: a kept account comes from this quote's own stored rows, and conversion re-checks
+ * it (assertLineAccountIds refuses one deactivated since).
  */
-async function lineRefs(
-  companyId: string, lines: readonly QuoteVatLineIn[], sent: readonly QuoteVatLineIn[], matches: readonly (LineMatch | null)[] | undefined,
-): Promise<QuoteLineRef[]> {
-  const newItemAt = lines.map((_, i) => {
-    const m = matches?.[i];
-    const s = sent[i];
-    if (!m || s?.accountId !== undefined) return null;
-    const sentItem = normalItem(s?.itemId);
-    // No item named (left out, null or ''): nothing to default; else new only if it is not the matched line's.
-    return sentItem !== null && sentItem !== normalItem(m.stored.itemId) ? sentItem : null;
-  });
-  const wanted = newItemAt.flatMap((itemId, i) => (itemId ? [{ i, itemId }] : []));
-  const defaults = wanted.length === 0 ? [] : await applyItemLineDefaults(
-    companyId, wanted.map((w) => ({ itemId: w.itemId, glAccountId: undefined as string | undefined })), 'sales', (k) => `items[${wanted[k]!.i}]`,
-  );
-  const defaultAt = new Map(wanted.map((w, k) => [w.i, ref(defaults[k]?.glAccountId)]));
+function lineRefs(lines: readonly QuoteVatLineIn[], sent: readonly QuoteVatLineIn[], matches: readonly (LineMatch | null)[] | undefined): QuoteLineRef[] {
   return lines.map((l, i) => {
     const m = matches?.[i];
     const s = sent[i];
     if (!m) return { itemId: ref(l.itemId), accountId: ref(l.accountId) };
+    const sentItem = normalItem(s?.itemId);
+    const newItem = sentItem !== null && sentItem !== normalItem(m.stored.itemId);
     return {
       itemId: s?.itemId === undefined ? m.stored.itemId ?? null : ref(l.itemId),
-      accountId: s?.accountId !== undefined ? ref(l.accountId) : defaultAt.get(i) ?? m.stored.accountId ?? null,
+      accountId: s?.accountId !== undefined ? ref(l.accountId) : (newItem ? ref(l.accountId) : null) ?? m.stored.accountId ?? null,
     };
   });
 }
 
 
 /**
- * An edit's lines through itemEditLines (the item check, its default account, inheritance), except that a line naming
- * the item its MATCHED stored line (quoteEditLines, the notion lineRefs uses) already carries is not a new item there:
- * it goes in as naming none, so itemEditLines neither re-checks it (an item deactivated since must not refuse the save
- * of the line that carries it, though an identical twin of another item sits first) nor defaults its account, and
- * comes back naming it; lineRefs writes its item and account. A genuinely new item is still checked and defaulted.
+ * An edit's lines through itemEditLines (inheritance by the identical line, `null` / '' clearing), with every NAMED item
+ * judged here instead, against the line's OWN matched stored line (quoteEditLines, by id, place or content): an item
+ * that line already carries is not re-checked (deactivated since must not refuse the save of the line that carries it);
+ * any other named item, a twin carrying it or not, is NEW and checked (this company's, active, its default account
+ * active) by applyItemLineDefaults, which also gives it its default account when the line names none. A standard-only
+ * line whose item and account cannot be read is refused first (unmatchedItemProblem). lineRefs then writes the items
+ * and accounts.
  */
 export async function quoteEditItemLines<L extends { description: string; quantity: number; unitPrice: number; itemId?: string | null; accountId?: string; taxRate?: number | null }>(
   companyId: string, sent: readonly L[], storedQuote: StoredQuote, quoteDate: string,
 ): Promise<L[]> {
-  const { matches } = matchQuoteLines(sent, storedQuote.lines, quoteDate);
-  const own = sent.map((l, i) => normalItem(l.itemId) !== null && normalItem(l.itemId) === normalItem(matches[i]?.stored.itemId));
-  const resolved = await resolveEditLineItemsAccountId(companyId, 'sales', sent.map((l, i) => (own[i] ? { ...l, itemId: undefined } : l)),
+  const matched = matchQuoteLines(sent, storedQuote.lines, quoteDate);
+  const ambiguous = unmatchedItemProblem(sent, matched);
+  if (ambiguous) throw new ItemLineRefusal(ambiguous);
+  const named = sent.map((l) => normalItem(l.itemId));
+  const isNew = named.map((n, i) => n !== null && n !== normalItem(matched.matches[i]?.stored.itemId));
+  const resolved = await resolveEditLineItemsAccountId(companyId, 'sales', sent.map((l, i) => (named[i] !== null ? { ...l, itemId: undefined } : l)),
     storedQuote.lines.map((l) => ({ itemId: l.itemId ?? null, description: l.description, quantity: l.quantity, unitPrice: l.unitPrice })),
     (i) => `items[${i}]`);
-  return resolved.map((l, i) => (own[i] ? { ...l, itemId: normalItem(sent[i]!.itemId) } : l));
+  const wanted = isNew.flatMap((n, i) => (n ? [i] : []));
+  const checked = wanted.length === 0 ? [] : await applyItemLineDefaults(
+    companyId, wanted.map((i) => ({ itemId: named[i]!, glAccountId: sent[i]!.accountId })), 'sales', (k) => `items[${wanted[k]}]`,
+  );
+  return resolved.map((l, i) => {
+    if (named[i] === null) return l;
+    const k = wanted.indexOf(i);
+    return { ...l, itemId: named[i]!, accountId: k >= 0 ? checked[k]!.glAccountId ?? sent[i]!.accountId : sent[i]!.accountId };
+  });
 }
 
 const given = (v: unknown): boolean => v !== undefined && v !== null;
@@ -169,7 +167,7 @@ export async function priceQuoteLines(companyId: string, args: {
     return {
       lines: matches.map((m) => ({ qty: m!.stored.quantity, price: m!.stored.unitPrice, amount: m!.stored.amount, taxAmount: null, vatType: null, taxRate: m!.stored.taxRate })),
       header: { subtotal, tax, total, taxRate, amountsAre: null },
-      refs: await lineRefs(companyId, args.lines, sent, matches),
+      refs: lineRefs(args.lines, sent, matches),
     };
   }
   const parties = await invoiceVatParties(companyId, args.clientId);
@@ -186,5 +184,5 @@ export async function priceQuoteLines(companyId: string, args: {
     { subtotal: priced.header.subtotal, taxAmount: priced.header.tax, totalAmount: priced.header.total, invoiceDate: args.quoteDate, amountsAre },
   );
   if (problem) throw new InvoiceLineVatRefusal(`This quote could not be invoiced as priced: ${problem}`);
-  return { ...priced, refs: await lineRefs(companyId, args.lines, sent, matches) };
+  return { ...priced, refs: lineRefs(args.lines, sent, matches) };
 }

@@ -4,11 +4,14 @@
  *
  * A line with an `id` takes that stored line. Otherwise one rule decides, by what the saved quote holds:
  *
- *   ONLY STANDARD lines saved (nothing a wrong match could mistype): each line is matched in passes, strongest first,
- *     each stored line once: identical (description trimmed and case-insensitive, item, quantity, unit price) at its
- *     place, identical anywhere, the same description and the same NAMED item at its place / anywhere (a line naming an
- *     item claims it first), the same description and no other item at its place / anywhere, the same description
- *     naming another item at its place / anywhere, the same item at its place / anywhere.
+ *   ONLY STANDARD lines saved (the VAT type is not at risk; the item and account are), round 12's STRUCTURAL rule: a
+ *     line with no id takes a stored line's item and account ONLY (a) at its OWN place, on the same description
+ *     (trimmed, case-insensitive), or renamed there naming the place's own item; or (b) by a description UNIQUE among
+ *     the stored lines and among the sent lines. Same-description stored twins all carrying the same item and account
+ *     are interchangeable and pair freely. Any other line whose description has stored twins of different items or
+ *     accounts is AMBIGUOUS, and refused (unmatchedVatProblem: a 400 asking for the saved line's id, or an explicit
+ *     itemId and accountId), as is a line at its place naming an item that ANOTHER same-description twin carries (moved
+ *     or re-itemed: it cannot be told). A line with no stored line of its description is a new line.
  *   A ZERO-RATED or EXEMPT line saved (a legacy 0% line counts): a typeless line inherits a saved type ONLY from a
  *     POSITIONAL resend: the same number of lines, each identical to the saved line in its own place and of a
  *     compatible rate, except at most one changed in place (its price, quantity, or its description or its item, not
@@ -55,7 +58,7 @@ export function storedQuoteOf(q: Pick<Quote, 'subtotal' | 'taxAmount' | 'total' 
 }
 
 export interface SentQuoteLine {
-  id?: unknown; description: string; quantity: number; unitPrice: number; taxRate?: unknown; vatType?: unknown; itemId?: unknown;
+  id?: unknown; description: string; quantity: number; unitPrice: number; taxRate?: unknown; vatType?: unknown; itemId?: unknown; accountId?: unknown;
 }
 
 export interface LineMatch { stored: StoredQuoteVatLine; identical: boolean }
@@ -71,6 +74,8 @@ function rateOn(s: StoredQuoteVatLine, date: string): number {
 
 export interface LineMatches {
   matches: (LineMatch | null)[];
+  /** Standard-only: lines whose item and account cannot be told (see the header); refused. */
+  ambiguous: number[];
   /** The saved quote holds a zero-rated or exempt line (see the header). */
   sensitive: boolean;
   /** Sensitive only: the edit is a positional resend, so its lines matched their places. */
@@ -102,12 +107,6 @@ const identical = (l: SentQuoteLine, s: StoredQuoteVatLine) => key(l) === key(s)
 const identicalInPlace = (l: SentQuoteLine, s: StoredQuoteVatLine) => key(l) === key(s) && !(itemChanged(l, s) && !!s.itemId);
 /** The same line by its description, whatever item it now names (the policy: the same description is the same line). */
 const sameDescription = (l: SentQuoteLine, s: StoredQuoteVatLine) => descOf(l.description) === descOf(s.description);
-/** The same description and the SAME item, both named: the first description passes, so a line naming an item claims it. */
-const sameDescriptionNamedItem = (l: SentQuoteLine, s: StoredQuoteVatLine) =>
-  sameDescription(l, s) && itemOf(l) !== null && !!s.itemId && itemOf(l) === s.itemId.toLowerCase();
-/** The same description AND no other item (the same item, or either has none): after the strict passes, so twins of different items re-priced and reordered pair by item. */
-const sameDescriptionAndItem = (l: SentQuoteLine, s: StoredQuoteVatLine) =>
-  sameDescription(l, s) && (itemOf(l) === null || !s.itemId || itemOf(l) === s.itemId.toLowerCase());
 
 /** See the header: the same count, every line of a compatible rate, identical in its place but at most one changed in place. */
 function positionalResend(sent: readonly SentQuoteLine[], stored: readonly StoredQuoteVatLine[], compatible: Fits): boolean {
@@ -142,26 +141,41 @@ export function matchQuoteLines(sent: readonly SentQuoteLine[], stored: readonly
   if (sensitive) {
     const positional = positionalResend(sent, stored, compatible);
     if (positional) sent.forEach((_, i) => { if (!out[i]) take(i, i); });
-    return { matches: out, sensitive, positional };
+    return { matches: out, sensitive, positional, ambiguous: [] };
   }
-  // Only standard lines saved: a match can only keep a line standard, so the passes take the first candidate.
-  const pass = (fits: Fits, atPlace: boolean) => sent.forEach((l, i) => {
-    if (out[i]) return;
-    const j = atPlace ? (free(i) && fits(l, stored[i]!) && compatible(l, stored[i]!) ? i : -1)
-      : stored.findIndex((s, k) => free(k) && fits(l, s) && compatible(l, s));
-    if (j >= 0) take(i, j);
+  return { matches: out, sensitive, positional: false, ambiguous: standardOnly(sent, stored, out, free, take, compatible) };
+}
+
+/** Item and account by the standard-only structural rule (see the header); returns the ambiguous lines. */
+function standardOnly(sent: readonly SentQuoteLine[], stored: readonly StoredQuoteVatLine[], out: readonly (LineMatch | null)[],
+  free: (j: number) => boolean, take: (i: number, j: number) => void, compatible: Fits): number[] {
+  const ambiguous: number[] = [];
+  const twinsOf = (l: SentQuoteLine) => stored.flatMap((s, j) => (sameDescription(l, s) ? [j] : []));
+  const itemAccount = (s: StoredQuoteVatLine) => `${normalItem(s.itemId)}|${s.accountId ?? ''}`;
+  // (a) At its own place: the same description, or renamed there naming the place's own item. A line naming an item that
+  // another same-description twin carries is not resolved by its place (moved, or re-itemed: it cannot be told).
+  sent.forEach((l, i) => {
+    if (out[i] || !free(i) || !compatible(l, stored[i]!)) return;
+    const here = stored[i]!;
+    const named = itemOf(l);
+    if (named !== null && named !== normalItem(here.itemId) && sameDescription(l, here)
+      && twinsOf(here).some((j) => j !== i && normalItem(stored[j]!.itemId) === named)) { ambiguous.push(i); return; }
+    if (sameDescription(l, here) || (named !== null && named === normalItem(here.itemId))) take(i, i);
   });
-  pass(identical, true);
-  pass(identical, false);
-  pass(sameDescriptionNamedItem, true);
-  pass(sameDescriptionNamedItem, false);
-  pass(sameDescriptionAndItem, true);
-  pass(sameDescriptionAndItem, false);
-  pass(sameDescription, true);
-  pass(sameDescription, false);
-  pass(sameItem, true);
-  pass(sameItem, false);
-  return { matches: out, sensitive, positional: false };
+  // (b) A description unique among the stored lines and the sent lines; interchangeable twins pair freely; else ambiguous.
+  sent.forEach((l, i) => {
+    if (out[i] || ambiguous.includes(i)) return;
+    const js = twinsOf(l);
+    if (js.length === 0) return; // a new line
+    const unique = js.length === 1 && sent.filter((o) => descOf(o.description) === descOf(l.description)).length === 1;
+    if (unique || new Set(js.map((j) => itemAccount(stored[j]!))).size === 1) {
+      const j = js.find((k) => free(k) && compatible(l, stored[k]!));
+      if (j !== undefined) take(i, j);
+      return;
+    }
+    ambiguous.push(i);
+  });
+  return ambiguous;
 }
 
 /**
@@ -177,6 +191,18 @@ export function unmatchedVatProblem(sent: readonly SentQuoteLine[], m: LineMatch
     + 'was added, removed or moved, more than one changed, one changed both its description and its item, or a rate changed; '
     + 'identical lines of different types are not told apart either), '
     + 'so the line\'s VAT type cannot be read from the saved quote: send its vatType (standard, zero_rated or exempt) or the saved line\'s id.';
+}
+
+/**
+ * Why a sent line's item and account cannot be read from a standard-only saved quote, or null (see the header): the
+ * first ambiguous line that names neither an itemId nor an accountId of its own. Named by position, never by description.
+ */
+export function unmatchedItemProblem(sent: readonly SentQuoteLine[], m: LineMatches): string | null {
+  const i = m.ambiguous.find((k) => sent[k]!.itemId === undefined || sent[k]!.accountId === undefined);
+  if (i === undefined) return null;
+  return `items[${i}]: the saved quote has more than one line of this description with different items or accounts, and this `
+    + 'line is not in its saved place (or names an item another of them carries), so which one it is cannot be told: '
+    + 'send the saved line\'s id, or name its itemId and accountId.';
 }
 
 /** The type each sent line keeps from its match (storedLineVatType: a legacy line reads standard above 0, else zero_rated). */
