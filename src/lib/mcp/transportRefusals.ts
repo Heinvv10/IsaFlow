@@ -26,11 +26,13 @@ export function refusalId(body: unknown): JsonRpcRequest['id'] {
 /**
  * mcp_connector stays a per-company switch (Hein, 2026-10-20: not global, not
  * tied to a plan), so a marketplace user can reach this after a successful
- * sign-in. Say what is missing and who can switch it on; never point at an
- * upgrade (Cursor Marketplace Publisher Terms 3.1).
+ * sign-in. Say what is missing and who can switch it on (a company owner or
+ * admin, on the settings page, since migration 1056); never point at an
+ * upgrade (Cursor Marketplace Publisher Terms 3.1). The prefix is kept: docs
+ * and clients quote it.
  */
 export const CONNECTOR_NOT_ENABLED_MESSAGE =
-  'MCP connector not enabled for this company. Contact IsaFlow support to have it switched on.';
+  'MCP connector not enabled for this company. A company owner or admin can switch it on in IsaFlow under Settings > Developer > MCP Connector (AI agents).';
 
 export function connectorNotEnabled(body: unknown): JsonRpcResponse {
   return rpcError(refusalId(body), RPC_CODES.NOT_ENABLED, CONNECTOR_NOT_ENABLED_MESSAGE);

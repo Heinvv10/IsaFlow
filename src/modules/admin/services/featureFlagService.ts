@@ -162,14 +162,15 @@ export async function setCompanyFeatureOverride(
 ): Promise<void> {
   await sql`
     INSERT INTO company_feature_overrides
-      (company_id, feature_id, enabled, reason, set_by, created_at)
+      (company_id, feature_id, enabled, reason, set_by, set_via, created_at)
     VALUES
-      (${companyId}, ${featureId}, ${enabled}, ${reason}, ${setBy}, NOW())
+      (${companyId}, ${featureId}, ${enabled}, ${reason}, ${setBy}, 'platform_admin', NOW())
     ON CONFLICT (company_id, feature_id)
     DO UPDATE SET
       enabled    = EXCLUDED.enabled,
       reason     = EXCLUDED.reason,
       set_by     = EXCLUDED.set_by,
+      set_via    = 'platform_admin',
       created_at = NOW()
   `;
 

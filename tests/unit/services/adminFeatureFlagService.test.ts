@@ -23,7 +23,7 @@ vi.mock('@/lib/logger', () => ({
 
 import { sql } from '@/lib/neon';
 import { CURRENT_PLAN_ID_SQL } from '@/modules/admin/services/currentPlanSql';
-import { getCompanyEffectiveFeatures } from '@/modules/admin/services/featureFlagService';
+import { getCompanyEffectiveFeatures, setCompanyFeatureOverride } from '@/modules/admin/services/featureFlagService';
 
 const COMPANY = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 const GLOBAL_ID = '11111111-1111-1111-1111-111111111111';
@@ -88,5 +88,21 @@ describe('getCompanyEffectiveFeatures', () => {
     // The plan fragment is the shared CURRENT_PLAN_ID_SQL splice; the company id is the only bound value.
     expect(planQuery.slice(1)).toEqual([{ unsafeSql: CURRENT_PLAN_ID_SQL }, COMPANY]);
     expect(overridesQuery.slice(1)).toEqual([COMPANY]);
+  });
+});
+
+/** Migration 1056: a platform-admin write is stamped platform_admin, so its OFF is a lock owners cannot lift. */
+describe('setCompanyFeatureOverride', () => {
+  beforeEach(() => { vi.mocked(sql).mockReset(); });
+
+  it("stamps set_via = 'platform_admin' on INSERT and in DO UPDATE", async () => {
+    vi.mocked(sql).mockResolvedValueOnce([] as never);
+    await setCompanyFeatureOverride(COMPANY, OVERRIDE_ID, false, 'compliance', 'admin-1');
+    const [strings, ...values] = vi.mocked(sql).mock.calls[0]!;
+    const text = (strings as unknown as string[]).join('?');
+    expect(text).toMatch(/\(company_id, feature_id, enabled, reason, set_by, set_via, created_at\)/);
+    expect(text).toMatch(/\?, 'platform_admin', NOW\(\)\)/);
+    expect(text).toMatch(/DO UPDATE SET[\s\S]*set_via\s*=\s*'platform_admin'/);
+    expect(values).toEqual([COMPANY, OVERRIDE_ID, false, 'compliance', 'admin-1']);
   });
 });

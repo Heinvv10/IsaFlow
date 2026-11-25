@@ -60,6 +60,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       email:        email || null,
       phone:        phone || null,
       plan_id:      plan_id || null,
+      actorUserId:  req.user.id,
     });
 
     await logAdminAction(

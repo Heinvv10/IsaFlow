@@ -62,16 +62,19 @@ function checkOne(value: unknown): ResourceCheck {
 /**
  * The redirect an authorization ERROR goes back to the client with (RFC 6749
  * s4.1.2.1), carrying `iss` (RFC 9207). Only call it with a redirect_uri that
- * has already been matched against the client's registration.
+ * has already been matched against the client's registration. An
+ * errorDescription must be RFC 6749 ASCII (no double quote, no backslash).
  */
 export function authorizationErrorRedirect(
   redirectUri: string,
   error: string,
   state: string,
   issuer: string,
+  errorDescription?: string,
 ): string {
   const url = new URL(redirectUri);
   url.searchParams.set('error', error);
+  if (errorDescription) url.searchParams.set('error_description', errorDescription);
   if (state) url.searchParams.set('state', state);
   url.searchParams.set('iss', issuer);
   return url.toString();

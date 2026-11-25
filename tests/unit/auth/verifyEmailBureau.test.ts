@@ -11,6 +11,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { pgTypesMock } from '../helpers/pgTypesMock';
 import type { NextApiRequest, NextApiResponse } from 'next';
+import { ENABLE_MCP_DEFAULT_SQL } from '@/lib/mcp/connectorDefault';
 
 const {
   consumeMock, findConsumedMock, provisionMock, bureauMock,
@@ -181,6 +182,27 @@ describe('verify-email bureau: outcomes', () => {
     await handler(req(), mockRes());
     expect(ops().html).toContain('created automatically (bureau-1)');
     expect(ops()._log.companyId).toBeNull();
+  });
+
+  it('failed bureau: the MCP connector default-on, written inside provisioning before the bureau step, still commits', async () => {
+    consumeMock.mockResolvedValue({ gotrueUserId: 'user-1', pending: accountant });
+    const order: string[] = [];
+    clientQueryMock.mockImplementation(async (text: string) => {
+      const t = String(text).trim();
+      if (t === 'COMMIT' || t === 'ROLLBACK') order.push(t);
+      if (t === ENABLE_MCP_DEFAULT_SQL) order.push('DEFAULT_ON');
+      return { rows: [] };
+    });
+    // The real provisionTenant issues the default-on SQL on the client it is given (tenantProvisioning.test.ts).
+    provisionMock.mockImplementation(async (client: { query: (t: string, v: unknown[]) => Promise<unknown> }) => {
+      await client.query(ENABLE_MCP_DEFAULT_SQL, ['company-1', 'user-1']);
+      return { companyId: 'company-1', paygEligible: true };
+    });
+    bureauMock.mockImplementation(async () => { order.push('BUREAU'); return { status: 'failed' }; });
+    const res = mockRes();
+    await handler(req(), res);
+    expect(res.statusCode).toBe(200);
+    expect(order).toEqual(['DEFAULT_ON', 'BUREAU', 'COMMIT']);
   });
 
   it('failed: the sign-up still commits and confirms, ops is told to convert', async () => {

@@ -17,6 +17,7 @@ import {
   TURNOVER_THRESHOLD_CENTS,
   type QueryRunner,
 } from '@/modules/onboarding/services/tenantProvisioningService';
+import { ENABLE_MCP_DEFAULT_SQL } from '@/lib/mcp/connectorDefault';
 
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -240,5 +241,26 @@ describe('provisionTenant — first financial year', () => {
     const { runner, calls } = fakeRunner();
     await provisionTenant(runner, baseInput, now);
     expect(calls.some((c) => /INSERT INTO fiscal_(periods|years)/i.test(c.text))).toBe(false);
+  });
+});
+
+/** Migration 1056: the MCP connector is on by default for every new tenant, plain and accountant sign-ups alike. */
+describe('provisionTenant: MCP connector default-on', () => {
+  const now = new Date('2026-08-19T10:00:00.000Z');
+
+  it.each(['direct', 'accountant'] as const)('%s sign-up: calls enable_mcp_connector_default with the owner, after the membership', async (signupType) => {
+    const { runner, calls } = fakeRunner();
+    await provisionTenant(runner, { ...baseInput, signupType }, now);
+    const defaultOn = calls.filter((c) => c.text === ENABLE_MCP_DEFAULT_SQL);
+    expect(defaultOn).toHaveLength(1);
+    expect(defaultOn[0]!.values).toEqual(['company-1', 'user-1']);
+    const membership = calls.findIndex((c) => /INSERT INTO company_users/i.test(c.text));
+    expect(calls.indexOf(defaultOn[0]!)).toBeGreaterThan(membership);
+  });
+
+  it('writes no override row itself (one SQL function owns that write)', async () => {
+    const { runner, calls } = fakeRunner();
+    await provisionTenant(runner, baseInput, now);
+    expect(calls.some((c) => /company_feature_overrides/i.test(c.text))).toBe(false);
   });
 });

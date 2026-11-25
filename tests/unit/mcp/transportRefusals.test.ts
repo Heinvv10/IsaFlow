@@ -26,3 +26,15 @@ describe('refusalId', () => {
     expect(ipThrottled([{ jsonrpc: '2.0', id: 7, method: 'tools/list' }]).id).toBeNull();
   });
 });
+
+describe('CONNECTOR_NOT_ENABLED_MESSAGE (migration 1056)', () => {
+  it('keeps the quoted prefix, names owner/admin and the settings path, never an upgrade or support-only', async () => {
+    const { CONNECTOR_NOT_ENABLED_MESSAGE } = await import('@/lib/mcp/transportRefusals');
+    expect(CONNECTOR_NOT_ENABLED_MESSAGE.startsWith('MCP connector not enabled for this company.')).toBe(true);
+    expect(CONNECTOR_NOT_ENABLED_MESSAGE).toMatch(/company owner or admin/);
+    expect(CONNECTOR_NOT_ENABLED_MESSAGE).toContain('Settings > Developer > MCP Connector (AI agents)');
+    expect(CONNECTOR_NOT_ENABLED_MESSAGE).not.toMatch(/upgrade|plan|subscri/i);
+    expect(CONNECTOR_NOT_ENABLED_MESSAGE).not.toMatch(/contact IsaFlow support/i);
+    expect(CONNECTOR_NOT_ENABLED_MESSAGE).not.toContain('—');
+  });
+});

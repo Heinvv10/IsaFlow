@@ -121,4 +121,4 @@ You can log in on a phone, but for now some screens (especially journal entries,
 ## AI assistants
 
 ### 33. Can I connect an AI assistant like Claude, Cursor or Grok Bot?
-Yes, through IsaFlow's MCP connector. It's in pilot and switched on per company, so ask us to enable it for your company first. It's read-only unless you give it more permission, and it can only post to your ledger if you specifically tick the posting permission when you connect.
+Yes, through IsaFlow's MCP connector. It's switched on per company: it is on by default for new companies, and otherwise a company owner or admin can switch it on under Settings > Developer > MCP Connector (AI agents). If it says it was switched off by IsaFlow, contact us. It's read-only unless you give it more permission, and it can only post to your ledger if you specifically tick the posting permission when you connect.

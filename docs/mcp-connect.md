@@ -5,8 +5,10 @@ Claude Code, Claude Desktop, claude.ai, Codex, Cursor or Grok Bot and operate yo
 accounting with an AI agent, with each write permission approved separately.
 
 > **Availability:** you need an IsaFlow account, and the connector is switched on per
-> company. If a connected client reports `MCP connector not enabled for this company`,
-> contact ISAFlow support to have it switched on for your company.
+> company (on by default for new companies). If a connected client reports
+> `MCP connector not enabled for this company`, a company owner or admin can switch it on
+> in IsaFlow under Settings > Developer > MCP Connector (AI agents). If that page says it
+> was switched off by IsaFlow, contact IsaFlow support.
 
 - **Endpoint:** `https://app.isaflow.co.za/api/mcp`
 - **Auth:** browser OAuth (recommended) or a personal access token (`pat_…`)
@@ -187,7 +189,8 @@ on a subscription plan are never charged per call.
 - **401 with a `WWW-Authenticate` challenge** — your client needs to (re)run the OAuth
   flow, or your token expired. Reconnect.
 - **`MCP connector not enabled for this company`** — the connector is switched off for
-  your company; contact ISAFlow support to have it switched on.
+  your company; a company owner or admin can switch it on under Settings > Developer >
+  MCP Connector (AI agents), unless IsaFlow switched it off (then contact IsaFlow support).
 - **`This company's Flow balance is too low for …`** — a direct (token or registered-app)
   connection on a pay-as-you-go company called a write that costs Flows; nothing was
   changed.

@@ -192,6 +192,8 @@ export async function listWaitlistSignups(filters: {
 export interface PromoteOptions {
   /** Override the plan suggestion from the seed; must be a valid plans.code. */
   planCodeOverride?: string | null;
+  /** The promoting platform admin: set_by of the new company's MCP connector default-on row. */
+  actorUserId: string;
 }
 
 export interface PromotionResult {
@@ -222,7 +224,7 @@ async function resolvePlanIdByCode(code: string): Promise<string | null> {
  */
 export async function promoteWaitlistSignup(
   waitlistId: string,
-  opts: PromoteOptions = {},
+  opts: PromoteOptions,
 ): Promise<PromotionResult> {
   const signup = await loadWaitlistSignup(waitlistId);
   if (!signup) {
@@ -263,6 +265,7 @@ export async function promoteWaitlistSignup(
     plan_id:               planId,
     annual_turnover_cents: seed.annualTurnoverCents,
     payg_eligible:         seed.paygEligible,
+    actorUserId:           opts.actorUserId,
   });
 
   await sql`

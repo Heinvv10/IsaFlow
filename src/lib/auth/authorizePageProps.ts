@@ -34,4 +34,6 @@ export interface AuthorizePageProps {
 export interface AuthorizePageErrorProps {
   ok: false;
   error: string;
+  /** Only for "no company has the MCP connector on": where an owner or admin switches it on. */
+  settingsHref?: string;
 }

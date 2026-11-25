@@ -7,6 +7,7 @@
 
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { enableMcpConnectorDefaultViaSql } from '@/lib/mcp/connectorDefault';
 import { AdminRequestError } from '@/modules/admin/middleware/adminRequestErrors';
 import { trialEndsAt } from '@/modules/onboarding/services/trialPeriod';
 import type { AdminCompanyDetail } from '../types/admin.types';
@@ -94,6 +95,8 @@ export async function createCompany(input: {
   plan_id?: string | null;
   annual_turnover_cents?: number | null;
   payg_eligible?: boolean;
+  /** The platform admin creating it: set_by of the MCP connector default-on row (the company has no owner yet). */
+  actorUserId: string;
 }): Promise<{ id: string; name: string }> {
   // A plan means a trial subscription ending when provisioning's trials end.
   const trialEnd = input.plan_id ? trialEndsAt(new Date()) : null;
@@ -123,6 +126,9 @@ export async function createCompany(input: {
     RETURNING id, name
   `;
   const created = rows[0] as { id: string; name: string };
+
+  // The MCP connector is on by default for a new company (migration 1056).
+  await enableMcpConnectorDefaultViaSql(created.id, input.actorUserId);
 
   // Plan gating counts a trial only while its end is in the future, so both
   // companies.trial_ends_at (above) and the subscription's current_period_end
