@@ -40,7 +40,7 @@ export function EmployeeReadinessCard({ employeeId, employee, assignments, refre
     let stale = false;
     if (!mayWrite) return undefined;
     if (readFor.current !== employeeId) { readFor.current = employeeId; setBank('pending'); setRunMonth(null); setHasFinalRun('pending'); }
-    void loadReadiness(employeeId).then(r => {
+    void loadReadiness(employeeId, refreshKey).then(r => {
       if (stale) return;
       setBank(r.bank); setRunMonth(prev => r.runMonth ?? prev ?? nextRunMonth([])); setHasFinalRun(r.hasFinalRun);
     });

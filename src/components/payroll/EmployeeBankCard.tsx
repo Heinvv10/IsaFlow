@@ -9,6 +9,7 @@ import { Landmark, Loader2 } from 'lucide-react';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { useCompany } from '@/contexts/CompanyContext';
 import { canWrite } from '@/lib/auth/writeRoles';
+import { invalidateReadiness } from './employeeBankState';
 import { EntityHistoryTimeline } from '@/components/accounting/entity-history/EntityHistoryTimeline';
 import { isHistoryAdmin } from '@/modules/accounting/services/core/entityChanges/entityChangeTypes';
 import type { EmployeeBankDetails } from '@/modules/accounting/services/payroll/payrollBankDetailsService';
@@ -59,6 +60,7 @@ export function EmployeeBankCard({ employeeId, onChanged }: { employeeId: string
   const saved = () => {
     const savedFor = employeeId;
     setEditing(false); setLoading(true);
+    invalidateReadiness(employeeId);
     onChanged?.();
     void load(() => currentEmployee.current !== savedFor);
   };
