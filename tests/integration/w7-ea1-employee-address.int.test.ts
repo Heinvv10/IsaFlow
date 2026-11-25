@@ -6,10 +6,11 @@
  *  - another company's member reaches nothing of this company's employee (404), and the service's own company
  *    predicate holds with RLS out of the way;
  *  - the change history records the address keys and masks them for everyone (last four), nothing in plain text;
+ *  - the request log (what withErrorHandler writes to stdout / stderr) holds none of the address, valid or refused;
  *  - the migration's CHECKs refuse a value longer than its BRS code allows, even written directly.
  * Disposable DB only.
  */
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Pool } from 'pg';
 import { SignJWT } from 'jose';
 import address from '../../pages/api/payroll/employees/[id]/address';
@@ -159,9 +160,9 @@ describe('the change history', () => {
       expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(200);
       const { items } = dataOf<EntityChangePage>(res);
       const last = items[0]!;
-      expect(last.fields.find((f) => f.key === 'residential_street')).toEqual({ key: 'residential_street', before: '…enue', after: '…cent', masked: true });
-      expect(last.fields.find((f) => f.key === 'postal_address_line1')).toEqual({ key: 'postal_address_line1', before: '…4711', after: null, masked: true });
-      for (const leak of ['Kingfisher', 'Heron', 'PO Box', 'Brooklyn', 'Hatfield', '0028', '0081', '0075']) {
+      expect(last.fields.find((f) => f.key === 'residential_street')).toEqual({ key: 'residential_street', before: 'K…', after: 'H…', masked: true });
+      expect(last.fields.find((f) => f.key === 'postal_address_line1')).toEqual({ key: 'postal_address_line1', before: 'P…', after: null, masked: true });
+      for (const leak of ['Kingfisher', 'Heron', 'PO Box', '4711', 'Brooklyn', 'Hatfield', '0028', '0081', '0075']) {
         expect(JSON.stringify(items), leak).not.toContain(leak);
       }
     }
@@ -174,6 +175,31 @@ describe('the change history', () => {
     const n = (await changesOf(pool, e)).length;
     expect((await put(tokens[o]!, c, e, ADDRESS)).state.statusCode).toBe(200);
     expect((await changesOf(pool, e)).length).toBe(n);
+  });
+});
+
+describe('the request log', () => {
+  /** Every line the logger writes during `fn` (it writes JSON lines to stdout, warn / error to stderr). */
+  async function captured(fn: () => Promise<unknown>): Promise<string> {
+    const out: string[] = [];
+    const grab = (chunk: unknown) => { out.push(String(chunk)); return true; };
+    const o = vi.spyOn(process.stdout, 'write').mockImplementation(grab as never);
+    const e = vi.spyOn(process.stderr, 'write').mockImplementation(grab as never);
+    try { await fn(); } finally { o.mockRestore(); e.mockRestore(); }
+    return out.join('');
+  }
+
+  it('a saved and a refused PUT: the request line is written, with none of the address in it', async () => {
+    const c = await company();
+    const e = await employee(pool, c);
+    const text = await captured(async () => {
+      expect((await put(tokens[o]!, c, e, ADDRESS)).state.statusCode).toBe(200);
+      expect((await put(tokens[o]!, c, e, { ...ADDRESS, residential: { ...ADDRESS.residential, postalCode: '0000' } })).state.statusCode).toBe(422);
+    });
+    expect(text.match(/API Request: PUT \/api\/payroll\/employees\/[^"]*\/address/g)?.length, text.slice(0, 2000)).toBe(2);
+    for (const leak of ['Kingfisher', 'Oak Court', 'Hatfield', 'Pretoria', '4711', 'Brooklyn', '0028', '0075']) {
+      expect(text, leak).not.toContain(leak);
+    }
   });
 });
 

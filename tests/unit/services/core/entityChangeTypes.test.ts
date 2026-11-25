@@ -155,11 +155,18 @@ describe('masking', () => {
       { key: 'bank_account_number', before: '1111222233', after: '9999888877', masked: false });
     expect(changeFields('payroll_employee', ['id_number'], null, { id_number: '8001015009087' })[0]).toEqual(
       { key: 'id_number', before: null, after: '…9087', masked: true });
-    // Wave 7 EA1: an address is masked to its last four, its structure flag is not.
+    // Wave 7 EA1: an address's free text is masked to its first letter, its structure flag not at all.
     expect(changeFields('payroll_employee', ['postal_same_as_residential', 'residential_street'], { residential_street: 'Main Road' },
       { residential_street: 'Church Street', postal_same_as_residential: false })).toEqual([
       { key: 'postal_same_as_residential', before: null, after: false, masked: false },
-      { key: 'residential_street', before: '…Road', after: '…reet', masked: true },
+      { key: 'residential_street', before: 'M…', after: 'C…', masked: true },
+    ]);
+    // Free text to its first letter (breaker #1932 L1: the last four of a PO Box line is the box number); codes as before.
+    expect(changeFields('payroll_employee', ['postal_address_line1', 'residential_postal_code', 'residential_street_number'], null,
+      { postal_address_line1: 'PO Box 4711', residential_postal_code: '0028', residential_street_number: '12345' })).toEqual([
+      { key: 'postal_address_line1', before: null, after: 'P…', masked: true },
+      { key: 'residential_postal_code', before: null, after: '••••', masked: true },
+      { key: 'residential_street_number', before: null, after: '…2345', masked: true },
     ]);
     expect(changeFields('payroll_bank_detail', ['account_number', 'bank_name'], null, { account_number: '62000123456', bank_name: 'FNB' })).toEqual([
       { key: 'account_number', before: null, after: '…3456', masked: true },

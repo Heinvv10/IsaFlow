@@ -29,6 +29,9 @@
 --   write   createPayrollEmployee and updatePayrollEmployee name their columns; none is new, so a row the old colour
 --           inserts has NULLs (each CHECK passes NULL) and an update leaves the address as it is. The capture records
 --           only keys whose value moved, so an old-colour update records no address key.
+--   history An address change made through the new colour is readable through the old colour's history route by the
+--           same payroll roles (owner / admin / manager) with the address keys UNMASKED (its masking list predates them),
+--           until the new colour serves. Accepted (breaker #1932 L2): those roles read the address on the card anyway.
 --
 -- LOCKS. ADD COLUMN with no default is catalogue-only. ADD COLUMN and ADD CONSTRAINT ... NOT VALID take ACCESS EXCLUSIVE
 -- on payroll_employees and the runner applies the file in ONE transaction, so that lock is held through the VALIDATEs.

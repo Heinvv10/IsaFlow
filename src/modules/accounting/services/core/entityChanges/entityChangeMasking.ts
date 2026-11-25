@@ -61,6 +61,10 @@ export function maskInitial(value: unknown): unknown {
 /** Fields masked other than to their last four. */
 const FIELD_MASKS: Partial<Record<EntityType, Readonly<Record<string, (value: unknown) => unknown>>>> = {
   payroll_bank_detail: { branch_code: maskLastTwo, account_holder: maskInitial },
+  // Wave 7 EA1 (breaker #1932 L1): an address's free-text parts to their first letter, not their last four (the last
+  // four of "PO Box 4711" is the box number). Numbers, postal codes and countries keep the default (four or fewer: hidden).
+  payroll_employee: Object.fromEntries(['residential_complex', 'residential_street', 'residential_suburb', 'residential_city',
+    'postal_address_line1', 'postal_address_line2', 'postal_address_line3', 'postal_address_line4'].map((k) => [k, maskInitial])),
 };
 
 const maskField = (type: EntityType, key: string, value: unknown): unknown => (FIELD_MASKS[type]?.[key] ?? maskValue)(value);
