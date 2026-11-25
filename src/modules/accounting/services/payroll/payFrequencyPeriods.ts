@@ -96,9 +96,21 @@ export const EXTRA_PAY_DAY = 'WEEK_53_PAY_DAY';
  * WEEK_53_PAY_DAY when this line takes the periods worked past the year's statutory periods (n > P: the 53rd weekly or
  * 27th fortnightly pay day; a starter's part week counts its share, so 52 + a part is a 53rd pay day too). PAYE stays
  * x 52 / x 26 (ruling 9; G21 (2027) Rev 1 p. 9 is silent on it, see the header). Monthly never: P = 12 is the calendar.
+ * Compared at four decimals, the precision a share is kept at (periodShareOf), so float noise in a sum of shares
+ * (52.00000000000001) is no 53rd pay day (review #1928). Not raised when:
+ *  - the line's PAYE is not from the tables (contractor, PSP, flat 25%, a directive): nothing was annualised;
+ *  - the year's earlier tables lines include another pay frequency: n then adds periods of two lengths, so n > P does
+ *    not mean an extra pay day (review #1928 breaker). The divisor itself is FQe's (engine 23, Hein ruling 23).
  */
-export function extraPayDayWarnings(frequency: PayFrequency, periodsWorked: number, periodsInYear: number): ValidationResult[] {
-  if (frequency === 'monthly' || periodsWorked <= periodsInYear) return [];
+export function extraPayDayWarnings(line: {
+  frequency: PayFrequency; periodsWorked: number; periodsInYear: number; onTables: boolean;
+  /** The pay frequencies of the year's earlier tables lines (PayeYearToDate.frequencies); absent = none. */
+  frequenciesToDate?: readonly PayFrequency[];
+}): ValidationResult[] {
+  const { frequency, periodsWorked, periodsInYear } = line;
+  const at4dp = (n: number) => Math.round(n * 10_000);
+  if (frequency === 'monthly' || !line.onTables || at4dp(periodsWorked) <= at4dp(periodsInYear)) return [];
+  if ((line.frequenciesToDate ?? []).some((f) => f !== frequency)) return [];
   const unit = frequency === 'weekly' ? 'week' : 'fortnight';
   return [{
     code: EXTRA_PAY_DAY, severity: 'warning',

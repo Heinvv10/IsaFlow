@@ -16,23 +16,39 @@ import { buildCaseInput, caseProblems, ORACLE_DIR, runCase, type OracleCase } fr
 const load = (id: string) => JSON.parse(readFileSync(join(ORACLE_DIR, `${id}.json`), 'utf8')) as OracleCase;
 const codesOf = (c: OracleCase) => calculatePayrollLine(buildCaseInput(c)).validationResults.map(v => v.code);
 
+const warn = (frequency: 'weekly' | 'fortnightly' | 'monthly', periodsWorked: number, periodsInYear: number,
+  more: { onTables?: boolean; frequenciesToDate?: Array<'weekly' | 'fortnightly' | 'monthly'> } = {}) =>
+  extraPayDayWarnings({ frequency, periodsWorked, periodsInYear, onTables: more.onTables ?? true, ...(more.frequenciesToDate ? { frequenciesToDate: more.frequenciesToDate } : {}) });
+
 describe('extraPayDayWarnings: only past the year (n > P), weekly and fortnightly', () => {
   it('weekly: n = 53 over P = 52 warns; n = 52 does not', () => {
-    expect(extraPayDayWarnings('weekly', 53, 52).map(w => w.code)).toEqual([EXTRA_PAY_DAY]);
-    expect(extraPayDayWarnings('weekly', 52, 52)).toEqual([]);
+    expect(warn('weekly', 53, 52).map(w => w.code)).toEqual([EXTRA_PAY_DAY]);
+    expect(warn('weekly', 52, 52)).toEqual([]);
   });
   it('a starter whose first part week makes n = 52.4285 has a 53rd pay day: warns', () => {
-    expect(extraPayDayWarnings('weekly', 52.4285, 52).map(w => w.code)).toEqual([EXTRA_PAY_DAY]);
+    expect(warn('weekly', 52.4285, 52).map(w => w.code)).toEqual([EXTRA_PAY_DAY]);
+  });
+  it('review #1928 (1): compared at four decimals, so float noise in a sum of shares is no 53rd pay day', () => {
+    expect(warn('weekly', 52.00000000000001, 52)).toEqual([]);
+    expect(warn('weekly', 0.4285 + 0.5714 + 51, 52)).toEqual([]); // 51.9999 + float noise
+    expect(warn('weekly', 52.0001, 52).map(w => w.code)).toEqual([EXTRA_PAY_DAY]);
+  });
+  it('review #1928 (2): not raised off the tables (contractor, PSP, flat rate, directive)', () => {
+    expect(warn('weekly', 53, 52, { onTables: false })).toEqual([]);
+  });
+  it('review #1928 (3): not raised when the year\'s earlier lines include another pay frequency', () => {
+    expect(warn('fortnightly', 31, 26, { frequenciesToDate: ['weekly', 'fortnightly'] })).toEqual([]);
+    expect(warn('weekly', 53, 52, { frequenciesToDate: ['weekly'] }).map(w => w.code)).toEqual([EXTRA_PAY_DAY]);
   });
   it('fortnightly: the 27th warns and names x 26; monthly never warns', () => {
-    const [w] = extraPayDayWarnings('fortnightly', 27, 26);
+    const [w] = warn('fortnightly', 27, 26);
     expect(w?.message).toMatch(/27th fortnightly pay day/);
     expect(w?.message).toMatch(/x 26/);
-    expect(extraPayDayWarnings('fortnightly', 26, 26)).toEqual([]);
-    expect(extraPayDayWarnings('monthly', 13, 12)).toEqual([]);
+    expect(warn('fortnightly', 26, 26)).toEqual([]);
+    expect(warn('monthly', 13, 12)).toEqual([]);
   });
   it('is a warning, cites G21, and names the alternate tax period', () => {
-    const [w] = extraPayDayWarnings('weekly', 53, 52);
+    const [w] = warn('weekly', 53, 52);
     expect(w?.severity).toBe('warning');
     expect(w?.message).toMatch(/53rd weekly pay day/);
     expect(w?.message).toMatch(/PAYE-GEN-01-G21/);
@@ -55,6 +71,25 @@ describe('the engine writes WEEK_53_PAY_DAY on the line (version 22)', () => {
         periodStart: new Date(Date.UTC(2026, 1, 16 + 14 * i)).toISOString().slice(0, 10), paye: 0 })) } });
     expect(codesOf(fortnight(26))).toContain(EXTRA_PAY_DAY);
     expect(codesOf(fortnight(25))).not.toContain(EXTRA_PAY_DAY);
+  });
+  it('review #1928 (2): an independent contractor on week 53 (PAYE not from the tables) carries none', () => {
+    const c53 = load('weekly-week-53-pay-sunday');
+    const contractor = { ...c53, input: { ...c53.input, employee: { ...c53.input.employee, taxStatus: 'independent_contractor' } } };
+    expect(codesOf(contractor)).not.toContain(EXTRA_PAY_DAY);
+  });
+  it('review #1928 (3, breaker): weekly to fortnightly mid-year (30 weekly lines, then the 2nd fortnight) carries no 27th-fortnight warning', () => {
+    const c = load('weekly-week-53-pay-sunday');
+    const p0 = c.input.priorPeriods![0]!;
+    const priors = [
+      ...Array.from({ length: 30 }, (_, i) => ({ ...p0, frequency: 'weekly' as const, periodStart: new Date(Date.UTC(2026, 2, 1 + 7 * i)).toISOString().slice(0, 10) })),
+      { ...p0, frequency: 'fortnightly' as const, periodStart: '2026-09-27' },
+    ];
+    const mixed: OracleCase = { ...c, input: { ...c.input,
+      period: { ...c.input.period, frequency: 'fortnightly', periodStart: '2026-10-11', periodEnd: '2026-10-24', year: 2026, month: 10 }, priorPeriods: priors } };
+    expect(codesOf(mixed)).not.toContain(EXTRA_PAY_DAY);
+    // The same 32 periods all fortnightly is a real 27th-plus fortnight: it warns.
+    const fortnightly: OracleCase = { ...mixed, input: { ...mixed.input, priorPeriods: priors.map((p) => ({ ...p, frequency: 'fortnightly' as const })) } };
+    expect(codesOf(fortnightly)).toContain(EXTRA_PAY_DAY);
   });
   it('the run page labels it and does not block approval on it', () => {
     expect(GROUP_LABEL[EXTRA_PAY_DAY]).toMatch(/53rd weekly|27th fortnightly/);

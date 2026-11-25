@@ -44,6 +44,7 @@ export function priorYearToDate(priors: readonly OraclePriorPeriod[], employee?:
   return {
     // A weekly or fortnightly prior counts the share of its period worked (FQc: a starter's 3 of 7 days = 0.4285).
     periods: priors.filter(p => p.periodicTaxable > 0).reduce((t, p) => t + share(p), 0),
+    frequencies: [...new Set(priors.map(p => p.frequency))],
     retirementCapPeriods: priors.reduce((t, p) => t + (p.periodicTaxable > 0 ? share(p) : p.annualPayments > 0 ? 1 : 0), 0),
     periodicTaxable: sumOf(priors.map(p => p.periodicTaxable)),
     annualPayments: sumOf(priors.map(p => p.annualPayments)),

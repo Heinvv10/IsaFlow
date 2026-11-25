@@ -141,7 +141,8 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
   });
   warnings.push(...donation.warnings, ...validateEmploymentTerms(employee, classification, components));
   // W1: a 53rd weekly / 27th fortnightly pay day stays x 52 / x 26 and says so (ruling 9; G21 (2027) Rev 1 p. 9 is silent).
-  warnings.push(...extraPayDayWarnings(cadence.frequency, trace.periods, cadence.periodsInYear));
+  warnings.push(...extraPayDayWarnings({ frequency: cadence.frequency, periodsWorked: trace.periods, periodsInYear: cadence.periodsInYear,
+    onTables, ...(ytdForTables?.frequencies ? { frequenciesToDate: ytdForTables.frequencies } : {}) }));
   // Taxable remuneration BEFORE the retirement fund deduction, which is its own figure (retirementDeduction): a
   // line's record can exceed its pay (a catch-up contribution), and taxable_income must not go negative.
   const taxableIncome = regularTaxable + annualTaxable;

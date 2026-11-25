@@ -8,6 +8,7 @@
  *  - week 52 (n = 52 = P) carries none;
  *  - tenant B (R30 000 a week, 10x) runs only weeks 52 and 53 (a later-dated window): its week 53 is its second period, so no warning: A's
  *    52 lines never count toward B's n;
+ *  - the year-to-date reader returns n = 52 and the lines' one frequency, weekly (review #1928 (3));
  *  - the run is stamped with calculation version 22.
  * Each case runs in its own transaction and rolls everything back (w6-fqb1.helpers twoRunsInMonth).
  */
@@ -18,6 +19,7 @@ import { dropTenants, seedTenant, twoRunsInMonth, type Tenant } from './w6-fqb1.
 import { approve, line, seedWeekly } from './w6-fqc.helpers';
 import { calculatePayrollRun } from '@/modules/accounting/services/payroll/payrollRunService';
 import { PAYROLL_CALCULATION_VERSION } from '@/modules/accounting/services/payroll/payrollCalculationVersion';
+import { loadPayeYearToDate } from '@/modules/accounting/services/payroll/payrollYearToDate';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
@@ -65,14 +67,23 @@ describe('a 53rd weekly pay day: x 52 kept, the line warned (G21 (2027) Rev 1 p.
       await c.query('UPDATE payroll_employee_components SET amount = 30000 WHERE employee_id = $1', [b.big]);
       const runs: string[] = [];
       let bWeeks: string[] = [];
+      let ytd53: { periods: number; frequencies?: string[] } | undefined;
       for (let k = 0; k <= 52; k += 1) {
         if (k >= 51) bWeeks = [...bWeeks, await costAndApprove(B, weekOf(k))];
-        runs.push(await costAndApprove(A, weekOf(k)));
+        if (k === 52) {
+          const id = await weekRun(A, weekOf(k));
+          ytd53 = (await loadPayeYearToDate(A.company, id, { year: 2027, month: 2 }, [a.big])).get(a.big);
+          await calculatePayrollRun(id, A.company);
+          await approve(c, id);
+          runs.push(id);
+        } else {
+          runs.push(await costAndApprove(A, weekOf(k)));
+        }
       }
       const aLines = await Promise.all(runs.map((r) => line(c, r, a.big)));
       const version = (await c.query('SELECT calculation_version FROM payroll_run_headers WHERE id = $1', [runs[52]])).rows[0].calculation_version;
       return {
-        aLines, version,
+        aLines, version, ytd53,
         bWeek53: await line(c, bWeeks[1]!, b.big),
         bWeek52: await line(c, bWeeks[0]!, b.big),
       };
@@ -83,6 +94,8 @@ describe('a 53rd weekly pay day: x 52 kept, the line warned (G21 (2027) Rev 1 p.
     // 10 260 a year (18% x 156 000 - 17 820); 52 weeks paid 10 260.00 by true-up, so week 53 = 10 260 x 53 / 52 - 10 260.
     expect(got.aLines.slice(0, 52).reduce((s, l) => s + l.paye, 0)).toBeCloseTo(10260, 2);
     expect(got.aLines[52]!.paye).toBe(197.31);
+    // The reader's n and the frequencies of the year's tables lines (review #1928 (3): one frequency, so the warning stands).
+    expect(got.ytd53).toMatchObject({ periods: 52, frequencies: ['weekly'] });
     expect(got.bWeek53.gross).toBe(30000);
     expect(got.bWeek53.codes).not.toContain('WEEK_53_PAY_DAY');
     expect(got.bWeek52.codes).not.toContain('WEEK_53_PAY_DAY');
