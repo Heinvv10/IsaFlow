@@ -39,6 +39,12 @@ Divergence from the app, named: the TypeScript sync (`billPurchaseOrderLinks.pla
 its own links on a draft edit. The backfill never touches an existing link, so it subtracts those too and is the more conservative of the two where a
 stale owned link exists (no other case differs; `mcp-po-bill-links-amounts` still holds the two equal to the cent).
 
+Known disagreement with the app sync, named: an APPROVED bill with header B and a stale app / backfill link of 100.00 on A keeps that link, because the app sync
+only remakes a bill's links while it is a draft, so an approved bill is never re-synced; the backfill does not touch it either (no link to B, remainder 0).
+Until someone unlinks it, the 100.00 stays attributed to A although the header names B: A's committed spend is understated (the bill reduces it) and B's is
+overstated (nothing reduces it). Both states attribute 100.00 in total, which is the invariant; 1022 would have attributed 200.00. The unlink tool
+(`unlink_bill_from_purchase_order`) clears the stale link.
+
 The function stays SECURITY INVOKER with the same signature, `search_path`, owner and grants (CREATE OR REPLACE keeps the ACL; the integration test
 asserts not a definer, no execute right for app_user / app_service). So no `app_definer_reviews` row (the definer registry is for SECURITY DEFINER).
 
