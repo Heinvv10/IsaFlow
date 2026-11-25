@@ -7,20 +7,24 @@ import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-const h = vi.hoisted(() => ({ fail: false }));
+const h = vi.hoisted(() => ({ fail: false, unlinkFails: false }));
 vi.mock('node:fs', async (orig) => {
   const real = await orig<typeof import('node:fs')>();
   const writeSync = ((...a: Parameters<typeof real.writeSync>) => {
     if (h.fail) throw Object.assign(new Error('ENOSPC: no space left on device, write'), { code: 'ENOSPC' });
     return (real.writeSync as (...x: unknown[]) => number)(...a);
   }) as typeof real.writeSync;
-  return { ...real, default: { ...real, writeSync }, writeSync };
+  const unlinkSync = ((...a: Parameters<typeof real.unlinkSync>) => {
+    if (h.unlinkFails) throw Object.assign(new Error('EACCES: permission denied, unlink'), { code: 'EACCES' });
+    return real.unlinkSync(...a);
+  }) as typeof real.unlinkSync;
+  return { ...real, default: { ...real, writeSync, unlinkSync }, writeSync, unlinkSync };
 });
 
 import { OwnedReport } from '../../../../scripts/sage-migration/runReport';
 
 const dirs: string[] = [];
-afterEach(() => { h.fail = false; for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true }); });
+afterEach(() => { h.fail = false; h.unlinkFails = false; vi.restoreAllMocks(); for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true }); });
 
 describe('R17-5: a placeholder that cannot be written', () => {
   it('returns why (nothing written) and leaves no file behind', () => {
@@ -28,8 +32,17 @@ describe('R17-5: a placeholder that cannot be written', () => {
     dirs.push(d);
     const p = join(d, 'report.json');
     h.fail = true;
-    expect(OwnedReport.create(p)).toEqual({ why: expect.stringMatching(/could not be written: ENOSPC.*; nothing was written$/) });
+    expect(OwnedReport.create(p)).toEqual({ why: expect.stringMatching(/could not be written: ENOSPC/) });
     expect(existsSync(p)).toBe(false);
+  });
+  it('R18-4: the file it made could not be removed: `left` says so (the CLI must not say "not created")', () => {
+    const d = mkdtempSync(join(tmpdir(), 'sage-create-'));
+    dirs.push(d);
+    const p = join(d, 'report.json');
+    [h.fail, h.unlinkFails] = [true, true];
+    vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    expect(OwnedReport.create(p)).toEqual({ why: expect.stringMatching(/ENOSPC/), left: true });
+    expect(existsSync(p)).toBe(true);
   });
   it('a placeholder that can be written: the file stays', () => {
     const d = mkdtempSync(join(tmpdir(), 'sage-create-'));

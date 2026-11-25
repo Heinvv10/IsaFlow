@@ -30,7 +30,7 @@ describe('round-16 rule: --report must not exist; the run creates it exclusively
     for (const [name, body] of [['export.json', '{"Items":[]}'], ['old.json', '{"status":"completed"}'], ['.last-run.json', '{"status":"failed","failedTests":[]}'], ['run-a.json', '{"status":"running"}']]) {
       const p = join(d, name!);
       writeFileSync(p, body!);
-      expect(OwnedReport.create(p)).toEqual({ why: expect.stringMatching(/already exists: .*pick a new path or delete the old file; nothing was written/) });
+      expect(OwnedReport.create(p)).toEqual({ why: expect.stringMatching(/already exists: .*pick a new path or delete the old file$/) });
       expect(readFileSync(p, 'utf8')).toBe(body);
     }
   });
@@ -44,7 +44,7 @@ describe('round-16 rule: --report must not exist; the run creates it exclusively
     expect(existsSync(join(d, 'nowhere.json'))).toBe(false);
   });
   it('a path that cannot be created (a missing directory) is refused: nothing written', () => {
-    expect(OwnedReport.create(join(dir(), 'no-such-dir', 'r.json'))).toEqual({ why: expect.stringMatching(/cannot be written .*nothing was written/) });
+    expect(OwnedReport.create(join(dir(), 'no-such-dir', 'r.json'))).toEqual({ why: expect.stringMatching(/cannot be written \(ENOENT/) });
   });
 });
 
@@ -108,7 +108,7 @@ describe('the arguments (kept from rounds 14-15)', () => {
     const d = dir();
     writeFileSync(join(d, 'old.json'), 'OLD');
     const p = `${join(d, 'old.json')}/`;
-    expect(checkReportArgs(['--report', p], p)).toEqual({ ok: false, why: expect.stringMatching(/cannot be written \(ENOTDIR.*\): nothing was written$/) });
+    expect(checkReportArgs(['--report', p], p)).toEqual({ ok: false, why: expect.stringMatching(/cannot be written \(ENOTDIR.*\)$/) });
     expect(readFileSync(join(d, 'old.json'), 'utf8')).toBe('OLD');
   });
   it('R17-8: --report= (no path) has its own message', () => {

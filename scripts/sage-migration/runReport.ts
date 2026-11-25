@@ -45,7 +45,7 @@ export function sameFile(a: string, b: string): boolean {
   return x.dev === y.dev && x.ino === y.ino;
 }
 
-const alreadyExists = (path: string) => `--report ${path} already exists: the run writes only a new file, so pick a new path or delete the old file; nothing was written`;
+const alreadyExists = (path: string) => `--report ${path} already exists: the run writes only a new file, so pick a new path or delete the old file`;
 
 /**
  * The --report the strictly parsed arguments name, checked against all the arguments: given once, never a value starting with `--`, and
@@ -64,7 +64,7 @@ export function checkReportArgs(argv: readonly string[], parsed: string | undefi
   try {
     if (lstatSync(parsed, { throwIfNoEntry: false })) return { ok: false, why: alreadyExists(parsed) };
   } catch (err) { // ENOTDIR (a trailing / after a file), EACCES, ELOOP: the path cannot be a new file either
-    return { ok: false, why: `--report ${parsed} cannot be written (${message(err)}): nothing was written` };
+    return { ok: false, why: `--report ${parsed} cannot be written (${message(err)})` };
   }
   return { ok: true, path: parsed };
 }
@@ -86,24 +86,26 @@ export class OwnedReport {
    * Create --report exclusively, holding the "running" placeholder. A path that exists, or a directory that cannot take it, is refused. If
    * the placeholder cannot be written (a full disk), the file it just created is removed again (only while the path is still that file).
    */
-  static create(path: string): OwnedReport | { why: string } {
+  static create(path: string): OwnedReport | { why: string; left?: true } {
     let fd: number;
     try { fd = openSync(path, 'wx', 0o644); } catch (err) {
       const code = (err as NodeJS.ErrnoException).code;
       return { why: code === 'EEXIST'
         ? alreadyExists(path)
-        : `--report ${path} cannot be written (${message(err)}): nothing was written` };
+        : `--report ${path} cannot be written (${message(err)})` };
     }
     const owned = new OwnedReport(path, fd);
     const why = owned.write({ status: 'running', startedAt: new Date().toISOString(), pid: process.pid });
     if (why === null) return owned;
-    // R17-5: never leave an empty file behind. Unlinked only while the path is still the inode this run created.
+    // R17-5: never leave an empty file behind. Unlinked only while the path is still the inode this run created; `left` says when it is
+    // not removed (R18-4: the caller must not say "not created" then).
+    let removed = false;
     try {
       const [mine, now] = [fstatSync(fd), lstatSync(path, { throwIfNoEntry: false })];
-      if (now && now.dev === mine.dev && now.ino === mine.ino) unlinkSync(path);
+      if (now && now.dev === mine.dev && now.ino === mine.ino) { unlinkSync(path); removed = true; }
     } catch (err) { process.stderr.write(`--report ${path}: the file this run created could not be removed: ${message(err)}\n`); }
     owned.close();
-    return { why: `${why}; nothing was written` };
+    return removed ? { why } : { why, left: true };
   }
 
   /** Replace the whole report with `body` through the held descriptor. Returns why not, or null when written; never throws. */
