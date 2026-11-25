@@ -96,9 +96,10 @@ function terminate(why: string): void {
 /**
  * The first SIGINT / SIGTERM / SIGHUP asks the run to stop before its next batch (dry or live; the runner asks shouldStop), so it stops
  * through the usual path: in the dry run a refused start (exit 2), in the live phase a stop report listing what was committed (exit 4). A
- * second one ends it at once (terminate). Installed by runCli only (R18-3), and removed when it ends.
+ * second one ends it at once (terminate). Installed by runCli only, never on import (R18-3).
  */
 let stopSignal: string | null = null;
+/** Installs the handlers; returns what removes them (tests only: the CLI keeps them until it exits). */
 function installHandlers(): () => void {
   const signal = (sig: NodeJS.Signals) => () => {
     if (stopSignal !== null) return terminate(`stopped at once by a second signal (${sig})`);
@@ -207,8 +208,12 @@ async function main(): Promise<void> {
   }
 }
 
-/** The CLI: its handlers installed for the run and removed after it (R18-3), every abnormal end through main's catch or terminate. */
-export async function runCli(): Promise<void> {
+/**
+ * The CLI, every abnormal end through main's catch or terminate. Its handlers stay installed until the process exits: a closed stdout
+ * found by the summary's last write (EPIPE comes on a later turn), a signal or a crash while the pool closes must still go through them
+ * (terminate keeps a finished run's exit code). `removeHandlers` (tests, R18-3) removes them when it returns, so they never outlive it.
+ */
+export async function runCli(o: { removeHandlers?: boolean } = {}): Promise<void> {
   const uninstall = installHandlers();
   try {
     await main();
@@ -218,7 +223,7 @@ export async function runCli(): Promise<void> {
     leaveStopReport(err, code); // every other exit path after the create (a stop, a refusal, a summary that failed after a dry run) leaves a stop report
     process.exit(code);
   } finally {
-    uninstall();
+    if (o.removeHandlers === true) uninstall();
   }
 }
 

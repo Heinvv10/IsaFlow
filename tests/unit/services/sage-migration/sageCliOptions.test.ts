@@ -27,7 +27,7 @@ describe('R1: run.ts never passes liveWithoutCounts', () => {
       '--live', '--expect-items', '20', '--expect-pos', '10', '--expect-po-total', '1.00'];
     try {
       const { runCli } = await import('../../../../scripts/sage-migration/run');
-      await runCli();
+      await runCli({ removeHandlers: true });
       expect(exit).toHaveBeenCalled();
     } finally { process.argv = argv; }
     expect(seen.opts).toHaveLength(1);

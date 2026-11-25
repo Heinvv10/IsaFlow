@@ -76,7 +76,7 @@ async function start(extra: string[] = []) {
   process.argv = [argv[0]!, 'scripts/sage-migration/run.ts', '--company', '00000000-0000-4000-8000-000000000001', '--user', '00000000-0000-4000-8000-000000000002',
     '--file', 'tests/fixtures/sage-export/sage-export.json', '--report', report(), ...extra];
   const { runCli } = await import('../../../../scripts/sage-migration/run');
-  const done = runCli().finally(() => { process.argv = argv; });
+  const done = runCli({ removeHandlers: true }).finally(() => { process.argv = argv; });
   await vi.waitFor(() => expect(h.opts).not.toBeNull());
   return { done }; // wrapped: an async function returning the promise itself would wait for it
 }

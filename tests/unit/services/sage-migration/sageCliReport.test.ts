@@ -68,7 +68,7 @@ async function runCli(report: string, extra: string[] = [], file = 'tests/fixtur
   process.argv = [argv[0]!, 'scripts/sage-migration/run.ts', '--company', COMPANY, '--user', '00000000-0000-4000-8000-000000000002', '--file', file, '--report', report, ...extra];
   try {
     const { runCli: cli } = await import('../../../../scripts/sage-migration/run');
-    await cli();
+    await cli({ removeHandlers: true });
   } finally { process.argv = argv; }
   return exit.mock.calls.length > 0 ? Number(exit.mock.calls[0]![0]) : (process.exitCode as number | undefined);
 }
