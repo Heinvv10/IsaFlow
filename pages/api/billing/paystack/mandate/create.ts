@@ -47,6 +47,9 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       return apiResponse.badRequest(res, 'An active mandate already exists. Revoke it before creating a new one.');
     case 'no_email':
       return apiResponse.badRequest(res, 'No authorised user email available for mandate authorisation');
+    case 'below_current_charge':
+      return apiResponse.badRequest(res,
+        `The limit must cover the current subscription charge of ${result.currentChargeCents} cents.`);
     case 'init_failed':
       return apiResponse.internalError(res, 'Failed to initialise mandate authorisation');
     case 'started':

@@ -26,7 +26,7 @@ export interface MandateCheckoutInput {
   companyId: string;
   userId: string;
   userEmail: string | undefined;
-  /** Billing ceiling stored on the mandate. */
+  /** Billing ceiling stored on the mandate: runQueuedCharges never debits above it. */
   maxAmountCents: number;
   /** The URL Paystack returns the payer to, given the checkout's reference. */
   callbackUrl: (reference: string) => string;
@@ -35,6 +35,8 @@ export interface MandateCheckoutInput {
 export type MandateCheckoutResult =
   | { kind: 'active_exists' }
   | { kind: 'no_email' }
+  /** The ceiling is below what the company is already billed per charge, so its subscription could not be collected. */
+  | { kind: 'below_current_charge'; currentChargeCents: number }
   | { kind: 'init_failed' }
   | { kind: 'started'; checkoutUrl: string; reference: string; mandateId: string };
 
@@ -50,6 +52,22 @@ export async function startMandateCheckout(input: MandateCheckoutInput): Promise
   `;
   if (existing[0]) return { kind: 'active_exists' };
   if (!userEmail) return { kind: 'no_email' };
+
+  // The charge run skips any debit above the ceiling, so a ceiling below the
+  // company's live paid subscription's charge (the planner's own formula:
+  // cycle price less discount) would stop it being billed.
+  const live = await sql<{ charge_cents: string | null }>`
+    SELECT MAX(ROUND(
+             (CASE WHEN s.billing_cycle = 'annual' THEN p.annual_price_cents ELSE p.monthly_price_cents END)
+             * (100 - COALESCE(s.discount_percent, 0)) / 100.0)) AS charge_cents
+    FROM subscriptions s
+    JOIN plans p ON p.id = s.plan_id
+    WHERE s.company_id = ${companyId}
+      AND s.status IN ('active', 'past_due')
+      AND p.code <> 'trial'
+  `;
+  const currentChargeCents = Number(live[0]?.charge_cents ?? 0);
+  if (maxAmountCents < currentChargeCents) return { kind: 'below_current_charge', currentChargeCents };
 
   const reference = `auth_${companyId.replace(/-/g, '').slice(0, 12)}_${randomBytes(6).toString('hex')}`;
   const callbackUrl = input.callbackUrl(reference);
