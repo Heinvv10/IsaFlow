@@ -149,6 +149,27 @@ describe('useUnsavedChangesGuard', () => {
     shared.push = sharedPush;
   });
 
+  it('auth redirects (/login, /logout, /auth/*) are never held back, by link or by push', async () => {
+    const { result } = renderHook(() => useUnsavedChangesGuard(true));
+    const l = link('/login?reason=session-expired');
+    act(() => { click(l.a); });
+    expect(l.onReact).toHaveBeenCalled();
+    await (shared.push as (u: string) => Promise<boolean>)('/logout');
+    await (shared.replace as (u: string) => Promise<boolean>)('/login');
+    expect(sharedPush.mock.calls.map((c) => (c as unknown[])[0])).toContain('/logout');
+    expect(result.current.pending).toBeNull();
+  });
+
+  it('two guards cleaned up out of order: navigation still works', async () => {
+    const a = renderHook(() => useUnsavedChangesGuard(true));
+    const b = renderHook(() => useUnsavedChangesGuard(true));
+    a.unmount(); // a's wrapper is still in the chain under b's
+    b.unmount();
+    await (shared.push as (u: string) => Promise<boolean>)('/accounting/bank');
+    expect(sharedPush.mock.calls.map((c) => (c as unknown[])[0])).toContain('/accounting/bank');
+    expect(b.result.current.pending).toBeNull();
+  });
+
   it('unmount (or going clean) removes the listeners', () => {
     const rem = vi.spyOn(window, 'removeEventListener');
     const { unmount } = renderHook(() => useUnsavedChangesGuard(true));
