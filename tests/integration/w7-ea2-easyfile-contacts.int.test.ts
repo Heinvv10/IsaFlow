@@ -97,6 +97,10 @@ beforeAll(async () => {
   await bank(a, emp.full, { number: '62123456789', branch: '051001', type: 'savings', holder: 'T Molefe', name: 'Standard Bank' });
   await bank(a, emp.bare, { number: '1234567890', branch: '250655', type: 'cheque', holder: null, name: 'FNB' });
   await bank(b, emp.bee, { number: '99999999999', branch: '632005', type: 'cheque', holder: 'Bee', name: 'ABSA' });
+  // A row naming a's employee under company b (only a forged row could): a's pre-validation must not count it. The
+  // fixture's pool bypasses RLS, so this pins the query's own company predicate, not the policy.
+  await b.pool.query(`INSERT INTO payroll_bank_details (company_id, employee_id, bank_name, account_number, account_type, branch_code, is_active)
+    VALUES ($1, $2, 'ABSA', '88888888888', 'cheque', '632005', true)`, [b.company, emp.box]);
   for (const r of [a, b]) { await approvedRun(r, 1); await approvedRun(r, 2); }
 }, 240_000);
 
