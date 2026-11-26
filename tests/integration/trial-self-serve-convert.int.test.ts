@@ -3,7 +3,8 @@
  * pointed at the role itself, not the harness superuser), so the grants it relies on are proven: locking and
  * updating companies, writing subscriptions, reading the mandate's authorization code and inserting audit_log,
  * all in one transaction. Also: no mandate refuses with nothing written, a second call is a no-op with no
- * second audit row, and a company that never had a trial is refused.
+ * second audit row, a company that never had a trial is refused, and a mandate authorised for a cheaper plan
+ * cannot convert to a dearer one.
  *
  * Disposable schema fixture only (assertDisposable, via the admin-trials helpers).
  */
@@ -29,10 +30,11 @@ afterAll(async () => {
   await pool.end();
 }, 60000);
 
-async function chargeableMandate(companyId: string): Promise<void> {
+/** A chargeable mandate authorised for a plan priced `ceilingCents` (start.ts sets the ceiling to the plan's price). */
+async function chargeableMandate(companyId: string, ceilingCents = 59900): Promise<void> {
   await pool.query(
     `INSERT INTO subscription_mandates (company_id, max_amount_cents, status, gateway, paystack_authorization_code)
-     VALUES ($1, 100000, 'active', 'paystack', $2)`, [companyId, `AUTH_${crypto.randomUUID().slice(0, 8)}`]);
+     VALUES ($1, $2, 'active', 'paystack', $3)`, [companyId, ceilingCents, `AUTH_${crypto.randomUUID().slice(0, 8)}`]);
 }
 
 const auditRows = async (companyId: string) => (await pool.query(
@@ -75,6 +77,18 @@ describe('self-serve convert on migration_admin', () => {
     expect((await subsOf(id))[0]).toMatchObject({ plan_id: plans.trial, status: 'trial' });
     expect(await companyRow(id)).toMatchObject({ status: 'trial' });
     expect(await auditRows(id)).toHaveLength(0);
+  }, 30000);
+
+  it('authorise cheap, convert dear: refused with nothing written', async () => {
+    const id = await makeCompany({ name: 'Self-serve cheap then dear', endsInDays: 9, status: 'trial',
+      sub: { plan: plans.trial, status: 'trial' } });
+    await chargeableMandate(id, 59900); // authorised WP2 Pro (R599)
+    expect(await refusal(convertOwnTrial({ companyId: id, userId: owner, planId: plans.paid2 }))).toBe('mandate_plan_mismatch');
+    expect((await subsOf(id))[0]).toMatchObject({ plan_id: plans.trial, status: 'trial' });
+    expect(await companyRow(id)).toMatchObject({ status: 'trial' });
+    expect(await auditRows(id)).toHaveLength(0);
+    // The plan the owner authorised still converts.
+    expect((await convertOwnTrial({ companyId: id, userId: owner, planId: plans.paid })).alreadyConverted).toBe(false);
   }, 30000);
 
   it('refuses a company that never had a trial', async () => {

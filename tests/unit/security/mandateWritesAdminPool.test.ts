@@ -91,6 +91,26 @@ describe('POST mandate/create', () => {
     expect(appTexts.some((t) => /INSERT INTO subscription_mandates/.test(t))).toBe(false);
   });
 
+  it('refuses a ceiling below the live subscription charge (it could never be billed), before any write', async () => {
+    vi.mocked(sql).mockImplementation((async (strings: TemplateStringsArray) =>
+      (/AS charge_cents/.test(strings.join('?')) ? [{ charge_cents: '59900' }] : [])) as never);
+
+    const low = await call(create, 'owner', { maxAmountCents: 59899 });
+    expect(low.statusCode).toBe(400);
+    expect(low.body!.error!.message).toBe('The limit must cover the current subscription charge of 59900 cents.');
+    expect(h.admin).toHaveLength(0);
+    expect(initializeTransaction).not.toHaveBeenCalled();
+    // The floor is read for the verified company.
+    const floorCall = vi.mocked(sql).mock.calls.find((c) => /AS charge_cents/.test((c[0] as unknown as string[]).join('?')));
+    expect(floorCall!.slice(1)).toContain(COMPANY);
+
+    h.script.push([{ id: 'm-1' }]);
+    vi.mocked(initializeTransaction).mockResolvedValueOnce({
+      reference: 'r', accessCode: 'a', authorizationUrl: 'https://pay.example/x',
+    } as never);
+    expect((await call(create, 'owner', { maxAmountCents: 59900 })).statusCode).toBe(200);
+  });
+
   it('refuses a company id in the body: the company is the verified request\'s alone', async () => {
     const res = await call(create, 'owner', { maxAmountCents: 500000, company_id: OTHER });
     expect(res.statusCode).toBe(400);

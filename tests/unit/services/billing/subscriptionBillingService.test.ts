@@ -226,6 +226,8 @@ describe('runQueuedCharges', () => {
     paystack_authorization_code: 'AUTH_xyz',
     paystack_customer_code: 'CUS_1',
     mandate_status: 'active',
+    mandate_max_amount_cents: '59900',
+    above_mandate_ceiling: false,
     user_email: 'admin@acme.co.za',
     period_start: '2026-05-01',
   };
@@ -313,6 +315,31 @@ describe('runQueuedCharges', () => {
     const result = await runQueuedCharges();
 
     expect(result).toEqual({ submitted: 0, refundNeeded: 0, failed: 0, skipped: 1 });
+    expect(mockCharge).not.toHaveBeenCalled();
+  });
+
+  it('charge above the mandate ceiling: skipped before the claim, never sent to Paystack, alerted', async () => {
+    mockAdmin.mockResolvedValueOnce([{ ...baseCharge, amount_cents: '99900', mandate_max_amount_cents: '59900', above_mandate_ceiling: true }] as never);
+    mockSql.mockResolvedValueOnce([{ count: 0 }] as never); // unattributed live charges
+
+    const result = await runQueuedCharges();
+
+    expect(result).toEqual({ submitted: 0, refundNeeded: 0, failed: 0, skipped: 1 });
+    expect(mockCharge).not.toHaveBeenCalled();
+    // No attempt claimed and nothing written: the charge stays queued, the subscription is not made past_due.
+    expect(adminLabels()).toEqual(['subscription_due_charges']);
+    expect(log.error).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ key: 'billing.charge_above_mandate_ceiling', chargeId: 'charge-1', amountCents: 99900 }),
+      'BillingCron',
+    );
+  });
+
+  it('an unknown comparison (NULL) fails closed: skipped, not sent', async () => {
+    mockAdmin.mockResolvedValueOnce([{ ...baseCharge, mandate_max_amount_cents: null, above_mandate_ceiling: null }] as never);
+    mockSql.mockResolvedValueOnce([{ count: 0 }] as never);
+
+    expect(await runQueuedCharges()).toEqual({ submitted: 0, refundNeeded: 0, failed: 0, skipped: 1 });
     expect(mockCharge).not.toHaveBeenCalled();
   });
 });
