@@ -25,6 +25,11 @@
  *    remuneration, whether expressed in money or not"; s28(1): an order "for the attachment of any emoluments at present
  *    or in future owing or accruing"; s29(3): the employer "shall give priority to the payments specified in that
  *    notice over any order of court requiring payments to be made from the emoluments".
+ *  - On the leaver (the warning's last sentence): Maintenance Act s29(2): "Whenever any person to whom the notice relates
+ *    leaves the service of the employer, that employer shall, within seven days after the day on which he or she so
+ *    leaves the service, give notice thereof in the prescribed manner to the maintenance officer"; Magistrates' Courts
+ *    Act s65J(8)(a): the judgment debtor who "leaves the service of a garnishee before the judgment debt has been paid in
+ *    full ... must forthwith advise the judgment creditor" of the new employer (the debtor's duty, not the employer's).
  *
  * NAMED LIMITS (UNVERIFIED; the line's GARNISHEE_ON_TERMINATION warning says so):
  *  - The 25% is taken on leave + notice pay (ruling 15). s65J(1A)(b) defines basic salary as "the annual gross salary a
@@ -32,8 +37,11 @@
  *    lower or higher than the Act's.
  *  - Severance and retirement lump sums are left out on ruling 6, not on a statute read here: neither Act's text read
  *    excludes them (the Pension Funds Act s37A / s37D were not read).
- *  - The pay left for the orders is the attachable share of net pay, net x base / gross, so the tax split between the
- *    pay-outs and a severance (a directive's figure) is approximated pro rata, never taken from severance.
+ *  - The pay left for the orders is what the leave and notice pay net: net pay before the orders less what every other
+ *    earning on the line nets (its cash amount less its own directive PAYE, PayeSplit.directive), floored at nil. The
+ *    tables PAYE (3605 is taxed as an annual payment) and the UIF belong to the leave and notice pay, so a severance whose
+ *    directive taxes it at nil keeps its whole amount (breaker #1939 H1: a pro-rata net x base / gross spread the leave
+ *    pay's marginal tax over the severance and took up to R1 192 of severance).
  */
 import { formatMoney } from '@/lib/money/formatMoney';
 import { normaliseSarsCode } from './payeAnnualPayment';
@@ -54,12 +62,20 @@ export function terminationAttachableBaseOf(components: readonly EmployeeCompone
   return Math.max(0, total) / 100;
 }
 
-/** The pay the orders may take on a termination line, in cents: the base's share of net pay (a named limit above). */
-export function terminationPayLeftCents(baseCents: number, netPayBefore: number, grossPay: number): number {
-  const net = Math.max(0, cents(netPayBefore));
-  const gross = cents(grossPay);
-  if (baseCents <= 0 || gross <= 0) return 0;
-  return Math.min(net, Math.floor((net * Math.min(baseCents, gross)) / gross));
+/**
+ * The pay the orders may take on a termination line, in cents: net pay before the orders less the other earnings' own
+ * net (cash amount less the directive PAYE of the line's lump sums), never below nil; nil with no leave or notice pay.
+ */
+export function terminationPayLeftCents(
+  baseCents: number, netPayBefore: number, components: readonly EmployeeComponent[], directivePaye: number,
+): number {
+  if (baseCents <= 0) return 0;
+  const otherCash = components
+    .filter((c) => c.component.componentType === 'earning' && c.isNonCash !== true
+      && !TERMINATION_ATTACHABLE_CODES.has(normaliseSarsCode(c.component.sarsSourceCode)))
+    .reduce((sum, c) => sum + cents(c.amount), 0);
+  const otherNet = Math.max(0, otherCash - cents(directivePaye));
+  return Math.max(0, Math.max(0, cents(netPayBefore)) - otherNet);
 }
 
 /** One per order the termination line considered: what it deducted, and what the order still owes after it. */
@@ -70,8 +86,9 @@ export function terminationOrderWarning(order: { reference: string; creditorName
   return {
     code: GARNISHEE_ON_TERMINATION, severity: 'warning',
     message: `Garnishee order ${order.reference} (${order.creditorName}): ${formatMoney(takenCents / 100)} deducted from the leave and notice pay `
-      + `of this termination run (severance and retirement lump sums are never attached). ${remainder}: the employee is leaving, so tell `
-      + 'the creditor and the court (Magistrates\' Courts Act s65J(8); Maintenance Act s29(2)). UNVERIFIED: the 25% is taken on leave and '
+      + `of this termination run (severance and retirement lump sums are never attached). ${remainder}. The employee is leaving: for a `
+      + 'maintenance order, notify the maintenance officer within seven days (Maintenance Act s29(2)); under an emoluments attachment the '
+      + 'employee must tell the creditor of a new employer (Magistrates\' Courts Act s65J(8)(a)). UNVERIFIED: the 25% is taken on leave and '
       + 'notice pay (ruling), not on the Act\'s basic salary.',
   };
 }

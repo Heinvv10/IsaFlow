@@ -78,5 +78,10 @@
     "case": "termination-after-regular-took-instalment",
     "reason": "One instalment a month across the regular and termination runs is Hein's ruling 15 (grill F12), not a statute or SARS rule; PAYE as offcycle-termination-leave-after-regular.",
     "wouldVerify": "A SARS guide, a vendor (Sage / SimplePay) or a legal opinion stating how an emoluments attachment or maintenance order applies to leave and notice pay on termination, and whether the 25% limit is on that pay or on s65J(1A)(b)'s basic salary"
+  },
+  {
+    "case": "termination-severance-maintenance-exceeds-leave-net",
+    "reason": "The cap on the pay the orders may take (the leave pay's own net, severance never touched) follows Hein's ruling 6 with the breaker #1939 H1 split; the Maintenance Act s28(1)/s29(3) set no limit and say nothing of severance; no SARS or vendor figure.",
+    "wouldVerify": "A SARS guide, a vendor (Sage / SimplePay) or a legal opinion stating how an emoluments attachment or maintenance order applies to leave and notice pay on termination, and whether the 25% limit is on that pay or on s65J(1A)(b)'s basic salary"
   }
 ]

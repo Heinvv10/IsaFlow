@@ -93,6 +93,7 @@ const EXPECTED_CASE_IDS = [
   'termination-garnishee-leave-pay',
   'termination-garnishee-severance-excluded',
   'termination-maintenance-first',
+  'termination-severance-maintenance-exceeds-leave-net', // breaker #1939 H1
   'ts-deemed-standard-tables-not-flat-25pct',
   'ts-non-standard-5h-day-over-394-flat-25pct',
   'ts-non-standard-5h-day-under-394-nil-paye',
@@ -146,7 +147,7 @@ describe('payroll oracle fixtures', () => {
       'ri-eti-hourly-overtime-counted-once', 'ri-overtime-10h-at-1-5x', 'ri-sunday-8h-at-2x',
       // GT (wave 7): garnishee on a termination run; statutes read and Hein's rulings 6 and 15, no SARS guide or vendor figure.
       'termination-after-regular-took-instalment', 'termination-garnishee-leave-pay', 'termination-garnishee-severance-excluded',
-      'termination-maintenance-first',
+      'termination-maintenance-first', 'termination-severance-maintenance-exceeds-leave-net',
       'weekly-week-53-medical-retirement', 'weekly-week-53-pay-sunday',
     ]);
   });

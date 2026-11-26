@@ -26,6 +26,10 @@ export function runCreditorPaidSql(runId: string | null) {
 /**
  * Wave 7 GT (ruling 15, grill F12): whether another FINAL monthly run of `runId`'s month (same company, period year and
  * month) deducted order `o` (alias o): the regular run for a termination run, a termination run for the regular run.
+ * Ledger breaker #1939 D3: also when another run of the month, final or not (reopened since), has a CONFIRMED salary
+ * bank file that paid the order's creditor (GC2, 1057): the bank paid that run's instalment, and a reopen keeps it
+ * counted, so this run must not deduct the month's instalment again. The run that holds the payment is exempt by the
+ * callers' own p.paid test (it re-deducts exactly what it paid).
  * False with no run. Garnishees are costed on monthly runs only (payrollRunKindGuard `garnishee_frequency`).
  */
 export function takenByOtherFinalRunSql(runId: string | null) {
@@ -35,7 +39,14 @@ export function takenByOtherFinalRunSql(runId: string | null) {
         JOIN payroll_run_headers h2 ON h2.company_id = me.company_id AND h2.id <> me.id
          AND h2.period_year = me.period_year AND h2.period_month = me.period_month AND h2.pay_frequency = 'monthly'
         JOIN payroll_garnishee_deductions d2 ON d2.run_id = h2.id AND d2.company_id = h2.company_id AND d2.order_id = o.id
-       WHERE me.id = ${runId}::uuid AND me.company_id = o.company_id AND ${sql.unsafe(payRunFinalSql('h2'))}) AS taken`;
+       WHERE me.id = ${runId}::uuid AND me.company_id = o.company_id AND ${sql.unsafe(payRunFinalSql('h2'))})
+    OR EXISTS (
+      SELECT 1 FROM payroll_run_headers me
+        JOIN payroll_run_headers h2 ON h2.company_id = me.company_id AND h2.id <> me.id
+         AND h2.period_year = me.period_year AND h2.period_month = me.period_month AND h2.pay_frequency = 'monthly'
+        JOIN payroll_bank_files f ON f.run_id = h2.id AND f.company_id = h2.company_id AND f.status = 'confirmed'
+        JOIN payroll_bank_file_items i ON i.file_id = f.id AND i.company_id = f.company_id AND i.garnishee_order_id = o.id
+       WHERE me.id = ${runId}::uuid AND me.company_id = o.company_id) AS taken`;
 }
 
 /** An order as the refusals name it: its creditor and instalment, never the court reference (rev #1574 L4). */

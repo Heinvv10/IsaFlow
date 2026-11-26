@@ -116,15 +116,15 @@ export function applyGarnishees(input: {
   orders: readonly GarnisheeOrderInput[];
   components: readonly EmployeeComponent[];
   netPayBefore: number;
-  /** Wave 7 GT: an off-cycle termination line, and its gross pay (for the attachable share of net pay). */
-  termination?: { grossPay: number };
+  /** Wave 7 GT: an off-cycle termination line, and the PAYE its lump sums' directives take (that tax is theirs). */
+  termination?: { directivePaye: number };
 }): { deductions: GarnisheeDeduction[]; total: number; warnings: ValidationResult[] } {
   const termination = input.termination != null;
   const warnings: ValidationResult[] = [...takenThisMonthNotice(input.orders.filter((o) => o.takenThisMonth === true), termination)];
   const deductions: GarnisheeDeduction[] = [];
   const baseCents = cents(termination ? terminationAttachableBaseOf(input.components) : basicSalaryOf(input.components));
   let capLeft = Math.floor(baseCents * EMOLUMENT_ATTACHMENT_SHARE);
-  let netLeft = termination ? terminationPayLeftCents(baseCents, input.netPayBefore, input.termination!.grossPay)
+  let netLeft = termination ? terminationPayLeftCents(baseCents, input.netPayBefore, input.components, input.termination!.directivePaye)
     : Math.max(0, cents(input.netPayBefore));
   for (const order of orderGarnishees(input.orders.filter((o) => o.takenThisMonth !== true))) {
     const requested = Math.max(0, Math.min(cents(order.instalment), order.balance == null ? Infinity : cents(order.balance)));
