@@ -7,7 +7,7 @@ guardDevTarget(test);
 const ran = (what: string): void => { process.stdout.write(`PROBE-RAN ${what}\n`); };
 
 test.beforeAll(() => ran('first-beforeAll'));
-test.beforeAll(() => ran('second-beforeAll'));
+test.beforeAll(({ baseURL }) => ran(baseURL === process.env.PROBE_BASE_URL ? 'second-beforeAll' : 'wrong-base-url'));
 test.afterAll(() => ran('afterAll'));
 test('plain', () => ran('test'));
 test.describe('nested', () => {
