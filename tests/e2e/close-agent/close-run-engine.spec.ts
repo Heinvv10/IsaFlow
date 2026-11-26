@@ -13,6 +13,9 @@
  */
 import { test, expect } from '@playwright/test';
 import { Api, PAYROLL_SANDBOX_MONTH } from '../golden-paths/_api';
+import { guardDevTarget } from '../helpers/devTarget';
+
+guardDevTarget(test);
 
 const CLOSE_AGENT = 'close-agent:v1';
 

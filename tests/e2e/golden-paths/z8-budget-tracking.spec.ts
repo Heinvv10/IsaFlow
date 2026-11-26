@@ -23,6 +23,9 @@
 import { mkdirSync } from 'fs';
 import { test, expect, type Locator, type Page } from '@playwright/test';
 import { Api } from './_api';
+import { guardDevTarget } from '../helpers/devTarget';
+
+guardDevTarget(test);
 
 const EVIDENCE_DIR = process.env.EVIDENCE_DIR;
 

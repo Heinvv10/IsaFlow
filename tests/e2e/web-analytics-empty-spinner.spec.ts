@@ -15,6 +15,9 @@
  *   BASE_URL=http://127.0.0.1:3200 bunx playwright test tests/e2e/web-analytics-empty-spinner.spec.ts --config playwright-standalone.config.ts
  */
 import { test, expect, type Page } from '@playwright/test';
+import { guardDevTarget } from './helpers/devTarget';
+
+guardDevTarget(test);
 
 test.use({
   launchOptions: {

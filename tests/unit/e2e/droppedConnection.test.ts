@@ -75,7 +75,7 @@ describe('retryDropped', () => {
       write.mockRestore();
     });
 
-    it.each(['https://app.isaflow.co.za', 'http://10.0.0.5:3101', undefined])('does not re-send against %s (a reset there is an outage signal)', async (baseURL) => {
+    it.each(['https://app.isaflow.co.za', 'http://10.0.0.5:3101', 'http://localhost:3111', 'http://127.0.0.1:3112', 'http://localhost:3101', undefined])('does not re-send against %s (a reset there is an outage signal)', async (baseURL) => {
       const notes: string[] = [];
       const d = dropOnce();
       await expect(retryDropped(d.call, 5000, ctxAt(baseURL, notes))).rejects.toThrow(/ECONNRESET/);

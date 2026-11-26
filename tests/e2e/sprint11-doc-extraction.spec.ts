@@ -1,4 +1,7 @@
 import { test, expect } from '@playwright/test';
+import { guardDevTarget } from './helpers/devTarget';
+
+guardDevTarget(test);
 
 test.describe('Document Extraction Enhanced APIs', () => {
   test('POST /api/accounting/doc-auto-invoice does not 404', async ({ request }) => {

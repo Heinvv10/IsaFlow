@@ -30,12 +30,20 @@ const saved: Record<string, string | undefined> = {};
 beforeEach(() => {
   for (const k of KEYS) { saved[k] = process.env[k]; delete process.env[k]; }
   process.env.E2E_ADMIN_EMAIL = 'deploy-verify@isaflow.co.za';
+  vi.stubEnv('GOLDEN_SKIP_A11Y', '1'); // the post-deploy run, the only one that may name :3101
   process.env[KEYS[1]!] = 'x'.repeat(12); // E2E_ADMIN_PASSWORD: the scripted app never reads it
   script.asked = [];
 });
-afterEach(() => { for (const k of KEYS) { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]; } });
+afterEach(() => { vi.unstubAllEnvs(); for (const k of KEYS) { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]; } });
 
 describe('golden global setup', () => {
+  it.each(['http://localhost:3101', 'http://localhost:3111', 'http://localhost:3112', 'https://app.isaflow.co.za'])(
+    'outside the post-deploy run it refuses %s before any request', async (baseURL) => {
+      vi.stubEnv('GOLDEN_SKIP_A11Y', '');
+      await expect(globalSetup(config(baseURL))).rejects.toThrow(/dev-target guard/);
+      expect(script.asked).toEqual([]);
+    });
+
   it('THE INCIDENT: login 200, then every GET 401 at http://127.0.0.1:3101 fails as a refused session pointing at localhost, not as missing accounts', async () => {
     script.answer = (): Answer => ({ status: 401, body: { success: false, error: { code: 'UNAUTHORIZED' } } });
     const err = await globalSetup(config('http://127.0.0.1:3101')).then(() => null, (e: Error) => e);

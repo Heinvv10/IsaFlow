@@ -1,4 +1,7 @@
 import { test, expect } from '@playwright/test';
+import { guardDevTarget } from './helpers/devTarget';
+
+guardDevTarget(test);
 
 /**
  * PRD-05 Phase 9-12 smoke — hardens the most recent surface area by

@@ -9,8 +9,11 @@ import { test, expect, Browser, BrowserContext, Page } from '@playwright/test';
 import { chromium } from '@playwright/test';
 import fs from 'fs';
 import path from 'path';
+import { devBaseUrl, guardDevTarget } from './helpers/devTarget';
 
-const BASE = 'https://admin.isaflow.co.za';
+guardDevTarget(test);
+
+const BASE = devBaseUrl();
 const SCREENSHOT_DIR = path.join(process.cwd(), 'tests/e2e/screenshots/admin-qa');
 const SESSION_PATH = path.join(process.cwd(), 'tests/e2e/.auth/admin-qa-session.json');
 

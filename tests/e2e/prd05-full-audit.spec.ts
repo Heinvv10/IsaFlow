@@ -23,6 +23,9 @@
  * If any test fails, screenshots land in tests/e2e/screenshots/.
  */
 import { test, expect, type Page } from '@playwright/test';
+import { guardDevTarget } from './helpers/devTarget';
+
+guardDevTarget(test);
 
 const CRASH_TEXT = [
   'Something went wrong',
