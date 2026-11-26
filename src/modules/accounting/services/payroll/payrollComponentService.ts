@@ -111,14 +111,17 @@ export async function getEmployeeComponents(
 
 /**
  * W29 (wave 7 PRA): the recurring earnings of the employee (in this company) with a plain amount that ended in the
- * period [periodStart, asOf) inside employment, or ON the employee's end date (review #1901 R2-M1: a leaver's own row,
- * whatever the day; the run pays it whole, ruling 19), unless it is replaced the next day (LEAVER_ROW_HAS_SUCCESSOR_SQL,
- * the same predicate the last-day reader applies). The last-day reader (above) also reads a leaver row in the band: the run keeps
+ * period [periodStart, asOf) inside employment. A leaver's own row (ending ON the employee's end date) is read here only
+ * on a weekly or fortnightly run (`leaverRowAnyDay`; review #1901 R3-L3: paid whole), unless it is replaced the next day
+ * (LEAVER_ROW_HAS_SUCCESSOR_SQL, the same predicate the last-day reader applies). On a monthly run it is never read here
+ * (coordinator ruling on #1901, 2026-11-26, option B; ruling 19 "own rows keep today's behaviour"; Hein 2026-11-02): in the
+ * 27th-to-month-end band the last-day reader pays it in full; before the band it is not paid, as on master, and the user
+ * enters the part month by hand (review R2-M1, which paid it whole on any day, is reverted: it paid that hand pro-rata twice). The last-day reader (above) also reads a leaver row in the band: the run keeps
  * one reading of each row (payrollRecurringShareRead). A row a package cut is read too (review R2-M2): its days are paid
  * by its share, and a package once-off beside it is a share beside a once-off, refused until acknowledged.
  */
 export async function recurringEarningsEndedInPeriod(
-  employeeId: string, companyId: string, periodStart: string, asOf: string,
+  employeeId: string, companyId: string, periodStart: string, asOf: string, leaverRowAnyDay: boolean,
 ): Promise<EmployeeComponent[]> {
   const rows = (await sql`
     SELECT
@@ -140,8 +143,10 @@ export async function recurringEarningsEndedInPeriod(
       AND (pe.end_date IS NULL OR pec.effective_to <= pe.end_date)
       -- Ending before the employee started is outside employment (review #1901 M7): never read, never printed as 0 days.
       AND pec.effective_to >= pe.start_date
-      -- A leaver row replaced the next day is not read, exactly as the last-day reader decides (payrollLeaverSuccessor).
-      AND NOT (pe.end_date IS NOT NULL AND pec.effective_to = pe.end_date AND ${sql.unsafe(LEAVER_ROW_HAS_SUCCESSOR_SQL)})
+      -- A leaver's own row: never on a monthly run (option B, see above); on a weekly or fortnightly one unless it is
+      -- replaced the next day, exactly as the last-day reader decides (payrollLeaverSuccessor).
+      AND NOT (pe.end_date IS NOT NULL AND pec.effective_to = pe.end_date
+               AND (NOT ${leaverRowAnyDay}::boolean OR ${sql.unsafe(LEAVER_ROW_HAS_SUCCESSOR_SQL)}))
     ORDER BY pc.name, pec.effective_from
   `) as Row[];
   return rows.map(mapEmployeeComponent);
