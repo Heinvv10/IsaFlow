@@ -166,5 +166,6 @@ describe('R30-2 / R30-3 / R30-5: the ceiling says what it cut; a natural end get
     api.prepareConsole(() => null);
     void api.exitAfterConsole(4);
     expect(exits).toEqual([4]);
+    expect(nowWrites).toEqual([[2, 'could not put the console back as found: fcntl failed\n']]); // through the one try (B31-1), said once
   });
 });

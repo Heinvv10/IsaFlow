@@ -188,7 +188,7 @@ export function consoleApi(c: Console, sys: ConsoleSys = realSys) {
     clearTimeout(ceiling);
     try {
       for (const r of restore.splice(0)) {
-        try { r(); } catch (err) { writeNow(2, `could not put the console back as found: ${err instanceof Error ? err.message : String(err)}\n`); }
+        try { r(); } catch (err) { sys.writeNow(2, `could not put the console back as found: ${err instanceof Error ? err.message : String(err)}\n`); }
       }
     } finally {
       sys.exit(code);
