@@ -11,6 +11,9 @@ import AxeBuilder from '@axe-core/playwright';
 import { test, expect, type Page } from '@playwright/test';
 import { seedTheme, THEMES } from '../helpers/themeSpec';
 import { WORKSPACE } from '../helpers/budgetWorkspace';
+import { guardDevTarget } from '../helpers/devTarget';
+
+guardDevTarget(test);
 
 async function axeReport(page: Page, tag: string): Promise<void> {
   const info = test.info();

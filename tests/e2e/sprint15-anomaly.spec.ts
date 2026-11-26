@@ -1,4 +1,7 @@
 import { test, expect } from '@playwright/test';
+import { guardDevTarget } from './helpers/devTarget';
+
+guardDevTarget(test);
 
 test.describe('Anomaly Detection API', () => {
   test('POST /api/accounting/anomaly-scan does not 404', async ({ request }) => {

@@ -19,6 +19,9 @@ import { findOrCreateSandbox, switchApiCompany, switchBrowserCompany } from './_
 import { expectNoSeriousA11yViolations } from './helpers/axe';
 import { vatPrn } from './helpers/prn';
 import { THEMES, settle } from '../helpers/themeSpec';
+import { guardDevTarget } from '../helpers/devTarget';
+
+guardDevTarget(test);
 
 const SANDBOX = { name: '0GP Golden Filing Files Sandbox', onboardingId: '5d872580-bf8d-4f1c-9c49-30de070cb0fb' };
 const NOTHING_EXCUSED = { pages: {} };

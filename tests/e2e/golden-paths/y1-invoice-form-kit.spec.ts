@@ -18,6 +18,9 @@ import { todayInSast } from '../../../src/lib/saDateParser';
 import { expectNoSeriousA11yViolations } from './helpers/axe';
 import { seedTheme, settle, THEMES } from '../helpers/themeSpec';
 import { warmInvoiceRoutes } from './helpers/warmInvoiceRoutes';
+import { guardDevTarget } from '../helpers/devTarget';
+
+guardDevTarget(test);
 
 const NEW = '/accounting/customer-invoices/new';
 const EVIDENCE = process.env.INVOICE_EVIDENCE_DIR;

@@ -24,6 +24,9 @@ import type { ThreeWayAssumptions } from '@/modules/accounting/services/budgets/
 import { cleanUp, created, sweep, type GridAccount, type Version } from '../helpers/budgetDrivers';
 import { hostedFlagAvailable, setHostedFlag } from './helpers/hostedFeatureFlag';
 import { runAllCleanups } from './helpers/runAllCleanups';
+import { guardDevTarget } from '../helpers/devTarget';
+
+guardDevTarget(test);
 
 const PAGE = '/accounting/budgets/three-way';
 const PER_DAY = 1_000;

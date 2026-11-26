@@ -3,6 +3,9 @@
  */
 import { test as setup, expect } from '@playwright/test';
 import { getE2ECredentials } from './_creds';
+import { guardDevTarget } from './helpers/devTarget';
+
+guardDevTarget(setup);
 
 const AUTH_FILE = 'tests/e2e/.auth/session.json';
 
