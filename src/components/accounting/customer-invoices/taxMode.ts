@@ -1,7 +1,7 @@
 /**
  * What the invoice form's "Amounts are" choice does to a typed price. The price typed is the price sent and stored, in
  * every mode; the mode is sent with it (`amountsAre`, per-line VAT writer PR) and the server prices each line from it
- * (invoiceLineVatPricing). The quote modal still sends an ex-VAT price for an inclusive quote (customer-quotes/quoteFormVat.storedForm).
+ * (invoiceLineVatPricing). The quote modal does the same (customer-quotes/quoteFormVat).
  *
  *   exclusive  the price typed is before VAT.
  *   none       as exclusive, at rate 0. The form keeps its rate, so leaving "none" brings it back.

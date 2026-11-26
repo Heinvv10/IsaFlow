@@ -1,6 +1,6 @@
 /**
- * The New Quote modal's body (quoteFormVat): per-line VAT types and the invoice form's holds. Every line of a VAT
- * mode names its vatType and no legacy taxRate (No VAT sends taxRate 0 and no type) (review round 2 LOW 3: one rate on every line retyped a mixed quote's exempt lines).
+ * The New Quote modal's body (quoteFormVat): per-line VAT types and the invoice form's holds. Every line names its
+ * vatType and no legacy taxRate (review round 2 LOW 3: one rate on every line retyped a mixed quote's exempt lines).
  * The modal only creates, so no line carries an id (UI review L8).
  */
 import { describe, expect, it } from 'vitest';
@@ -27,16 +27,15 @@ describe('quoteBody', () => {
     expect('body' in b && b.body.lines[0]!.vatType).toBe('exempt');
   });
 
-  it('inclusive sends the ex-VAT price of a rated line with amountsAre exclusive; an exempt line as typed', () => {
-    const b = body([line({ unitPrice: 115, vatType: 'standard' }), line({ key: 'k2', description: 'Rent', unitPrice: 115, vatType: 'exempt' })], 'inclusive');
-    expect('body' in b && [b.body.amountsAre, ...b.body.lines.map((l) => l.unitPrice)]).toEqual(['exclusive', 100, 115]);
+  it('inclusive sends the price as entered with amountsAre inclusive', () => {
+    const b = body([line({ unitPrice: 115, vatType: 'standard' })], 'inclusive');
+    expect('body' in b && [b.body.amountsAre, b.body.lines[0]!.unitPrice]).toEqual(['inclusive', 115]);
   });
 
-  it('No VAT sends untyped lines at an EXPLICIT taxRate 0 (never the server\'s default chain), exclusive', () => {
-    const b = body([line({ vatType: 'standard' }), line({ key: 'k2', description: 'Two', unitPrice: 50 })], 'none');
-    expect('body' in b && b.body).toMatchObject({ amountsAre: 'exclusive', lines: [
-      { description: 'Widget', unitPrice: 100, lineNo: 1, taxRate: 0 }, { description: 'Two', unitPrice: 50, lineNo: 2, taxRate: 0 }] });
-    expect('body' in b && b.body.lines.some((l) => 'vatType' in l)).toBe(false);
+  it('No VAT sends untyped lines, exclusive and an explicit taxRate 0 (the invoice form\'s rule)', () => {
+    const b = body([line({ vatType: 'standard' })], 'none');
+    expect('body' in b && b.body).toMatchObject({ amountsAre: 'exclusive', lines: [{ description: 'Widget', unitPrice: 100, lineNo: 1, taxRate: 0 }] });
+    expect('body' in b && 'vatType' in b.body.lines[0]!).toBe(false);
   });
 
   it('blank lines are dropped and the rest keep their place on the form (lineNo)', () => {
