@@ -115,6 +115,8 @@ for (const theme of THEMES) {
       await snap(page, `cancel-card-${width}`, theme);
       await page.getByTestId('regular-run-cancel').getByRole('button', { name: 'Cancel run' }).click();
       await expect(page.getByRole('dialog')).toBeVisible();
+      // The dialog fades in: axe measures a button mid-fade as low contrast, so wait for every transition to end.
+      await page.waitForFunction(() => document.getAnimations().every((a) => a.playState !== 'running'));
       await settle(page);
       expect(await seriousAxe(page)).toEqual([]);
       await snap(page, `cancel-dialog-${width}`, theme);

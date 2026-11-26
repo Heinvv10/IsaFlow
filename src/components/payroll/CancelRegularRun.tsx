@@ -6,7 +6,8 @@
  */
 import { useRef, useState } from 'react';
 import { useRouter } from 'next/router';
-import { Loader2, XCircle } from 'lucide-react';
+import { XCircle } from 'lucide-react';
+import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { FocusedAlert } from '@/components/ui/FocusedAlert';
@@ -74,12 +75,8 @@ export function CancelRegularRun({ runId, run, companyRole }: Props) {
           </div>
         </Modal.Body>
         <Modal.Footer>
-          <button type="button" onClick={close} disabled={busy}
-            className="px-4 py-2 min-h-[44px] rounded-lg border border-[var(--ff-border-primary)] text-sm text-[var(--ff-text-secondary)] disabled:opacity-50">Keep run</button>
-          <button type="button" onClick={() => void cancel()} disabled={busy}
-            className="flex items-center gap-2 px-4 py-2 min-h-[44px] rounded-lg bg-red-700 hover:bg-red-800 text-white text-sm font-medium disabled:opacity-50">
-            {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <XCircle className="h-4 w-4" aria-hidden="true" />} Cancel run
-          </button>
+          <Button variant="secondary" onClick={close} disabled={busy}>Keep run</Button>
+          <Button variant="danger" loading={busy} onClick={() => void cancel()}>Cancel run</Button>
         </Modal.Footer>
       </Modal>
     </div>
