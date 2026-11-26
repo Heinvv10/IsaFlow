@@ -147,8 +147,14 @@ describe('formatField refuses delimiter and control characters in A / AN / FT va
     for (const type of ['A', 'AN', 'FT'] as const) expect(() => formatField(3030, value, type)).toThrow(/Field 3030 contains/);
   });
 
-  it('the refusal names the character and never echoes a raw control character', () => {
-    expect(() => formatField(3030, 'Mole\nfe', 'FT')).toThrow(/control character \(U\+000A\).*"Mole\?fe"/);
+  it('the refusal names the field and the character and never echoes the value (PII breaker of #1944)', () => {
+    expect(() => formatField(3030, 'Mole\nfe', 'FT')).toThrow(/Field 3030 contains a control character \(U\+000A\)/);
+    for (const [v, t] of [['Mole\nfe', 'FT'], ['12 Main, Road', 'FT'], [' Molefe', 'FT'], ['80010A', 'ND']] as const) {
+      let message = '';
+      try { formatField(3214, v, t); } catch (err) { message = (err as Error).message; }
+      expect(message).toMatch(/^Field 3214 /);
+      expect(message).not.toMatch(/Mole|Main|80010A/);
+    }
   });
 
   it('Free Text characters the BRS lists are kept as they are', () => {

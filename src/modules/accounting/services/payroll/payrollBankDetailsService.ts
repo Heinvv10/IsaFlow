@@ -35,6 +35,9 @@ import { payrollApprovalLockScope } from './payrollRunLock';
 
 export const ACCOUNT_TYPES = ['cheque', 'savings', 'transmission'] as const;
 export type AccountType = (typeof ACCOUNT_TYPES)[number];
+/** e@syFile 3246 (BRS V25.3.0 p. 46; wave 7 EA2, migration 1062): own 1, joint 2, third party 3. Null = not stated. */
+export const HOLDER_RELATIONSHIPS = ['own', 'joint', 'third_party'] as const;
+export type HolderRelationship = (typeof HOLDER_RELATIONSHIPS)[number];
 
 /** What these names hold, and no control character or formula lead-in: bank files and exports read them. Blank passes (the holder is optional). */
 const SAFE_NAME = /^(?:[\p{L}\p{N}][\p{L}\p{M}\p{N} .,'’&()/-]*)?$/u;
@@ -49,6 +52,8 @@ const InputSchema = z.object({
   accountType: z.enum(ACCOUNT_TYPES, 'Account type must be cheque, savings or transmission'),
   accountHolder: z.string('Account holder must be text').trim().max(100, 'Account holder is at most 100 characters')
     .regex(SAFE_NAME, safeNameMessage('Account holder')).nullish().transform((v) => v || null),
+  accountHolderRelationship: z.enum(HOLDER_RELATIONSHIPS, 'Account holder relationship must be own, joint or third_party')
+    .nullish().transform((v) => v ?? null),
 });
 
 export type BankDetailsInput = z.output<typeof InputSchema>;
@@ -82,6 +87,8 @@ export interface EmployeeBankDetails {
   branchCode: string;
   /** In full for owner / admin, else its first letter and `…`. */
   accountHolder: string | null;
+  /** Not masked: it names no one (3246). */
+  accountHolderRelationship: HolderRelationship | null;
   effectiveFrom: string;
 }
 
@@ -101,6 +108,7 @@ interface BankRow {
   account_type: AccountType;
   branch_code: string;
   account_holder: string | null;
+  account_holder_relationship: HolderRelationship | null;
   effective_from: string;
 }
 
@@ -118,13 +126,15 @@ function toView(row: BankRow, role: string | undefined): EmployeeBankDetails {
     // initial can still match.
     branchCode: full ? row.branch_code : String(maskLastTwo(row.branch_code)),
     accountHolder: full ? row.account_holder : (maskInitial(row.account_holder) as string | null),
+    accountHolderRelationship: row.account_holder_relationship ?? null,
     effectiveFrom: row.effective_from,
   };
 }
 
 const sameDetails = (row: BankRow, input: BankDetailsInput) => row.bank_name === input.bankName
   && row.account_number === input.accountNumber && row.account_type === input.accountType
-  && row.branch_code === input.branchCode && row.account_holder === input.accountHolder;
+  && row.branch_code === input.branchCode && row.account_holder === input.accountHolder
+  && (row.account_holder_relationship ?? null) === input.accountHolderRelationship;
 
 /**
  * Whether the employee has been paid through one of this company's runs that is or ever was approved, posted or paid,
@@ -166,7 +176,7 @@ export async function getEmployeeBankDetails(
   companyId: string, employeeId: string, role: string | undefined,
 ): Promise<EmployeeBankDetails | null> {
   const rows = (await sql`
-    SELECT id, employee_id, bank_name, account_number, account_type, branch_code, account_holder,
+    SELECT id, employee_id, bank_name, account_number, account_type, branch_code, account_holder, account_holder_relationship,
            effective_from::text AS effective_from
     FROM payroll_bank_details
     WHERE company_id = ${companyId}::uuid AND employee_id = ${employeeId}::uuid AND is_active
@@ -203,7 +213,7 @@ export async function setEmployeeBankDetails(
 
     // Any row at all, active or not: an entry that has been retired is still a change. The active one first.
     const [existing] = (await sql`
-      SELECT id, employee_id, bank_name, account_number, account_type, branch_code, account_holder, is_active,
+      SELECT id, employee_id, bank_name, account_number, account_type, branch_code, account_holder, account_holder_relationship, is_active,
              effective_from::text AS effective_from
       FROM payroll_bank_details
       WHERE company_id = ${companyId}::uuid AND employee_id = ${employeeId}::uuid
@@ -226,11 +236,12 @@ export async function setEmployeeBankDetails(
     `;
     const inserted = await sql`
       INSERT INTO payroll_bank_details
-        (company_id, employee_id, bank_name, account_number, account_type, branch_code, account_holder, effective_from)
+        (company_id, employee_id, bank_name, account_number, account_type, branch_code, account_holder,
+         account_holder_relationship, effective_from)
       VALUES (${companyId}::uuid, ${employeeId}::uuid, ${input.bankName}, ${input.accountNumber}, ${input.accountType},
-              ${input.branchCode}, ${input.accountHolder}, ${todayInSast()}::date)
+              ${input.branchCode}, ${input.accountHolder}, ${input.accountHolderRelationship}, ${todayInSast()}::date)
       RETURNING id, employee_id, bank_name, account_number, account_type, branch_code, account_holder,
-                effective_from::text AS effective_from
+                account_holder_relationship, effective_from::text AS effective_from
     `;
     return inserted[0] as unknown as BankRow;
   }, () => new RowLockTimeoutError('This employee'), { deadline });

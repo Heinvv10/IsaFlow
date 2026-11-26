@@ -13,7 +13,7 @@ import { invalidateReadiness } from './employeeBankState';
 import { EntityHistoryTimeline } from '@/components/accounting/entity-history/EntityHistoryTimeline';
 import { isHistoryAdmin } from '@/modules/accounting/services/core/entityChanges/entityChangeTypes';
 import type { EmployeeBankDetails } from '@/modules/accounting/services/payroll/payrollBankDetailsService';
-import { ACCOUNT_TYPES, maskedNumber } from './employeeCreate/bankDetails';
+import { ACCOUNT_TYPES, HOLDER_RELATIONSHIPS, maskedNumber } from './employeeCreate/bankDetails';
 import { BankDetailsEditor } from './BankDetailsEditor';
 import { BankLastChange } from './BankLastChange';
 
@@ -68,6 +68,7 @@ export function EmployeeBankCard({ employeeId, onChanged }: { employeeId: string
   const rows: Array<[string, string]> = details ? [
     ['Bank', details.bankName], ['Account number', maskedNumber(details.accountNumber)], ['Branch code', details.branchCode],
     ['Account type', typeLabel ?? ''], ['Account holder', details.accountHolder ?? '—'],
+    ['Account held by', HOLDER_RELATIONSHIPS.find(r => r.value === details.accountHolderRelationship)?.label ?? 'Not stated'],
   ] : [];
 
   return (
@@ -81,7 +82,7 @@ export function EmployeeBankCard({ employeeId, onChanged }: { employeeId: string
       {!loading && !error && editing && (
         <BankDetailsEditor employeeId={employeeId} onSaved={saved} onCancel={() => setEditing(false)}
           holderRequired={Boolean(details?.accountHolder)}
-          start={details ? { bankName: details.bankName, accountType: details.accountType } : undefined} />
+          start={details ? { bankName: details.bankName, accountType: details.accountType, accountHolderRelationship: details.accountHolderRelationship ?? '' } : undefined} />
       )}
       {!loading && !error && !editing && !details && (
         <div className="space-y-3">

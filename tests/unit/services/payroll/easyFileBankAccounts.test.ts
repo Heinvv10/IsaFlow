@@ -28,7 +28,7 @@ import { contactPolicyOf, loadCertificateBankAccounts } from '@/modules/accounti
 const actor = { userId: 'u1', userEmail: 'u1@example.invalid', ip: '198.18.0.1', userAgent: 'vitest' };
 const full = (id: string, o: Record<string, unknown> = {}) => ({
   id: `bd-${id}`, employeeId: id, bankName: 'FNB', accountNumber: '62000000001', masked: false, accountType: 'cheque',
-  branchCode: '250655', accountHolder: 'A Person', effectiveFrom: '2026-01-01', ...o,
+  branchCode: '250655', accountHolder: 'A Person', accountHolderRelationship: null, effectiveFrom: '2026-01-01', ...o,
 });
 const emps = [{ id: 'e1', name: 'Ann One' }, { id: 'e2', name: 'Ben Two' }, { id: 'e3', name: 'Cat Three' }];
 
@@ -43,12 +43,14 @@ describe('loadCertificateBankAccounts', () => {
   it.each(['owner', 'admin'])('%s in their own session: every account read in full, one audit row each, none for no account', async (role) => {
     const out = await loadCertificateBankAccounts('c1', emps, { role, actor });
     expect(out.written).toBe(true);
-    expect([...out.byEmployee.keys()]).toEqual(['e1', 'e2']);
+    // Cat has no account on record: 3240 = 0 (ruling 25), not read, not audited.
+    expect([...out.byEmployee.keys()]).toEqual(['e1', 'e2', 'e3']);
+    expect(out.byEmployee.get('e3')).toEqual({ notElectronic: true });
     expect(out.byEmployee.get('e1')).toMatchObject({ accountType: 'cheque', accountNumber: '62000000001', branchCode: '250655' });
     expect(st.reads.map((r) => r.role)).toEqual([role, role, role]);
     expect(st.audits).toEqual([{ companyId: 'c1', detailsId: 'bd-e1' }, { companyId: 'c1', detailsId: 'bd-e2' }]);
-    // Ben has no holder: named (3245), never a number.
-    expect(out.warnings).toEqual([expect.stringMatching(/^Ben Two: .*3245/)]);
+    // Ben has no holder (3245) and neither states who holds it (3246): named, never a number.
+    expect(out.warnings).toEqual([expect.stringMatching(/^Ann One: .*3246/), expect.stringMatching(/^Ben Two: .*3245/), expect.stringMatching(/^Ben Two: .*3246/)]);
     expect(out.warnings.join(' ')).not.toContain('62000000001');
   });
 
@@ -94,5 +96,14 @@ describe('contactPolicyOf (the address and bank-details routes\' rule: a person 
   it('no reader (the EMP501 figures, stored and never served to the builder): the address, never an account', async () => {
     st.human = false;
     expect(await contactPolicyOf(undefined)).toEqual({ address: true, bank: false });
+  });
+});
+
+describe('own account with no holder (3245 from the employee, 3246 = 1)', () => {
+  it('names the employee and raises no warning', async () => {
+    st.details = new Map<string, unknown>([['e1', full('e1', { accountHolder: null, accountHolderRelationship: 'own' })]]);
+    const out = await loadCertificateBankAccounts('c1', [emps[0]!], { role: 'owner', actor });
+    expect(out.byEmployee.get('e1')).toMatchObject({ accountHolder: 'Ann One', holderRelationship: 'own' });
+    expect(out.warnings).toEqual([]);
   });
 });

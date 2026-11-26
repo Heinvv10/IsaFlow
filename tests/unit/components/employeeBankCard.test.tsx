@@ -129,7 +129,7 @@ describe('buttons by role', () => {
     expect(await screen.findByText('•••• 1234')).toBeTruthy();
     const put = fetchMock.mock.calls.find(([, i]) => (i as RequestInit | undefined)?.method === 'PUT')!;
     expect(JSON.parse((put[1] as RequestInit).body as string)).toEqual({
-      bankName: 'Capitec', branchCode: '470010', accountNumber: '1357924680', accountType: 'cheque', accountHolder: 'K One',
+      bankName: 'Capitec', branchCode: '470010', accountNumber: '1357924680', accountType: 'cheque', accountHolder: 'K One', accountHolderRelationship: null,
     });
   });
 });
@@ -348,5 +348,41 @@ describe('the form', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Change bank details' }));
     expect((screen.getByLabelText('Bank name *') as HTMLInputElement).value).toBe('FNB');
     expect((screen.getByLabelText('Account number *') as HTMLInputElement).value).toBe('');
+  });
+});
+
+describe('who holds the account (e@syFile 3246; wave 7 EA2, migration 1062)', () => {
+  const putBody = () => JSON.parse((fetchMock.mock.calls.find(([, i]) => (i as RequestInit | undefined)?.method === 'PUT')![1] as RequestInit).body as string);
+
+  it('the card shows it, and "Not stated" when the details do not say', async () => {
+    serve({ details: { ...masked, accountHolderRelationship: 'joint' } });
+    render(<EmployeeBankCard employeeId={EMP} />);
+    expect(await screen.findByText('Joint account')).toBeTruthy();
+    cleanup();
+    serve({ details: masked });
+    render(<EmployeeBankCard employeeId={EMP} />);
+    expect(await screen.findByText('Not stated')).toBeTruthy();
+  });
+
+  it('a change keeps the stated value (every save writes a new row)', async () => {
+    serve({ details: { ...masked, accountHolder: null, accountHolderRelationship: 'own' } });
+    render(<EmployeeBankCard employeeId={EMP} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Change bank details' }));
+    fill('Branch code *', '470010'); fill('Account number *', '1357924680');
+    fireEvent.click(screen.getByRole('button', { name: 'Save bank details' }));
+    await waitFor(() => expect(calls().some(([, m]) => m === 'PUT')).toBe(true));
+    expect(putBody().accountHolderRelationship).toBe('own');
+  });
+
+  it('a first entry sends the value picked', async () => {
+    serve({ details: null });
+    render(<EmployeeBankCard employeeId={EMP} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Add bank details' }));
+    fillAll();
+    fireEvent.click(screen.getByRole('combobox', { name: /Account held by/ }));
+    fireEvent.click(await screen.findByRole('option', { name: 'Someone else (third party)' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save bank details' }));
+    await waitFor(() => expect(calls().some(([, m]) => m === 'PUT')).toBe(true));
+    expect(putBody().accountHolderRelationship).toBe('third_party');
   });
 });

@@ -16,6 +16,8 @@ import { FILING_FILE_KIND } from './filingFileContent';
 import { stampFilingFile, storedContent } from './filingFileService';
 import { assertMayActOnReturns } from './returnGuards';
 import { getVersionForUpdate } from './returnVersionWrites';
+import { withLiveBankAccounts } from '@/modules/accounting/services/payroll/easyFileBankOverlay';
+import type { CertificateBankReader } from '@/modules/accounting/services/payroll/easyFileBankAccounts';
 import { ReturnRefusal, STALE_RETURN_REFUSAL, type ReturnActor, type ReturnVersion } from './returnVersionTypes';
 
 export const EMP501_FILE_KIND = FILING_FILE_KIND.EMP501; // 999v's filing_file_kind CHECK: the kind and its builder version
@@ -59,9 +61,22 @@ export function emp501FileOf(v: Pick<ReturnVersion, 'formType' | 'figures'>): Em
  * admin only, Login-as refused, row-locked so concurrent first downloads stamp once. The first download of a finalised
  * version builds the file from the stored figures and stores it with its stamp (999v) and audit row in one savepoint;
  * every later download serves the stored bytes, never a rebuilt file (ruling H2). A superseded version is refused (409).
- * Everything is judged before the one write.
+ * Everything is judged before the one write. The bytes served carry each certificate's bank account, read live for
+ * `bankReader` (wave 7 EA2, Hein's ruling 25: easyFileBankOverlay; never stored); the stamp is the stored file's.
  */
-export async function downloadEmp501File(companyId: string, versionId: string, actor: ReturnActor): Promise<Emp501File & { stamped: boolean }> {
+export async function downloadEmp501File(
+  companyId: string, versionId: string, actor: ReturnActor, bankReader?: CertificateBankReader,
+): Promise<Emp501File & { stamped: boolean }> {
+  const file = await downloadStoredEmp501File(companyId, versionId, actor);
+  const f = file.figures as { employees?: StoredEmployee[]; certificateEmployees?: Array<{ certificateNumber: string; employeeId: string }> };
+  const names = new Map((f.employees ?? []).map((e) => [e.certificateNumber, `${e.firstNames} ${e.surname}`.trim()]));
+  const body = await withLiveBankAccounts(companyId, file.body, f.certificateEmployees, names, bankReader);
+  return { filename: file.filename, body, sha256: file.sha256, stamped: file.stamped };
+}
+
+async function downloadStoredEmp501File(
+  companyId: string, versionId: string, actor: ReturnActor,
+): Promise<Emp501File & { stamped: boolean; figures: unknown }> {
   await assertNotImpersonating(); // a stamp names the person
   assertMayActOnReturns(actor.role, 'file');
   const v = await getVersionForUpdate(companyId, versionId);
@@ -73,14 +88,14 @@ export async function downloadEmp501File(companyId: string, versionId: string, a
   if (v.filingFileSha256) {
     // A stamp in the current layout, or a FILED version's (the record of what was filed, in whatever layout): the stored bytes.
     if (v.filingFileKind === EMP501_FILE_KIND || v.status === 'filed') {
-      return { filename: emp501FileName(v), body: await storedContent(companyId, v.id), sha256: v.filingFileSha256, stamped: false };
+      return { filename: emp501FileName(v), body: await storedContent(companyId, v.id), sha256: v.filingFileSha256, stamped: false, figures: v.figures };
     }
     // Stamped in an earlier layout and not filed (emp501LayoutNote says so on the bar): rebuilt in the current layout,
     // not stored (999v writes a stamp once); amending and finalising again stamps the current file.
-    return { ...emp501FileOf(v), stamped: false };
+    return { ...emp501FileOf(v), stamped: false, figures: v.figures };
   }
   const file = emp501FileOf(v); // unstamped: the bytes (a version that cannot build one is refused here)
-  if (v.status !== 'finalised') return { ...file, stamped: false }; // filed before 999v: the trigger keeps it unstamped
+  if (v.status !== 'finalised') return { ...file, stamped: false, figures: v.figures }; // filed before 999v: the trigger keeps it unstamped
   const sha256 = await stampFilingFile(companyId, v, file.body, EMP501_FILE_KIND, 'irp5', actor.userId);
-  return { ...file, sha256, stamped: true };
+  return { ...file, sha256, stamped: true, figures: v.figures };
 }

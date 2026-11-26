@@ -6,7 +6,9 @@
  *  - an owner's file carries company a's addresses and accounts, byte for byte, and only a's (b's are 10x and absent);
  *  - each full account read is one audit row naming the employee, never the number;
  *  - a Login-as export (the same owner, impersonated) and a token export (no session id) carry no address and no
- *    account, say so, and write no audit row; the EMP501 filing file refuses a token (Login-as: downloadEmp501File);
+ *    account, say so, and write no audit row; an employee with no account is 3240 = 0 (ruling 25); 3246 (1062);
+ *  - the EMP501 filing file (ruling 25): the owner's download carries each account, read live and audited, while the
+ *    stored file and the stored figures carry none; a manager is refused; a token is refused (Login-as: downloadEmp501File);
  *  - the EMP501 figures (stored, compared) carry the address and never an account;
  *  - pre-validation names a's employee with no account and the one with no address; never b's.
  *
@@ -57,10 +59,11 @@ async function person(r: R, salary: number, idNumber: string): Promise<string> {
 }
 const setAddress = (r: R, id: string, sql: string, values: unknown[]) =>
   r.pool.query(`UPDATE payroll_employees SET ${sql} WHERE id = $1 AND company_id = $2`, [id, r.company, ...values]);
-async function bank(r: R, id: string, o: { number: string; branch: string; type: string; holder: string | null; name: string }) {
+async function bank(r: R, id: string, o: { number: string; branch: string; type: string; holder: string | null; name: string; rel?: string }) {
   bankIds[id] = String((await r.pool.query(
-    `INSERT INTO payroll_bank_details (company_id, employee_id, bank_name, account_number, account_type, branch_code, account_holder, is_active)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, true) RETURNING id`, [r.company, id, o.name, o.number, o.type, o.branch, o.holder])).rows[0]!.id);
+    `INSERT INTO payroll_bank_details (company_id, employee_id, bank_name, account_number, account_type, branch_code, account_holder,
+       account_holder_relationship, is_active)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, true) RETURNING id`, [r.company, id, o.name, o.number, o.type, o.branch, o.holder, o.rel ?? null])).rows[0]!.id);
 }
 /** One certificate's lines, by its ID number (3060). */
 const certificate = (file: string, idNumber: string): string[] => {
@@ -94,9 +97,9 @@ beforeAll(async () => {
     postal_address_line2 = 'Brits', postal_address_code = '0250', postal_address_country_code = 'ZA'`, []);
   await setAddress(b, emp.bee, `residential_street = 'Bee Street', residential_city = 'Durban', residential_postal_code = '4001',
     residential_country_code = 'ZA', postal_same_as_residential = true`, []);
-  await bank(a, emp.full, { number: '62123456789', branch: '051001', type: 'savings', holder: 'T Molefe', name: 'Standard Bank' });
+  await bank(a, emp.full, { number: '62123456789', branch: '051001', type: 'savings', holder: 'T Molefe', name: 'Standard Bank', rel: 'joint' });
   await bank(a, emp.bare, { number: '1234567890', branch: '250655', type: 'cheque', holder: null, name: 'FNB' });
-  await bank(b, emp.bee, { number: '99999999999', branch: '632005', type: 'cheque', holder: 'Bee', name: 'ABSA' });
+  await bank(b, emp.bee, { number: '99999999999', branch: '632005', type: 'cheque', holder: 'Bee', name: 'ABSA', rel: 'own' });
   // A row naming a's employee under company b (only a forged row could): a's pre-validation must not count it. The
   // fixture's pool bypasses RLS, so this pins the query's own company predicate, not the policy.
   await b.pool.query(`INSERT INTO payroll_bank_details (company_id, employee_id, bank_name, account_number, account_type, branch_code, is_active)
@@ -105,6 +108,17 @@ beforeAll(async () => {
 }, 240_000);
 
 afterAll(async () => {
+  // tax_return_versions refuses DELETE (its immutability trigger): lifted for this fixture's rows only, then ENABLE ALWAYS.
+  const c = await a.pool.connect();
+  try {
+    await c.query('BEGIN');
+    await c.query('ALTER TABLE tax_return_versions DISABLE TRIGGER trg_tax_return_versions_immutable');
+    await c.query('DELETE FROM tax_return_versions WHERE company_id = ANY($1)', [[a.company, b.company]]);
+    await c.query('ALTER TABLE tax_return_versions ENABLE ALWAYS TRIGGER trg_tax_return_versions_immutable');
+    await c.query('COMMIT');
+  } finally {
+    c.release();
+  }
   for (const r of [a, b]) {
     await r.pool.query('DELETE FROM audit_log WHERE company_id = $1', [r.company]);
     await r.pool.query('DELETE FROM impersonation_sessions WHERE actor_user_id = $1', [r.approver]);
@@ -120,11 +134,11 @@ describe('e@syFile addresses and bank accounts (wave 7 EA2)', () => {
     file = out.body;
     expect(contact(certificate(file, '8001015009087'))).toEqual([
       '3211,"4"', '3212,"Oak Court"', '3213,"12"', '3214,"Main Road"', '3215,"Hatfield"', '3216,"Pretoria"', '3217,"0028"',
-      '3285,"ZA"', '3279,"N"', '3288,1', '3240,2', '3241,"62123456789"', '3242,051001', '3243,"Standard Bank"', '3245,"T Molefe"',
+      '3285,"ZA"', '3279,"N"', '3288,1', '3240,2', '3241,"62123456789"', '3242,051001', '3243,"Standard Bank"', '3245,"T Molefe"', '3246,2',
     ]);
     expect(contact(certificate(file, '8001015009186'))).toEqual([
       '3214,"Farm Rietfontein"', '3216,"Brits"', '3217,"0250"', '3285,"ZA"', '3279,"N"', '3288,4',
-      '3289,"PO Box 77"', '3290,"Brits"', '3293,"0250"', '3294,"ZA"',
+      '3289,"PO Box 77"', '3290,"Brits"', '3293,"0250"', '3294,"ZA"', '3240,0', // no account on record: not paid by EFT
     ]);
     // No address captured: none of its codes; the account without a holder: no 3245.
     expect(contact(certificate(file, '8001015009285'))).toEqual(['3240,1', '3241,"1234567890"', '3242,250655', '3243,"FNB"']);
@@ -173,7 +187,7 @@ describe('e@syFile addresses and bank accounts (wave 7 EA2)', () => {
     const out = await exportFile(b, b.approver);
     expect(contact(certificate(out.body, '8001015009384'))).toEqual([
       '3214,"Bee Street"', '3216,"Durban"', '3217,"4001"', '3285,"ZA"', '3279,"N"', '3288,1',
-      '3240,1', '3241,"99999999999"', '3242,632005', '3243,"ABSA"', '3245,"Bee"',
+      '3240,1', '3241,"99999999999"', '3242,632005', '3243,"ABSA"', '3245,"Bee"', '3246,1',
     ]);
     expect(out.body).not.toContain('Main Road');
   });
@@ -198,5 +212,53 @@ describe('e@syFile addresses and bank accounts (wave 7 EA2)', () => {
     expect(pv.employees.some((e) => e.employeeId === emp.bee)).toBe(false);
     const pvB = (await preValidateTaxYear(b.company, { taxYear: 2026 }))!;
     expect(pvB.employees.find((e) => e.employeeId === emp.bee)?.issues.filter((i) => i.code.startsWith('IRP5_ADDRESS') || i.code.startsWith('IRP5_BANK')) ?? []).toEqual([]);
+  });
+
+  describe('the EMP501 filing file reads the accounts live at download (ruling 25)', () => {
+    let versionId = '';
+    beforeAll(async () => {
+      const figures = await buildEmp501Figures(a.company, emp501Period(2026, 'annual'), false);
+      versionId = String((await a.pool.query(
+        `INSERT INTO tax_return_versions (company_id, form_type, period_start, period_end, version_no, figures, posted_through, finalised_by, status)
+         VALUES ($1, 'EMP501', '2025-03-01', '2026-02-28', 1, $2, now(), 'fixture', 'finalised') RETURNING id`,
+        [a.company, JSON.stringify(figures)])).rows[0]!.id);
+    });
+    const download = async (user: string) => {
+      const req = request({ 'sb-access-token': a.tokens[user]!, active_company_id: a.company }, 'POST') as unknown as { url: string; body: unknown };
+      req.url = '/api/payroll/emp501/returns/filing-file';
+      req.body = { versionId, format: 'irp5' };
+      const out = response();
+      await (filingFile as unknown as (q: unknown, s: NextApiResponse) => Promise<void>)(req, out.res);
+      return out.state as unknown as { statusCode: number; body: unknown };
+    };
+
+    it('the owner\'s download carries each account (3246 too, 3240 = 0 with none), audited; nothing of it is stored', async () => {
+      const before = (await audits(a)).length;
+      const out = await download(a.approver);
+      expect(out.statusCode).toBe(200);
+      const body = String(out.body);
+      expect(contact(certificate(body, '8001015009087')).filter((l) => l.startsWith('324'))).toEqual([
+        '3240,2', '3241,"62123456789"', '3242,051001', '3243,"Standard Bank"', '3245,"T Molefe"', '3246,2',
+      ]);
+      expect(contact(certificate(body, '8001015009186')).filter((l) => l.startsWith('324'))).toEqual(['3240,0']);
+      expect(certificate(body, '8001015009087')).toContain('3214,"Main Road"');
+      // Two accounts read in full: two more audit rows. The stored file and figures hold no account.
+      expect((await audits(a)).length).toBe(before + 2);
+      const row = (await a.pool.query('SELECT filing_file_content, figures::text AS figures FROM tax_return_versions WHERE id = $1', [versionId])).rows[0]!;
+      expect(String(row.filing_file_content)).not.toMatch(/^324[0-6],/m);
+      expect(String(row.filing_file_content)).toContain('3214,"Main Road"');
+      expect(row.figures).not.toMatch(/62123456789|1234567890/);
+    });
+
+    it('a manager is refused and reads no account; a token is refused', async () => {
+      const before = (await audits(a)).length;
+      const manager = await a.addUser('manager');
+      const out = await download(manager);
+      expect(out.statusCode).toBe(403);
+      expect(JSON.stringify(out.body)).not.toMatch(/62123456789|3241,/);
+      const token = await download(await agent(a, a.approver, 'agent-download'));
+      expect(token.statusCode).toBe(403);
+      expect((await audits(a)).length).toBe(before);
+    });
   });
 });

@@ -12,7 +12,9 @@ import type { RevealActor } from '@/modules/accounting/services/core/entityChang
 import type { EmployeeBankDetails } from './payrollBankDetailsService';
 import type { DuplicateGroup } from './payrollDuplicateDetectionService';
 
-const DETAILS_REVEALED = SENSITIVE_FIELDS.payroll_bank_detail.join(',');
+// The holder relationship (1062) is masked in the history but shown in every view of the details (it names no one),
+// so a full read does not reveal it.
+const DETAILS_REVEALED = SENSITIVE_FIELDS.payroll_bank_detail.filter((f) => f !== 'account_holder_relationship').join(',');
 const DUPLICATES_REVEALED = 'account_number';
 
 /** One employee's active details, read in full (GET bank-details). */

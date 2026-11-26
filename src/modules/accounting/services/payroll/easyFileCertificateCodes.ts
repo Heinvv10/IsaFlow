@@ -61,6 +61,7 @@ export const CERTIFICATE_FIELDS = {
   bankBranchNumber: { code: 3242, type: 'ND', brsPage: 46 },       // N6, all six digits (a leading 0 is kept)
   bankName: { code: 3243, type: 'FT', brsPage: 46 },               // FT50, optional
   bankAccountHolder: { code: 3245, type: 'FT', brsPage: 46 },      // FT49, mandatory when 3240 is not 0 or 7
+  bankHolderRelationship: { code: 3246, type: 'N', brsPage: 46 },  // N1: 1 own, 2 joint, 3 third party (ruling 26, mig 1062)
 } as const satisfies Record<string, CertificateFieldSpec>;
 
 export type CertificateFieldName = keyof typeof CERTIFICATE_FIELDS;
@@ -84,14 +85,14 @@ export function fieldLabel(name: CertificateFieldName, words: string): string {
  *   3195 voluntary over-deduction indicator and 3220 fixed-rate indicator (p. 33-34): mandatory on an IRP5 from 2020.
  *   3263 employee SIC7 (p. 27); 3136 employee business telephone (p. 28).
  *   3147-3151 the address where the employee mainly works (p. 30-31).
- *   3246 the account holder's relationship, own / joint / third party (p. 46): not captured with the bank details.
  * Written since wave 7 EA2 when the employee record holds them (easyFileContactFields): the residential address
- * (3211-3217, 3285), the postal address (3279, 3288, 3289-3294) and the bank account (3240-3243, 3245; only in an
- * owner's or admin's own export: easyFileBankAccounts). Pre-validation names each employee missing one.
+ * (3211-3217, 3285), the postal address (3279, 3288, 3289-3294) and the bank account (3240-3243, 3245, 3246; read live
+ * for an owner or admin in their own session, in the export and the EMP501 filing file: easyFileBankAccounts; an
+ * employee with no account is 3240 = 0, not paid by electronic transfer). Pre-validation names each employee missing one.
  */
-export const UNWRITTEN_MANDATORY_CODES = [3026, 3136, 3147, 3148, 3149, 3150, 3151, 3195, 3220, 3246, 3263] as const;
+export const UNWRITTEN_MANDATORY_CODES = [3026, 3136, 3147, 3148, 3149, 3150, 3151, 3195, 3220, 3263] as const;
 
-const NEVER_HELD = 'the account holder relationship (3246), business phone, work address, SIC7, and the 3026 / 3195 / 3220 indicators';
+const NEVER_HELD = 'business phone, work address, SIC7, and the 3026 / 3195 / 3220 indicators';
 const NOTICE_END = 'capture them in e@syFile before you submit.';
 
 /**
@@ -100,12 +101,13 @@ const NOTICE_END = 'capture them in e@syFile before you submit.';
  * manager's export).
  */
 export const UNWRITTEN_FIELDS_WARNING = 'e@syFile will ask for fields this file does not carry: employee bank details '
-  + '(3240-3246: written only in an owner\'s or admin\'s e@syFile export), any employee address not captured in IsaFlow '
+  + '(3240-3246: written only when an owner or admin downloads the file), any employee address not captured in IsaFlow '
   + `(IRP5 pre-validation names them), ${NEVER_HELD}: ${NOTICE_END}`;
 
 /** The same notice for a file that carries every captured address and bank account (an owner's or admin's export). */
 export const UNWRITTEN_FIELDS_WARNING_BANK_WRITTEN = 'e@syFile will ask for fields this file does not carry: any employee '
-  + `address or bank account not captured in IsaFlow (IRP5 pre-validation names them), ${NEVER_HELD}: ${NOTICE_END}`;
+  + 'address not captured in IsaFlow (IRP5 pre-validation names them; an employee with no bank account is filed as not '
+  + `paid by electronic transfer, 3240 = 0), ${NEVER_HELD}: ${NOTICE_END}`;
 
 /** The same notice for an export by Login-as, a token or a job: no address and no bank account is written. */
 export const UNWRITTEN_FIELDS_WARNING_NO_CONTACTS = 'e@syFile will ask for fields this file does not carry: employee '

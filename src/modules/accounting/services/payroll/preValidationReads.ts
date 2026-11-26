@@ -20,6 +20,8 @@ export type PreValidationRow = {
   codes: string[];
   /** Wave 7 EA2: a residential address captured (3214, the mandatory street), and an active bank account; presence only. */
   has_address: boolean; has_bank: boolean;
+  /** Wave 7 EA2 (1062): the active account states who holds it (3246). False when there is no account. */
+  has_bank_relationship: boolean;
 };
 
 /** `throughMonth` (YYYYMM, wave 6 EFb): lines of runs up to that month only (an interim EMP501 judges March to August). */
@@ -68,7 +70,10 @@ export async function loadFinalLineTotals(
            (pe.residential_street IS NOT NULL) AS has_address,
            -- Whether one is on file, never the account: no number leaves the database here, so no read is audited.
            EXISTS (SELECT 1 FROM payroll_bank_details bd
-                    WHERE bd.company_id = ${companyId}::uuid AND bd.employee_id = pe.id AND bd.is_active) AS has_bank
+                    WHERE bd.company_id = ${companyId}::uuid AND bd.employee_id = pe.id AND bd.is_active) AS has_bank,
+           EXISTS (SELECT 1 FROM payroll_bank_details bd
+                    WHERE bd.company_id = ${companyId}::uuid AND bd.employee_id = pe.id AND bd.is_active
+                      AND bd.account_holder_relationship IS NOT NULL) AS has_bank_relationship
       FROM totals t
       JOIN payroll_employees pe ON pe.id = t.employee_id AND pe.company_id = ${companyId}::uuid
      ORDER BY pe.last_name, pe.first_name, pe.employee_number

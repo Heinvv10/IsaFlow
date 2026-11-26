@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildEmployeeRecord, type EmployeeInput } from '@/modules/accounting/services/payroll/easyFileExportService';
 import { CERTIFICATE_FIELDS, UNWRITTEN_MANDATORY_CODES } from '@/modules/accounting/services/payroll/easyFileCertificateCodes';
-import { bankAccountForCertificate, certificateContactLines } from '@/modules/accounting/services/payroll/easyFileContactFields';
+import { bankAccountForCertificate, certificateContactLines, NOT_ELECTRONIC } from '@/modules/accounting/services/payroll/easyFileContactFields';
 import type { EmployeeAddress } from '@/modules/accounting/services/payroll/payrollEmployeeAddressInput';
 
 const employee: EmployeeInput = {
@@ -27,7 +27,10 @@ const boxAddress: EmployeeAddress = {
   residential: { ...sameAddress.residential, unitNumber: null, complex: null, streetNumber: null, suburb: null },
   postal: { sameAsResidential: false, line1: 'PO Box 1234', line2: 'Brooklyn', line3: null, line4: null, postalCode: '0011', countryCode: 'ZA' },
 };
-const bank = { accountType: 'savings' as const, accountNumber: '62123456789', branchCode: '051001', bankName: 'Standard Bank', accountHolder: 'T Molefe' };
+const bank = {
+  accountType: 'savings' as const, accountNumber: '62123456789', branchCode: '051001', bankName: 'Standard Bank', accountHolder: 'T Molefe',
+  accountHolderRelationship: 'joint' as const,
+};
 
 /** The record from 3210 (pay periods worked) up to the first income or directive code: the slice EA2 writes into. */
 const contactSlice = (lines: string[]) => {
@@ -44,7 +47,7 @@ describe('address and bank codes (BRS V25.3.0)', () => {
     ['postalStructure', 3288, 37], ['postalLine1', 3289, 40], ['postalLine2', 3290, 40], ['postalLine3', 3291, 40],
     ['postalLine4', 3292, 40], ['postalCode', 3293, 40], ['postalCountry', 3294, 41],
     ['bankAccountType', 3240, 45], ['bankAccountNumber', 3241, 46], ['bankBranchNumber', 3242, 46],
-    ['bankName', 3243, 46], ['bankAccountHolder', 3245, 46],
+    ['bankName', 3243, 46], ['bankAccountHolder', 3245, 46], ['bankHolderRelationship', 3246, 46],
   ] as const)('%s is code %i (p. %i)', (name, code, page) => {
     expect(CERTIFICATE_FIELDS[name]).toMatchObject({ code, brsPage: page });
   });
@@ -54,18 +57,32 @@ describe('address and bank codes (BRS V25.3.0)', () => {
     expect(contactSlice(lines)).toEqual([
       '3211,"4"', '3212,"Oak Court"', '3213,"12"', '3214,"Main Road"', '3215,"Hatfield"', '3216,"Pretoria"',
       '3217,"0028"', '3285,"ZA"', '3279,"N"', '3288,1',
-      '3240,2', '3241,"62123456789"', '3242,051001', '3243,"Standard Bank"', '3245,"T Molefe"',
+      '3240,2', '3241,"62123456789"', '3242,051001', '3243,"Standard Bank"', '3245,"T Molefe"', '3246,2',
     ]);
   });
 
   it('byte fixture: structure 4 (four lines), optional residential fields left out, a cheque account with no holder', () => {
-    const cheque = bankAccountForCertificate({ ...bank, accountType: 'cheque', accountHolder: null }).account;
+    const cheque = bankAccountForCertificate({ ...bank, accountType: 'cheque', accountHolder: null, accountHolderRelationship: null }).account;
     const lines = buildEmployeeRecord({ ...employee, address: boxAddress, bankAccount: cheque });
     expect(contactSlice(lines)).toEqual([
       '3214,"Main Road"', '3216,"Pretoria"', '3217,"0028"', '3285,"ZA"', '3279,"N"', '3288,4',
       '3289,"PO Box 1234"', '3290,"Brooklyn"', '3293,"0011"', '3294,"ZA"',
       '3240,1', '3241,"62123456789"', '3242,051001', '3243,"Standard Bank"',
     ]);
+  });
+
+  it('no account on record: 3240 = 0 alone, none of 3241-3246 (p. 45-46, ruling 25)', () => {
+    const lines = buildEmployeeRecord({ ...employee, address: sameAddress, bankAccount: NOT_ELECTRONIC });
+    expect(contactSlice(lines).filter((l) => l.startsWith('324'))).toEqual(['3240,0']);
+  });
+
+  it('3246: own 1, joint 2, third party 3; an own account with no holder names the employee in 3245', () => {
+    const rel = (r: 'own' | 'joint' | 'third_party') => certificateContactLines({ bankAccount: bankAccountForCertificate({ ...bank, accountHolderRelationship: r }).account });
+    expect([rel('own'), rel('joint'), rel('third_party')].map((l) => l.at(-1))).toEqual(['3246,1', '3246,2', '3246,3']);
+    const own = bankAccountForCertificate({ ...bank, accountHolder: null, accountHolderRelationship: 'own' }, 'Thandi Molefe').account;
+    expect(certificateContactLines({ bankAccount: own }).slice(-2)).toEqual(['3245,"Thandi Molefe"', '3246,1']);
+    const third = bankAccountForCertificate({ ...bank, accountHolder: null, accountHolderRelationship: 'third_party' }, 'Thandi Molefe').account;
+    expect(certificateContactLines({ bankAccount: third }).some((l) => l.startsWith('3245,'))).toBe(false);
   });
 
   it('a transmission account is 3240 = 3', () => {
@@ -77,6 +94,7 @@ describe('address and bank codes (BRS V25.3.0)', () => {
     const lines = buildEmployeeRecord(employee);
     expect(contactSlice(lines)).toEqual([]);
     const withAll = buildEmployeeRecord({ ...employee, address: boxAddress, bankAccount: bankAccountForCertificate(bank).account });
+    expect(UNWRITTEN_MANDATORY_CODES).not.toContain(3246);
     for (const code of [...UNWRITTEN_MANDATORY_CODES, 3244, 3283]) {
       expect(withAll.some((l) => l.startsWith(`${code},`)), String(code)).toBe(false);
     }

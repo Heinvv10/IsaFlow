@@ -26,7 +26,8 @@ export const SENSITIVE_FIELDS: Readonly<Record<EntityType, readonly string[]>> =
   company: ['bank_account_number', 'tax_number', 'paye_reference_number', 'sdl_reference_number', 'uif_reference_number'],
   approval_rule: [],
   approval_enforcement: [],
-  payroll_bank_detail: ['account_number', 'branch_code', 'account_holder'],
+  // Wave 7 EA2 (1062): the holder relationship too (ruling 26: masked like the rest of the details it describes).
+  payroll_bank_detail: ['account_number', 'branch_code', 'account_holder', 'account_holder_relationship'],
   company_setting: [],
   supplier_invoice: [],
   customer_invoice: [],

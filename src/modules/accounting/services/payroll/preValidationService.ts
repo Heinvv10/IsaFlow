@@ -65,7 +65,7 @@ export function fixFor(employeeId: string, m: ValidationMessage): { fixHref: str
   if (m.field === 'id_number') return { fixHref: `${profile}#employee-id-number`, fixLabel: 'ID number' };
   if (m.code === 'IRP5_SEVERANCE_WITHOUT_DIRECTIVE') return { fixHref: '/payroll/tax-directives', fixLabel: 'Tax directives' };
   if (m.code === 'IRP5_ADDRESS_MISSING') return { fixHref: `${profile}#employee-address`, fixLabel: 'Address' };
-  if (m.code === 'IRP5_BANK_MISSING') return { fixHref: `${profile}#employee-bank`, fixLabel: 'Bank details' };
+  if (m.code === 'IRP5_BANK_MISSING' || m.code === 'IRP5_BANK_RELATIONSHIP_MISSING') return { fixHref: `${profile}#employee-bank`, fixLabel: 'Bank details' };
   return { fixHref: `${profile}#employee-pay`, fixLabel: 'Pay components' };
 }
 
@@ -73,14 +73,17 @@ export function fixFor(employeeId: string, m: ValidationMessage): { fixHref: str
  * Wave 7 EA2 (Hein's ruling 10: pre-validation names missing ones; warn, never refuse): the certificate's address and
  * bank fields come from the employee record. SARS BRS PAYE Employer Reconciliation V25.3.0: 3214 street and 3285
  * country "Mandatory" (pp. 35-36), 3279 / 3288 "Mandatory" (p. 37); 3240 account type "Mandatory" (p. 45), 0 = "Not
- * paid by electronic bank transfer".
+ * paid by electronic bank transfer" (an employee with no account is filed so, ruling 25); 3246 holder relationship,
+ * mandatory with an account (p. 46; captured since migration 1062).
  */
-export function contactGaps(row: Pick<PreValidationRow, 'has_address' | 'has_bank'>): ValidationMessage[] {
+export function contactGaps(row: Pick<PreValidationRow, 'has_address' | 'has_bank' | 'has_bank_relationship'>): ValidationMessage[] {
   return [
     ...(row.has_address ? [] : [{ severity: 'warning' as const, code: 'IRP5_ADDRESS_MISSING', field: 'address',
       message: 'No residential address captured: e@syFile needs it on the IRP5 (codes 3214-3217, 3285, 3279, 3288)' }]),
     ...(row.has_bank ? [] : [{ severity: 'warning' as const, code: 'IRP5_BANK_MISSING', field: 'bank',
-      message: 'No bank account captured: e@syFile needs it on the IRP5 (codes 3240-3246), or 3240 = 0 if paid in cash' }]),
+      message: 'No bank account captured: the IRP5 will say not paid by electronic transfer (3240 = 0); capture the account if they are paid by EFT' }]),
+    ...(!row.has_bank || row.has_bank_relationship ? [] : [{ severity: 'warning' as const, code: 'IRP5_BANK_RELATIONSHIP_MISSING', field: 'bank',
+      message: 'Who holds the bank account (own, joint or third party) is not stated: e@syFile needs it on the IRP5 (code 3246)' }]),
   ];
 }
 

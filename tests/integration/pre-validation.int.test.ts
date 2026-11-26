@@ -36,8 +36,9 @@ async function employee(company: string, number: string, taxNumber: string | nul
        residential_street, residential_city, residential_postal_code, residential_country_code, postal_same_as_residential)
      VALUES ($1, $2, 'Pre', $2, '2020-01-01', $3, $4, 'Main Road', 'Pretoria', '0028', 'ZA', true) RETURNING id::text AS id`,
     [company, number, taxNumber, idNumber])).rows[0]!.id;
-  await r.pool.query(`INSERT INTO payroll_bank_details (company_id, employee_id, bank_name, account_number, branch_code, is_active)
-    VALUES ($1, $2, 'FNB', '62000000001', '250655', true)`, [company, id]);
+  await r.pool.query(`INSERT INTO payroll_bank_details (company_id, employee_id, bank_name, account_number, branch_code,
+      account_holder_relationship, is_active)
+    VALUES ($1, $2, 'FNB', '62000000001', '250655', 'own', true)`, [company, id]);
   return id;
 }
 
