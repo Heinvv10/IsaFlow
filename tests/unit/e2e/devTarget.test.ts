@@ -1,12 +1,12 @@
 /** The e2e dev-target allowlist (tests/e2e/helpers/devTarget.ts): dev and CI pass, production and anything unclear do not. */
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { FullConfig } from '@playwright/test';
 import {
   assertDevOrCiBaseUrl, assertDevOrCiDatabaseEnv, assertDevOrCiDatabaseUrl, assertDevOrCiTarget, assertDevStorageState,
-  assertOnThisMachine, devBaseUrl, DevTargetError,
+  assertGoldenTarget, COLOUR_PORTS, devBaseUrl, DevTargetError, isDeployRun, PRODUCTION_PORTS,
 } from '../../e2e/helpers/devTarget';
 import devTargetGlobalSetup from '../../e2e/helpers/devTargetGlobalSetup';
 
@@ -146,14 +146,52 @@ describe('target', () => {
     expect(() => devTargetGlobalSetup(config('http://localhost:3200'))).toThrow(/neither dev nor a CI database/);
   });
 
-  it.each(['http://localhost:3111', 'http://127.0.0.1:3101', 'http://localhost:3112'])('the post-deploy run may name %s', (url) => {
-    expect(assertOnThisMachine(url)).toBe(url);
+  const RUN = { GOLDEN_SKIP_A11Y: '1', GOLDEN_POST_DEPLOY: '1', GOLDEN_DEPLOY_PORT: '3112', GOLDEN_DEPLOY_RUN: 'deploy:abc' };
+
+  it.each(['3111', '3112'])('a deploy run may name its own colour, %s, even with production\'s database in the env', (port) => {
+    const url = `http://localhost:${port}`;
+    expect(assertGoldenTarget(url, { ...RUN, GOLDEN_DEPLOY_PORT: port, DATABASE_URL: PROD_DB })).toBe(url);
   });
 
-  it.each(['https://app.isaflow.co.za', 'http://100.96.203.105:3101', 'http://localhost.example.com:3111', 'not a url'])(
-    'the post-deploy run refuses %s', (url) => {
-      expect(() => assertOnThisMachine(url)).toThrow(DevTargetError);
-    });
+  it.each([
+    'http://localhost:3111', 'http://localhost:3101', 'http://localhost:7770', 'http://127.0.0.1:3112', 'https://localhost:3112',
+    'http://localhost:3112/', 'http://u@localhost:3112', 'https://app.isaflow.co.za', 'not a url',
+  ])('a deploy run of colour 3112 refuses %s', (url) => {
+    expect(() => assertGoldenTarget(url, RUN)).toThrow(/the colour under deploy/);
+  });
+
+  it.each(['3101', '443', '7770', '3200', '03111', ' 3111'])('a deploy run naming %s, no colour port, is refused', (port) => {
+    expect(() => assertGoldenTarget(`http://localhost:${port}`, { ...RUN, GOLDEN_DEPLOY_PORT: port })).toThrow(/not a colour port/);
+  });
+
+  it.each(Object.keys(RUN))('without %s it is not a deploy run: dev is accepted and the colour refused', (key) => {
+    const env = { ...RUN, [key]: '' };
+    expect(isDeployRun(env)).toBe(false);
+    expect(() => assertGoldenTarget('http://localhost:3112', env)).toThrow(/a production port/);
+    expect(assertGoldenTarget('http://localhost:3457', env)).toBe('http://localhost:3457');
+    expect(() => assertGoldenTarget('http://localhost:3457', { ...env, DATABASE_URL: PROD_DB })).toThrow(/neither dev nor a CI database/);
+  });
+
+  it('the colour ports are the deploy scripts\' own, and every one is a production port', () => {
+    const sh = readFileSync(path.resolve(__dirname, '../../../scripts/deploy/bluegreen.sh'), 'utf8');
+    expect(/^BG_PORTS="\$\{BG_PORTS:-([0-9 ]+)\}"/m.exec(sh)?.[1]?.split(' ').map(Number)).toEqual([...COLOUR_PORTS]);
+    for (const port of COLOUR_PORTS) expect(PRODUCTION_PORTS).toContain(port);
+  });
+
+  it.each([
+    'https://app.isaflow.co.za', 'https://admin.isaflow.co.za', 'http://localhost:3111', 'http://127.0.0.1:3101', 'http://localhost',
+    'https://localhost:3200', 'http://100.96.203.105:3200', 'http://localhost:3000', '', 'null',
+  ])('a saved session holding local storage for "%s" is refused', (origin) => {
+    const state = { cookies: [], origins: [{ origin: 'http://localhost:3200' }, { origin }] };
+    expect(() => assertDevStorageState(state)).toThrow(/storageState origin/);
+  });
+
+  it('local storage of dev servers passes; a malformed session is refused', () => {
+    expect(() => assertDevStorageState({ cookies: [], origins: [{ origin: 'http://localhost:3200' }, { origin: 'http://127.0.0.1:3457' }] })).not.toThrow();
+    expect(() => assertDevStorageState({ origins: [null] } as never)).toThrow(/storageState origin is not set/);
+    expect(() => assertDevStorageState({ origins: {} } as never)).toThrow(/cannot be read/);
+    expect(() => assertDevStorageState({ cookies: {} } as never)).toThrow(/cannot be read/);
+  });
 
   const cookie = (domain: string) => ({ cookies: [{ domain: 'localhost' }, { domain }] });
 
@@ -175,6 +213,10 @@ describe('target', () => {
       expect(() => assertDevStorageState(file)).toThrow(/holds a cookie/);
       writeFileSync(file, JSON.stringify(cookie('localhost')));
       expect(() => assertDevStorageState(file)).not.toThrow();
+      writeFileSync(file, JSON.stringify({ cookies: [], origins: [{ origin: 'https://app.isaflow.co.za', localStorage: [{ name: 'k', value: 'v' }] }] }));
+      expect(() => assertDevStorageState(file)).toThrow(/storageState origin/);
+      writeFileSync(file, 'null');
+      expect(() => assertDevStorageState(file)).toThrow(/cannot be read/);
       expect(() => assertDevStorageState(path.join(dir, 'missing.json'))).toThrow(/cannot be read/);
     } finally {
       rmSync(dir, { recursive: true, force: true });

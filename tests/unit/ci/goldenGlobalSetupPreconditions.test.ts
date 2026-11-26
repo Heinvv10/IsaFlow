@@ -30,8 +30,11 @@ const saved: Record<string, string | undefined> = {};
 beforeEach(() => {
   for (const k of KEYS) { saved[k] = process.env[k]; delete process.env[k]; }
   process.env.E2E_ADMIN_EMAIL = 'deploy-verify@isaflow.co.za';
-  vi.stubEnv('GOLDEN_SKIP_A11Y', '1'); // the post-deploy run (both switches), the only one that may name :3101
+  // A deploy run of colour 3111, the only kind that may name a production address.
+  vi.stubEnv('GOLDEN_SKIP_A11Y', '1');
   vi.stubEnv('GOLDEN_POST_DEPLOY', '1');
+  vi.stubEnv('GOLDEN_DEPLOY_PORT', '3111');
+  vi.stubEnv('GOLDEN_DEPLOY_RUN', 'deploy:test');
   process.env[KEYS[1]!] = 'x'.repeat(12); // E2E_ADMIN_PASSWORD: the scripted app never reads it
   script.asked = [];
 });
@@ -46,7 +49,7 @@ describe('golden global setup', () => {
       expect(script.asked).toEqual([]);
     });
 
-  it.each(['GOLDEN_SKIP_A11Y', 'GOLDEN_POST_DEPLOY'])('%s missing is not the post-deploy run: a production colour is refused', async (missing) => {
+  it.each(['GOLDEN_SKIP_A11Y', 'GOLDEN_POST_DEPLOY', 'GOLDEN_DEPLOY_PORT', 'GOLDEN_DEPLOY_RUN'])('%s missing is not a deploy run: the colour is refused', async (missing) => {
     vi.stubEnv(missing, '');
     vi.stubEnv('DATABASE_URL', '');
     await expect(globalSetup(config('http://localhost:3111'))).rejects.toThrow(/production port/);
@@ -60,16 +63,27 @@ describe('golden global setup', () => {
     expect(script.asked).toEqual([]);
   });
 
-  it.each(['https://app.isaflow.co.za', 'http://100.96.203.105:3101'])('the post-deploy run refuses %s, another host, before any request', async (baseURL) => {
-    await expect(globalSetup(config(baseURL))).rejects.toThrow(/not localhost/);
+  it.each([
+    'http://localhost:3112', 'http://localhost:3101', 'http://localhost:7770', 'http://localhost:3200', 'http://127.0.0.1:3111',
+    'https://localhost:3111', 'https://app.isaflow.co.za', 'http://100.96.203.105:3111',
+  ])('a deploy run of colour 3111 refuses %s before any request', async (baseURL) => {
+    await expect(globalSetup(config(baseURL))).rejects.toThrow(/is not http:\/\/localhost:3111, the colour under deploy/);
     expect(script.asked).toEqual([]);
   });
 
-  it('THE INCIDENT: login 200, then every GET 401 at http://127.0.0.1:3101 fails as a refused session pointing at localhost, not as missing accounts', async () => {
+  it.each(['3101', '7770'])('a deploy run naming port %s, no colour, is refused before any request', async (port) => {
+    vi.stubEnv('GOLDEN_DEPLOY_PORT', port);
+    await expect(globalSetup(config(`http://localhost:${port}`))).rejects.toThrow(/not a colour port/);
+    expect(script.asked).toEqual([]);
+  });
+
+  it('THE INCIDENT: login 200, then every GET 401 at an IP address (a dev server here) fails as a refused session pointing at localhost, not as missing accounts', async () => {
     script.answer = (): Answer => ({ status: 401, body: { success: false, error: { code: 'UNAUTHORIZED' } } });
-    const err = await globalSetup(config('http://127.0.0.1:3101')).then(() => null, (e: Error) => e);
+    vi.stubEnv('GOLDEN_SKIP_A11Y', '');
+    vi.stubEnv('DATABASE_URL', '');
+    const err = await globalSetup(config('http://127.0.0.1:3457')).then(() => null, (e: Error) => e);
     expect(err?.message).toContain('answered 401');
-    expect(err?.message).toContain('http://localhost:3101');
+    expect(err?.message).toContain('http://localhost:3457');
     expect(err?.message).not.toMatch(/system account/);
   });
 
@@ -77,14 +91,14 @@ describe('golden global setup', () => {
     script.answer = (p): Answer => (p.includes('user-companies')
       ? { status: 200, body: { data: { activeCompanyId: 'c2', items: [{ companyId: 'c1', companyName: 'Deploy Verification', isDemo: true }, { companyId: 'c2', companyName: '0GP Golden Migration Sandbox', isDemo: true }] } } }
       : { status: 200, body: { data: [] } });
-    await expect(globalSetup(config('http://localhost:3101'))).rejects.toThrow(/not in the Deploy Verification company: the active company is "0GP Golden Migration Sandbox"/);
+    await expect(globalSetup(config('http://localhost:3111'))).rejects.toThrow(/not in the Deploy Verification company: the active company is "0GP Golden Migration Sandbox"/);
     expect(script.asked.filter((p) => p.includes('chart-of-accounts'))).toEqual([]);
   });
 
   it('a session that works in a company without the system accounts still fails on the accounts (Demo login)', async () => {
     process.env.E2E_ADMIN_EMAIL = 'admin@isaflow.co.za';
     script.answer = (p): Answer => (p.includes('user-companies') ? { status: 200, body: { data: { activeCompanyId: 'd', items: [] } } } : { status: 200, body: { data: [] } });
-    await expect(globalSetup(config('http://localhost:3101'))).rejects.toThrow(/company has no system account for \[receivable, default_revenue, vat_output, payable, vat_input, default_expense\]/);
+    await expect(globalSetup(config('http://localhost:3111'))).rejects.toThrow(/company has no system account for \[receivable, default_revenue, vat_output, payable, vat_input, default_expense\]/);
   });
 
   describe('approver failure message', () => {
@@ -104,14 +118,14 @@ describe('golden global setup', () => {
 
     it('a problem with no full stop is closed before "No spec runs", and joined problems never run together', async () => {
       withApprover({ status: 200, body: { data: { items: [home, sandbox] } } });
-      const err = await globalSetup(config('http://localhost:3101')).then(() => null, (e: Error) => e);
+      const err = await globalSetup(config('http://localhost:3111')).then(() => null, (e: Error) => e);
       expect(err?.message).toBe('golden-paths: the approver login\'s companies are ["Deploy Verification", "0GP Golden Migration Sandbox"]; they must be exactly '
         + '["Deploy Verification"] (is_demo). No spec runs: re-run scripts/deploy/provision-verify-company.sh or fix the approver\'s memberships.');
     });
 
     it('a problem that already ends in a full stop gets no second one', async () => {
       withApprover({ status: 403, body: null });
-      const err = await globalSetup(config('http://localhost:3101')).then(() => null, (e: Error) => e);
+      const err = await globalSetup(config('http://localhost:3111')).then(() => null, (e: Error) => e);
       expect(err?.message).toMatch(/the app refused the session\. No spec runs: re-run /);
       expect(err?.message).not.toMatch(/\.\./);
     });

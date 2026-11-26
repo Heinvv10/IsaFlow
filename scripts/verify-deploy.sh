@@ -19,6 +19,11 @@
 #   suite's global setup now says so).
 #
 # Env:
+#   VERIFY_COLOUR_PORT     The colour under verification (3111 or 3112), with VERIFY_DEPLOY_RUN (any non-empty marker).
+#                          deploy.sh, restart-colours.sh and cutover.sh set both. Without both, the golden suite refuses
+#                          every production address. By hand against a colour:
+#                          VERIFY_COLOUR_PORT=3111 VERIFY_DEPLOY_RUN=manual bash scripts/verify-deploy.sh http://localhost:3111
+#                          (nginx's :3101 is not a colour and is refused).
 #   DATABASE_URL           DB for the integrity check (required unless
 #                          VERIFY_SKIP_INTEGRITY=1)
 #   E2E_VERIFY_EMAIL/_PASSWORD   The dedicated verification login, whose only company besides
@@ -196,11 +201,14 @@ cd "$REPO_DIR"
 # (code only; migrations stay). GOLDEN_SKIP_A11Y=1 makes playwright-golden.config.ts ignore the file, so it is not
 # even loaded (a missing @axe-core/playwright cannot break this run). tests/unit/scripts/verifyDeployA11yGate.test.ts
 # lists this run's tests with the axe package made unresolvable, and fails if the spec is loaded.
-# GOLDEN_POST_DEPLOY=1 (with it) is what lets the global setup accept a production colour (tests/e2e/helpers/devTarget.ts).
+# The global setup accepts a production colour only with GOLDEN_POST_DEPLOY=1 (and the a11y switch), the colour port and
+# a run marker, and then only http://localhost:<that port> (tests/e2e/helpers/devTarget.ts). GOLDEN_DEPLOY_* are always
+# set from VERIFY_*, so a value left in the shell never counts.
 GOLDEN_LOG="$(mktemp)"
 trap 'rm -f "$GOLDEN_LOG"' EXIT
 set +e
-GOLDEN_SKIP_A11Y=1 GOLDEN_POST_DEPLOY=1 BASE_URL="$BASE_URL" "$BUN" run test:e2e:golden 2>&1 | tee "$GOLDEN_LOG"
+GOLDEN_SKIP_A11Y=1 GOLDEN_POST_DEPLOY=1 GOLDEN_DEPLOY_PORT="${VERIFY_COLOUR_PORT:-}" GOLDEN_DEPLOY_RUN="${VERIFY_DEPLOY_RUN:-}" \
+  BASE_URL="$BASE_URL" "$BUN" run test:e2e:golden 2>&1 | tee "$GOLDEN_LOG"
 GOLDEN_RC=${PIPESTATUS[0]}
 set -e
 if [ "$GOLDEN_RC" != "0" ]; then

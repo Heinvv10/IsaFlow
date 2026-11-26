@@ -4,6 +4,7 @@
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { expect, request as pwRequest, type Browser, type BrowserContext, type Page, type Request, type Response, type Route } from '@playwright/test';
+import { isDeployRun } from '../../helpers/devTarget';
 import { GOLDEN_STATE_FILE } from '../_global-setup';
 import { readGoldenSlot } from './goldenSlot';
 
@@ -46,8 +47,7 @@ export const TARGET: Target = typeof RESOLVED === 'string' ? { origin: '', mapTo
  * Outside the post-deploy run every port of the admin host goes to the server under test: a bare mapping sends an https
  * request to 127.0.0.1:443, which on velo-server is production's nginx. The post-deploy mapping stays host only.
  */
-const postDeploy = process.env.GOLDEN_SKIP_A11Y === '1' && process.env.GOLDEN_POST_DEPLOY === '1';
-const mapPort = postDeploy || !TARGET.direct ? '' : `:${new URL(TARGET.direct).port || '80'}`;
+const mapPort = isDeployRun(process.env) || !TARGET.direct ? '' : `:${new URL(TARGET.direct).port || '80'}`;
 
 /** Chromium flags for the mapped origin: the host mapping, and the Private Network Access checks off (see header). */
 export const LAUNCH_ARGS = TARGET.mapTo
