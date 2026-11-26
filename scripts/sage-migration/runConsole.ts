@@ -133,7 +133,7 @@ function sameFile(): boolean {
   }
 }
 /** fd 1 / fd 2 when it is a pipe, socket or terminal still in blocking mode (Linux: /proc/self/fdinfo; elsewhere not known). */
-function blockingFds(): number[] {
+export function blockingFds(): number[] {
   return [1, 2].filter((fd) => {
     try {
       const st = fstatSync(fd);

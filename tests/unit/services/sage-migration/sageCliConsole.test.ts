@@ -82,4 +82,8 @@ describe('R28-6: the O_NONBLOCK precondition', () => {
     expect(got.blocking).toEqual([]);
     for (const f of [got.fd1, got.fd2]) expect(Number.parseInt(f, 8) & 0o4000).toBe(0o4000);
   }, 30_000);
+  it('before anything touched them, fd 1 and fd 2 (pipes) ARE blocking, and blockingFds says so (what prepareConsole guards against)', async () => {
+    const { text } = await shell(`${CHILD} 2>&1 | cat`, { FLAGS: '2' });
+    expect(JSON.parse(text)).toEqual({ blocking: [1, 2] });
+  }, 30_000);
 });

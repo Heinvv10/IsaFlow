@@ -1,7 +1,7 @@
 /**
  * A child for sageCliConsole.test.ts (run with bun, through real pipes): OUT bytes to stdout, then ERR bytes and "STOP-END" to stderr
  * through the CLI's console, then the exit the CLI makes (exit 4 once the console is drained). With FLAGS=1 it prints, on stderr, what
- * prepareConsole found blocking and fd 1 / 2's flags afterwards.
+ * prepareConsole found blocking and fd 1 / 2's flags afterwards; with FLAGS=2, what blockingFds finds before anything touched them.
  */
 import { readFileSync, writeSync } from 'node:fs';
 import * as consoleModule from '../../../../../scripts/sage-migration/runConsole';
@@ -9,9 +9,13 @@ import * as consoleModule from '../../../../../scripts/sage-migration/runConsole
 type Api = { prepareConsole?: (r: () => string | null) => { blocking: number[] }; out?: (s: string) => void; say: (s: string) => void;
   cliConsole: { write: (stream: 'stdout' | 'stderr', text: string) => unknown }; exitAfterConsole?: (code: number) => Promise<void> };
 const api = consoleModule as unknown as Api;
-// As the CLI always did (its stream listeners touch both): bun makes fd 1 / 2 non-blocking then, so a full pipe answers EAGAIN.
-void process.stdout.writable;
-void process.stderr.writable;
+if (process.env.FLAGS === '2') { // the streams never touched: what blockingFds finds before prepareConsole
+  writeSync(2, `${JSON.stringify({ blocking: (consoleModule as unknown as { blockingFds?: () => number[] }).blockingFds?.() ?? null })}\n`);
+  process.exit(0);
+}
+// FLAGS=1: only prepareConsole touches the streams. Otherwise as the CLI always did (its stream listeners touch both): bun then makes
+// fd 1 / 2 non-blocking, so a full pipe answers EAGAIN.
+if (process.env.FLAGS !== '1') { void process.stdout.writable; void process.stderr.writable; }
 const prepared = api.prepareConsole?.(() => null);
 if (process.env.FLAGS === '1') {
   const flags = (fd: number) => /flags:\s*([0-7]+)/.exec(readFileSync(`/proc/self/fdinfo/${fd}`, 'utf8'))?.[1];

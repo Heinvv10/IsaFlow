@@ -7,7 +7,7 @@
  *   - drained() resolves only once both streams are written or given up.
  */
 import { describe, expect, it } from 'vitest';
-import { CONSOLE_WAIT_MS, Console } from '../../../../scripts/sage-migration/runConsole';
+import { CONSOLE_WAIT_MS, Console, consoleApi } from '../../../../scripts/sage-migration/runConsole';
 
 type Step = number | 'EAGAIN' | 'EPIPE';
 /** A console whose fd `fd` takes what `take(fd)` says each call (bytes, EAGAIN or EPIPE); time moves only by `tick`. */
@@ -142,5 +142,40 @@ describe('2>&1: one file, one queue (R28-1)', () => {
     r.tick(CONSOLE_WAIT_MS);
     expect(r.c.gone).toEqual({ stdout: true, stderr: true });
     expect(r.c.idle()).toBe(true);
+  });
+});
+
+describe('B28-1: a stream given up is said on the other stream', () => {
+  const apiOf = (take: (fd: number) => Step, sameFile: boolean) => {
+    const r = rig(take);
+    const api = consoleApi(r.c, { sameFile: () => sameFile, blockingFds: () => [] });
+    return { r, api };
+  };
+  it('stderr given up (no reader): said on stdout, a different file, with where the report is', () => {
+    const { r, api } = apiOf((fd) => (fd === 2 ? 'EAGAIN' : 1000), false);
+    api.prepareConsole(() => '/tmp/r.json');
+    api.say('committed: category batch 1');
+    r.tick(CONSOLE_WAIT_MS);
+    expect(r.got[1]).toBe(`stderr had no reader within ${CONSOLE_WAIT_MS / 1000} s: the rest of what it was given (the stop message or the summary among it) was dropped; --report /tmp/r.json holds the run's report\n`);
+  });
+  it('stdout closed (EPIPE), no --report: said on stderr, with the advice to give one', () => {
+    const { r, api } = apiOf((fd) => (fd === 1 ? 'EPIPE' : 1000), false);
+    api.prepareConsole(() => null);
+    api.out('SUMMARY');
+    expect(r.got[2]).toBe('stdout is closed (EPIPE): what it was given is not printed there; give --report <path>: a pipe holds only a few KiB, and a large run says more\n');
+  });
+  it('one file (2>&1): nothing is written into the pipe that was given up; one queue for both', () => {
+    const { r, api } = apiOf(() => 'EAGAIN', true);
+    api.prepareConsole(() => null);
+    expect(r.c.shared).toBe(true);
+    api.say('x');
+    r.tick(CONSOLE_WAIT_MS);
+    expect(r.got).toEqual({ 1: '', 2: '' });
+    expect(r.c.gone).toEqual({ stdout: true, stderr: true });
+  });
+  it('a console in blocking mode is said', () => {
+    const r = rig(() => 1000);
+    consoleApi(r.c, { sameFile: () => false, blockingFds: () => [2] }).prepareConsole(() => null);
+    expect(r.got[2]).toBe('the console (fd 2) is in blocking mode: a reader that stops reading holds the run up until it reads again\n');
   });
 });
