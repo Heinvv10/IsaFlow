@@ -169,8 +169,10 @@ async function endPool(): Promise<void> {
  * (terminate keeps a finished run's exit code). `removeHandlers` (tests, R18-3) removes them when it returns, so they never outlive it.
  */
 export async function runCli(o: { removeHandlers?: boolean } = {}): Promise<void> {
+  // FIRST: before anything touches process.stdout / stderr, so fd 1 / 2's flags are saved as found (B29-2); then fd 1 / 2 non-blocking,
+  // and a stream given up is said on the other (R28-1, R28-6).
+  prepareConsole(() => (cli.owned ? cli.owned.path : null));
   const uninstall = installHandlers();
-  prepareConsole(() => (cli.owned ? cli.owned.path : null)); // fd 1 / 2 non-blocking, and a stream given up is said on the other (R28-1, R28-6)
   try {
     await main();
     if (cli.endedAtOnce) { await exitAfterConsole(undefined); return; } // terminate's exit stands (R29-1, R29-2: the same wait)

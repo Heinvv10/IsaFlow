@@ -105,7 +105,8 @@ export function captureProcessStreams(c: Console): () => void {
       const encoding = typeof enc === 'string' ? (enc as BufferEncoding) : 'utf8';
       const done = (typeof enc === 'function' ? enc : cb) as ((err?: Error | null) => void) | undefined;
       const data = typeof chunk === 'string' ? Buffer.from(chunk, encoding) : Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength);
-      return c.write(stream, data, done === undefined ? undefined : (err) => done(err ?? null));
+      // As node: the callback never runs inside write itself, even when the chunk was all taken at once.
+      return c.write(stream, data, done === undefined ? undefined : (err) => { process.nextTick(() => done(err ?? null)); });
     }) as NodeJS.WriteStream['write'];
   }
   c.onDrain = (stream) => { process[stream].emit('drain'); };

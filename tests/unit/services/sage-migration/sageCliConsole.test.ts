@@ -20,10 +20,10 @@ function shell(script: string, extra: NodeJS.ProcessEnv = {}): Promise<{ text: s
   for (const name of ['SERVICE_DATABASE_URL', 'PLATFORM_ADMIN_DATABASE_URL', 'MIGRATION_ADMIN_DATABASE_URL']) delete env[name];
   return new Promise((resolve, reject) => {
     const child = spawn('bash', ['-c', script], { env, stdio: ['ignore', 'pipe', 'inherit'] });
-    let text = '';
-    child.stdout.on('data', (b: Buffer) => { text += b.toString('utf8'); });
+    const chunks: Buffer[] = [];
+    child.stdout.on('data', (b: Buffer) => { chunks.push(b); }); // decoded once at the end: a character split across chunks stays whole
     child.on('error', reject);
-    child.on('close', () => resolve({ text, ms: Date.now() - t0 }));
+    child.on('close', () => resolve({ text: Buffer.concat(chunks).toString('utf8'), ms: Date.now() - t0 }));
   });
 }
 const CLI = 'bun --no-env-file scripts/sage-migration/run.ts --company 00000000-0000-4000-8000-000000000001 '
@@ -101,4 +101,27 @@ describe('R28-7: the logger\'s lines go through the console too', () => {
     expect(JSON.parse(lines.at(-2)!).message).toBe('LAST LOG LINE'); // never dropped by the exit (it went through the console)
     expect(lines.at(-1)).toBe('exit=4');
   }, 60_000);
+});
+
+describe('R29-3 / R29-8: the captured process.stdout.write keeps node\'s contract', () => {
+  it('300 KB, exit in the write callback, a reader 1 s late: the callback waits for the last byte; END-OF-DATA arrives; false, then drain', async () => {
+    const d = mkdtempSync(join(tmpdir(), 'sage-console-cb-'));
+    try {
+      const { text } = await shell(`${CHILD} 2>${d}/err | { sleep 1; cat; } | tail -c 13; echo "exit=\${PIPESTATUS[0]}"`, { WRITECB: '1' });
+      expect(text).toBe('\nEND-OF-DATA\nexit=0\n');
+      expect(readFileSync(join(d, 'err'), 'utf8')).toBe('returned false\ncallback (drained true)\n');
+    } finally { rmSync(d, { recursive: true, force: true }); }
+  }, 30_000);
+  it('an encoding is honoured, a Buffer is written as it is (a character split over two writes survives), a null chunk is refused as node does', async () => {
+    const { text } = await shell(`${CHILD} 2>&1 | cat`, { ENC: '1' });
+    expect(text.split('\n').sort()).toEqual(['', 'ERR_STREAM_NULL_VALUES', 'hello, €']);
+  }, 30_000);
+});
+
+describe('B29-2: fd 1 / fd 2 are left as they were found', () => {
+  it('a sibling on the same pipe finds them blocking again after the CLI', async () => {
+    const probe = `python3 -I -c "import fcntl,os,sys; print([bool(fcntl.fcntl(f, fcntl.F_GETFL) & os.O_NONBLOCK) for f in (1, 2)], file=sys.stderr)"`;
+    const { text } = await shell(`{ ${probe}; ${CHILD} > /dev/null; ${probe}; } 2>&1 | cat`, { OUT: '10', ERR: '10' });
+    expect(text.trim().split('\n').filter((l) => l.startsWith('['))).toEqual(['[False, False]', '[False, False]']);
+  }, 30_000);
 });

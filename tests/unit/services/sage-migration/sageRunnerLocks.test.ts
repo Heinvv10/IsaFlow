@@ -20,7 +20,8 @@ const h = vi.hoisted(() => ({
   unlockWarning: null as string | null,
   stmtAt: null as string | null, // "<entity> <dry|live>": a statement timeout inside it
   callStall: null as string | null, // "<entity> dry": the call rejects with the session's stall (StatementTimeoutError)
-  sessions: [] as Array<{ commit: boolean; wrote: boolean; notice: unknown }>,
+  sessions: [] as Array<{ commit: boolean; wrote: boolean; notice: unknown; ended?: unknown }>,
+  readFails: null as Error | null, // the books read after a stop fails with this (R29-6)
   lockNotice: undefined as unknown, // what the run lock was given to say a wait with (R27-6)
   failReadsAfterLive: false, // the books cannot be read once a live batch was sent (the stop's re-check fails)
   commitRefusedAt: null as string | null, // "<entity> live": the server refuses that batch's COMMIT (B28-2)
@@ -32,8 +33,8 @@ vi.mock('@/modules/accounting/services/sage-migration/sageToolSession', async ()
   return {
     ...real,
     withToolSession: async (_p: unknown, _c: unknown, _u: unknown, commit: boolean, fn: (s: unknown) => unknown, o?: { wrote?: boolean; onNotice?: unknown }) => {
-      h.sessions.push({ commit, wrote: o?.wrote === true, notice: o?.onNotice });
-      if (!commit && o?.wrote !== true && h.failReadsAfterLive && h.sent.some((x) => x.endsWith('live'))) throw new real.ConnectionLostError(new Error('Connection terminated due to connection timeout'), 'no-connection');
+      h.sessions.push({ commit, wrote: o?.wrote === true, notice: o?.onNotice, ended: (o as { ended?: unknown } | undefined)?.ended });
+      if (!commit && o?.wrote !== true && h.failReadsAfterLive && h.sent.some((x) => x.endsWith('live'))) throw h.readFails ?? new real.ConnectionLostError(new Error('Connection terminated due to connection timeout'), 'no-connection');
       const timedOut = () => new real.StatementTimeoutError(new Error('canceling statement due to statement timeout'), commit ? 'live' : 'dry', 60_000);
       const stall = () => (h.lockWaitAt !== null && h.sent.at(-1) === h.lockWaitAt ? new real.LockWaitError(new Error('canceling statement due to lock timeout'), { pid: 606, state: 'idle in transaction' }, 'dry')
         : h.stmtAt !== null && h.sent.at(-1) === h.stmtAt && !commit ? timedOut() : null);
@@ -82,7 +83,21 @@ const parsed = () => parseSageExport({ Items: [
 ] });
 const run = (over: Record<string, unknown> = {}) => runSageMigration({ options: { max: 4 } } as never, parsed(), { companyId: 'c', userId: 'u', live: true, expect: { items: 2, purchaseOrders: 0 }, ...over });
 const live = () => h.sent.filter((x) => x.endsWith('live'));
-beforeEach(() => { h.sent.length = 0; h.held = null; h.lockWaitAt = null; h.liveLockWaitAt = null; h.dryHeldError = null; h.unlockWarning = null; h.stmtAt = null; h.callStall = null; h.failReadsAfterLive = false; h.commitRefusedAt = null; h.sessions.length = 0; });
+beforeEach(() => { h.sent.length = 0; h.held = null; h.lockWaitAt = null; h.liveLockWaitAt = null; h.dryHeldError = null; h.unlockWarning = null; h.stmtAt = null; h.callStall = null; h.failReadsAfterLive = false; h.commitRefusedAt = null; h.readFails = null; h.sessions.length = 0; });
+
+describe('R29-6: a books read that fails for any typed reason is worded from its cause', () => {
+  it('a statement timeout or a lock wait: why the read failed, never its "nothing of it was written"', async () => {
+    const { StatementTimeoutError, LockWaitError } = await import('@/modules/accounting/services/sage-migration/sageSessionErrors');
+    for (const [readFails, want] of [
+      [new StatementTimeoutError(new Error('canceling statement due to statement timeout'), 'dry', 60_000), 'a statement of it timed out or was cancelled: canceling statement due to statement timeout'],
+      [new LockWaitError(new Error('canceling statement due to lock timeout'), { pid: 9 }, 'dry'), 'a lock it needed was held by another session (backend pid 9): canceling statement due to lock timeout'],
+    ] as const) {
+      Object.assign(h, { sent: [], liveLockWaitAt: 'category live', failReadsAfterLive: true, readFails });
+      const err = await run().then(() => null, (e: unknown) => e) as InstanceType<typeof MigrationStopped>;
+      expect(err.batches.booksNotRechecked).toBe(want);
+    }
+  });
+});
 
 describe('B28-2: a COMMIT the server refused', () => {
   it('is failed, nothing written, and the run stops there (exit 4); never "commit unconfirmed" or "may still land"', async () => {
@@ -193,8 +208,10 @@ describe('B25-3: a run lock release not confirmed', () => {
 describe('R26-3 / R27-6: every session of the run gets onNotice (the run lock, the plan, the dry run, each live batch, the reads between and after)', () => {
   it('a finished live run, and a stopped one (its books read after the stop included)', async () => {
     const onNotice = vi.fn();
-    await run({ onNotice });
+    const ended = () => null;
+    await run({ onNotice, ended });
     expect(h.sessions.map((x) => `${x.commit ? 'live' : x.wrote ? 'dry' : 'read'}`)).toEqual(['read', 'dry', 'live', 'live', 'read', 'read']); // the plan, the dry run, 2 live categories, the reads after them
+    expect(h.sessions.every((x) => x.ended === ended)).toBe(true); // R29-1: every session can refuse once the run ended
     expect(h.sessions.every((x) => x.notice === onNotice)).toBe(true);
     expect(h.lockNotice).toBe(onNotice); // R27-6: the run lock's connect too
     h.sessions.length = 0;

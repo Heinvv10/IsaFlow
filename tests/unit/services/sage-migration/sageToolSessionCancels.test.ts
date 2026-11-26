@@ -30,7 +30,7 @@ vi.mock('@/lib/logger', () => ({ log: { warn: vi.fn(), error: vi.fn(), info: vi.
 import { EventEmitter } from 'node:events';
 import pg from 'pg';
 import { setRollbackBoundForTests } from '@/lib/rollbackFailed';
-import { CommitRefusedError, CommitUnconfirmedError, LockWaitError, LostBeforeCommitError, StatementTimeoutError, withToolSession } from '@/modules/accounting/services/sage-migration/sageToolSession';
+import { CommitRefusedError, CommitUnconfirmedError, LockWaitError, LostBeforeCommitError, RunEndedError, StatementTimeoutError, withToolSession } from '@/modules/accounting/services/sage-migration/sageToolSession';
 
 const toolQuery = (text: string) => als.ctx!.client.query(text);
 const clientOf = (answer: (text: string) => unknown) => {
@@ -140,5 +140,20 @@ describe('R28-8 / B28-2: a 57014 raised BY the COMMIT of a live request', () => 
     const client = clientOf((t) => (t === 'COMMIT' ? new Error('COMMIT did not answer within 70000ms') : undefined));
     const err = await withToolSession(poolOf(client), 'c1', 'u1', true, (s) => s.call('w', { idempotency_key: 'k' })).then(() => null, (e: unknown) => e);
     expect(err).toBeInstanceOf(CommitUnconfirmedError);
+  });
+});
+
+describe('R29-1: a run that ended starts no request', () => {
+  it('RunEndedError, with no connection asked for and nothing sent (no BEGIN); the work never runs', async () => {
+    const connect = vi.fn(async () => clientOf(() => undefined));
+    const work = vi.fn(async () => 'r');
+    const err = await withToolSession({ connect } as never, 'c1', 'u1', true, work, { ended: () => 'an uncaught error ended the run' }).then(() => null, (e: unknown) => e);
+    expect(err).toBeInstanceOf(RunEndedError);
+    expect((err as Error).message).toBe('the run had ended (an uncaught error ended the run): this request was not started, nothing of it was sent');
+    expect(connect).not.toHaveBeenCalled();
+    expect(work).not.toHaveBeenCalled();
+  });
+  it('while it has not ended, the request runs as before', async () => {
+    expect(await withToolSession(poolOf(clientOf(() => undefined)), 'c1', 'u1', false, async () => 'r', { ended: () => null })).toBe('r');
   });
 });
