@@ -168,7 +168,7 @@ describe('scripts/sage-migration/run.ts', () => {
       await holder.query('SELECT pg_advisory_lock($1, $2)', [k1, k2]);
       const r = cli(['--company', world.companyId, '--user', world.userId, '--file', 'tests/fixtures/sage-export/sage-export.json']);
       expect(r.code).toBe(2);
-      expect(r.err).toMatch(/another Sage migration is running for this company/);
+      expect(r.err).toContain(`another Sage migration is running for this company (${world.companyId}; held by backend pid ${(holder as unknown as { processID: number }).processID}; `); // B25-3
       expect(r.out).toBe('');
       expect(await booked(pool, world.companyId)).toMatchObject({ items: 0, pos: 0, toolCalls: 0 });
     } finally {

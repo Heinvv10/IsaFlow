@@ -7,6 +7,8 @@
  *   - refgap: a GENUINE refusal (a trigger refuses the live update of FIB-0001; the dry run's passed and answered "updated");
  *   - okgap: the tool answered ok.
  * R23-5 / B23-1: the dry run's ROLLBACK blackholed (never answers; the backend keeps its writes and number lock): a refused start (exit 2).
+ * B24-2: a plain re-run behind it is told at once who holds its batch key. B25-1: a --run-tag re-run (new keys) stops at its FIRST lock
+ * wait (the zombie's number lock), naming the holder; never one lock timeout per category.
  * Fixture route: isaflow_schema_fixture (assertDisposable). Never skips.
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -154,4 +156,23 @@ describe('R23-5 / B23-1: the dry run\'s ROLLBACK never answers (blackholed: the 
     proxy = null;
     expect(await noneIdleInTransaction()).toBe(0);
   }, 240_000);
+
+  it('B25-1: a --run-tag re-run behind it (new keys: the try-lock passes) stops at its FIRST lock wait, naming the holder (exit 2)', async () => {
+    proxy = await blackhole();
+    expect((await startCli(args(join(d, 'run1.json')), url(proxy.port)).done).code).toBe(2);
+    const zombie = (await pool.query(`SELECT pid FROM pg_stat_activity WHERE datname = current_database() AND state LIKE 'idle in transaction%'
+      AND backend_type = 'client backend' AND pid <> pg_backend_pid()`)).rows.map((r) => r.pid);
+    expect(zombie).toHaveLength(1);
+    const t0 = Date.now();
+    const r = await startCli(args(join(d, 'run2.json'), ['--run-tag', 'b25x']), process.env.DATABASE_URL!, 90_000).done;
+    const took = Date.now() - t0;
+    expect(r.code, r.err).toBe(2);
+    expect(took).toBeLessThan(30_000); // not one lock timeout per category
+    expect(r.err).toMatch(new RegExp(`the dry run stopped at category batch 1 \\(.*\\): a lock it needs is held by another session and the wait timed out .*likely a previous run's dry transaction, backend pid ${zombie[0]}`));
+    expect(r.err).not.toMatch(/retry in a moment/);
+    await proxy.close();
+    proxy = null;
+    expect(await noneIdleInTransaction()).toBe(0);
+  }, 240_000);
 });
+
