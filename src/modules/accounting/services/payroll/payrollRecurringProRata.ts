@@ -20,7 +20,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { payrollRunReadDate } from './payrollRunReadDate';
-import { insideEmploymentEdge, isApportionable, periodBoundsOf } from './payrollRecurringShare';
+import { insideEmploymentEdge, isApportionable, isMonthlyPeriod, periodBoundsOf } from './payrollRecurringShare';
 import { runShareAckBlocker } from './payrollRecurringShareAck';
 import { overlappingRecurringRows } from './payrollRecurringOverlap';
 import { getEmployeeComponents, recurringEarningsEndedInPeriod } from './payrollComponentService';
@@ -75,7 +75,7 @@ export async function recurringRowsNeedingProRata(
   const day27 = period.start ?? `${last.slice(0, 8)}27`;
   const { start: periodStart } = periodBoundsOf(period);
   const rows = (await sql`
-    SELECT pec.id, pec.employee_id, e.employee_number, pc.name, pec.effective_from, pec.effective_to, pec.superseded_at,
+    SELECT pec.id, pec.employee_id, pec.component_id, e.employee_number, pc.name, pec.effective_from, pec.effective_to, pec.superseded_at,
            pec.effective_from > ${day27}::date AS starts,
            pc.component_type, pec.quantity, pec.percent_of_rfi, pec.db_member_category_factor, e.start_date, e.end_date
     FROM payroll_employee_components pec
@@ -99,9 +99,18 @@ export async function recurringRowsNeedingProRata(
   // W29: the rows the run reads as having ended inside employment (payrollRecurringShareRead), so the guard and the pay
   // agree on which rows the share pays: a package-cut row replaced by a once-off is not among them, and stays flagged.
   const endedIds = new Set<string>();
+  // Option B (#1901): the components either reader pays, per employee, to find a half-paid monthly leaver (below).
+  const readComponents = new Set<string>();
+  const monthly = isMonthlyPeriod(period);
   for (const employeeId of new Set(rows.map((r) => String(r.employee_id)))) {
-    for (const c of await getEmployeeComponents(employeeId, companyId, last)) if (c.assignmentId) paidIds.add(c.assignmentId);
-    for (const c of await recurringEarningsEndedInPeriod(employeeId, companyId, periodStart, last)) if (c.assignmentId) endedIds.add(c.assignmentId);
+    for (const c of await getEmployeeComponents(employeeId, companyId, last)) {
+      if (c.assignmentId) paidIds.add(c.assignmentId);
+      readComponents.add(`${employeeId}:${c.component.id}`);
+    }
+    for (const c of await recurringEarningsEndedInPeriod(employeeId, companyId, periodStart, last, !monthly)) {
+      if (c.assignmentId) endedIds.add(c.assignmentId);
+      readComponents.add(`${employeeId}:${c.component.id}`);
+    }
   }
   const out: ProRataRow[] = [];
   for (const r of rows) {
@@ -114,6 +123,12 @@ export async function recurringRowsNeedingProRata(
         from: fmtDate(r.effective_from), to: r.effective_to ? fmtDate(r.effective_to) : null, superseded: r.superseded_at != null });
       continue;
     }
+    // Option B (coordinator ruling on #1901, 2026-11-26; Hein 2026-11-02): a monthly leaver's own row ending before the 27th
+    // is not paid and not flagged, as on master (the part month is entered by hand), unless another row of its component
+    // IS paid this month (a raise on the 10th paid at its share): that leaver would be half paid, so the row is flagged
+    // and approval refused, never silently underpaid.
+    if (!paid && monthly && r.end_date != null && r.effective_to != null && fmtDate(r.effective_to) === fmtDate(r.end_date)
+      && fmtDate(r.effective_to) < day27 && !readComponents.has(`${String(r.employee_id)}:${String(r.component_id)}`)) continue;
     // Read in full and ending in the band: a leaver's last month (Hein), exempt. Starting in the band and read: paid in
     // full, flagged as starting. Not read: flagged as ending (also when it starts in the band too).
     if (paid && !r.starts) continue;

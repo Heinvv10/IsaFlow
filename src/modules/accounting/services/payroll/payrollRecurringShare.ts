@@ -41,6 +41,11 @@ export function periodBoundsOf(period: PayrollPeriod): { start: string; end: str
   return { start: `${period.year}-${pad(period.month)}-01`, end: `${period.year}-${pad(period.month)}-${pad(last)}` };
 }
 
+/** A calendar-month period (no run dates of its own): a monthly run's (periodBoundsOf). */
+export function isMonthlyPeriod(period: PayrollPeriod): boolean {
+  return !(period.start && period.end);
+}
+
 /** The period cut to the employee's employment; null when they were not employed in it. */
 export function employedWindowOf(period: PayrollPeriod, employee: ShareEmployee): { start: string; end: string } | null {
   const bounds = periodBoundsOf(period);
