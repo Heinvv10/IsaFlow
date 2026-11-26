@@ -30,6 +30,56 @@ Last updated: 2026-04-19 · 643 commits on `master` · 144 migrations (000 → 3
 
 ---
 
+## 2026-11-25 — Intercompany P4e/P5/P6f, AP Void Clamp, Payroll W31, Mobile Wave, Bank JIT
+
+**Intercompany**
+
+- P4e receiver readiness, P5 loan reconciliation, P6f payment messages (migrations 1029, 1030, 1031)
+
+**AP**
+
+- `voidSupplierPayment` now clamps a short bill at 0 and warns, matching MCP `void_payment` behaviour; missing bill refused before the clamp warning; lock wait proven bounded (#1883)
+
+**Payroll**
+
+- Dead year-end page and status API deleted (W31); IRP5 summary skips natural-person validation for a PSP-only payee (#1896)
+- Readiness card: no 429 for an interactive session; shared read started early; 429 explains reason; server-timing stages cleaned up
+- `payroll_employees.tax_directive_number` kept masked in entity-change events (privacy fix)
+
+**SARS Codes**
+
+- `official_excerpt` column no longer selected or served on tenant or admin paths (W19); 41xx SARS code parse pinned (W24)
+
+**Bank**
+
+- Single-line, export-all and three integrity checks run with JIT off (W8); `withJitOff` reads named
+
+**GRN**
+
+- MCP `list_goods_received` / `get_goods_received` and PO detail resolve receiver's name from user id; one helper per request
+
+**Cash Flow**
+
+- Pay day choice (cash13) no longer overwritten by the form's first sync
+
+**Mobile — Card Layout (wave continued)**
+
+- CaseWare export mapping editor as labelled cards below `lg`; 44 px fields and toolbar (#1884)
+- My Reports template list as labelled cards on mobile; actions no longer clipped off-screen; 44 px row actions
+- Captured documents list and group entity summary as labelled cards on mobile; 44 px tap targets on My Reports links and employee-portal sign-in
+
+**MCP**
+
+- Dead from-date check in `po_status_report` dropped; missing company role covered in registry-agreement test
+
+**CI**
+
+- Vitest fork heap raised to 4 GB for unit and component tests
+
+Migrations: **1029** (`intercompany_p4e_receiver_readiness`), **1030** (`intercompany_p5_loan_reconciliation`), **1031** (`intercompany_p6f_payment_messages`)
+
+---
+
 ## 2026-11-24 — Mobile Card-Layout Wave (AR/AP/Inventory/Reports), UI Dark-Mode Fixes, CI Hardening
 
 **Mobile — Card Layout (wave continued)**
