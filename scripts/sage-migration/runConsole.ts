@@ -183,11 +183,14 @@ export function consoleApi(c: Console, sys: ConsoleSys = realSys) {
     if (where !== null) return `--report ${where} holds the run's report`;
     return pipe ? 'give --report <path>: a pipe holds only a few KiB, and a large run says more' : 'give --report <path>: it always holds the whole report';
   };
-  /** Puts the process back as found (flags, writers), then exits, whatever a restore does (R30-5: the exit code is the contract). */
+  /**
+   * Puts the process back as found, then exits, whatever a restore does (R30-5: the exit code is the contract). Last pushed first, so the
+   * flags are put back LAST (B32-3): a failed restore's line (writeNow sets O_NONBLOCK) comes before them, never after.
+   */
   const leave = (code: number | undefined): void => {
     clearTimeout(ceiling);
     try {
-      for (const r of restore.splice(0)) {
+      for (const r of restore.splice(0).reverse()) {
         try { r(); } catch (err) { sys.writeNow(2, `could not put the console back as found: ${err instanceof Error ? err.message : String(err)}\n`); }
       }
     } finally {
@@ -195,12 +198,16 @@ export function consoleApi(c: Console, sys: ConsoleSys = realSys) {
     }
   };
   const CEILING = `the exit waited ${CONSOLE_EXIT_CEILING_MS / 1000} s for its reader`;
-  /** Past the ceiling: the streams that still have bytes queued are given up; both: one notice, on stderr, best effort (L2). */
+  /**
+   * Past the ceiling: the streams that still have bytes queued are given up. Both: one notice, on stderr (L2), best effort only (B32-2):
+   * its reader is stalled too, so its pipe is usually full and the one try is refused; --report is what holds the run then. With 2>&1
+   * (one file) none at all: it would go into the very pipe just given up.
+   */
   const giveUpStalled = (): void => {
     const stalled = (['stdout', 'stderr'] as const).filter((st) => c.queuedBytes(st) > 0);
     oneNotice = stalled.length === 2;
     try { for (const st of stalled) c.markGone(st, CEILING); } finally { oneNotice = false; }
-    if (stalled.length === 2) sys.writeNow(FD.stderr, `\nstdout and stderr: ${CEILING}: the rest of what they were given was dropped; ${hint(true)}\n`);
+    if (stalled.length === 2 && !c.shared) sys.writeNow(FD.stderr, `\nstdout and stderr: ${CEILING}: the rest of what they were given was dropped; ${hint(true)}\n`);
   };
   /**
    * The total ceiling (R29-4, R30-2, R30-3): past it, only the streams that still have bytes queued are given up, so the "cut" notice is
@@ -246,7 +253,7 @@ export function consoleApi(c: Console, sys: ConsoleSys = realSys) {
       void process.stdout; // bun makes fd 1 / 2 O_NONBLOCK when the stream is first touched
       void process.stderr;
       restore.push(sys.capture(c)); // the logger's lines join the same queues
-      sys.onExit(() => { for (const r of restore.splice(0)) r(); }); // a run that ends by itself (exit 0 / 1 / 3) puts them back too (B29-2)
+      sys.onExit(() => { for (const r of restore.splice(0).reverse()) r(); }); // a run that ends by itself (exit 0 / 1 / 3) puts them back too (B29-2)
       const blocking = sys.blockingFds();
       if (blocking.length > 0) say(`the console (fd ${blocking.join(', ')}) is in blocking mode: a reader that stops reading holds the run up until it reads again`);
       return { blocking };

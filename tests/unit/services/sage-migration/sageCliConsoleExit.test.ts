@@ -118,6 +118,19 @@ describe('R30-2 / R30-3 / R30-5: the ceiling says what it cut; a natural end get
     expect(nowWrites).toEqual([[2, `\nstdout and stderr: the exit waited ${CONSOLE_EXIT_CEILING_MS / 1000} s for its reader: the rest of what they were given was dropped; give --report <path>: a pipe holds only a few KiB, and a large run says more\n`]]);
     expect(exits).toEqual([4]);
   });
+  it('B32-2: 2>&1 (one file), both stalled: no notice at all (it would go into the very pipe just given up)', async () => {
+    vi.useFakeTimers();
+    const r = rig(() => 'EAGAIN');
+    const api = consoleApi(r.c, sys({ sameFile: () => true }));
+    api.prepareConsole(() => null);
+    api.say('stop');
+    api.out('summary');
+    const done = api.exitAfterConsole(4);
+    await vi.advanceTimersByTimeAsync(CONSOLE_EXIT_CEILING_MS);
+    await done;
+    expect(nowWrites).toEqual([]);
+    expect(exits).toEqual([4]);
+  });
   it('armed once: an exit asked after a natural end waits only what is left of the ceiling (an uncaught error at +100 s exits at +120 s)', async () => {
     vi.useFakeTimers();
     const r = rig((fd) => (fd === 2 ? 'EAGAIN' : 1000));
@@ -167,5 +180,15 @@ describe('R30-2 / R30-3 / R30-5: the ceiling says what it cut; a natural end get
     void api.exitAfterConsole(4);
     expect(exits).toEqual([4]);
     expect(nowWrites).toEqual([[2, 'could not put the console back as found: fcntl failed\n']]); // through the one try (B31-1), said once
+  });
+  it('B32-3: a restore that fails is said BEFORE the flags are put back, so its one try cannot leave fd 2 non-blocking', () => {
+    const order: string[] = [];
+    const r = rig(() => 1000);
+    const api = consoleApi(r.c, sys({ saveFlags: () => () => { order.push('flags put back'); }, capture: () => () => { throw new Error('writers'); },
+      writeNow: (_fd, text) => { order.push(text.trim()); return true; } }));
+    api.prepareConsole(() => null);
+    void api.exitAfterConsole(4);
+    expect(order).toEqual(['could not put the console back as found: writers', 'flags put back']);
+    expect(exits).toEqual([4]);
   });
 });
