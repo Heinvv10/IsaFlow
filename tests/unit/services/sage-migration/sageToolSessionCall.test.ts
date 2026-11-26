@@ -234,6 +234,8 @@ describe('R21-2: a loss first seen during the dry request\'s own ROLLBACK', () =
       const err = await withToolSession({ connect: async () => client } as never, 'c1', 'u1', false, async () => 'the dry run', { wrote: true }).then(() => null, (r: unknown) => r);
       expect(err, why).toBeInstanceOf(DryRollbackUnconfirmedError);
       expect((err as Error).message, why).toBe(`the dry run's ROLLBACK was not confirmed (${why}); its writes may still be held, so the live run was not started`);
+      expect((err as Error & { cause?: unknown }).cause, why).toEqual(new Error(why));
+      expect((err as Error).name, why).toBe('DryRollbackUnconfirmedError');
       expect(client.release, why).toHaveBeenCalledWith(true);
     }
   });
