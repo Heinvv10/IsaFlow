@@ -23,6 +23,9 @@
 import { mkdirSync } from 'fs';
 import { test, expect, type Locator, type Page } from '@playwright/test';
 import { Api } from './_api';
+import { guardDevTarget } from '../helpers/devTarget';
+
+guardDevTarget(test);
 
 const EVIDENCE_DIR = process.env.EVIDENCE_DIR;
 
@@ -127,7 +130,8 @@ test.describe('Budget tracking: Budget vs Actual page and the income statement B
     }
   });
 
-  test.beforeEach(() => {
+  test.beforeEach(({ request }) => {
+    void request; // asked so that a refused target stops this hook (devTarget.ts)
     test.skip(!hasVersion, 'the company has no budget version for the current financial year: nothing to track');
   });
 

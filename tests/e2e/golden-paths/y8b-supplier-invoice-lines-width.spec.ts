@@ -8,6 +8,9 @@
 // Dev only: it measures layout, which the post-deploy run has no use for. The post-deploy run skips it by this marker.
 import { expect, test, type Page } from '@playwright/test';
 import { settle } from '../helpers/themeSpec';
+import { guardDevTarget } from '../helpers/devTarget';
+
+guardDevTarget(test);
 
 const PATH = '/accounting/supplier-invoices/new';
 

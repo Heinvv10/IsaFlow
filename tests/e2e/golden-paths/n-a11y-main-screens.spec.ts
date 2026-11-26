@@ -14,6 +14,9 @@
 import { expect, test } from '@playwright/test';
 import { expectNoSeriousA11yViolations, expectScreenClean, openScreen, SETUP_GUIDE_BUTTON } from './helpers/axe';
 import { A11Y_SCREENS, A11Y_SHELL_KEYS } from './helpers/a11yScreens';
+import { guardDevTarget } from '../helpers/devTarget';
+
+guardDevTarget(test);
 
 for (const screen of A11Y_SCREENS) {
   test(`a11y: ${screen.name} (${screen.path})`, async ({ page }) => {

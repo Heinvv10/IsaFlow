@@ -12,6 +12,9 @@
  * Run with: bunx playwright test tests/e2e/payroll-smoke.spec.ts --config playwright-test.config.ts
  */
 import { test, expect } from '@playwright/test';
+import { guardDevTarget } from './helpers/devTarget';
+
+guardDevTarget(test);
 
 const SUFFIX = String(Date.now()).slice(-6);
 const COMP_NAME = `Basic Salary ${SUFFIX}`;

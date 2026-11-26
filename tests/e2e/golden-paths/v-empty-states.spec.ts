@@ -18,6 +18,9 @@ import { mkdirSync } from 'fs';
 import { Api } from './_api';
 import { activeCompanyId, findOrCreateSandbox, switchBrowserCompany } from './_migrationSandbox';
 import { seedTheme, settle, THEMES } from '../helpers/themeSpec';
+import { guardDevTarget } from '../helpers/devTarget';
+
+guardDevTarget(test);
 
 const SHOTS = 'docs/evidence/master-plan/wave1/empty-states';
 const SANDBOX_NAME = '0GP Golden Empty Sandbox';
@@ -38,11 +41,7 @@ let demoId = '';
 let startedOn = '';
 
 test.beforeAll(async ({ baseURL }) => {
-  // Creates a company and relies on a dev-only data flag: only an explicit dev/CI host may run it.
-  // Never production: not app.isaflow.co.za and not this box's prod next-server on :3101.
-  const u = new URL(baseURL!);
-  const devPorts = new Set(['3200', ...Array.from({ length: 500 }, (_, i) => String(3300 + i)), ...Array.from({ length: 40 }, (_, i) => String(3200 + i))]);
-  expect(u.hostname === 'localhost' && devPorts.has(u.port), `v-empty-states runs only on a dev/CI localhost port (3200-3239, 3300-3799), not ${u.host}`).toBe(true);
+  // Creates a company and relies on a dev-only data flag: dev/CI only (guardDevTarget).
   const api = await Api.login(baseURL!);
   try {
     const uc = await api.get<{ items: Array<{ companyId: string; isDemo?: boolean }>; activeCompanyId: string }>(

@@ -22,6 +22,11 @@
  * subscription 'past_due'. All writes are company-scoped and keyed on the
  * charge's subscription_id. The mandate must be 'active' AND have a
  * paystack_authorization_code, or the charge fails with 'no_mandate'.
+ * A charge above the mandate's max_amount_cents (the most the payer
+ * authorised per debit) is never sent to Paystack: it is skipped before the
+ * attempt is claimed, left queued, and logged as an error with the stable key
+ * `billing.charge_above_mandate_ceiling` on every run until the payer
+ * re-authorises or an admin voids it.
  *
  * Every write to subscription_charges, and the one read of the mandate's card
  * codes, runs on the migration_admin pool (S-07e, migration 945): app roles
@@ -187,6 +192,23 @@ export async function runQueuedCharges(now = new Date()): Promise<RunChargesResu
   let skipped = 0;
 
   for (const c of charges) {
+    // Hard stop: never debit more than the payer authorised. Checked before the
+    // claim, so no attempt is spent and the subscription is not made past_due.
+    // Compared in Postgres (exact bigint); unknown (NULL) fails closed.
+    if (c.above_mandate_ceiling !== false) {
+      log.error(
+        'Subscription charge above the mandate ceiling: not sent to Paystack',
+        {
+          key: 'billing.charge_above_mandate_ceiling',
+          chargeId: c.id, companyId: c.company_id, mandateId: c.mandate_id,
+          amountCents: Number(c.amount_cents), maxAmountCents: c.mandate_max_amount_cents,
+        },
+        'BillingCron',
+      );
+      skipped++;
+      continue;
+    }
+
     // Claim the attempt before spending it, so a concurrent run that read the
     // same snapshot cannot also charge this card.
     const attemptCount = await claimChargeAttempt(c.id, c.company_id, c.status, c.attempt_count);

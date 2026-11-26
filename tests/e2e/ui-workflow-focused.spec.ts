@@ -3,8 +3,11 @@
  * These complete the full CRUD cycle with actual form submission
  */
 import { test, expect, Page } from '@playwright/test';
+import { devBaseUrl, guardDevTarget } from './helpers/devTarget';
 
-const BASE = 'https://app.isaflow.co.za';
+guardDevTarget(test);
+
+const BASE = devBaseUrl();
 
 test('W1 FULL: Create customer invoice with 2 line items', async ({ page }) => {
   await page.goto(`${BASE}/accounting/customer-invoices/new`);

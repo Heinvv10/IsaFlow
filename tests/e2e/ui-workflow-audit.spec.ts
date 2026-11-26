@@ -1,13 +1,16 @@
 /**
  * UI WORKFLOW AUDIT — 8 Critical Accounting Workflows
- * Tests against production: https://app.isaflow.co.za
- * Run: bunx playwright test tests/e2e/ui-workflow-audit.spec.ts --config playwright-prod.config.ts
+ * Dev only (helpers/devTarget.ts): set BASE_URL to a dev server.
+ * Run: bunx playwright test tests/e2e/ui-workflow-audit.spec.ts --config playwright-test.config.ts
  */
 import { test, expect, Page } from '@playwright/test';
+import { devBaseUrl, guardDevTarget } from './helpers/devTarget';
 
-const BASE = 'https://app.isaflow.co.za';
+guardDevTarget(test);
 
-// ─── Login helper — uses stored session from prod-session.json ───────────────
+const BASE = devBaseUrl();
+
+// ─── Login helper — uses stored session of the config (auth.setup.ts) ───────────────
 async function login(page: Page) {
   await page.goto(`${BASE}/accounting`);
   await page.waitForLoadState('networkidle');

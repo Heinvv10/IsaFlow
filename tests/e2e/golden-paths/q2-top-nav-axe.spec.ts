@@ -10,6 +10,9 @@ import { mkdirSync } from 'fs';
 import { expectNoSeriousA11yViolations } from './helpers/axe';
 import { seedTheme, THEMES } from '../helpers/themeSpec';
 import { test, expect, openWithNav, NAV_READY_MS } from '../helpers/navSpec';
+import { guardDevTarget } from '../helpers/devTarget';
+
+guardDevTarget(test);
 
 const NAV = 'nav:has([data-tour="nav-dashboard"])';
 const EVIDENCE_DIR = 'docs/evidence/master-plan/wave1/nav';

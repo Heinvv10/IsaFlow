@@ -16,6 +16,9 @@ import AxeBuilder from '@axe-core/playwright';
 import { Api } from './_api';
 import { findOrCreateSandbox, switchApiCompany, switchBrowserCompany } from './_migrationSandbox';
 import { seedTheme, settle, THEMES } from '../helpers/themeSpec';
+import { guardDevTarget } from '../helpers/devTarget';
+
+guardDevTarget(test);
 
 const EVIDENCE_DIR = process.env.EVIDENCE_DIR;
 const SANDBOX = { name: '0GP Golden Settings Sandbox', onboardingId: '5d2b9c7e-3a16-4f8d-b0e4-7c1a9d3f6b28' };
@@ -29,8 +32,6 @@ async function seriousAxe(page: Page): Promise<string[]> {
 
 for (const theme of THEMES) {
   test(`Save follows the form's dirty state and leaving with edits asks first (${theme})`, async ({ page, context, baseURL }) => {
-    const u = new URL(baseURL!);
-    expect(u.hostname === 'localhost' && u.port !== '3101', `z34 saves a sandbox company: dev/CI localhost only, not ${u.host}`).toBe(true);
     const api = await Api.login(baseURL!);
     try {
       const sandboxId = await findOrCreateSandbox(api, SANDBOX);
