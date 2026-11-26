@@ -1,5 +1,5 @@
 /**
- * Intercompany loan class vs the subtype spellings production carries (#1880, 2026-11-26: singular/plural pairs, 346 NULLs). Migration 1053:
+ * Intercompany loan class vs the subtype spellings production carries (#1880, 2026-11-26: singular/plural pairs, 346 NULLs). Migration 1059:
  * `intercompany_is_loan_class` accepts the plural of each allowed class (case and spacing are normalised on write by trigger 674, pinned below); NULL, an unrelated plural (current_assets, fixed_assets), a bank/cash spelling and a system account stay refused.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
