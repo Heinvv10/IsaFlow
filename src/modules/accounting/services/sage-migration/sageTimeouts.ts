@@ -13,8 +13,18 @@ export const SAGE_LOCK_TIMEOUT_MS = 10_000;
  * timeout: a half-open socket, which never errors, then surfaces as "Query read timeout") and keeps its sockets alive (TCP keepalive).
  */
 export const SAGE_STATEMENT_TIMEOUT_MS = 60_000;
+/**
+ * How long a COMMIT may take to answer (R26-8): above the statement timeout (which applies to a COMMIT too) and below the client
+ * query_timeout, so on the CLI's pool THIS bound is the one that fires on a COMMIT ("COMMIT did not answer within 70000ms": unconfirmed).
+ */
+export const SAGE_COMMIT_TIMEOUT_MS = 70_000;
 export const SAGE_QUERY_TIMEOUT_MS = 75_000;
+/** How long a connection may take to be had (B26-1, R26-2): pg's default waits for ever on a server that accepts and never answers. */
+export const SAGE_CONNECT_TIMEOUT_MS = 15_000;
 export const SAGE_KEEPALIVE_INITIAL_DELAY_MS = 10_000;
+/** How long the CLI waits for its pool to close before it exits anyway (B26-1): its result is already printed and written. */
+export const SAGE_POOL_END_TIMEOUT_MS = 5_000;
 export const sagePoolConfig = (connectionString: string | undefined) => ({
   connectionString, max: 4, keepAlive: true, keepAliveInitialDelayMillis: SAGE_KEEPALIVE_INITIAL_DELAY_MS, query_timeout: SAGE_QUERY_TIMEOUT_MS,
+  connectionTimeoutMillis: SAGE_CONNECT_TIMEOUT_MS,
 });

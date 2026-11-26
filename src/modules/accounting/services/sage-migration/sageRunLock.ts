@@ -5,7 +5,8 @@
  * if the process dies.
  */
 import { createHash } from 'node:crypto';
-import type { Pool } from 'pg';
+import type { Pool, PoolClient } from 'pg';
+import { ConnectionLostError } from './sageSessionErrors';
 import { log } from '@/lib/logger';
 
 export class RunInProgressError extends Error {}
@@ -42,7 +43,12 @@ export interface RunLock {
  */
 export async function acquireRunLock(pool: Pool, companyId: string): Promise<RunLock> {
   const [k1, k2] = migrationLockKey(companyId);
-  const client = await pool.connect();
+  let client: PoolClient;
+  try {
+    client = await pool.connect(); // bounded by the pool's connectionTimeoutMillis (B26-1): a server that never answers is said
+  } catch (err) {
+    throw new ConnectionLostError(err, 'no-connection');
+  }
   let lost: Error | undefined;
   const onError = (err: Error) => { lost = err; };
   client.on('error', onError);
@@ -56,18 +62,21 @@ export async function acquireRunLock(pool: Pool, companyId: string): Promise<Run
   if (failure || !gotLock) {
     // Who holds it (B25-3): a running run, or a dead run's connection the server has not dropped yet. Best effort: unknown is said so.
     let holder: number | undefined;
+    let lookupFailure: Error | undefined;
     if (!failure) {
       try {
         const h = await client.query<{ pid: number }>(`SELECT pid FROM pg_locks WHERE locktype = 'advisory' AND granted AND objsubid = 2 AND pid <> pg_backend_pid()
           AND classid = ($1::int::bigint & 4294967295)::oid AND objid = ($2::int::bigint & 4294967295)::oid LIMIT 1`, [k1, k2]);
         holder = h.rows[0]?.pid;
       } catch (err) {
-        log.warn('sage migration: the run lock holder could not be read', { message: err instanceof Error ? err.message : String(err) }, 'sage-migration');
+        // R26-10: the connection goes back WITH this error (pg destroys it): a lookup that timed out may still be running on it.
+        lookupFailure = err instanceof Error ? err : new Error(String(err));
+        log.warn('sage migration: the run lock holder could not be read', { message: lookupFailure.message }, 'sage-migration');
       }
     }
     // One release for both: with the error when a query failed (pg destroys the connection), plain when someone else holds the lock (it is fine).
     client.removeListener('error', onError);
-    client.release(failure);
+    client.release(failure ?? lookupFailure);
     const who = holder === undefined ? 'its holder\'s backend pid unknown' : `held by backend pid ${holder}; if no run is running, that is a dead run's connection: SELECT pg_terminate_backend(${holder})`;
     throw failure ?? new RunInProgressError(`another Sage migration is running for this company (${companyId}; ${who}): wait for it to finish, then run again; nothing was written`);
   }

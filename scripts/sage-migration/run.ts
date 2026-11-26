@@ -28,7 +28,7 @@ import { RUN_TAG } from '../../src/modules/accounting/services/sage-migration/sa
 import { assertLocalDatabase } from '../../src/modules/accounting/services/sage-migration/localGuard';
 import { parseSageExport } from '../../src/modules/accounting/services/sage-migration/sageExportParser';
 import { runSageMigration } from '../../src/modules/accounting/services/sage-migration/sageMigrationRunner';
-import { sagePoolConfig } from '../../src/modules/accounting/services/sage-migration/sageTimeouts';
+import { SAGE_POOL_END_TIMEOUT_MS, sagePoolConfig } from '../../src/modules/accounting/services/sage-migration/sageTimeouts';
 import type { ParsedExport } from '../../src/modules/accounting/services/sage-migration/sageExportTypes';
 import { exitCodeForError, stopMessage } from '../../src/modules/accounting/services/sage-migration/sageStopMessage';
 import { checkReportArgs, exitAfterReportFailure, OwnedReport, stopReportBody, summarize } from './runReport';
@@ -189,7 +189,8 @@ async function main(): Promise<void> {
   // Round 25: every connection kept alive and every query bounded client-side (sagePoolConfig), the run lock's included.
   const pool = new pg.Pool(sagePoolConfig(process.env.DATABASE_URL));
   pool.on('error', (err) => say(`database pool error: ${err.message}`));
-  try {
+  openPool = pool; // ended by runCli AFTER the result (or the stop message) is out, and bounded (B26-1)
+  {
     const report = await runSageMigration(pool, parsed, {
       companyId: values.company!.toLowerCase(), userId: values.user!.toLowerCase(), live: values.live, skipBudgetCheck: values['skip-budget-check'], poGlAccountId: values['po-gl-account']?.toLowerCase(), runTag: values['run-tag'], allowRefusals: values['allow-refusals'] === true, allowDifferences: values['allow-differences'] === true,
       expect,
@@ -221,10 +222,28 @@ async function main(): Promise<void> {
     // A signal that came after the run's last stop check (during the last batch, its check, or a run with none): the run finished, and says
     // so last, with the exit code it ends with (B19-2, R19-3, R20-3).
     if (stopSignal !== null) say(`${stopSignal} came after the run's last stop check: the run finished (exit ${process.exitCode})`);
-  } finally {
-    // A pool that fails to close cannot change what the run did, nor its exit code (R17-7).
-    try { await pool.end(); } catch (err) { say(`closing the database pool failed: ${err instanceof Error ? err.message : String(err)}`); }
   }
+}
+
+/** The pool of the run, ended by runCli once everything is said. */
+let openPool: pg.Pool | null = null;
+/**
+ * Ends the pool, bounded (B26-1): a pool that fails to close, or does not finish within SAGE_POOL_END_TIMEOUT_MS (a connect to a server
+ * that never answers), cannot change what the run did nor its exit code (R17-7): it is said, and the process exits with the run's code.
+ */
+async function endPool(): Promise<void> {
+  const pool = openPool;
+  openPool = null;
+  if (pool === null) return;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const outcome = await Promise.race([
+    pool.end().then(() => 'ended', (err: unknown) => { say(`closing the database pool failed: ${err instanceof Error ? err.message : String(err)}`); return 'failed'; }),
+    new Promise<'timeout'>((resolve) => { timer = setTimeout(() => resolve('timeout'), SAGE_POOL_END_TIMEOUT_MS); timer.unref?.(); }),
+  ]);
+  clearTimeout(timer);
+  if (outcome !== 'timeout') return;
+  say(`closing the database pool did not finish within ${SAGE_POOL_END_TIMEOUT_MS / 1000} s: the run's result above stands (exit ${process.exitCode ?? 0})`);
+  process.exit(process.exitCode ?? 0);
 }
 
 /**
@@ -236,7 +255,9 @@ export async function runCli(o: { removeHandlers?: boolean } = {}): Promise<void
   const uninstall = installHandlers();
   try {
     await main();
+    await endPool(); // after the summary, the report and the closing line: a pool that does not close cannot swallow them
   } catch (err) {
+    // Said BEFORE the pool is ended (B26-1): the process exits here, so a pool that never ends cannot keep the stop message unsaid.
     const code = exitCodeForError(err);
     say(`${err instanceof RefusedStart ? err.message : stopMessage(err)}${notCreated()}`);
     leaveStopReport(err, code); // every other exit path after the create (a stop, a refusal, a summary that failed after a dry run) leaves a stop report

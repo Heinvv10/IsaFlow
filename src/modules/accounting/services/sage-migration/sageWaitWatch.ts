@@ -1,49 +1,68 @@
 /**
- * Round 25: no wait of a migration request is silent. While a request runs, its own backend is watched from another pool connection: when
- * no query of it has answered for SAGE_WAIT_NOTICE_MS (and every such span after), `onNotice` hears it, with the backend it is blocked by
- * (pg_blocking_pids) when there is one. The blocker last seen is kept, so a lock timeout (55P03) can name its holder.
+ * Round 25-26: no wait of a migration request is silent. While a query (or the request's connect) is IN FLIGHT, the request is watched
+ * from another pool connection: when it has been waiting SAGE_WAIT_NOTICE_MS (and every such span after), `onNotice` hears it, with the
+ * backend it is blocked by (pg_blocking_pids, with that backend's state and application) when there is one. Time spent outside a query
+ * (planning, the runner between batches) is never called a wait (R26-9). The blocker seen belongs to the current wait only: it is cleared
+ * when nothing is in flight (R26-5), and read by the session before the query that failed on a lock is settled.
  */
 import type { Pool } from 'pg';
 import { log } from '@/lib/logger';
+import type { LockHolder } from './sageSessionErrors';
 
-/** A request with no answer for this long is said, and again every time as long. */
+/** A wait this long is said, and again every time as long. */
 export const SAGE_WAIT_NOTICE_MS = 5_000;
-/** How often a request with no answer is asked about from outside (who blocks it). */
+/** How often a waiting request is asked about from outside (who blocks it). */
 export const BLOCKER_SAMPLE_MS = 1_000;
 
+export const BLOCKER_SQL = `SELECT a.pid, a.state, a.application_name AS app FROM pg_stat_activity a WHERE a.pid = ANY(pg_blocking_pids($1)) LIMIT 1`;
+
 export interface WaitWatch {
-  /** A query of the request answered (or failed): the wait starts over. */
-  touch(): void;
-  /** The backend the request was last seen blocked by, if it was. */
-  blocker(): number | undefined;
+  /** A query (or the connect) starts: call what it returns when it settles. */
+  begin(): () => void;
+  /** The request's backend, once connected (no blocker can be asked for before). */
+  setPid(pid: number | undefined): void;
+  /** The backend the current wait was last seen blocked by. */
+  blocker(): LockHolder | undefined;
   stop(): void;
 }
 
-export function watchWaits(pool: Pool, pid: number | undefined, onNotice?: (line: string) => void): WaitWatch {
-  let last = Date.now();
+export function watchWaits(pool: Pool, onNotice?: (line: string) => void): WaitWatch {
+  let inFlight = 0;
+  let since = 0;
   let noticed = 0;
-  let blocker: number | undefined;
+  let pid: number | undefined;
+  let blocker: LockHolder | undefined;
   let sampling = false;
-  const canSample = pid !== undefined && typeof (pool as { query?: unknown }).query === 'function';
+  const canSample = typeof (pool as { query?: unknown }).query === 'function';
   const timer = setInterval(() => {
-    const waited = Date.now() - last;
+    if (inFlight === 0) return;
+    const waited = Date.now() - since;
     if (waited < BLOCKER_SAMPLE_MS) return;
-    if (canSample && !sampling) {
+    if (canSample && pid !== undefined && !sampling) {
       sampling = true;
-      pool.query<{ p: number[] | null }>('SELECT pg_blocking_pids($1) AS p', [pid])
-        .then((r) => { const p = r.rows[0]?.p?.[0]; if (typeof p === 'number') blocker = p; })
+      pool.query<{ pid: number; state: string | null; app: string | null }>(BLOCKER_SQL, [pid])
+        .then((r) => { const row = r.rows[0]; if (row && inFlight > 0) blocker = { pid: row.pid, state: row.state, app: row.app }; })
         .catch((err: unknown) => log.warn('sage migration: who blocks the request could not be read', { message: err instanceof Error ? err.message : String(err) }, 'sage-migration'))
         .finally(() => { sampling = false; });
     }
     const span = Math.floor(waited / SAGE_WAIT_NOTICE_MS);
     if (span > noticed) {
       noticed = span;
-      onNotice?.(`a database request has had no answer for ${span * (SAGE_WAIT_NOTICE_MS / 1000)} s${blocker === undefined ? '' : `; it is blocked by backend pid ${blocker}`}`);
+      onNotice?.(`a database request has had no answer for ${span * (SAGE_WAIT_NOTICE_MS / 1000)} s${blocker === undefined ? '' : `; it is blocked by backend pid ${blocker.pid}`}`);
     }
   }, BLOCKER_SAMPLE_MS / 2);
   timer.unref?.();
   return {
-    touch: () => { last = Date.now(); noticed = 0; },
+    begin: () => {
+      if (inFlight++ === 0) since = Date.now();
+      let done = false;
+      return () => {
+        if (done) return;
+        done = true;
+        if (--inFlight === 0) { noticed = 0; blocker = undefined; }
+      };
+    },
+    setPid: (p) => { pid = p; },
     blocker: () => blocker,
     stop: () => clearInterval(timer),
   };

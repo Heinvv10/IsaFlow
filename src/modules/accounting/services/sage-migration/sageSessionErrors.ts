@@ -36,8 +36,10 @@ export class LostBeforeCommitError extends Error {
  * refused start (exit 2). `cause` is the error the loss came with.
  */
 export class ConnectionLostError extends Error {
-  constructor(cause: unknown) {
-    super(`the connection to the database was lost (${text(cause)}) in a request that commits nothing (the dry run, which writes and rolls back, the plan or a read of the books): the server rolled it back, so nothing of it was written`, { cause });
+  constructor(cause: unknown, readonly how: 'lost' | 'no-connection' = 'lost') {
+    super(how === 'no-connection'
+      ? `no connection to the database could be had (${text(cause)}): nothing was sent, so nothing of it was written`
+      : `the connection to the database was lost (${text(cause)}) in a request that commits nothing (the dry run, which writes and rolls back, the plan or a read of the books): the server rolled it back, so nothing of it was written`, { cause });
     this.name = 'ConnectionLostError';
   }
 }
@@ -60,30 +62,53 @@ export class DryRollbackUnconfirmedError extends Error {
 
 /** Which part of the run met a lock (R25-2): who can hold a dry key differs from who can hold a live one, and so does the safe remedy. */
 export type LockPhase = 'dry' | 'live';
-/** Who likely holds it, and what to do: a dry transaction can be ended; a live one may be mid-COMMIT, so it is not to be terminated blind. */
-const holderHint = (holder: number | undefined, phase: LockPhase): string => (phase === 'dry'
-  ? `likely a previous run's dry transaction, ${pidHint(holder)}); wait or terminate it, then re-run`
-  : `${holder === undefined ? 'backend pid unknown' : `backend pid ${holder}`}: likely a previous run's live transaction whose COMMIT was not confirmed, or another client using the same key; it may be committing, so do not terminate it blind: check the books, wait for it to end, then re-run)`);
+/** The backend that holds a lock, as pg_stat_activity shows it when it was looked up (R26-4). */
+export interface LockHolder { pid: number; state?: string | null; app?: string | null }
 
 /**
- * A batch's idempotency key is locked by another session (B24-2), said at once instead of waiting on it: who holds it (`holder`, its pid),
- * and what to do, worded by phase (R25-2). A dry key ends in "-dry", so only a dry transaction can hold one.
+ * Who holds it and what to do (R26-4): ending it is offered only for a backend that is idle in transaction (a transaction left open, not
+ * one at work); any other is named with its state and application, and waited for.
+ */
+const who = (h: LockHolder | undefined): string => {
+  if (h === undefined) return 'backend pid unknown: wait for it to end';
+  if (h.state === 'idle in transaction') return `backend pid ${h.pid}, idle in transaction: a transaction left open; wait for the server to end it, or SELECT pg_terminate_backend(${h.pid})`;
+  return `backend pid ${h.pid}, ${h.state ?? 'state unknown'}${h.app ? `, application ${h.app}` : ''}: it is at work; wait for it to finish`;
+};
+
+/**
+ * A batch's idempotency key is locked by another session (B24-2), said at once instead of waiting on it, worded by phase (R25-2). A dry
+ * key ends in "-dry", so only a dry transaction can hold one; a live key is held by a live transaction, which may be mid-COMMIT, so it is
+ * never offered for ending.
  */
 export class BatchKeyHeldError extends Error {
-  constructor(readonly holder: number | undefined, readonly phase: LockPhase = 'dry') {
-    super(`another session holds this batch's lock (${holderHint(holder, phase)}`);
+  constructor(readonly holder: LockHolder | undefined, readonly phase: LockPhase = 'dry') {
+    super(phase === 'dry'
+      ? `another session holds this batch's lock: likely a previous run's dry transaction (${who(holder)}); then re-run`
+      : `another session holds this batch's lock: likely a previous run's live transaction whose COMMIT was not confirmed, or another client using the same key (${holder === undefined ? 'backend pid unknown' : `backend pid ${holder.pid}`}); it may be committing, so do not terminate it blind: check the books, wait for it to end, then re-run`);
     this.name = 'BatchKeyHeldError';
   }
 }
 
 /**
  * A statement of a migration request waited on a lock until its lock_timeout (55P03, round 25): `holder` is the backend the request was
- * seen blocked by (pg_blocking_pids), when it was seen. The request wrote nothing (its tool rolled back); the run stops at it: every later
- * batch would queue on the same holder.
+ * seen blocked by (pg_blocking_pids), when it was seen. Any session can hold such a lock (a user, another tool, a previous run), so only
+ * its state decides the advice (R26-4). The request wrote nothing (its tool rolled back); the run stops at it: every later batch would
+ * queue on the same holder.
  */
 export class LockWaitError extends Error {
-  constructor(cause: unknown, readonly holder: number | undefined, readonly phase: LockPhase) {
-    super(`a lock it needs is held by another session and the wait timed out (${text(cause)}); nothing of it was written (${holderHint(holder, phase)}`, { cause });
+  constructor(cause: unknown, readonly holder: LockHolder | undefined, readonly phase: LockPhase) {
+    super(`a lock it needs is held by another session and the wait timed out (${text(cause)}); nothing of it was written (held by ${who(holder)}); then re-run`, { cause });
     this.name = 'LockWaitError';
+  }
+}
+
+/**
+ * A statement of a migration request ran past the migration's statement_timeout (57014, B26-4): the server is overloaded or stalled. The
+ * request wrote nothing (its tool rolled back); the run stops at it, as at a lock wait: every later batch would wait as long.
+ */
+export class StatementTimeoutError extends Error {
+  constructor(cause: unknown, readonly phase: LockPhase, timeoutMs: number) {
+    super(`a statement ran past the migration's ${timeoutMs / 1000} s statement_timeout (${text(cause)}); nothing of it was written: the database is overloaded or stalled; re-run once it answers`, { cause });
+    this.name = 'StatementTimeoutError';
   }
 }

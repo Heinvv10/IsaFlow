@@ -3,7 +3,7 @@
  *   - B24-2: lock_timeout, and a write tool's idempotency key taken without waiting (BatchKeyHeldError, worded by phase: R25-2);
  *   - R24-5 / R25-6: a dry run whose ROLLBACK is not confirmed after its own error says its writes may be held, only once its work ran;
  *   - round 25: statement_timeout; a client query_timeout is a loss (before the COMMIT: nothing written; at it: unconfirmed); a lock
- *     timeout (55P03) in a committing request stops it (LockWaitError), in the dry run it is reported to the runner (session.lockWait).
+ *     timeout (55P03) in a committing request stops it (LockWaitError), in the dry run it is reported to the runner (session.stall).
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { McpToolContext, McpToolResult } from '@/lib/mcp/types';
@@ -53,7 +53,7 @@ describe('B24-2: a lock another session holds never hangs a migration request', 
       query: async (text: string, values?: unknown[]) => {
         queries.push([text, values]);
         if (text.startsWith('SELECT pg_try_advisory_xact_lock')) return { rows: [{ ok: false }] };
-        if (text.includes('FROM pg_locks')) return { rows: [{ pid: 777 }] };
+        if (text.includes('FROM pg_locks')) return { rows: [{ pid: 777, state: 'idle in transaction', app: 'sage-migration' }] };
         return { rows: [] };
       },
       release: vi.fn(),
@@ -61,7 +61,7 @@ describe('B24-2: a lock another session holds never hangs a migration request', 
     registry.call.mockClear();
     const err = await withToolSession({ connect: async () => client } as never, 'c1', 'u1', false, (s) => s.call('w', { idempotency_key: 'batch-1' })).then(() => null, (e: unknown) => e);
     expect(err).toBeInstanceOf(BatchKeyHeldError);
-    expect((err as Error).message).toBe("another session holds this batch's lock (likely a previous run's dry transaction, backend pid 777: wait for the server to end it, or SELECT pg_terminate_backend(777)); wait or terminate it, then re-run");
+    expect((err as Error).message).toBe("another session holds this batch's lock: likely a previous run's dry transaction (backend pid 777, idle in transaction: a transaction left open; wait for the server to end it, or SELECT pg_terminate_backend(777)); then re-run");
     expect(registry.call).not.toHaveBeenCalled();
     // the key text the registry locks (src/lib/mcp/audit.ts acquireIdempotencyLock)
     expect(queries.find(([t]) => t.startsWith('SELECT pg_try_advisory_xact_lock'))?.[1]).toEqual(['mcp:c1:w:batch-1']);
@@ -123,23 +123,22 @@ describe('round 25: no statement waits forever', () => {
     const err = await withToolSession(poolOf(client), 'c1', 'u1', true, (s) => s.call('w', { idempotency_key: 'k' })).then(() => null, (e: unknown) => e);
     expect(err).toBeInstanceOf(LockWaitError);
     expect((err as LockWaitError).phase).toBe('live');
-    expect((err as Error).message).toMatch(/^a lock it needs is held by another session and the wait timed out \(canceling statement due to lock timeout\); nothing of it was written \(backend pid unknown: likely a previous run's live transaction/);
-    expect((err as Error).message).toMatch(/do not terminate it blind/);
+    expect((err as Error).message).toBe('a lock it needs is held by another session and the wait timed out (canceling statement due to lock timeout); nothing of it was written (held by backend pid unknown: wait for it to end); then re-run');
     expect(client.texts).not.toContain('COMMIT');
   });
-  it('a lock timeout in the dry run: the request ends normally, and session.lockWait() says it (worded dry), for the runner to stop', async () => {
+  it('a lock timeout in the dry run: the request ends normally, and session.stall() says it (worded dry), for the runner to stop', async () => {
     const client = clientOf((t) => (t === 'SELECT take_number_lock' ? lockTimeout() : undefined));
     registry.call.mockImplementationOnce(async () => { await toolQuery('SELECT take_number_lock').catch(() => undefined); return { content: [{ type: 'text', text: 'retry' }], isError: true }; });
-    let seen: LockWaitError | null = null;
-    await withToolSession(poolOf(client), 'c1', 'u1', false, async (s) => { await s.call('w', { idempotency_key: 'k' }); seen = s.lockWait!(); });
+    let seen: Error | null = null;
+    await withToolSession(poolOf(client), 'c1', 'u1', false, async (s) => { await s.call('w', { idempotency_key: 'k' }); seen = s.stall!(); });
     expect(seen).toBeInstanceOf(LockWaitError);
-    expect(seen!.message).toMatch(/likely a previous run's dry transaction, backend pid unknown\); wait or terminate it, then re-run$/);
+    expect(seen!.message).toMatch(/\(held by backend pid unknown: wait for it to end\); then re-run$/);
   });
-  it('a request with no lock timeout: lockWait() is null; the client itself is never patched (a pool may hand out wrapped clients)', async () => {
+  it('a request with no lock timeout: stall() is null; the client itself is never patched (a pool may hand out wrapped clients)', async () => {
     const client = clientOf(() => undefined);
     const own = client.query;
     let seen: unknown = 'unset';
-    await withToolSession(poolOf(client), 'c1', 'u1', false, async (s) => { seen = s.lockWait!(); });
+    await withToolSession(poolOf(client), 'c1', 'u1', false, async (s) => { seen = s.stall!(); });
     expect(seen).toBeNull();
     expect(client.query).toBe(own);
   });
@@ -165,7 +164,7 @@ describe('R25-2 / R25-8: the key lock, by phase, by the registry\'s text', () =>
     const client = clientOf((t) => (t.startsWith('SELECT pg_try_advisory_xact_lock') ? { rows: [{ ok: false }] } : t.includes('FROM pg_locks') ? { rows: [{ pid: 31 }] } : undefined));
     const err = await withToolSession(poolOf(client), 'c1', 'u1', true, (s) => s.call('w', { idempotency_key: 'k' })).then(() => null, (e: unknown) => e);
     expect(err).toBeInstanceOf(BatchKeyHeldError);
-    expect((err as Error).message).toBe("another session holds this batch's lock (backend pid 31: likely a previous run's live transaction whose COMMIT was not confirmed, or another client using the same key; it may be committing, so do not terminate it blind: check the books, wait for it to end, then re-run)");
+    expect((err as Error).message).toBe("another session holds this batch's lock: likely a previous run's live transaction whose COMMIT was not confirmed, or another client using the same key (backend pid 31); it may be committing, so do not terminate it blind: check the books, wait for it to end, then re-run");
   });
   it('the key is trimmed, and a per-user tool\'s is namespaced by the caller, as the registry does', async () => {
     const values: unknown[] = [];

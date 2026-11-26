@@ -8,13 +8,14 @@ describe('the holder query (R25-5)', () => {
     expect(HOLDER_SQL).toMatch(/l\.locktype = 'advisory' AND l\.granted AND l\.objsubid = 1 AND l\.pid <> pg_backend_pid\(\)/);
     expect(HOLDER_SQL).toMatch(/l\.classid = \(\(x\.k >> 32\) & 4294967295\)::oid AND l\.objid = \(x\.k & 4294967295\)::oid/);
     expect(HOLDER_SQL).toMatch(/SELECT hashtext\(\$1\)::bigint AS k/);
+    expect(HOLDER_SQL).toMatch(/SELECT l\.pid, a\.state, a\.application_name AS app FROM pg_locks l LEFT JOIN pg_stat_activity a ON a\.pid = l\.pid/); // R26-4
   });
   it('a held key: the holder query is asked with the same text, and its pid named', async () => {
     const asked: Array<[string, unknown[] | undefined]> = [];
-    const client = { query: async (t: string, v?: unknown[]) => { asked.push([t, v]); return t.startsWith('SELECT pg_try') ? { rows: [{ ok: false }] } : { rows: [{ pid: 9 }] }; } };
+    const client = { query: async (t: string, v?: unknown[]) => { asked.push([t, v]); return t.startsWith('SELECT pg_try') ? { rows: [{ ok: false }] } : { rows: [{ pid: 9, state: 'active', app: 'psql' }] }; } };
     const err = await takeKeyLockNow(client, 'mcp:c:w:k', 'dry').then(() => null, (e: unknown) => e);
     expect(err).toBeInstanceOf(BatchKeyHeldError);
-    expect((err as BatchKeyHeldError).holder).toBe(9);
+    expect((err as BatchKeyHeldError).holder).toEqual({ pid: 9, state: 'active', app: 'psql' });
     expect(asked).toEqual([['SELECT pg_try_advisory_xact_lock(hashtext($1)::bigint) AS ok', ['mcp:c:w:k']], [HOLDER_SQL, ['mcp:c:w:k']]]);
   });
 });

@@ -15,8 +15,10 @@ const h = vi.hoisted(() => ({
   held: null as string | null, // "<entity> <dry|live>": its key is held by another session
   lockWaitAt: null as string | null, // "<entity> dry": a lock timeout inside it (the session reports it)
   liveLockWaitAt: null as string | null, // "<entity> live": a lock timeout inside it (the committing session throws)
-  dryHeldError: null as 'no-result' | 'after' | null,
+  dryHeldError: null as 'no-result' | 'after' | 'held-with-lockstop' | null,
   unlockWarning: null as string | null,
+  stmtAt: null as string | null, // "<entity> <dry|live>": a statement timeout inside it
+  sessions: [] as Array<{ commit: boolean; wrote: boolean; notice: unknown }>,
 }));
 vi.mock('@/modules/accounting/services/sage-migration/localGuard', () => ({ assertLocalDatabase: () => undefined, assertLocalPool: () => undefined }));
 vi.mock('@/modules/accounting/services/sage-migration/sageRunLock', () => ({ acquireRunLock: async () => ({ check: async () => undefined, unlock: async () => h.unlockWarning }) }));
@@ -24,12 +26,17 @@ vi.mock('@/modules/accounting/services/sage-migration/sageToolSession', async ()
   const real = await vi.importActual<typeof import('@/modules/accounting/services/sage-migration/sageSessionErrors')>('@/modules/accounting/services/sage-migration/sageSessionErrors');
   return {
     ...real,
-    withToolSession: async (_p: unknown, _c: unknown, _u: unknown, commit: boolean, fn: (s: unknown) => unknown, o?: { wrote?: boolean }) => {
-      const lockWait = () => (h.lockWaitAt !== null && h.sent.at(-1) === h.lockWaitAt ? new real.LockWaitError(new Error('canceling statement due to lock timeout'), 606, 'dry') : null);
+    withToolSession: async (_p: unknown, _c: unknown, _u: unknown, commit: boolean, fn: (s: unknown) => unknown, o?: { wrote?: boolean; onNotice?: unknown }) => {
+      h.sessions.push({ commit, wrote: o?.wrote === true, notice: o?.onNotice });
+      const timedOut = () => new real.StatementTimeoutError(new Error('canceling statement due to statement timeout'), commit ? 'live' : 'dry', 60_000);
+      const stall = () => (h.lockWaitAt !== null && h.sent.at(-1) === h.lockWaitAt ? new real.LockWaitError(new Error('canceling statement due to lock timeout'), { pid: 606, state: 'idle in transaction' }, 'dry')
+        : h.stmtAt !== null && h.sent.at(-1) === h.stmtAt && !commit ? timedOut() : null);
       if (!commit && o?.wrote === true && h.dryHeldError === 'no-result') throw new real.DryRollbackUnconfirmedError(new Error('ROLLBACK did not answer'), 1, undefined);
       if (!commit && o?.wrote === true && h.dryHeldError === 'after') throw new real.DryRollbackUnconfirmedError(new Error('ROLLBACK did not answer'), 1, { categories: {} }, new Error('stopped by SIGTERM'));
-      const r = await fn({ companyId: 'c', lockWait, call: async () => ({ isError: false, text: '{}', body: {} }) });
-      if (commit && h.liveLockWaitAt !== null && h.sent.at(-1) === h.liveLockWaitAt) throw new real.LockWaitError(new Error('canceling statement due to lock timeout'), 707, 'live');
+      const r = await fn({ companyId: 'c', stall, call: async () => ({ isError: false, text: '{}', body: {} }) });
+      if (!commit && o?.wrote === true && h.dryHeldError === 'held-with-lockstop') throw new real.DryRollbackUnconfirmedError(new Error('ROLLBACK did not answer'), 1, r);
+      if (commit && h.stmtAt !== null && h.sent.at(-1) === h.stmtAt) throw timedOut();
+      if (commit && h.liveLockWaitAt !== null && h.sent.at(-1) === h.liveLockWaitAt) throw new real.LockWaitError(new Error('canceling statement due to lock timeout'), { pid: 707, state: 'active', app: 'psql' }, 'live');
       return r;
     },
   };
@@ -48,8 +55,8 @@ vi.mock('@/modules/accounting/services/sage-migration/sageBatchRun', async (orig
     sendBatch: async (_s: unknown, s: Send, _b: unknown, dry: boolean): Promise<BatchReport> => {
       const label = `${s.entity} ${dry ? 'dry' : 'live'}`;
       h.sent.push(label);
-      if (h.held === label) throw new real.BatchKeyHeldError(505, dry ? 'dry' : 'live');
-      const fails = h.lockWaitAt === label;
+      if (h.held === label) throw new real.BatchKeyHeldError({ pid: 505, state: 'idle in transaction' }, dry ? 'dry' : 'live');
+      const fails = h.lockWaitAt === label || h.stmtAt === label;
       return { entity: s.entity, n: s.n, size: s.size, key: `k-${s.entity}-${s.n}`, allRowsAlreadyPresent: false, rowsAbsent: 0,
         status: fails ? 'failed' : 'ok', toolReported: fails ? null : (s.entity === 'item' ? { written: true, rows: [] } : { outcome: 'created' }), error: fails ? 'retry in a moment' : null };
     },
@@ -67,14 +74,14 @@ const parsed = () => parseSageExport({ Items: [
 ] });
 const run = (over: Record<string, unknown> = {}) => runSageMigration({ options: { max: 4 } } as never, parsed(), { companyId: 'c', userId: 'u', live: true, expect: { items: 2, purchaseOrders: 0 }, ...over });
 const live = () => h.sent.filter((x) => x.endsWith('live'));
-beforeEach(() => { h.sent.length = 0; h.held = null; h.lockWaitAt = null; h.liveLockWaitAt = null; h.dryHeldError = null; h.unlockWarning = null; });
+beforeEach(() => { h.sent.length = 0; h.held = null; h.lockWaitAt = null; h.liveLockWaitAt = null; h.dryHeldError = null; h.unlockWarning = null; h.stmtAt = null; h.sessions.length = 0; });
 
 describe('B25-1 / R25-1: the dry run stops at its first lock wait', () => {
   it('a lock timeout in category batch 1: a preview is dry_run_failed with THAT batch named, who holds it said; no later batch sent', async () => {
     h.lockWaitAt = 'category dry';
     const r = await run({ live: false });
     expect(r.status).toBe('dry_run_failed');
-    expect(r.dryRun.categories.batches).toEqual([expect.objectContaining({ n: 1, status: 'failed', error: expect.stringMatching(/timed out .*likely a previous run's dry transaction, backend pid 606/) })]);
+    expect(r.dryRun.categories.batches).toEqual([expect.objectContaining({ n: 1, status: 'failed', error: expect.stringMatching(/timed out .*held by backend pid 606, idle in transaction: a transaction left open; wait for the server to end it, or SELECT pg_terminate_backend\(606\)/) })]);
     expect(h.sent).toEqual(['category dry']); // not 2 categories x their own lock timeout
     expect(summaryLines(r).join('\n')).toMatch(/FAILED category batch 1 \(dry run\): a lock it needs is held by another session/);
   });
@@ -88,7 +95,7 @@ describe('B25-1 / R25-1: the dry run stops at its first lock wait', () => {
   it('a held key in the dry run (R25-1): the same, the batch named with the holder', async () => {
     h.held = 'category dry';
     const err = await run().then(() => null, (e: unknown) => e);
-    expect(String(err)).toMatch(/the dry run stopped at category batch 1 \(.*\): another session holds this batch's lock \(likely a previous run's dry transaction, backend pid 505/);
+    expect(String(err)).toMatch(/the dry run stopped at category batch 1 \(.*\): another session holds this batch's lock: likely a previous run's dry transaction \(backend pid 505, idle in transaction/);
     expect(h.sent).toEqual(['category dry']);
   });
 });
@@ -100,7 +107,7 @@ describe('R25-3: in the live phase a held key or a lock timeout stops the run (e
       const err = await run().then(() => null, (e: unknown) => e) as InstanceType<typeof MigrationStopped>;
       expect(err).toBeInstanceOf(MigrationStopped);
       expect(err.liveStarted).toBe(true);
-      expect(err.batches.failed).toEqual([expect.objectContaining({ entity: 'category', n: 1, status: 'failed', error: expect.stringMatching(/backend pid (505|707): likely a previous run's live transaction/) })]);
+      expect(err.batches.failed).toEqual([expect.objectContaining({ entity: 'category', n: 1, status: 'failed', error: expect.stringMatching(/likely a previous run's live transaction whose COMMIT was not confirmed.*\(backend pid 505\); it may be committing|held by backend pid 707, active, application psql: it is at work; wait for it to finish/) })]);
       expect(live()).toEqual(['category live']); // the second category, the items: never sent
     });
   }
@@ -129,3 +136,43 @@ describe('B25-3: a run lock release not confirmed', () => {
     expect(notices).toEqual([`WARNING: ${h.unlockWarning}`]);
   });
 });
+
+describe('R26-3: every session of the run gets onNotice (the plan, the dry run, each live batch, the reads between and after)', () => {
+  it('a finished live run, and a stopped one (its books read after the stop included)', async () => {
+    const onNotice = vi.fn();
+    await run({ onNotice });
+    expect(h.sessions.map((x) => `${x.commit ? 'live' : x.wrote ? 'dry' : 'read'}`)).toEqual(['read', 'dry', 'live', 'live', 'read', 'read']); // the plan, the dry run, 2 live categories, the reads after them
+    expect(h.sessions.every((x) => x.notice === onNotice)).toBe(true);
+    h.sessions.length = 0;
+    h.liveLockWaitAt = 'item live';
+    await run({ onNotice }).catch(() => null);
+    expect(h.sessions.at(-1)).toMatchObject({ commit: false, wrote: false }); // settled(): the books read after the stop
+    expect(h.sessions.every((x) => x.notice === onNotice)).toBe(true);
+  });
+});
+
+describe('B26-4: a statement timeout stops the run where it happened', () => {
+  it('in the dry run: dry_run_failed (preview) at that batch, named; no later batch sent', async () => {
+    h.stmtAt = 'category dry';
+    const r = await run({ live: false });
+    expect(r.dryRun.categories.batches).toEqual([expect.objectContaining({ n: 1, status: 'failed', error: expect.stringMatching(/^a statement ran past the migration's 60 s statement_timeout/) })]);
+    expect(h.sent).toEqual(['category dry']);
+  });
+  it('in the live phase: MigrationStopped (exit 4), that batch failed, nothing later sent', async () => {
+    h.stmtAt = 'category live';
+    const err = await run().then(() => null, (e: unknown) => e) as InstanceType<typeof MigrationStopped>;
+    expect(err).toBeInstanceOf(MigrationStopped);
+    expect(err.batches.failed).toEqual([expect.objectContaining({ entity: 'category', n: 1, error: expect.stringMatching(/statement_timeout/) })]);
+    expect(live()).toEqual(['category live']);
+  });
+});
+
+describe('R26-6: a dry run that stopped on a lock AND whose ROLLBACK is not confirmed', () => {
+  it('under --live the refusal keeps the held-writes warning', async () => {
+    h.lockWaitAt = 'category dry';
+    h.dryHeldError = 'held-with-lockstop';
+    const err = await run().then(() => null, (e: unknown) => e);
+    expect(String(err)).toMatch(/the live run was not started; the dry run's ROLLBACK was not confirmed \(ROLLBACK did not answer\); its writes may still be held \(backend pid 1/);
+  });
+});
+

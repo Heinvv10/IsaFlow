@@ -6,7 +6,7 @@
  * `commit: true` is one committed request (a live batch); `commit: false` rolls the whole transaction back (the dry run:
  * everything the tools did, audit rows included, goes with it).
  */
-import type { Pool } from 'pg';
+import type { Pool, PoolClient } from 'pg';
 import type { RequestContext } from '@/lib/als';
 import { drainAfterCommit, runOwnedContext, settleAfterRollback } from '@/lib/afterCommit';
 import { getCompanyMembership } from '@/lib/auth/companyMembership';
@@ -15,14 +15,14 @@ import { isActiveUserAccount } from '@/lib/auth/userAccountStatus';
 import { mcpRegistry } from '@/lib/mcp/toolIndex';
 import { rollbackError } from '@/lib/rollbackFailed';
 import type { McpToolContext } from '@/lib/mcp/types';
-import { CommitUnconfirmedError, ConnectionLostError, DryRollbackUnconfirmedError, LockWaitError, LostBeforeCommitError } from './sageSessionErrors';
+import { CommitUnconfirmedError, ConnectionLostError, DryRollbackUnconfirmedError, LockWaitError, LostBeforeCommitError, StatementTimeoutError, type LockHolder } from './sageSessionErrors';
 import { idempotencyLockText, takeKeyLockNow } from './sageKeyLock';
 import { watchWaits } from './sageWaitWatch';
-import { SAGE_LOCK_TIMEOUT_MS, SAGE_STATEMENT_TIMEOUT_MS } from './sageTimeouts';
+import { SAGE_COMMIT_TIMEOUT_MS, SAGE_LOCK_TIMEOUT_MS, SAGE_STATEMENT_TIMEOUT_MS } from './sageTimeouts';
 
-export { SAGE_KEEPALIVE_INITIAL_DELAY_MS, SAGE_LOCK_TIMEOUT_MS, SAGE_QUERY_TIMEOUT_MS, SAGE_STATEMENT_TIMEOUT_MS, sagePoolConfig } from './sageTimeouts';
+export { SAGE_CONNECT_TIMEOUT_MS, SAGE_KEEPALIVE_INITIAL_DELAY_MS, SAGE_LOCK_TIMEOUT_MS, SAGE_QUERY_TIMEOUT_MS, SAGE_STATEMENT_TIMEOUT_MS, sagePoolConfig } from './sageTimeouts';
 
-export { BatchKeyHeldError, CommitUnconfirmedError, ConnectionLostError, DryRollbackUnconfirmedError, LockWaitError, LostBeforeCommitError } from './sageSessionErrors';
+export { BatchKeyHeldError, CommitUnconfirmedError, ConnectionLostError, DryRollbackUnconfirmedError, LockWaitError, LostBeforeCommitError, StatementTimeoutError } from './sageSessionErrors';
 
 export const MIGRATION_SCOPES = ['read:items', 'write:items', 'read:invoices', 'write:invoices', 'read:contacts'];
 
@@ -38,15 +38,15 @@ export interface ToolOutcome {
 export interface ToolSession {
   call(name: string, args: Record<string, unknown>): Promise<ToolOutcome>;
   readonly companyId: string;
-  /** A statement of this request hit its lock_timeout (55P03, round 25): the wait, with its holder when seen; null when none did. */
-  lockWait?: () => LockWaitError | null;
+  /** A statement of this request hit its lock_timeout (55P03, with its holder when seen) or its statement_timeout (57014); else null. */
+  stall?: () => LockWaitError | StatementTimeoutError | null;
 }
 
 export class NotAMemberError extends Error {}
 
 
-/** How long a COMMIT may take to answer: a batch of 500 items or 100 POs commits in well under this on a healthy server. */
-export const COMMIT_TIMEOUT_MS = 120_000;
+/** How long a COMMIT may take to answer (sageTimeouts.ts SAGE_COMMIT_TIMEOUT_MS: between the statement and the client query timeouts). */
+export const COMMIT_TIMEOUT_MS = SAGE_COMMIT_TIMEOUT_MS;
 let commitBoundMs = COMMIT_TIMEOUT_MS;
 /** Test seam: shortens the bound and returns the restore. Throws unless NODE_ENV is 'test'. */
 export function setCommitBoundForTests(ms: number): () => void {
@@ -92,29 +92,50 @@ export function toolOutcome(text: string, isError: boolean): ToolOutcome {
 export async function withToolSession<T>(
   pool: Pool, companyId: string, userId: string, commit: boolean, fn: (s: ToolSession) => Promise<T>, o: { wrote?: boolean; onNotice?: (line: string) => void } = {},
 ): Promise<T> {
-  const client = await pool.connect();
+  // The watch starts before the connect, so a connect that waits is said too (B26-1); a connect that cannot be had within the pool's
+  // connectionTimeoutMillis sent nothing: before the live phase a refused start, in a live batch a failed batch, nothing written.
+  const watch = watchWaits(pool, o.onNotice);
+  let client: PoolClient;
+  const connecting = watch.begin();
+  try {
+    client = await pool.connect();
+  } catch (err) {
+    watch.stop();
+    throw commit ? new LostBeforeCommitError(err) : new ConnectionLostError(err, 'no-connection');
+  } finally {
+    connecting();
+  }
   const processID: unknown = (client as unknown as { processID?: unknown }).processID;
   const pid = typeof processID === 'number' ? processID : undefined; // its backend pid, said if its ROLLBACK is not confirmed (B24-2)
+  watch.setPid(pid);
   // pg-pool drops its idle 'error' listener while a client is checked out: without one, a backend that dies mid-request is an uncaught
   // error that ends the process (B19-1). Listened to here, the rejected query drives the runner's own lost-connection path.
   let lost: Error | null = null;
-  const onError = (err: Error): void => { lost = err; };
+  // How it was lost: the connection ENDED (the server rolls the session back), or a client query_timeout ("Query read timeout": pg leaves
+  // that query running, so on a half-open socket the server may still hold the request's writes, R26-1).
+  let lostBy = 'ended' as 'ended' | 'timeout';
+  const onError = (err: Error): void => { lost ??= err; lostBy = 'ended'; };
   client.on('error', onError);
-  // Round 25: every query of the request is watched. A client query_timeout ("Query read timeout": pg leaves that query running on the
-  // server) makes the connection unusable, as a loss does; a lock timeout (55P03) is kept, with the holder the watch saw. No wait is silent.
-  const watch = watchWaits(pool, pid, o.onNotice);
+  // Round 25-26: every query of the request is watched, through a view of the client (never a patch of it: a pool may hand out wrapped
+  // clients of its own). Once the connection is lost, every later query fails at once with that loss (B26-2): it could only queue behind
+  // the dead statement for its own query_timeout. A lock timeout (55P03, with the holder the watch saw) or a statement timeout (57014)
+  // is kept for the runner: the run stops at it.
   let lockTimedOut: unknown = null;
-  // The request's queries go through a watching view of the client (never a patch of it: a pool may hand out wrapped clients of its own).
+  let lockHolder: LockHolder | undefined;
+  let statementTimedOut: unknown = null;
   const base = client as unknown as { query: (...a: unknown[]) => unknown };
   const watchedQuery = (...a: unknown[]): unknown => {
+    if (lost !== null) return Promise.reject(lost);
+    const settled = watch.begin();
     const r = base.query(...a);
-    if (r instanceof Promise) {
-      r.then(() => watch.touch(), (err: unknown) => {
-        watch.touch();
-        if (err instanceof Error && err.message === 'Query read timeout') lost ??= err;
-        else if ((err as { code?: unknown } | null)?.code === '55P03') lockTimedOut ??= err;
-      });
-    }
+    if (!(r instanceof Promise)) { settled(); return r; }
+    r.then(settled, (err: unknown) => {
+      const code = (err as { code?: unknown } | null)?.code;
+      if (code === '55P03' && lockTimedOut === null) [lockTimedOut, lockHolder] = [err, watch.blocker()]; // read before the wait ends
+      else if (code === '57014' && err instanceof Error && /statement timeout/.test(err.message)) statementTimedOut ??= err;
+      else if (err instanceof Error && err.message === 'Query read timeout' && lost === null) [lost, lostBy] = [err, 'timeout'];
+      settled();
+    });
     return r;
   };
   const db = new Proxy(client, {
@@ -124,7 +145,11 @@ export async function withToolSession<T>(
       return typeof v === 'function' ? (v as (...a: unknown[]) => unknown).bind(t) : v;
     },
   });
-  const lockWait = (): LockWaitError | null => (lockTimedOut === null ? null : new LockWaitError(lockTimedOut, watch.blocker(), commit ? 'live' : 'dry'));
+  const phase = commit ? 'live' : 'dry';
+  const stall = (): LockWaitError | StatementTimeoutError | null => {
+    if (lockTimedOut !== null) return new LockWaitError(lockTimedOut, lockHolder, phase);
+    return statementTimedOut === null ? null : new StatementTimeoutError(statementTimedOut, phase, SAGE_STATEMENT_TIMEOUT_MS);
+  };
   let fnStarted = false; // R25-6: only a request whose work ran can have writes still held
   let committed = false;
   let owned: RequestContext | null = null;
@@ -151,7 +176,7 @@ export async function withToolSession<T>(
     owned = txCtx;
     const session: ToolSession = {
       companyId,
-      lockWait,
+      stall,
       call: async (name, args) => {
         // The registry's company guard only COMPARES this with the context's company (it selects nothing); the tenant is held by the
         // membership check above, app_user under RLS and the tools' own ownership checks.
@@ -175,6 +200,8 @@ export async function withToolSession<T>(
       [unusable, rolledBack] = [rollback !== null, true];
       // Checked AFTER the ROLLBACK: a loss first seen there is a loss too (R21-2). A ROLLBACK that failed or did not answer for another
       // reason costs only its connection (released as broken): what the request read stands (R22-1).
+      // A read timeout in a request that WROTE whose ROLLBACK is then not confirmed: the server may still hold its writes (R26-1).
+      if (lost !== null && lostBy === 'timeout' && o.wrote === true && rollback !== null && !connectionEnded(rollback)) throw new DryRollbackUnconfirmedError(rollback, pid, undefined, lost);
       if (lost !== null) throw new ConnectionLostError(lost);
       if (rollback !== null && connectionEnded(rollback)) throw new ConnectionLostError(rollback);
       // A request that WROTE (the dry run) must have its ROLLBACK confirmed: else its writes may still be held (R23-5). Plain reads need not.
@@ -183,9 +210,9 @@ export async function withToolSession<T>(
     }
     // Lost before the COMMIT is sent: pg would not send it (the client is not queryable): the batch wrote nothing (round 22).
     if (lost !== null) throw new LostBeforeCommitError(lost);
-    // A lock timeout in a committing request (its tool answered a failure): nothing of it is written, and the run stops there (R25-3).
-    const waited = lockWait();
-    if (waited !== null) throw waited;
+    // A lock or statement timeout in a committing request (its tool answered a failure): nothing of it is written, the run stops there.
+    const stalled = stall();
+    if (stalled !== null) throw stalled;
     if (txCtx.rollbackOnly) throw new Error(`the request transaction was marked rollback-only: ${txCtx.rollbackOnly}`);
     let commitTimer: ReturnType<typeof setTimeout> | undefined;
     try {
@@ -196,7 +223,7 @@ export async function withToolSession<T>(
       ]);
     } catch (err) {
       // A backend killed DURING the COMMIT rejects it with a FATAL (57P01-03) before the client emits 'error' (R20-2): lost too.
-      if (lost === null && connectionEnded(err)) lost = err as Error;
+      if (lost === null && connectionEnded(err)) [lost, lostBy] = [err as Error, 'ended'];
       throw new CommitUnconfirmedError(err instanceof Error ? err.message : String(err), result, lost !== null);
     } finally {
       clearTimeout(commitTimer);
@@ -209,9 +236,12 @@ export async function withToolSession<T>(
       const rollback = await rollbackError(client, 'sage-migration');
       unusable = rollback !== null;
       // R24-5: a dry run that ended on an error (a stop, a bug) and whose ROLLBACK is then not confirmed still says its writes may be held.
-      if (rollback !== null && o.wrote === true && fnStarted && lost === null && !connectionEnded(rollback) && !connectionEnded(err)) throw new DryRollbackUnconfirmedError(rollback, pid, undefined, err);
+      if (rollback !== null && o.wrote === true && fnStarted && (lost === null || lostBy === 'timeout') && !connectionEnded(rollback) && !connectionEnded(err)) throw new DryRollbackUnconfirmedError(rollback, pid, undefined, err);
     }
-    const lossNotYetSaid = !(err instanceof ConnectionLostError || err instanceof LostBeforeCommitError || err instanceof CommitUnconfirmedError || err instanceof LockWaitError);
+    // What the request already said of itself stands: a loss, an unconfirmed COMMIT or ROLLBACK, a stall (a read timeout in the dry run
+    // is said as held writes, R26-1, never re-worded as "the server rolled it back").
+    const said = [ConnectionLostError, LostBeforeCommitError, CommitUnconfirmedError, LockWaitError, StatementTimeoutError, DryRollbackUnconfirmedError];
+    const lossNotYetSaid = !said.some((k) => err instanceof k);
     if (lossNotYetSaid && (lost !== null || connectionEnded(err))) throw commit ? new LostBeforeCommitError(lost ?? err) : new ConnectionLostError(lost ?? err);
     throw err;
   } finally {

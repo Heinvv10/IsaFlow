@@ -25,7 +25,7 @@ import { keyFor, planBatches, sendBatch, type PlannedBatches, type Send } from '
 import { ownershipProblem } from './sageOwnership';
 import { recordSent, settleCommitted, stoppedBatches, unconfirmedBatch, verified, verifiedCategories, verifiedItems, type Sent } from './sageVerify';
 import { MigrationStopped } from './sageMigrationStopped';
-import { BatchKeyHeldError, CommitUnconfirmedError, DryRollbackUnconfirmedError, LockWaitError, LostBeforeCommitError } from './sageToolSession';
+import { BatchKeyHeldError, CommitUnconfirmedError, DryRollbackUnconfirmedError, LockWaitError, LostBeforeCommitError, StatementTimeoutError } from './sageToolSession';
 import { budgetWouldHaveFailed } from './sageBudgetReport';
 import { differencesFrom } from './sageDifferences';
 import { buildLineLinks } from './sageLineLinks';
@@ -79,8 +79,8 @@ async function dryRun(pool: Pool, o: MigrationOptions, all: PlannedBatches, befo
           if (!(err instanceof BatchKeyHeldError)) throw err;
           [waited, b] = [err, { entity: s.entity, n: s.n, size: s.size, key: keyFor(s, before, true), status: 'failed', allRowsAlreadyPresent: false, rowsAbsent: 0, toolReported: null, error: err.message }];
         }
-        // A lock wait that timed out (55P03) inside the tool: its generic "retry in a moment" is replaced by who holds it and what to do.
-        waited ??= session.lockWait?.() ?? null;
+        // A lock wait (55P03) or a statement (57014) that timed out inside the tool: its generic failure is replaced by what it was.
+        waited ??= session.stall?.() ?? null;
         if (waited !== null) b = { ...b, status: 'failed', error: waited.message };
         // The dry run's item outcomes say what the live call would do: they must agree with what the plan was made from.
         const problem = b.status === 'ok' && s.itemRows ? ownershipProblem(b, s.itemRows, before) : null;
@@ -124,7 +124,7 @@ async function livePhase(pool: Pool, o: MigrationOptions, list: Send[], before: 
       if (err instanceof CommitUnconfirmedError) b = unconfirmedBatch(b, err.result as BatchReport | undefined, err.connectionLost);
       // Lost before its COMMIT was sent, its key held by another session, or a lock wait that timed out (R25-3): failed, nothing written;
       // the run still stops here (below): the connection went away, or every later batch would queue on the same holder.
-      if (err instanceof LostBeforeCommitError || err instanceof BatchKeyHeldError || err instanceof LockWaitError) stopHere = true;
+      if (err instanceof LostBeforeCommitError || err instanceof BatchKeyHeldError || err instanceof LockWaitError || err instanceof StatementTimeoutError) stopHere = true;
     }
     p.batches.push(b);
     if (b.status === 'failed') p.failed++;
@@ -210,7 +210,7 @@ async function runLocked(pool: Pool, parsed: ParsedExport, opts: MigrationOption
   }
   const { lockStop, ...dry } = dryOut;
   // The dry run stopped on another session's lock (round 25): a --live run refuses its start (exit 2); a preview reports dry_run_failed.
-  if (lockStop && opts.live) throw new Error(`the dry run stopped at ${lockStop.batch.entity} batch ${lockStop.batch.n} (${lockStop.batch.key}): ${lockStop.error.message}; the live run was not started`);
+  if (lockStop && opts.live) throw new Error(`the dry run stopped at ${lockStop.batch.entity} batch ${lockStop.batch.n} (${lockStop.batch.key}): ${lockStop.error.message}; the live run was not started${held ? `; ${held.held}` : ''}`); // R26-6
   const base = { companyId: opts.companyId, refused: plan.refusals, dryRun: dry, ...(held ? { dryRunHeld: held.held } : {}) };
   const skipped = (phase: PhaseReport) => (opts.skipBudgetCheck ? budgetWouldHaveFailed(phase.batches) : []);
   // What the PO tool does not compare (supplier, delivery date, reference, lines) is compared here, from the books as read before the run.

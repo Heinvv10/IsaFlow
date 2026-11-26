@@ -151,7 +151,7 @@ describe('R23-5 / B23-1: the dry run\'s ROLLBACK never answers (blackholed: the 
     const r = await startCli(args(join(d, 'run2.json')), process.env.DATABASE_URL!, 60_000).done; // a plain re-run, no proxy
     expect(r.code, r.err).toBe(2);
     expect(Date.now() - t0).toBeLessThan(45_000);
-    expect(r.err).toContain(`another session holds this batch's lock (likely a previous run's dry transaction, backend pid ${zombie[0]}: wait for the server to end it, or SELECT pg_terminate_backend(${zombie[0]})); wait or terminate it, then re-run`);
+    expect(r.err).toContain(`another session holds this batch's lock: likely a previous run's dry transaction (backend pid ${zombie[0]}, idle in transaction: a transaction left open; wait for the server to end it, or SELECT pg_terminate_backend(${zombie[0]})); then re-run`);
     await proxy.close();
     proxy = null;
     expect(await noneIdleInTransaction()).toBe(0);
@@ -167,8 +167,8 @@ describe('R23-5 / B23-1: the dry run\'s ROLLBACK never answers (blackholed: the 
     const r = await startCli(args(join(d, 'run2.json'), ['--run-tag', 'b25x']), process.env.DATABASE_URL!, 90_000).done;
     const took = Date.now() - t0;
     expect(r.code, r.err).toBe(2);
-    expect(took).toBeLessThan(15_000); // one lock timeout (5 s), not one per category (4 x 5 s)
-    expect(r.err).toMatch(new RegExp(`the dry run stopped at category batch 1 \\(.*\\): a lock it needs is held by another session and the wait timed out .*likely a previous run's dry transaction, backend pid ${zombie[0]}`));
+    expect(took).toBeLessThan(15_000); // one wait (the zombie's number lock, 5 s; the lock_timeout bound is 10 s), not one per category
+    expect(r.err).toMatch(new RegExp(`the dry run stopped at category batch 1 \\(.*\\): a lock it needs is held by another session and the wait timed out .*held by backend pid ${zombie[0]}, idle in transaction: a transaction left open; wait for the server to end it, or SELECT pg_terminate_backend\\(${zombie[0]}\\)`));
     expect(r.err).not.toMatch(/retry in a moment/);
     await proxy.close();
     proxy = null;
