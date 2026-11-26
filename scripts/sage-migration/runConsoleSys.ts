@@ -1,14 +1,20 @@
 /**
  * What the CLI's console (runConsole.ts) needs from the process and the system, apart from the writer itself:
  *   - whether fd 1 and fd 2 are one open file (2>&1), and which of them is a pipe or socket still in blocking mode;
- *   - their O_NONBLOCK flags as found at start, restored at every exit (B29-2): the flag belongs to the open file description, so a
- *     wrapper's later writers on the same pipe would otherwise meet EAGAIN. Restored through fcntl (bun:ffi, Linux libc); elsewhere, or
- *     when it cannot be loaded, nothing is changed and nothing is claimed;
+ *   - their O_NONBLOCK flags as found at start, put back when the CLI exits or ends by itself (B29-2): the flag belongs to the open file
+ *     description, so a wrapper's later writers on the same pipe would otherwise meet EAGAIN. Through fcntl (bun:ffi, Linux libc);
+ *     elsewhere, or when it cannot be loaded, nothing is changed and nothing is claimed. O_NONBLOCK is set again before each write to a
+ *     pipe (B30-1), and only a flag still as the CLI set it is put back;
  *   - routing the process's other writers (the logger: process.stdout.write / process.stderr.write) through the console (R28-7, R29-3,
  *     R29-8): node's write contract kept (encoding, Buffers as they are, a null chunk refused as node does, the callback only once that
  *     chunk is written or its stream given up, `false` and then 'drain' while it waits), and restored at exit.
- * Named limit (R29-7, B29-5): bun leaves a terminal in blocking mode, so on a tty a paused terminal (Ctrl-S, a stalled ssh) holds the
- * run until it reads again; nothing is said of it on every run. Give --report and redirect, or run it under tmux.
+ * Named limits:
+ *   - (R29-7, B29-5) bun leaves a terminal in blocking mode, so on a tty a paused terminal (Ctrl-S, a stalled ssh) holds the run until it
+ *     reads again; nothing is said of it on every run. Give --report and redirect, or run it under tmux.
+ *   - (B30-1, B30-3, B30-4) the flags cannot be put back for others: two CLIs (or any two programs) sharing one pipe change one flag
+ *     between them, so the pipe may be left non-blocking after both; a CLI killed by SIGKILL or by a signal it does not handle (only INT,
+ *     TERM and HUP are) never puts them back; a foreign 'exit' listener that runs before the CLI's and throws skips it. Give each run its
+ *     own pipe, or --report.
  */
 import { fstatSync, readFileSync, writeSync } from 'node:fs';
 import { isatty } from 'node:tty';
@@ -67,18 +73,40 @@ function loadFcntl(): Fcntl | null {
   return fcntl;
 }
 
-/** Remembers fd 1 / fd 2's O_NONBLOCK as found; returns what puts back the ones the CLI changed (B29-2). */
+/**
+ * Remembers fd 1 / fd 2's O_NONBLOCK as found; returns what puts back the ones the CLI changed (B29-2). Only a flag that is still what the
+ * CLI set (found blocking, now non-blocking) is put back (B30-1): one another process has changed since is left as it is.
+ */
 export function saveFlags(): () => void {
   const found = [1, 2].map((fd) => [fd, fdFlags(fd)] as const);
   return () => {
     const f = loadFcntl();
     if (f === null) return;
     for (const [fd, flags] of found) {
-      if (flags === null) continue;
+      if (flags === null || (flags & O_NONBLOCK) !== 0) continue; // it was non-blocking already: nothing of ours to undo
       const now = f(fd, 3 /* F_GETFL */, 0);
-      if (now >= 0 && (now & O_NONBLOCK) !== (flags & O_NONBLOCK)) f(fd, 4 /* F_SETFL */, (now & ~O_NONBLOCK) | (flags & O_NONBLOCK));
+      if (now >= 0 && (now & O_NONBLOCK) !== 0) f(fd, 4 /* F_SETFL */, now & ~O_NONBLOCK);
     }
   };
+}
+
+const pipeLike = new Map<number, boolean>();
+/**
+ * Before each write to a pipe or socket (B30-1): O_NONBLOCK set again if it is not (one fcntl; a second, only when it was cleared). The
+ * flag belongs to the pipe, so another process on it (a second CLI that exited and put it back) can clear it under this one; a write to
+ * a blocking pipe whose reader stalls would hold the thread in write(2), past the console's budget and deaf to signals. A file, /dev/null
+ * or a terminal is never changed (a tty stays blocking: the named limit above).
+ */
+export function keepNonBlocking(fd: number): void {
+  let pipe = pipeLike.get(fd);
+  if (pipe === undefined) {
+    try { const st = fstatSync(fd); pipe = !isatty(fd) && (st.isFIFO() || st.isSocket()); } catch { pipe = false; }
+    pipeLike.set(fd, pipe);
+  }
+  const f = pipe ? loadFcntl() : null;
+  if (f === null) return;
+  const now = f(fd, 3 /* F_GETFL */, 0);
+  if (now >= 0 && (now & O_NONBLOCK) === 0) f(fd, 4 /* F_SETFL */, now | O_NONBLOCK);
 }
 
 /** One try, no wait: false when the line was not taken (the other stream is gone too: nowhere to say it). Only on the way out (B29-4). */

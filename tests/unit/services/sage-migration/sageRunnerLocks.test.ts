@@ -22,6 +22,7 @@ const h = vi.hoisted(() => ({
   callStall: null as string | null, // "<entity> dry": the call rejects with the session's stall (StatementTimeoutError)
   sessions: [] as Array<{ commit: boolean; wrote: boolean; notice: unknown; ended?: unknown }>,
   readFails: null as Error | null, // the books read after a stop fails with this (R29-6)
+  refused: 0, // sessions refused because the caller had ended the run (R30-6)
   lockNotice: undefined as unknown, // what the run lock was given to say a wait with (R27-6)
   failReadsAfterLive: false, // the books cannot be read once a live batch was sent (the stop's re-check fails)
   commitRefusedAt: null as string | null, // "<entity> live": the server refuses that batch's COMMIT (B28-2)
@@ -34,6 +35,8 @@ vi.mock('@/modules/accounting/services/sage-migration/sageToolSession', async ()
     ...real,
     withToolSession: async (_p: unknown, _c: unknown, _u: unknown, commit: boolean, fn: (s: unknown) => unknown, o?: { wrote?: boolean; onNotice?: unknown }) => {
       h.sessions.push({ commit, wrote: o?.wrote === true, notice: o?.onNotice, ended: (o as { ended?: unknown } | undefined)?.ended });
+      const endedWhy = (o as { ended?: () => string | null } | undefined)?.ended?.() ?? null;
+      if (endedWhy !== null) { h.refused++; throw new real.RunEndedError(endedWhy); } // as withToolSession does
       if (!commit && o?.wrote !== true && h.failReadsAfterLive && h.sent.some((x) => x.endsWith('live'))) throw h.readFails ?? new real.ConnectionLostError(new Error('Connection terminated due to connection timeout'), 'no-connection');
       const timedOut = () => new real.StatementTimeoutError(new Error('canceling statement due to statement timeout'), commit ? 'live' : 'dry', 60_000);
       const stall = () => (h.lockWaitAt !== null && h.sent.at(-1) === h.lockWaitAt ? new real.LockWaitError(new Error('canceling statement due to lock timeout'), { pid: 606, state: 'idle in transaction' }, 'dry')
@@ -83,7 +86,7 @@ const parsed = () => parseSageExport({ Items: [
 ] });
 const run = (over: Record<string, unknown> = {}) => runSageMigration({ options: { max: 4 } } as never, parsed(), { companyId: 'c', userId: 'u', live: true, expect: { items: 2, purchaseOrders: 0 }, ...over });
 const live = () => h.sent.filter((x) => x.endsWith('live'));
-beforeEach(() => { h.sent.length = 0; h.held = null; h.lockWaitAt = null; h.liveLockWaitAt = null; h.dryHeldError = null; h.unlockWarning = null; h.stmtAt = null; h.callStall = null; h.failReadsAfterLive = false; h.commitRefusedAt = null; h.readFails = null; h.sessions.length = 0; });
+beforeEach(() => { h.sent.length = 0; h.held = null; h.lockWaitAt = null; h.liveLockWaitAt = null; h.dryHeldError = null; h.unlockWarning = null; h.stmtAt = null; h.callStall = null; h.failReadsAfterLive = false; h.commitRefusedAt = null; h.readFails = null; h.refused = 0; h.sessions.length = 0; });
 
 describe('R29-6: a books read that fails for any typed reason is worded from its cause', () => {
   it('a statement timeout or a lock wait: why the read failed, never its "nothing of it was written"', async () => {
@@ -106,6 +109,19 @@ describe('R29-6: a books read that fails for any typed reason is worded from its
     expect(err.batches.booksNotRechecked).toBe('the run had ended (an uncaught error ended the run)');
     expect(warn.mock.calls.filter((c) => String(c[0]).includes('could not be read to check'))).toEqual([]);
     warn.mockRestore();
+  });
+});
+
+describe('R30-6: a library caller that ends the run through `ended` only (no shouldStop)', () => {
+  it('the first session refused stops the run there: one refusal, no further batch tried', async () => {
+    let endedWhy: string | null = null;
+    const ended = () => endedWhy;
+    const onProgress = (p: { kind: string; phase?: string }) => { if (p.kind === 'recorded' && p.phase === 'live') endedWhy = 'the caller ended it'; };
+    const err = await run({ ended, onProgress }).then(() => null, (e: unknown) => e) as InstanceType<typeof MigrationStopped>;
+    expect(err).toBeInstanceOf(MigrationStopped);
+    expect(live()).toEqual(['category live']); // the first live batch ran; the second was refused
+    expect(h.refused).toBe(2); // that one, and the books read after the stop: never another batch
+    expect(err.batches.failed).toEqual([expect.objectContaining({ entity: 'category', n: 2, error: 'the run had ended (the caller ended it): this request was not started, nothing of it was sent' })]);
   });
 });
 

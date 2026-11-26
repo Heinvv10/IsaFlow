@@ -4,7 +4,8 @@
  * prepareConsole found blocking and fd 1 / 2's flags afterwards; with FLAGS=2, what blockingFds finds before anything touched them;
  * with SPLICE=n, n logger lines and n console lines interleaved, then a closing line; WRITECB=1: 300 KB through process.stdout.write and
  * exit in its callback; ENC=1: encodings, a split character and a null chunk through process.stdout.write; NATURAL=1: one line, then the
- * process ends by itself (no process.exit).
+ * process ends by itself (no process.exit); CLEARNB=<fd>: fd 2 put back to blocking (as another program would), then a 300 KB line,
+ * its time written to <fd>.
  */
 import { readFileSync, writeSync } from 'node:fs';
 import * as consoleModule from '../../../../../scripts/sage-migration/runConsole';
@@ -54,7 +55,17 @@ if (process.env.FLAGS === '1') {
   writeSync(2, `${JSON.stringify({ blocking: prepared?.blocking ?? null, fd1: flags(1), fd2: flags(2) })}\n`);
   process.exit(0);
 }
-if (process.env.NATURAL === '1') { // the CLI's success path: no process.exit, the process just ends (B29-2)
+if (process.env.CLEARNB !== undefined) { // B30-1: another program on the pipe puts it back to blocking under this one, then a large say
+  // eslint-disable-next-line @typescript-eslint/no-require-imports -- bun:ffi, as runConsoleSys.ts uses it
+  const ffi = require('bun:ffi') as { dlopen: (l: string, s: Record<string, unknown>) => { symbols: { fcntl: (a: number, b: number, c: number) => number } }; FFIType: Record<string, unknown> };
+  const { fcntl } = ffi.dlopen('libc.so.6', { fcntl: { args: [ffi.FFIType.i32, ffi.FFIType.i32, ffi.FFIType.i32], returns: ffi.FFIType.i32 } }).symbols;
+  fcntl(2, 4, fcntl(2, 3, 0) & ~0o4000);
+  const t0 = Date.now();
+  api.say('n'.repeat(300_000));
+  writeSync(Number(process.env.CLEARNB), `say took ${Date.now() - t0} ms\n`);
+  if (api.exitAfterConsole) await api.exitAfterConsole(4);
+  process.exit(4);
+} else if (process.env.NATURAL === '1') { // the CLI's success path: no process.exit, the process just ends (B29-2)
   api.say('the run finished');
 } else if (process.env.WRITECB !== '1') { // the WRITECB child ends in its own callback
   const line = (ch: string, n: number) => ch.repeat(n);

@@ -13,6 +13,7 @@ import { log } from '../../src/lib/logger';
 import { exitCodeForError, stopMessage } from '../../src/modules/accounting/services/sage-migration/sageStopMessage';
 import type { BatchReport } from '../../src/modules/accounting/services/sage-migration/sageMigrationTypes';
 import { type OwnedReport, stopReportBody } from './runReport';
+import { SAGE_QUERY_TIMEOUT_MS } from '../../src/modules/accounting/services/sage-migration/sageTimeouts';
 import { RunState } from './runState';
 import { cliConsole, exitAfterConsole, exitNow, exitPending, say } from './runConsole';
 
@@ -29,6 +30,10 @@ export const cli = {
   stopSignal: null as string | null,
   /** terminate ended the run: main's continuation must not say, write or decide anything (R29-1). */
   endedAtOnce: false,
+  /** The exit code that end decided (a further signal exits with it). */
+  endCode: undefined as number | undefined,
+  /** That end's exit, once asked (main's continuation waits for it, never asks one of its own). */
+  ending: Promise.resolve() as Promise<void>,
 };
 
 /**
@@ -61,13 +66,35 @@ const settledWording = (b: BatchReport): string => {
 };
 
 /**
- * The one end AT ONCE: a second signal, an uncaught error or an unhandled rejection. `signal`: it came from a signal (only that may cut a
- * console that is still being written).
+ * A rewrite of the stop report (the batch in flight settled, R30-4): if it cannot be written, the first stop report is written back, so a
+ * good report is never replaced by the small "not written" body; then the file is closed.
+ */
+function rewriteStopReport(err: unknown, first: unknown, exitCode: number): void {
+  const owned = cli.owned;
+  if (!owned) return;
+  const why = owned.write(stopReportBody(err));
+  if (why) {
+    say(`${why} (the stop report written before it is kept)`);
+    const back = owned.write(stopReportBody(first));
+    if (back) { say(back); const small = owned.write({ status: 'stop_report_not_written', exitCode, why: back }); if (small) say(small); }
+  }
+  owned.close();
+}
+
+/** How long an end at once waits for the batch in flight to settle (R30-1): every request of it is bounded below this. */
+export const IN_FLIGHT_WAIT_MS = SAGE_QUERY_TIMEOUT_MS + 5_000;
+
+/**
+ * The one end AT ONCE: a second signal, an uncaught error or an unhandled rejection. `signal`: it came from a signal.
+ *   - A signal ends the process at once too (B30-2): the stop report is written, then exitNow (what the console still had is cut, and
+ *     that is said where it can be). The batch in flight is listed commit unconfirmed.
+ *   - A crash waits, bounded (IN_FLIGHT_WAIT_MS), for the batch in flight to settle (R30-1), whatever the console's reader does, says and
+ *     writes its outcome, then exits once the console is written. A signal during that wait ends it at once.
  */
 export function terminate(why: string, signal: boolean): void {
   const s = cli.state;
-  if (exitPending()) {
-    if (signal) { exitNow(); return; } // a second signal while the exit waits on the console: at once, its code unchanged (B28-1)
+  if (cli.endedAtOnce || exitPending()) {
+    if (signal) { exitNow(cli.endCode); return; } // a further signal while it ends: at once, its code unchanged (B28-1)
     log.warn('sage migration: an error came while the run was ending; its exit and its report stand', { why }, 'sage-migration');
     return; // R29-2: never cuts the stop message
   }
@@ -83,16 +110,25 @@ export function terminate(why: string, signal: boolean): void {
   cli.endedAtOnce = true;
   const err = s.stoppedAtOnce(reason);
   const code = exitCodeForError(err);
+  cli.endCode = code;
   say(stopMessage(err));
   const flying = s.inFlightAtEnd;
-  leaveStopReport(err, code, flying !== null);
-  if (flying !== null) {
+  leaveStopReport(err, code, flying !== null && !signal);
+  if (signal) { exitNow(code); return; }
+  if (flying === null) { cli.ending = exitAfterConsole(code); return; }
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  cli.ending = new Promise<void>((resolve) => {
     s.onSettledAfterEnd = (b) => {
       say(`the batch in flight when the run ended, ${b.entity} batch ${b.n} (${b.key}), then ${settledWording(b)}; no batch followed it${cli.owned ? ': the report says so' : ''}`);
-      leaveStopReport(s.stoppedAtOnce(reason), code); // now with that batch as it settled, then closed
+      rewriteStopReport(s.stoppedAtOnce(reason), err, code); // now with that batch as it settled, then closed
+      resolve();
     };
-  }
-  void exitAfterConsole(code); // the console drains (a second signal ends it at once, with this code)
+    timer = setTimeout(() => {
+      say(`the batch in flight when the run ended, ${flying.entity} batch ${flying.n} (${flying.key}), did not settle within ${IN_FLIGHT_WAIT_MS / 1000} s: it stays commit unconfirmed: check the books`);
+      cli.owned?.close();
+      resolve();
+    }, IN_FLIGHT_WAIT_MS);
+  }).then(() => { clearTimeout(timer); s.onSettledAfterEnd = null; return exitAfterConsole(code); });
 }
 
 /**
@@ -104,7 +140,7 @@ export function installHandlers(): () => void {
     if (cli.stopSignal !== null) return terminate(`stopped at once by a second signal (${sig})`, true);
     cli.stopSignal = sig;
     // B29-4: the run has stopped already, its message waits for a reader: say so, never "stops before its next batch".
-    if (exitPending()) return say(`${sig}: the run has already stopped; its stop message is still being written (send it again to exit at once)`);
+    if (cli.endedAtOnce || exitPending()) return say(`${sig}: the run has already stopped; its stop message is still being written (send it again to exit at once)`);
     // After the run returned (its report written or being written, the pool closing) there is nothing left to stop (B20-3).
     if (cli.state.finished) return say(`${sig}: the run had finished; its report and exit code stand`);
     say(cli.state.liveStarted

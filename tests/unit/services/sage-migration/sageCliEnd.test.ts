@@ -17,6 +17,7 @@ const h = vi.hoisted(() => ({
   opts: null as MigrationOptions | null, phase: 'live' as 'dry' | 'live', batches: 8, sent: [] as string[], liveEntered: false,
   crashAt: null as number | null, crash: (() => undefined) as () => void, throwAtEnd: null as string | null,
   poolGate: Promise.resolve() as Promise<void>, endedSeen: null as string | null,
+  inFlightGate: Promise.resolve() as Promise<void>, failRewrite: false, stopWrites: 0,
 }));
 const batch = (entity: BatchReport['entity'], n: number): BatchReport => ({ entity, n, size: 1, key: `k-${entity}-${n}`, status: 'ok', allRowsAlreadyPresent: false, rowsAbsent: 0, toolReported: { outcome: 'created' }, error: null });
 const tick = () => new Promise((r) => setImmediate(r));
@@ -33,6 +34,7 @@ vi.mock('@/modules/accounting/services/sage-migration/sageMigrationRunner', () =
         opts.onProgress?.({ kind: 'sending', batch: { entity: 'category', n, size: 1, key: `k-category-${n}` } });
         if (n === h.crashAt) { h.crash(); h.endedSeen = opts.ended?.() ?? null; } // the crash comes while this batch is in flight
         await tick();
+        if (n === h.crashAt) await h.inFlightGate; // the batch in flight answers late (or never)
         h.sent.push(`${phase} ${n}`);
         opts.onProgress?.({ kind: 'recorded', phase, batch: batch('category', n) });
       }
@@ -42,6 +44,15 @@ vi.mock('@/modules/accounting/services/sage-migration/sageMigrationRunner', () =
   }),
 }));
 vi.mock('@/modules/accounting/services/sage-migration/sageReportSummary', () => ({ CONSOLE_ERROR_CHARS: 600, summaryLines: () => ['SUMMARY LINE'], exitCodeFor: () => 0 }));
+// R30-4: the second stop report (the rewrite once the batch in flight settled) can be made to fail.
+vi.mock('node:fs', async (orig) => {
+  const real = await orig<typeof import('node:fs')>();
+  const writeSync = ((fd: number, buf: unknown, ...rest: unknown[]) => {
+    if (Buffer.isBuffer(buf) && buf.includes('"status": "stopped"') && ++h.stopWrites === 2 && h.failRewrite) throw Object.assign(new Error('EIO: injected'), { code: 'EIO' });
+    return (real.writeSync as (...x: unknown[]) => number)(fd, buf, ...rest);
+  }) as typeof real.writeSync;
+  return { ...real, default: { ...real, writeSync }, writeSync };
+});
 vi.mock('pg', () => ({ default: { Pool: class { on() { return this; } async end() { await h.poolGate; } } } }));
 vi.mock('../../../../scripts/sage-migration/runConsole', async (orig) => (await import('./sageCliConsoleSpy')).spied(await orig()));
 
@@ -53,7 +64,7 @@ let before: Record<string, Function[]>;
 const HOOKS = ['SIGINT', 'SIGTERM', 'uncaughtException', 'unhandledRejection'] as const;
 beforeEach(() => {
   d = mkdtempSync(join(tmpdir(), 'sage-cli-end-'));
-  Object.assign(h, { opts: null, phase: 'live', batches: 8, sent: [], liveEntered: false, crashAt: null, crash: () => undefined, throwAtEnd: null, poolGate: Promise.resolve(), endedSeen: null });
+  Object.assign(h, { opts: null, phase: 'live', batches: 8, sent: [], liveEntered: false, crashAt: null, crash: () => undefined, throwAtEnd: null, poolGate: Promise.resolve(), endedSeen: null, inFlightGate: Promise.resolve(), failRewrite: false, stopWrites: 0 });
   err = [];
   process.exitCode = undefined;
   vi.resetModules();
@@ -170,6 +181,93 @@ describe('R29-2 / B29-4 / R29-9: what else comes while the exit waits', () => {
     expect(exit).not.toHaveBeenCalled();
     fire('SIGTERM');
     expect(exit).toHaveBeenCalledTimes(1);
+    stall(false);
+    open();
+    await done;
+  });
+});
+
+describe('R30-1: an end at once waits for the batch in flight, whatever the console does', () => {
+  it('a HEALTHY console: the batch in flight settles first, is said and written into the report, then exit 4', async () => {
+    stall(false);
+    let open: () => void = () => undefined;
+    h.inFlightGate = new Promise((r) => { open = r; });
+    h.crashAt = 3;
+    h.crash = () => fire('uncaughtException', new Error('injected'));
+    const { done } = await start();
+    await settle();
+    expect(exit).not.toHaveBeenCalled(); // the console is written, the batch is still in flight: it waits for that
+    open();
+    await done;
+    expect(exit.mock.calls).toEqual([[4]]);
+    expect(h.sent).toEqual(['live 1', 'live 2', 'live 3']);
+    expect(report().committed.map((b: BatchReport) => b.n)).toEqual([1, 2, 3]);
+    expect(err.join('')).toContain('the batch in flight when the run ended, category batch 3 (k-category-3), then committed; no batch followed it: the report says so');
+  });
+  it('a signal during that wait ends it at once (the report keeps the batch as commit unconfirmed)', async () => {
+    stall(false);
+    let open: () => void = () => undefined;
+    h.inFlightGate = new Promise((r) => { open = r; }); // does not answer while the test looks
+    h.crashAt = 3;
+    h.crash = () => fire('uncaughtException', new Error('injected'));
+    const { done } = await start();
+    await settle();
+    fire('SIGINT');
+    expect(err.join('')).toContain('SIGINT: the run has already stopped');
+    expect(exit).not.toHaveBeenCalled();
+    fire('SIGINT');
+    expect(exit.mock.calls).toEqual([[4]]);
+    expect(report().commitUnconfirmed.map((b: BatchReport) => b.n)).toEqual([3]);
+    open();
+    await done;
+  });
+  it(`bounded: a batch in flight that never settles is waited for at most IN_FLIGHT_WAIT_MS, said, then exit 4`, async () => {
+    stall(false);
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      let open: () => void = () => undefined;
+      h.inFlightGate = new Promise((r) => { open = r; });
+      h.crashAt = 3;
+      h.crash = () => fire('uncaughtException', new Error('injected'));
+      const { done } = await start();
+      await settle();
+      const { IN_FLIGHT_WAIT_MS } = await import('../../../../scripts/sage-migration/runEnd');
+      await vi.advanceTimersByTimeAsync(IN_FLIGHT_WAIT_MS - 1_000);
+      expect(exit).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(exit.mock.calls).toEqual([[4]]);
+      expect(err.join('')).toContain(`the batch in flight when the run ended, category batch 3 (k-category-3), did not settle within ${IN_FLIGHT_WAIT_MS / 1000} s: it stays commit unconfirmed: check the books`);
+      expect(report().commitUnconfirmed.map((b: BatchReport) => b.n)).toEqual([3]);
+      open();
+      await done;
+    } finally { vi.useRealTimers(); }
+  });
+  it('R30-4: a rewrite that fails keeps the first stop report, never the small "not written" body', async () => {
+    stall(false);
+    h.failRewrite = true;
+    h.crashAt = 3;
+    h.crash = () => fire('uncaughtException', new Error('injected'));
+    const { done } = await start();
+    await settle();
+    await done;
+    const r = report();
+    expect(r.status).toBe('stopped');
+    expect(r.committed.map((b: BatchReport) => b.n)).toEqual([1, 2]); // the first report, with batch 3 still in flight
+    expect(r.commitUnconfirmed.map((b: BatchReport) => b.n)).toEqual([3]);
+    expect(err.join('')).toContain('(the stop report written before it is kept)');
+  });
+});
+
+describe('B30-2: a second signal that ends the run at once ends the process at once too', () => {
+  it('the first stop not reached yet (a batch in flight): the stop report is written and the process exits, the console not waited for', async () => {
+    let open: () => void = () => undefined;
+    h.inFlightGate = new Promise((r) => { open = r; });
+    h.crashAt = 3;
+    h.crash = () => { fire('SIGINT'); fire('SIGINT'); };
+    const { done } = await start();
+    await settle();
+    expect(exit.mock.calls).toEqual([[4]]); // stderr is stalled: still at once
+    expect(report().commitUnconfirmed.map((b: BatchReport) => b.n)).toEqual([3]);
     stall(false);
     open();
     await done;

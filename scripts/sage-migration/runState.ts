@@ -30,7 +30,7 @@ export class RunState {
   end(why: string): void {
     if (this.ended !== null) return;
     this.ended = why;
-    this.inFlightAtEnd = this.inFlight;
+    this.inFlightAtEnd = this.liveStarted ? this.inFlight : null; // a dry batch writes nothing: there is nothing of it to wait for
   }
 
   readonly onProgress = (p: MigrationProgress): void => {

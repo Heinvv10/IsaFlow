@@ -249,3 +249,54 @@ describe('R29-2 / R29-4 / B29-4 / B29-2: the exit', () => {
     expect(exits).toEqual([4]);
   });
 });
+
+describe('R30-2 / R30-3 / R30-5: the ceiling says what it cut; a natural end gets it too; the exit always happens', () => {
+  afterEach(() => { vi.useRealTimers(); exits.length = 0; nowWrites.length = 0; });
+  it('stderr stalled, stdout healthy: only stderr is given up at the ceiling, and that is said on stdout (one try) before the exit', async () => {
+    vi.useFakeTimers();
+    const r = rig((fd) => (fd === 2 ? 'EAGAIN' : 1000));
+    const api = consoleApi(r.c, sys());
+    api.prepareConsole(() => '/tmp/r.json');
+    api.say('THE STOP MESSAGE');
+    api.out('summary');
+    const done = api.exitAfterConsole(4);
+    await vi.advanceTimersByTimeAsync(CONSOLE_EXIT_CEILING_MS);
+    await done;
+    expect(r.c.gone).toEqual({ stdout: false, stderr: true });
+    expect(nowWrites).toEqual([[1, `stderr: the exit waited ${CONSOLE_EXIT_CEILING_MS / 1000} s for its reader: the rest of what it was given (the stop message or the summary among it) was dropped; --report /tmp/r.json holds the run's report\n`]]);
+    expect(exits).toEqual([4]);
+  });
+  it('both stalled: the last one given up gets the notice, best effort', async () => {
+    vi.useFakeTimers();
+    const r = rig(() => 'EAGAIN');
+    const api = consoleApi(r.c, sys());
+    api.prepareConsole(() => null);
+    api.say('stop');
+    api.out('summary');
+    const done = api.exitAfterConsole(4);
+    await vi.advanceTimersByTimeAsync(CONSOLE_EXIT_CEILING_MS);
+    await done;
+    expect(nowWrites.at(-1)?.[0]).toBe(2);
+    expect(nowWrites.at(-1)?.[1]).toMatch(/^\nstderr: the exit waited \d+ s for its reader: the rest of what it was given was dropped/);
+    expect(exits).toEqual([4]);
+  });
+  it('R30-3: a run that ends by itself (endConsole) gets the same ceiling, and no exit is forced', async () => {
+    vi.useFakeTimers();
+    const r = rig((fd) => (fd === 2 ? 'EAGAIN' : 1000));
+    const api = consoleApi(r.c, sys());
+    api.prepareConsole(() => null);
+    api.say('the closing line');
+    api.endConsole();
+    await vi.advanceTimersByTimeAsync(CONSOLE_EXIT_CEILING_MS);
+    expect(r.c.gone.stderr).toBe(true);
+    expect(r.c.idle()).toBe(true); // nothing left to hold the process
+    expect(exits).toEqual([]);
+  });
+  it('R30-5: a restore that throws never skips the exit, nor its code', () => {
+    const r = rig(() => 1000);
+    const api = consoleApi(r.c, sys({ saveFlags: () => () => { throw new Error('fcntl failed'); } }));
+    api.prepareConsole(() => null);
+    void api.exitAfterConsole(4);
+    expect(exits).toEqual([4]);
+  });
+});

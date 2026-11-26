@@ -135,3 +135,14 @@ describe('B29-2: fd 1 / fd 2 are left as they were found', () => {
     expect(text.trim().split('\n').filter((l) => l.startsWith('['))).toEqual(['[False, False]', '[False, False]']);
   }, 30_000);
 });
+
+describe('B30-1: another program puts the shared pipe back to blocking', () => {
+  it('the console sets O_NONBLOCK again before its writes: a 300 KB line to a reader paused 3 s never holds the thread in write(2)', async () => {
+    const d = mkdtempSync(join(tmpdir(), 'sage-console-nb-'));
+    try {
+      await shell(`${CHILD} 3>${d}/t 2>&1 >/dev/null | { sleep 3; cat > /dev/null; }`, { CLEARNB: '3' });
+      const ms = Number(/say took (\d+) ms/.exec(readFileSync(join(d, 't'), 'utf8'))?.[1]);
+      expect(ms).toBeLessThan(1_000);
+    } finally { rmSync(d, { recursive: true, force: true }); }
+  }, 30_000);
+});

@@ -14,7 +14,7 @@ import { SAGE_POOL_END_TIMEOUT_MS, sagePoolConfig } from '../../src/modules/acco
 import type { ParsedExport } from '../../src/modules/accounting/services/sage-migration/sageExportTypes';
 import { exitCodeForError, stopMessage } from '../../src/modules/accounting/services/sage-migration/sageStopMessage';
 import { checkReportArgs, exitAfterReportFailure, OwnedReport, summarize } from './runReport';
-import { exitAfterConsole, out, prepareConsole, say } from './runConsole';
+import { endConsole, exitAfterConsole, out, prepareConsole, say } from './runConsole';
 import { cli, installHandlers, leaveStopReport, shouldStop } from './runEnd';
 
 /*
@@ -157,11 +157,12 @@ export async function runCli(o: { removeHandlers?: boolean } = {}, restoreStartF
   const uninstall = installHandlers();
   try {
     await main();
-    if (cli.endedAtOnce) { await exitAfterConsole(undefined); return; } // terminate's exit stands (R29-1, R29-2: the same wait)
+    if (cli.endedAtOnce) { await cli.ending; return; } // terminate's exit stands (R29-1, R29-2, R30-1: its wait, never one of main's)
     await endPool(); // after the summary, the report and the closing line: a pool that does not close cannot swallow them
+    endConsole(); // the run ends by itself: what it still has to say gets the same total ceiling (R30-3)
   } catch (err) {
     // terminate ended the run: the runner's own stop that follows says, writes and decides nothing (R29-1); its exit is the same wait.
-    if (cli.endedAtOnce) { await exitAfterConsole(undefined); return; }
+    if (cli.endedAtOnce) { await cli.ending; return; }
     cli.state.end('the run stopped'); // FIRST: nothing new starts while the stop message is written
     // Said BEFORE the pool is ended (B26-1): the process exits here, so a pool that never ends cannot keep the stop message unsaid.
     const code = exitCodeForError(err);

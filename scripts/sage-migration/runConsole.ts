@@ -12,11 +12,12 @@
  *   - the CLI exits only once both streams are drained or given up (`exitAfterConsole`, asked once: a later ask keeps the first code and
  *     waits the same wait), and at most CONSOLE_EXIT_CEILING_MS after it was asked, whatever the progress (R29-4);
  *   - only a second SIGNAL ends it at once (`exitNow`): what is cut is said on the other stream when it can be (B29-4).
- * fd 1 / fd 2's O_NONBLOCK flags are put back as found, and process.*.write restored, at every exit (runConsoleSys.ts, B29-2, R29-8).
+ * fd 1 / fd 2's O_NONBLOCK flags are put back as found, and process.*.write restored, when the CLI exits or ends by itself (runConsoleSys.ts,
+ * B29-2, R29-8; its named limits: pipes shared with other programs, SIGKILL and unhandled signals, B30-1/3/4).
  * A pipe holds little (8-64 KiB on velo): a large run should give --report.
  */
 import { writeSync } from 'node:fs';
-import { blockingFds, captureProcessStreams, sameFile, saveFlags, writeNow } from './runConsoleSys';
+import { blockingFds, captureProcessStreams, keepNonBlocking, sameFile, saveFlags, writeNow } from './runConsoleSys';
 
 export { blockingFds } from './runConsoleSys';
 
@@ -38,7 +39,7 @@ export interface ConsoleDeps {
   later: (fn: () => void, ms: number) => void;
 }
 const realDeps: ConsoleDeps = {
-  write: (fd, buf, offset, length) => writeSync(fd, buf, offset, length),
+  write: (fd, buf, offset, length) => { keepNonBlocking(fd); return writeSync(fd, buf, offset, length); }, // B30-1
   now: () => Date.now(),
   later: (fn, ms) => { setTimeout(fn, ms); }, // ref'd: queued output keeps the process alive until written or given up
 };
@@ -180,11 +181,32 @@ export function consoleApi(c: Console, sys: ConsoleSys = realSys) {
     if (where !== null) return `--report ${where} holds the run's report`;
     return pipe ? 'give --report <path>: a pipe holds only a few KiB, and a large run says more' : 'give --report <path>: it always holds the whole report';
   };
-  /** Puts the process back as found (flags, writers), then exits. */
+  /** Puts the process back as found (flags, writers), then exits, whatever a restore does (R30-5: the exit code is the contract). */
   const leave = (code: number | undefined): void => {
     clearTimeout(ceiling);
-    for (const r of restore.splice(0)) r();
-    sys.exit(code);
+    try {
+      for (const r of restore.splice(0)) {
+        try { r(); } catch (err) { writeNow(2, `could not put the console back as found: ${err instanceof Error ? err.message : String(err)}\n`); }
+      }
+    } finally {
+      sys.exit(code);
+    }
+  };
+  const CEILING = `the exit waited ${CONSOLE_EXIT_CEILING_MS / 1000} s for its reader`;
+  /**
+   * The total ceiling (R29-4, R30-2, R30-3): past it, only the streams that still have bytes queued are given up, one at a time, so the
+   * "cut" notice is said on the other stream (one try, no wait) while that is still alive; when both were stalled, the last one given up
+   * gets it, best effort. Cleared once the console drains. `then` follows (the exit), or nothing (a natural end).
+   */
+  const armCeiling = (then?: () => void): void => {
+    clearTimeout(ceiling);
+    ceiling = setTimeout(() => {
+      const stalled = (['stdout', 'stderr'] as const).filter((st) => c.queuedBytes(st) > 0);
+      for (const st of stalled) c.markGone(st, CEILING);
+      const last = stalled.at(-1);
+      if (stalled.length === 2 && last !== undefined) sys.writeNow(FD[last], `\n${last}: ${CEILING}: the rest of what it was given was dropped; ${hint(true)}\n`);
+    }, CONSOLE_EXIT_CEILING_MS);
+    void c.drained().then(() => { clearTimeout(ceiling); then?.(); });
   };
   return {
     cliConsole: c,
@@ -194,8 +216,8 @@ export function consoleApi(c: Console, sys: ConsoleSys = realSys) {
     out: (s: string): void => { c.write('stdout', `${s}\n`); },
     /**
      * Wires the console for the CLI: the notice when a stream is given up (on the other stream, when that is a different, writable file),
-     * the O_NONBLOCK precondition (touched, then read back; a pipe still blocking is said), fd 1 / 2's flags saved for the exit, and the
-     * process's other writers routed through it. `where()` names --report, or null.
+     * the O_NONBLOCK precondition (touched, then read back; a pipe still blocking is said), fd 1 / 2's flags for the exit, and the
+     * process's other writers routed through it. `where()` names --report, or null; `restoreFlags`: saved by the caller at its very start.
      */
     prepareConsole(where: () => string | null, restoreFlags?: () => void): { blocking: number[] } {
       report = where;
@@ -203,11 +225,15 @@ export function consoleApi(c: Console, sys: ConsoleSys = realSys) {
       c.onGiveUp = (stream, why) => {
         const other = OTHER[stream];
         if (c.gone[other] || c.shared) return; // one file: the notice would go into the very pipe that was given up
-        const stalled = /^no reader/.test(why);
-        const what = stalled ? `had ${why}: the rest of what it was given (the stop message or the summary among it) was dropped` : `is closed (${why}): what it was given is not printed there`;
-        c.write(other, `${stream} ${what}; ${hint(stalled)}\n`);
+        const ceilingHit = why === CEILING;
+        const stalled = ceilingHit || /^no reader/.test(why);
+        const dropped = 'the rest of what it was given (the stop message or the summary among it) was dropped';
+        const what = ceilingHit ? `: ${why}: ${dropped}` : stalled ? ` had ${why}: ${dropped}` : ` is closed (${why}): what it was given is not printed there`;
+        const line = `${stream}${what}; ${hint(stalled)}\n`;
+        if (ceilingHit) sys.writeNow(FD[other], line); // the exit is due: one try, before the other is looked at
+        else c.write(other, line);
       };
-      restore.push(restoreFlags ?? sys.saveFlags()); // as found: saved by the caller at its very start, or now
+      restore.push(restoreFlags ?? sys.saveFlags());
       void process.stdout; // bun makes fd 1 / 2 O_NONBLOCK when the stream is first touched
       void process.stderr;
       restore.push(sys.capture(c)); // the logger's lines join the same queues
@@ -224,18 +250,17 @@ export function consoleApi(c: Console, sys: ConsoleSys = realSys) {
     exitAfterConsole(code: number | undefined): Promise<void> {
       if (exiting !== null) return exiting.done;
       if (c.idle()) { exiting = { code, done: Promise.resolve() }; leave(code); return exiting.done; } // all written: at once
-      const done = new Promise<void>((resolve) => {
-        ceiling = setTimeout(() => c.giveUpAll(`the exit waited ${CONSOLE_EXIT_CEILING_MS / 1000} s for its readers`), CONSOLE_EXIT_CEILING_MS);
-        void c.drained().then(() => { leave(code); resolve(); });
-      });
+      const done = new Promise<void>((resolve) => { armCeiling(() => { leave(code); resolve(); }); });
       exiting = { code, done };
       return done;
     },
+    /** A run that ends by itself (exit 0 / 1 / 3, R30-3): the same total ceiling on what it still has to say; no exit is forced. */
+    endConsole(): void { if (exiting === null && !c.idle()) armCeiling(); },
     /**
-     * A second signal (only): exits at once with the code already decided (or the one the run set). What is still queued is cut, and that
+     * A second signal (only): exits at once with the code already decided (`code` when none is yet). What is still queued is cut, and that
      * is said on the other stream when it is a different file that takes the line now (B29-4).
      */
-    exitNow(): void {
+    exitNow(code?: number): void {
       for (const stream of ['stdout', 'stderr'] as const) {
         const cut = c.queuedBytes(stream);
         const other = OTHER[stream];
@@ -243,7 +268,7 @@ export function consoleApi(c: Console, sys: ConsoleSys = realSys) {
           sys.writeNow(FD[other], `${stream}: ${cut} bytes of what it was given were not written: a second signal ended the run at once; ${hint(true)}\n`);
         }
       }
-      leave(exiting !== null ? exiting.code : undefined); // no code: process.exitCode stands
+      leave(exiting !== null ? exiting.code : code); // no code: process.exitCode stands
     },
     /** An exit is decided and waits for the console. */
     exitPending: (): boolean => exiting !== null,
@@ -251,4 +276,4 @@ export function consoleApi(c: Console, sys: ConsoleSys = realSys) {
 }
 
 /** The process's one console. */
-export const { cliConsole, say, out, prepareConsole, exitAfterConsole, exitNow, exitPending } = consoleApi(new Console());
+export const { cliConsole, say, out, prepareConsole, exitAfterConsole, endConsole, exitNow, exitPending } = consoleApi(new Console());
