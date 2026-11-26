@@ -192,7 +192,7 @@ export function consoleApi(c: Console, sys: ConsoleSys = realSys) {
      * the O_NONBLOCK precondition (touched, then read back; a pipe still blocking is said), fd 1 / 2's flags saved for the exit, and the
      * process's other writers routed through it. `where()` names --report, or null.
      */
-    prepareConsole(where: () => string | null): { blocking: number[] } {
+    prepareConsole(where: () => string | null, restoreFlags?: () => void): { blocking: number[] } {
       report = where;
       c.shared = sys.sameFile();
       c.onGiveUp = (stream, why) => {
@@ -202,7 +202,7 @@ export function consoleApi(c: Console, sys: ConsoleSys = realSys) {
         const what = stalled ? `had ${why}: the rest of what it was given (the stop message or the summary among it) was dropped` : `is closed (${why}): what it was given is not printed there`;
         c.write(other, `${stream} ${what}; ${hint(stalled)}\n`);
       };
-      restore.push(sys.saveFlags()); // before anything touches the streams: as found
+      restore.push(restoreFlags ?? sys.saveFlags()); // as found: saved by the caller at its very start, or now
       void process.stdout; // bun makes fd 1 / 2 O_NONBLOCK when the stream is first touched
       void process.stderr;
       restore.push(sys.capture(c)); // the logger's lines join the same queues

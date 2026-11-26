@@ -16,7 +16,7 @@ import type { BatchReport, MigrationOptions } from '@/modules/accounting/service
 const h = vi.hoisted(() => ({
   opts: null as MigrationOptions | null, phase: 'live' as 'dry' | 'live', batches: 8, sent: [] as string[], liveEntered: false,
   crashAt: null as number | null, crash: (() => undefined) as () => void, throwAtEnd: null as string | null,
-  poolGate: Promise.resolve() as Promise<void>,
+  poolGate: Promise.resolve() as Promise<void>, endedSeen: null as string | null,
 }));
 const batch = (entity: BatchReport['entity'], n: number): BatchReport => ({ entity, n, size: 1, key: `k-${entity}-${n}`, status: 'ok', allRowsAlreadyPresent: false, rowsAbsent: 0, toolReported: { outcome: 'created' }, error: null });
 const tick = () => new Promise((r) => setImmediate(r));
@@ -30,9 +30,8 @@ vi.mock('@/modules/accounting/services/sage-migration/sageMigrationRunner', () =
       for (let n = 1; n <= (phase === 'dry' && h.phase === 'live' ? 0 : h.batches); n++) {
         const stop = opts.shouldStop?.();
         if (stop) throw new Error(stop);
-        if (opts.ended?.() != null) throw new Error('a session was asked for after the run ended');
         opts.onProgress?.({ kind: 'sending', batch: { entity: 'category', n, size: 1, key: `k-category-${n}` } });
-        if (n === h.crashAt) h.crash(); // the crash comes while this batch is in flight
+        if (n === h.crashAt) { h.crash(); h.endedSeen = opts.ended?.() ?? null; } // the crash comes while this batch is in flight
         await tick();
         h.sent.push(`${phase} ${n}`);
         opts.onProgress?.({ kind: 'recorded', phase, batch: batch('category', n) });
@@ -54,7 +53,7 @@ let before: Record<string, Function[]>;
 const HOOKS = ['SIGINT', 'SIGTERM', 'uncaughtException', 'unhandledRejection'] as const;
 beforeEach(() => {
   d = mkdtempSync(join(tmpdir(), 'sage-cli-end-'));
-  Object.assign(h, { opts: null, phase: 'live', batches: 8, sent: [], liveEntered: false, crashAt: null, crash: () => undefined, throwAtEnd: null, poolGate: Promise.resolve() });
+  Object.assign(h, { opts: null, phase: 'live', batches: 8, sent: [], liveEntered: false, crashAt: null, crash: () => undefined, throwAtEnd: null, poolGate: Promise.resolve(), endedSeen: null });
   err = [];
   process.exitCode = undefined;
   vi.resetModules();
@@ -78,7 +77,11 @@ async function start() {
   return { done: runCli({ removeHandlers: true }).finally(() => { process.argv = argv; }) };
 }
 /** Until the runner stopped asking (it threw or returned), at most 2 s. */
-const settle = async () => { for (let i = 0; i < 200 && exit.mock.calls.length === 0; i++) await tick(); for (let i = 0; i < 20; i++) await tick(); };
+const settle = async () => {
+  await vi.waitFor(() => expect(h.opts).not.toBeNull(), { timeout: 10_000 }); // run.ts imports its body (runMain.ts) first
+  for (let i = 0; i < 200 && exit.mock.calls.length === 0; i++) await tick();
+  for (let i = 0; i < 20; i++) await tick();
+};
 
 describe('R29-1: an end at once while the console is still being written stops the run for real', () => {
   for (const [what, ev] of [['an uncaught error', 'uncaughtException'], ['an unhandled rejection', 'unhandledRejection']] as const) {
@@ -87,7 +90,8 @@ describe('R29-1: an end at once while the console is still being written stops t
       h.crash = () => fire(ev, new Error('injected'));
       const { done } = await start();
       await settle();
-      expect(h.sent).toEqual(['live 1', 'live 2', 'live 3']); // never batch 4
+      expect(h.sent).toEqual(['live 1', 'live 2', 'live 3']); // never batch 4 (shouldStop answered)
+      expect(h.endedSeen).toMatch(/ended the run: injected/); // and the runner's sessions would refuse (MigrationOptions.ended)
       expect(exit).not.toHaveBeenCalled(); // the stop message still waits for its reader
       const r = report();
       expect(r).toMatchObject({ status: 'stopped', liveStarted: true });
@@ -102,6 +106,8 @@ describe('R29-1: an end at once while the console is still being written stops t
       expect(said).toMatch(/commit unconfirmed: category batch 3 /); // as known at the end...
       expect(said).toContain('the batch in flight when the run ended, category batch 3 (k-category-3), then committed; no batch followed it: the report says so'); // ...then as it settled
       expect(said).not.toMatch(/SUMMARY LINE|the run finished|report was not written/);
+      expect(said).not.toMatch(/the run had ended \(/); // the runner's own stop that followed says nothing
+      expect(report().message).toMatch(/ended the run: injected \(stopped at once/); // and writes nothing over the stop report
     });
   }
   it('dry: the live phase never starts; exit 2, "nothing was written to the books"', async () => {
@@ -117,6 +123,22 @@ describe('R29-1: an end at once while the console is still being written stops t
     await done;
     expect(exit.mock.calls).toEqual([[2]]);
     expect(err.join('')).toContain('nothing was written to the books (the live phase had not started)');
+  });
+});
+
+describe('R29-1: an end at once during the last batch', () => {
+  it('the runner then returns as if finished: main prints no summary, writes no report, sets no exit code', async () => {
+    h.batches = 3;
+    h.crashAt = 3;
+    h.crash = () => fire('uncaughtException', new Error('injected'));
+    const { done } = await start();
+    await settle();
+    stall(false);
+    await done;
+    expect(exit.mock.calls).toEqual([[4]]);
+    expect(err.join('')).not.toMatch(/SUMMARY LINE|the run finished|report was not written/);
+    expect(report()).toMatchObject({ status: 'stopped', liveStarted: true });
+    expect(report().marker).toBeUndefined(); // never the run's own report over the stop report
   });
 });
 
