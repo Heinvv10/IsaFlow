@@ -1,4 +1,7 @@
 import { test, expect } from '@playwright/test';
+import { guardDevTarget } from './helpers/devTarget';
+
+guardDevTarget(test);
 
 test.describe('IRP5/EMP501 API routes respond', () => {
   for (const route of ['/api/payroll/irp5-generate', '/api/accounting/sars/emp501']) {

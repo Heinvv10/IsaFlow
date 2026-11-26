@@ -1,4 +1,7 @@
 import { test, expect } from '@playwright/test';
+import { guardDevTarget } from './helpers/devTarget';
+
+guardDevTarget(test);
 
 const ASSET_ROUTES = ['/accounting/assets', '/accounting/assets/new', '/accounting/assets/categories', '/accounting/assets/disposals', '/accounting/assets/register'];
 

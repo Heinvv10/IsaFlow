@@ -1,4 +1,7 @@
 import { test, expect } from '@playwright/test';
+import { guardDevTarget } from './helpers/devTarget';
+
+guardDevTarget(test);
 
 test.describe('NL Query API', () => {
   test('POST /api/accounting/nl-query does not 404', async ({ request }) => {

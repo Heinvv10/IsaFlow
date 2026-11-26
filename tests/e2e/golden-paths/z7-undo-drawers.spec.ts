@@ -17,6 +17,9 @@ import { Api, gpRef, today } from './_api';
 import { findOrCreateSandbox, switchApiCompany, switchBrowserCompany } from './_migrationSandbox';
 import { expectNoSeriousA11yViolations } from './helpers/axe';
 import { THEMES, seedTheme, settle } from '../helpers/themeSpec';
+import { guardDevTarget } from '../helpers/devTarget';
+
+guardDevTarget(test);
 
 const BANK = '/accounting/bank-transactions';
 const INVOICES = '/accounting/customer-invoices';

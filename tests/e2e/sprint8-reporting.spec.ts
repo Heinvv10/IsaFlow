@@ -1,4 +1,7 @@
 import { test, expect } from '@playwright/test';
+import { guardDevTarget } from './helpers/devTarget';
+
+guardDevTarget(test);
 
 test.describe('Reporting Engine API routes', () => {
   for (const route of ['/api/accounting/reports-ratios', '/api/accounting/reports-management-pack']) {

@@ -10,6 +10,9 @@
  */
 
 import { test, expect } from '@playwright/test';
+import { guardDevTarget } from './helpers/devTarget';
+
+guardDevTarget(test);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // API SMOKE TESTS
