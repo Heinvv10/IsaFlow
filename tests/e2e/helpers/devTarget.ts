@@ -17,7 +17,8 @@
  *
  * Named limits: over HTTP a dev server cannot be asked which database it uses, so a server on a dev port that was started
  * with production's env is not detected (the *DATABASE_URL keys of the runner's own env are judged). Other applications
- * on velo-server listen inside the dev port range; they do not serve IsaFlow's API. A context a spec builds itself with
+ * on velo-server listen inside the dev port range; they do not serve IsaFlow's API, but a mistyped port there would still
+ * be sent the dev login. A context a spec builds itself with
  * its own storageState or address is judged only by the census. After a refusal further down a file, an `afterEach` that
  * asks for no fixture, or only for `browser`, still runs.
  */
@@ -113,9 +114,10 @@ export function assertDevOrCiTarget(baseURL: string | undefined, env: Env = proc
 }
 
 /**
- * The post-deploy verification, and nothing else: scripts/verify-deploy.sh's two switches, plus the colour port and the
- * run marker that only the script changing colours sets (deploy, restart-colours, cutover: VERIFY_COLOUR_PORT and
- * VERIFY_DEPLOY_RUN, handed on by verify-deploy.sh).
+ * A deploy run: scripts/verify-deploy.sh's two switches, plus a colour port and a run marker, which it hands on from
+ * VERIFY_COLOUR_PORT and VERIFY_DEPLOY_RUN. deploy, restart-colours and cutover set those for the colour they are
+ * changing; a person verifying a colour by hand sets them too. The marker is only checked for presence, and the guard
+ * does not know which colour is live.
  */
 export function isDeployRun(env: Env): boolean {
   return env.GOLDEN_SKIP_A11Y === '1' && env.GOLDEN_POST_DEPLOY === '1' && Boolean(env.GOLDEN_DEPLOY_PORT) && Boolean(env.GOLDEN_DEPLOY_RUN);

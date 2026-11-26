@@ -134,4 +134,5 @@ sends every cookie anywhere, so seeding through `http://127.0.0.1:3101` worked. 
   `suiteSession.ts`, whose cookie rules are Playwright's (held to Playwright's own behaviour by
   `tests/unit/ci/verifyCompanySuiteReadiness.test.ts`): a run the suite would not start in never publishes the env keys.
 - The wrapper's default base url is `http://localhost:3101`. Run verify-deploy.sh by hand against a colour, never an IP or
-  nginx's :3101: `VERIFY_COLOUR_PORT=<3111|3112> VERIFY_DEPLOY_RUN=manual bash scripts/verify-deploy.sh http://localhost:<same port>`.
+  nginx's :3101: `VERIFY_SKIP_INTEGRITY=1 VERIFY_COLOUR_PORT=<3111|3112> VERIFY_DEPLOY_RUN=manual bash scripts/verify-deploy.sh http://localhost:<same port>`
+  (to include the integrity check, give `DATABASE_URL` instead of the skip).

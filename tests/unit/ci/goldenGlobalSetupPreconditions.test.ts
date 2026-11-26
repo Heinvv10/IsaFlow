@@ -30,6 +30,8 @@ const saved: Record<string, string | undefined> = {};
 beforeEach(() => {
   for (const k of KEYS) { saved[k] = process.env[k]; delete process.env[k]; }
   process.env.E2E_ADMIN_EMAIL = 'deploy-verify@isaflow.co.za';
+  // The guard judges every database URL in the env: none may leak in from the shell (the unit run sets a dummy one).
+  for (const k of Object.keys(process.env)) if (k.includes('DATABASE_URL') || k === 'GOLDEN_HOSTED_DB_URL') vi.stubEnv(k, '');
   // A deploy run of colour 3111, the only kind that may name a production address.
   vi.stubEnv('GOLDEN_SKIP_A11Y', '1');
   vi.stubEnv('GOLDEN_POST_DEPLOY', '1');
@@ -44,14 +46,12 @@ describe('golden global setup', () => {
   it.each(['http://localhost:3101', 'http://localhost:3111', 'http://localhost:3112', 'https://app.isaflow.co.za'])(
     'outside the post-deploy run it refuses %s before any request', async (baseURL) => {
       vi.stubEnv('GOLDEN_SKIP_A11Y', '');
-      vi.stubEnv('DATABASE_URL', ''); // the refusal must be the address, not the unit run's dummy database
       await expect(globalSetup(config(baseURL))).rejects.toThrow(/base URL (names|has protocol)/);
       expect(script.asked).toEqual([]);
     });
 
   it.each(['GOLDEN_SKIP_A11Y', 'GOLDEN_POST_DEPLOY', 'GOLDEN_DEPLOY_PORT', 'GOLDEN_DEPLOY_RUN'])('%s missing is not a deploy run: the colour is refused', async (missing) => {
     vi.stubEnv(missing, '');
-    vi.stubEnv('DATABASE_URL', '');
     await expect(globalSetup(config('http://localhost:3111'))).rejects.toThrow(/production port/);
     expect(script.asked).toEqual([]);
   });
@@ -80,7 +80,6 @@ describe('golden global setup', () => {
   it('THE INCIDENT: login 200, then every GET 401 at an IP address (a dev server here) fails as a refused session pointing at localhost, not as missing accounts', async () => {
     script.answer = (): Answer => ({ status: 401, body: { success: false, error: { code: 'UNAUTHORIZED' } } });
     vi.stubEnv('GOLDEN_SKIP_A11Y', '');
-    vi.stubEnv('DATABASE_URL', '');
     const err = await globalSetup(config('http://127.0.0.1:3457')).then(() => null, (e: Error) => e);
     expect(err?.message).toContain('answered 401');
     expect(err?.message).toContain('http://localhost:3457');

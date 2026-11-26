@@ -151,12 +151,19 @@ describe('verify-deploy.sh and the a11y gate', () => {
   it('hands the golden setup the switch, the colour port and the run marker its caller set', async () => {
     const r = await goldenStep({ VERIFY_COLOUR_PORT: '3112', VERIFY_DEPLOY_RUN: 'deploy:abc123' });
     expect(r.deploy).toEqual(['POST_DEPLOY=1', 'DEPLOY_PORT=3112', 'DEPLOY_RUN=deploy:abc123']);
+    expect(r.out).not.toContain('NOTE: VERIFY_COLOUR_PORT');
   }, 90_000);
 
   it('without a caller it passes no port or marker, whatever the shell still holds', async () => {
     const r = await goldenStep({ GOLDEN_DEPLOY_PORT: '3111', GOLDEN_DEPLOY_RUN: 'left-over' });
     expect(r.deploy).toEqual(['POST_DEPLOY=1', 'DEPLOY_PORT=', 'DEPLOY_RUN=']);
+    expect(r.out).toContain('NOTE: VERIFY_COLOUR_PORT and VERIFY_DEPLOY_RUN are not both set');
   }, 90_000);
+
+  it.each([{ VERIFY_COLOUR_PORT: '3112' }, { VERIFY_DEPLOY_RUN: 'manual' }] as Record<string, string>[])(
+    'says so when only one of the two is set: %o', async (half) => {
+      expect((await goldenStep(half)).out).toContain('NOTE: VERIFY_COLOUR_PORT');
+    }, 90_000);
 
   it('control: without the variable the spec IS loaded, and with axe unresolvable that crashes the listing', () => {
     expect(() => listTests({ GOLDEN_SKIP_A11Y: '' })).toThrow(/TRAP: Cannot find module '@axe-core\/playwright'/);
