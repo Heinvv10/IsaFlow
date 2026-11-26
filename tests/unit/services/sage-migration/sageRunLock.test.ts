@@ -227,3 +227,30 @@ describe('R26-10: a holder lookup that fails', () => {
   });
 });
 
+describe('R27-6: taking the run lock is watched', () => {
+  it('a connect with no answer is said every 5 s to onNotice; once it answers, the watch is stopped (only the keepalive is left)', async () => {
+    vi.useFakeTimers();
+    try {
+      const { client } = fakePool();
+      let open: (c: unknown) => void = () => undefined;
+      const pool = { connect: () => new Promise((r) => { open = r; }) } as never;
+      const lines: string[] = [];
+      const taking = acquireRunLock(pool, A, (l) => lines.push(l));
+      await vi.advanceTimersByTimeAsync(10_600);
+      expect(lines).toEqual(['a database request has had no answer for 5 s', 'a database request has had no answer for 10 s']);
+      open(client);
+      const lock = await taking;
+      expect(vi.getTimerCount()).toBe(1); // the keepalive; the watch's own interval is gone
+      expect(await lock.unlock()).toBeNull();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally { vi.useRealTimers(); }
+  });
+  it('a connect that fails: the watch is stopped too', async () => {
+    vi.useFakeTimers();
+    try {
+      const pool = { connect: async () => { throw new Error('timeout exceeded when trying to connect'); } } as never;
+      await expect(acquireRunLock(pool, A, () => undefined)).rejects.toThrow(/no connection to the database could be had/);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally { vi.useRealTimers(); }
+  });
+});

@@ -3,6 +3,8 @@
  * a key another session holds is said at once, with that session's pid, instead of the registry waiting on it. Taken by this transaction,
  * the registry's own wait on it then returns at once (advisory locks stack within a session).
  */
+import { log } from '@/lib/logger';
+import { HOLDER_COLUMNS, holderFrom } from './sageLockHolder';
 import { BatchKeyHeldError, type LockPhase } from './sageSessionErrors';
 
 /**
@@ -15,10 +17,10 @@ export function idempotencyLockText(companyId: string, tool: string, key: string
 }
 
 /**
- * Who holds an xact advisory lock of hashtext(text) (objsubid 1: the one-bigint form), other than this backend (R25-5), with its state
- * and application (R26-4: only an idle-in-transaction holder is offered for ending).
+ * Who holds an xact advisory lock of hashtext(text) (objsubid 1: the one-bigint form), other than this backend (R25-5), with its state,
+ * application and transaction age (R26-4, R27-3: what decides the advice, sageLockHolder.ts).
  */
-export const HOLDER_SQL = `SELECT l.pid, a.state, a.application_name AS app FROM pg_locks l LEFT JOIN pg_stat_activity a ON a.pid = l.pid,
+export const HOLDER_SQL = `SELECT ${HOLDER_COLUMNS} FROM pg_locks l JOIN pg_stat_activity a ON a.pid = l.pid,
       (SELECT hashtext($1)::bigint AS k) x
     WHERE l.locktype = 'advisory' AND l.granted AND l.objsubid = 1 AND l.pid <> pg_backend_pid()
       AND l.classid = ((x.k >> 32) & 4294967295)::oid AND l.objid = (x.k & 4294967295)::oid LIMIT 1`;
@@ -27,13 +29,16 @@ type Queryable = { query: (text: string, values?: unknown[]) => Promise<{ rows: 
 
 /**
  * `lookup` reads who holds it: the pool, not the request's own connection, which runs as app_user and so may not see another session's
- * state in pg_stat_activity. A lookup that fails names the pid unknown; the held key is said all the same.
+ * state in pg_stat_activity. A lookup that fails is logged and said as "could not be read" (R27-7); the held key is said all the same.
  */
 export async function takeKeyLockNow(client: Queryable, lookup: Queryable, lockText: string, phase: LockPhase): Promise<void> {
   const got = await client.query('SELECT pg_try_advisory_xact_lock(hashtext($1)::bigint) AS ok', [lockText]);
   if (got.rows[0]?.ok !== false) return;
-  const holder = await lookup.query(HOLDER_SQL, [lockText]).catch(() => ({ rows: [] as Array<Record<string, unknown>> }));
-  const row = holder.rows[0];
-  const pid = row?.pid;
-  throw new BatchKeyHeldError(typeof pid === 'number' ? { pid, state: row?.state as string | null, app: row?.app as string | null } : undefined, phase);
+  let unread = false;
+  const holder = await lookup.query(HOLDER_SQL, [lockText]).then((r) => r.rows[0], (err: unknown) => {
+    unread = true;
+    log.warn('sage migration: who holds the batch key could not be read', { message: err instanceof Error ? err.message : String(err) }, 'sage-migration');
+    return undefined;
+  });
+  throw new BatchKeyHeldError(holderFrom(holder), phase, unread);
 }

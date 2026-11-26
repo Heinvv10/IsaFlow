@@ -136,7 +136,8 @@ export class OwnedReport {
 export function stopReportBody(err: unknown): Record<string, unknown> {
   const stopped = err instanceof MigrationStopped && err.liveStarted ? err : null;
   const batches = stopped ? stopReportBatches(stopped) : { committed: [], nothingWritten: [], commitUnconfirmed: [], failed: [] };
-  return { status: 'stopped', liveStarted: stopped !== null, message: stopMessage(err), ...batches };
+  const unchecked = stopped?.batches.booksNotRechecked;
+  return { status: 'stopped', liveStarted: stopped !== null, message: stopMessage(err), ...batches, ...(unchecked === undefined ? {} : { booksNotRechecked: unchecked }) };
 }
 
 /** The exit code when the run's report could not be written: 3 only where the run would otherwise be 0 (a 1 or a 4 must not be hidden). */

@@ -9,6 +9,8 @@ import type { BatchReport } from './sageMigrationTypes';
 export interface StoppedBatches {
   /** Live batches that failed before the stop and wrote nothing (refused by the tool, or their request rolled back). */
   failed: BatchReport[];
+  /** The books could not be read after the stop (why): the committed list is as the run recorded it, not re-checked against them. */
+  booksNotRechecked?: string;
 }
 
 export class MigrationStopped extends Error {

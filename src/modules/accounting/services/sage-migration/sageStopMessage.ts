@@ -66,7 +66,9 @@ export function stopMessage(err: unknown): string {
     return line(b, 'committed') + changed + updates(b, (name) => writtenWording(b, name));
   }).join('');
   const failed = err.batches.failed.map((b) => `${line(b, 'failed, nothing written')}: ${cut(b.error)}`).join('');
-  return `${why}\nthe live run may already have committed some batches before this error: check the books (or run again without --live: a dry run lists what is there and what differs); a re-run resumes.${committed}${failed}`;
+  // The books could not be read after the stop (R27 wording): the list is the run's own record, not checked against them.
+  const unchecked = err.batches.booksNotRechecked === undefined ? '' : `\nthe books could not be read after the stop (${cut(err.batches.booksNotRechecked)}): the list below is as the run recorded it, not re-checked against the books.`;
+  return `${why}\nthe live run may already have committed some batches before this error: check the books (or run again without --live: a dry run lists what is there and what differs); a re-run resumes.${unchecked}${committed}${failed}`;
 }
 
 /**

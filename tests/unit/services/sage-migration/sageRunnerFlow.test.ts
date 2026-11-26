@@ -231,7 +231,7 @@ describe('R23-5: only the dry run\'s session is marked as one that wrote', () =>
 });
 
 describe('B24-1: the dry run\'s ROLLBACK not confirmed', () => {
-  const HELD = "the dry run's ROLLBACK was not confirmed (ROLLBACK did not answer within 5000ms); its writes may still be held (backend pid 4242: wait for the server to end it, or SELECT pg_terminate_backend(4242))";
+  const HELD = "the dry run's ROLLBACK was not confirmed (ROLLBACK did not answer within 5000ms); its writes may still be held (backend pid 4242, this run's own: SELECT pg_terminate_backend(4242) ends it)";
   it('a preview (no --live): its result is kept (dry_run_ok), with the warning; no live run named', async () => {
     h.dryHeld = true;
     const r = await run({ live: false });

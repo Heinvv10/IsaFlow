@@ -76,7 +76,8 @@ async function dryRun(pool: Pool, o: MigrationOptions, all: PlannedBatches, befo
         let b: BatchReport;
         let waited: Error | null = null;
         try { b = await sendBatch(session, s, before, true); } catch (err) {
-          if (!(err instanceof BatchKeyHeldError)) throw err;
+          // A held key, or a stall that made the call itself reject (the registry's bookkeeping, R27-1): this batch, and the dry run stops.
+          if (!(err instanceof BatchKeyHeldError || err instanceof LockWaitError || err instanceof StatementTimeoutError)) throw err;
           [waited, b] = [err, { entity: s.entity, n: s.n, size: s.size, key: keyFor(s, before, true), status: 'failed', allRowsAlreadyPresent: false, rowsAbsent: 0, toolReported: null, error: err.message }];
         }
         // A lock wait (55P03) or a statement (57014) that timed out inside the tool: its generic failure is replaced by what it was.
@@ -143,15 +144,16 @@ async function livePhase(pool: Pool, o: MigrationOptions, list: Send[], before: 
 
 /**
  * What a stop reports as committed, checked against the books as the phases are (settleCommitted). Best effort: if the books cannot be
- * read, the batches are listed as they were.
+ * read, the batches are listed as they were, and the stop says they were not re-checked (`unchecked`, said in the stop message).
  */
-async function settled(committed: BatchReport[], all: PlannedBatches, read: () => Promise<Snapshot>): Promise<BatchReport[]> {
+async function settled(committed: BatchReport[], all: PlannedBatches, read: () => Promise<Snapshot>): Promise<{ committed: BatchReport[]; unchecked?: string }> {
   let snapshot: Snapshot;
   try { snapshot = await read(); } catch (err) {
-    log.warn('sage migration: the books could not be read to check the committed batches', { message: err instanceof Error ? err.message : String(err) }, 'sage-migration');
-    return committed;
+    const message = err instanceof Error ? err.message : String(err);
+    log.warn('sage migration: the books could not be read to check the committed batches', { message }, 'sage-migration');
+    return { committed, unchecked: message };
   }
-  return settleCommitted(committed, all, snapshot);
+  return { committed: settleCommitted(committed, all, snapshot) };
 }
 
 export async function runSageMigration(pool: Pool, parsed: ParsedExport, opts: MigrationOptions): Promise<MigrationReport> {
@@ -164,7 +166,7 @@ export async function runSageMigration(pool: Pool, parsed: ParsedExport, opts: M
   }
   // The run lock holds one connection for the whole run and every tool session needs another: with one in all, the run would wait forever.
   if ((pool.options?.max ?? 10) < 2) throw new Error('the Sage migration needs a pool of at least 2 connections (the run lock holds one for the whole run)');
-  const lock = await acquireRunLock(pool, opts.companyId);
+  const lock = await acquireRunLock(pool, opts.companyId, opts.onNotice); // watched: a connect with no answer is said (R27-6)
   let report: MigrationReport;
   try {
     report = await runLocked(pool, parsed, opts, lock);
@@ -263,7 +265,7 @@ async function runLocked(pool: Pool, parsed: ParsedExport, opts: MigrationOption
       }),
     };
   } catch (err) {
-    const committed = await settled(sent.committed, all, () => withToolSession(pool, opts.companyId, opts.userId, false, () => readSnapshot(opts.companyId), notice));
-    throw new MigrationStopped(err, true, committed, stoppedBatches(sent));
+    const { committed, unchecked } = await settled(sent.committed, all, () => withToolSession(pool, opts.companyId, opts.userId, false, () => readSnapshot(opts.companyId), notice));
+    throw new MigrationStopped(err, true, committed, { ...stoppedBatches(sent), ...(unchecked === undefined ? {} : { booksNotRechecked: unchecked }) });
   }
 }

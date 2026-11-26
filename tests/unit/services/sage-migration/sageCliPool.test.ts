@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 vi.mock('../../../../scripts/sage-migration/runConsole', async (orig) => (await import('./sageCliConsoleSpy')).spied(await orig()));
 
-const h = vi.hoisted(() => ({ behave: 'ok' as 'ok' | 'locked-out', endHangs: false, poolEnded: 0, noticed: '' }));
+const h = vi.hoisted(() => ({ behave: 'ok' as 'ok' | 'locked-out', endHangs: false, endRejects: false, poolEnded: 0, noticed: '' }));
 vi.mock('@/modules/accounting/services/sage-migration/sageMigrationRunner', () => ({
   runSageMigration: vi.fn(async (_p: unknown, _x: unknown, o: { onNotice?: (l: string) => void }) => {
     if (h.noticed) o.onNotice?.(h.noticed);
@@ -19,14 +19,14 @@ vi.mock('@/modules/accounting/services/sage-migration/sageMigrationRunner', () =
   }),
 }));
 vi.mock('@/modules/accounting/services/sage-migration/sageReportSummary', () => ({ CONSOLE_ERROR_CHARS: 600, summaryLines: () => ['SUMMARY LINE'], exitCodeFor: () => 0 }));
-vi.mock('pg', () => ({ default: { Pool: class { on() { return this; } end() { h.poolEnded++; return h.endHangs ? new Promise(() => undefined) : Promise.resolve(); } } } }));
+vi.mock('pg', () => ({ default: { Pool: class { on() { return this; } end() { h.poolEnded++; return h.endHangs ? new Promise(() => undefined) : h.endRejects ? Promise.reject(new Error('end failed')) : Promise.resolve(); } } } }));
 
 let d: string;
 let err: string[];
 let exit: ReturnType<typeof vi.spyOn>;
 beforeEach(() => {
   d = mkdtempSync(join(tmpdir(), 'sage-cli-pool-'));
-  Object.assign(h, { behave: 'ok', endHangs: false, poolEnded: 0, noticed: '' });
+  Object.assign(h, { behave: 'ok', endHangs: false, endRejects: false, poolEnded: 0, noticed: '' });
   err = [];
   process.exitCode = undefined;
   vi.resetModules();
@@ -36,7 +36,7 @@ beforeEach(() => {
   vi.spyOn(process.stderr, 'write').mockImplementation((s) => { err.push(String(s)); return true; });
   vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
 });
-afterEach(() => { process.exitCode = undefined; vi.unstubAllEnvs(); vi.restoreAllMocks(); rmSync(d, { recursive: true, force: true }); });
+afterEach(() => { vi.useRealTimers(); process.exitCode = undefined; vi.unstubAllEnvs(); vi.restoreAllMocks(); rmSync(d, { recursive: true, force: true }); });
 
 async function runCli(): Promise<void> {
   const argv = process.argv;
@@ -78,5 +78,30 @@ describe('B26-1: the pool is ended last, and bounded', () => {
     await runCli();
     expect(h.poolEnded).toBe(1);
     expect(exit).not.toHaveBeenCalled();
+  });
+});
+
+describe('R27-9: the bound of the pool end', () => {
+  it('a pool that closes: the bound is cleared, no timer left', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    await runCli();
+    expect(h.poolEnded).toBe(1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+  it('the bound never holds the process up on its own (unref)', async () => {
+    const { SAGE_POOL_END_TIMEOUT_MS } = await import('@/modules/accounting/services/sage-migration/sageTimeouts');
+    const real = globalThis.setTimeout;
+    const bounds: NodeJS.Timeout[] = [];
+    vi.spyOn(globalThis, 'setTimeout').mockImplementation(((fn: () => void, ms?: number) => { const t = real(fn, ms); if (ms === SAGE_POOL_END_TIMEOUT_MS) bounds.push(t); return t; }) as never);
+    await runCli();
+    expect(bounds).toHaveLength(1);
+    expect(bounds[0]!.hasRef()).toBe(false);
+  });
+  it('a pool.end() that rejects: said, the run\'s exit code stands, no exit forced', async () => {
+    h.endRejects = true;
+    await runCli();
+    expect(err.join('')).toContain('closing the database pool failed: end failed\n');
+    expect(exit).not.toHaveBeenCalled();
+    expect(process.exitCode).toBe(0);
   });
 });

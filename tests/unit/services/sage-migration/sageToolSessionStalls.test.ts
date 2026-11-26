@@ -21,10 +21,8 @@ const als = vi.hoisted(() => ({ ctx: null as null | { client: { query: (t: strin
 vi.mock('@/lib/afterCommit', () => ({ runOwnedContext: (ctx: never, fn: () => unknown) => { als.ctx = ctx; return fn(); }, drainAfterCommit: () => undefined, settleAfterRollback: () => undefined }));
 /** A query as a tool issues it: through the request context's client. */
 const toolQuery = (text: string) => als.ctx!.client.query(text);
-vi.mock('@/lib/rollbackFailed', () => {
-  const rollbackError = async (c: { query: (t: string) => Promise<unknown> }) => c.query('ROLLBACK').then(() => null, (e: unknown) => e as Error);
-  return { rollbackError, rollbackFailed: async (c: { query: (t: string) => Promise<unknown> }) => (await rollbackError(c)) !== null };
-});
+// The REAL rollbackError (R27-9): its 5 s bound and its cancel of the backend are part of what is held here (sageToolSessionCancels).
+vi.mock('@/lib/logger', () => ({ log: { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() } }));
 
 import { EventEmitter } from 'node:events';
 import { ConnectionLostError, DryRollbackUnconfirmedError, LockWaitError, LostBeforeCommitError, StatementTimeoutError, withToolSession } from '@/modules/accounting/services/sage-migration/sageToolSession';
@@ -95,7 +93,7 @@ describe('R26-3: a query that waits is said; settling it starts over; no timer o
     let seen: Error | null = null;
     await withToolSession(pool, 'c1', 'u1', false, async (s) => { await toolQuery('SELECT take_number_lock').catch(() => undefined); seen = s.stall!(); });
     expect(seen).toBeInstanceOf(LockWaitError);
-    expect((seen as unknown as LockWaitError).holder).toEqual({ pid: 888, state: 'idle in transaction', app: 'sage-migration' });
+    expect((seen as unknown as LockWaitError).holder).toEqual({ pid: 888, state: 'idle in transaction', app: 'sage-migration', ageS: null, idleMs: null });
     expect(sampler).toHaveBeenCalledWith(expect.stringContaining('pg_blocking_pids($1)'), [41]);
   });
 });
@@ -119,7 +117,7 @@ describe('R26-1: a read timeout in the DRY run (it wrote) with a ROLLBACK not co
   it('says its writes may still be held, with its pid and the remedy, never "the server rolled it back"', async () => {
     const err = await withToolSession(poolOf(stuck({ processID: 63 })), 'c1', 'u1', false, async () => { await toolQuery('SELECT stuck').catch(() => undefined); return 'r'; }, { wrote: true }).then(() => null, (e: unknown) => e);
     expect(err).toBeInstanceOf(DryRollbackUnconfirmedError);
-    expect((err as Error).message).toBe("Query read timeout; and the dry run's ROLLBACK was not confirmed (ROLLBACK did not answer within 5000ms); its writes may still be held (backend pid 63: wait for the server to end it, or SELECT pg_terminate_backend(63))");
+    expect((err as Error).message).toBe("Query read timeout; and the dry run's ROLLBACK was not confirmed (ROLLBACK did not answer within 5000ms); its writes may still be held (backend pid 63, this run's own: SELECT pg_terminate_backend(63) ends it); the dry run commits nothing, so nothing was written to the books; the live run was not started");
   });
   it('the same thrown out of the work: the same', async () => {
     const err = await withToolSession(poolOf(stuck({ processID: 63 })), 'c1', 'u1', false, async () => { await toolQuery('SELECT stuck'); }, { wrote: true }).then(() => null, (e: unknown) => e);
@@ -130,21 +128,34 @@ describe('R26-1: a read timeout in the DRY run (it wrote) with a ROLLBACK not co
   });
 });
 
-describe('B26-4: a statement timeout (57014) is named and stops the run', () => {
-  const timedOut = () => Object.assign(new Error('canceling statement due to statement timeout'), { code: '57014' });
-  it('in a committing request: StatementTimeoutError, no COMMIT sent', async () => {
-    const client = clientOf((t) => (t === 'INSERT slow' ? timedOut() : undefined));
-    const err = await withToolSession(poolOf(client), 'c1', 'u1', true, async () => { await toolQuery('INSERT slow').catch(() => undefined); return 'r'; }).then(() => null, (e: unknown) => e);
+describe('B26-4 / R27-1: a 57014 is a stall, told by its SQLSTATE and how long it ran, never by its message', () => {
+  /** A statement the server cancels with 57014 after `ms` (fake time), with the server's message `text`. */
+  const cancelledAfter = (ms: number, text: string) => new Promise((_, reject) => setTimeout(() => reject(Object.assign(new Error(text), { code: '57014' })), ms));
+  it('in a committing request, past the statement_timeout: StatementTimeoutError, no COMMIT sent', async () => {
+    vi.useFakeTimers();
+    const client = clientOf((t) => (t === 'INSERT slow' ? cancelledAfter(60_000, 'canceling statement due to statement timeout') : undefined));
+    const done = withToolSession(poolOf(client), 'c1', 'u1', true, async () => { await toolQuery('INSERT slow').catch(() => undefined); return 'r'; }).then(() => null, (e: unknown) => e);
+    await vi.advanceTimersByTimeAsync(60_000);
+    const err = await done;
     expect(err).toBeInstanceOf(StatementTimeoutError);
     expect((err as Error).message).toBe("a statement ran past the migration's 60 s statement_timeout (canceling statement due to statement timeout); nothing of it was written: the database is overloaded or stalled; re-run once it answers");
     expect(client.texts).not.toContain('COMMIT');
   });
-  it('in the dry run: stall() reports it; a cancel by a person (57014 "user request") is not it', async () => {
+  it('a German server message (B27-2): the same stall, in the dry run', async () => {
+    vi.useFakeTimers();
     let seen: Error | null = null;
-    await withToolSession(poolOf(clientOf((t) => (t === 'INSERT slow' ? timedOut() : undefined))), 'c1', 'u1', false, async (s) => { await toolQuery('INSERT slow').catch(() => undefined); seen = s.stall!(); });
+    const client = clientOf((t) => (t === 'INSERT slow' ? cancelledAfter(60_000, 'storniere Anfrage wegen Zeitüberschreitung der Anfrage') : undefined));
+    const done = withToolSession(poolOf(client), 'c1', 'u1', false, async (s) => { await toolQuery('INSERT slow').catch(() => undefined); seen = s.stall!(); });
+    await vi.advanceTimersByTimeAsync(60_000);
+    await done;
     expect(seen).toBeInstanceOf(StatementTimeoutError);
-    const cancel = Object.assign(new Error('canceling statement due to user request'), { code: '57014' });
+    expect((seen as unknown as Error).message).toMatch(/^a statement ran past the migration's 60 s statement_timeout \(storniere Anfrage/);
+  });
+  it('one cancelled sooner (pg_cancel_backend by another session): a stall too, said as a cancel, in any language', async () => {
+    let seen: Error | null = null;
+    const cancel = Object.assign(new Error('storniere Anfrage wegen Benutzeraufforderung'), { code: '57014' });
     await withToolSession(poolOf(clientOf((t) => (t === 'INSERT slow' ? cancel : undefined))), 'c1', 'u1', false, async (s) => { await toolQuery('INSERT slow').catch(() => undefined); seen = s.stall!(); });
-    expect(seen).toBeNull();
+    expect(seen).toBeInstanceOf(StatementTimeoutError);
+    expect((seen as unknown as Error).message).toMatch(/^a statement was cancelled after 0 s, before the migration's 60 s statement_timeout \(57014: storniere Anfrage wegen Benutzeraufforderung\): another session cancelled it/);
   });
 });

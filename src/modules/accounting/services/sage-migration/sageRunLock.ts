@@ -7,6 +7,7 @@
 import { createHash } from 'node:crypto';
 import type { Pool, PoolClient } from 'pg';
 import { ConnectionLostError } from './sageSessionErrors';
+import { watchWaits } from './sageWaitWatch';
 import { log } from '@/lib/logger';
 
 export class RunInProgressError extends Error {}
@@ -39,13 +40,23 @@ export interface RunLock {
  * it is released WITH that error, so pg destroys it (a destroyed connection drops its session lock, which is what must happen to one
  * whose unlock did not run). The connection sits idle for the whole run, so it is WATCHED: an 'error' listener records a backend that
  * dropped it (without one, pg's emitter would throw into the process and kill the run with no summary), and `check()` probes it, so the
- * runner can stop between phases when the lock is gone. The listener is removed on release.
+ * runner can stop between phases when the lock is gone. The listener is removed on release. Taking it is watched like every request of
+ * the run (R27-6): a connect or a query of it with no answer is said to `onNotice` every 5 s.
  */
-export async function acquireRunLock(pool: Pool, companyId: string): Promise<RunLock> {
+export async function acquireRunLock(pool: Pool, companyId: string, onNotice?: (line: string) => void): Promise<RunLock> {
+  const watch = watchWaits(pool, onNotice);
+  try {
+    return await takeRunLock(pool, companyId, async (run) => { const done = watch.begin(); try { return await run(); } finally { done(); } });
+  } finally {
+    watch.stop();
+  }
+}
+
+async function takeRunLock(pool: Pool, companyId: string, watched: <T>(run: () => Promise<T>) => Promise<T>): Promise<RunLock> {
   const [k1, k2] = migrationLockKey(companyId);
   let client: PoolClient;
   try {
-    client = await pool.connect(); // bounded by the pool's connectionTimeoutMillis (B26-1): a server that never answers is said
+    client = await watched(() => pool.connect()); // bounded by the pool's connectionTimeoutMillis (B26-1): a server that never answers is said
   } catch (err) {
     throw new ConnectionLostError(err, 'no-connection');
   }
@@ -55,7 +66,7 @@ export async function acquireRunLock(pool: Pool, companyId: string): Promise<Run
   let failure: Error | undefined;
   let gotLock = false;
   try {
-    gotLock = (await client.query<{ ok: boolean }>('SELECT pg_try_advisory_lock($1::int, $2::int) AS ok', [k1, k2])).rows[0]?.ok === true;
+    gotLock = (await watched(() => client.query<{ ok: boolean }>('SELECT pg_try_advisory_lock($1::int, $2::int) AS ok', [k1, k2]))).rows[0]?.ok === true;
   } catch (err) {
     failure = err instanceof Error ? err : new Error(String(err));
   }
@@ -65,8 +76,8 @@ export async function acquireRunLock(pool: Pool, companyId: string): Promise<Run
     let lookupFailure: Error | undefined;
     if (!failure) {
       try {
-        const h = await client.query<{ pid: number }>(`SELECT pid FROM pg_locks WHERE locktype = 'advisory' AND granted AND objsubid = 2 AND pid <> pg_backend_pid()
-          AND classid = ($1::int::bigint & 4294967295)::oid AND objid = ($2::int::bigint & 4294967295)::oid LIMIT 1`, [k1, k2]);
+        const h = await watched(() => client.query<{ pid: number }>(`SELECT pid FROM pg_locks WHERE locktype = 'advisory' AND granted AND objsubid = 2 AND pid <> pg_backend_pid()
+          AND classid = ($1::int::bigint & 4294967295)::oid AND objid = ($2::int::bigint & 4294967295)::oid LIMIT 1`, [k1, k2]));
         holder = h.rows[0]?.pid;
       } catch (err) {
         // R26-10: the connection goes back WITH this error (pg destroys it): a lookup that timed out may still be running on it.
@@ -83,7 +94,7 @@ export async function acquireRunLock(pool: Pool, companyId: string): Promise<Run
   // The server may end an idle session (idle_session_timeout, set per role or database): this one idles for the whole run, so for this
   // session only it is off. A failure here is a failure of the connection like any other.
   try {
-    await client.query('SET idle_session_timeout = 0');
+    await watched(() => client.query('SET idle_session_timeout = 0'));
   } catch (err) {
     failure = err instanceof Error ? err : new Error(String(err));
     client.removeListener('error', onError);

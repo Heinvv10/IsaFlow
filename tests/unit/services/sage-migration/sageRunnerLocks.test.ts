@@ -4,7 +4,8 @@
  *     holds it; a --live run refuses its start (exit 2), a preview reports dry_run_failed (exit 1);
  *   - R25-3: in the live phase a held key or a lock timeout stops the run there (MigrationStopped, exit 4), no further batch sent;
  *   - R25-4: a DryRollbackUnconfirmedError with no result, or that followed the dry run's own error, is thrown, never kept;
- *   - B25-3: a run lock release that is not confirmed is said (in the report, or as a notice when the run itself stopped).
+ *   - B25-3: a run lock release that is not confirmed is said (in the report, or as a notice when the run itself stopped);
+ *   - R27-1: a stall that made the call itself REJECT (the registry's bookkeeping, outside the tool's savepoint) stops the dry run at it.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { BatchReport } from '@/modules/accounting/services/sage-migration/sageMigrationTypes';
@@ -18,10 +19,12 @@ const h = vi.hoisted(() => ({
   dryHeldError: null as 'no-result' | 'after' | 'held-with-lockstop' | null,
   unlockWarning: null as string | null,
   stmtAt: null as string | null, // "<entity> <dry|live>": a statement timeout inside it
+  callStall: null as string | null, // "<entity> dry": the call rejects with the session's stall (StatementTimeoutError)
   sessions: [] as Array<{ commit: boolean; wrote: boolean; notice: unknown }>,
+  lockNotice: undefined as unknown, // what the run lock was given to say a wait with (R27-6)
 }));
 vi.mock('@/modules/accounting/services/sage-migration/localGuard', () => ({ assertLocalDatabase: () => undefined, assertLocalPool: () => undefined }));
-vi.mock('@/modules/accounting/services/sage-migration/sageRunLock', () => ({ acquireRunLock: async () => ({ check: async () => undefined, unlock: async () => h.unlockWarning }) }));
+vi.mock('@/modules/accounting/services/sage-migration/sageRunLock', () => ({ acquireRunLock: async (_p: unknown, _c: unknown, notice?: unknown) => { h.lockNotice = notice; return { check: async () => undefined, unlock: async () => h.unlockWarning }; } }));
 vi.mock('@/modules/accounting/services/sage-migration/sageToolSession', async () => {
   const real = await vi.importActual<typeof import('@/modules/accounting/services/sage-migration/sageSessionErrors')>('@/modules/accounting/services/sage-migration/sageSessionErrors');
   return {
@@ -56,6 +59,7 @@ vi.mock('@/modules/accounting/services/sage-migration/sageBatchRun', async (orig
       const label = `${s.entity} ${dry ? 'dry' : 'live'}`;
       h.sent.push(label);
       if (h.held === label) throw new real.BatchKeyHeldError({ pid: 505, state: 'idle in transaction' }, dry ? 'dry' : 'live');
+      if (h.callStall === label) throw new real.StatementTimeoutError(new Error('storniere Anfrage wegen Zeitüberschreitung der Anfrage'), 'dry', 60_000, 60_010);
       const fails = h.lockWaitAt === label || h.stmtAt === label;
       return { entity: s.entity, n: s.n, size: s.size, key: `k-${s.entity}-${s.n}`, allRowsAlreadyPresent: false, rowsAbsent: 0,
         status: fails ? 'failed' : 'ok', toolReported: fails ? null : (s.entity === 'item' ? { written: true, rows: [] } : { outcome: 'created' }), error: fails ? 'retry in a moment' : null };
@@ -74,14 +78,31 @@ const parsed = () => parseSageExport({ Items: [
 ] });
 const run = (over: Record<string, unknown> = {}) => runSageMigration({ options: { max: 4 } } as never, parsed(), { companyId: 'c', userId: 'u', live: true, expect: { items: 2, purchaseOrders: 0 }, ...over });
 const live = () => h.sent.filter((x) => x.endsWith('live'));
-beforeEach(() => { h.sent.length = 0; h.held = null; h.lockWaitAt = null; h.liveLockWaitAt = null; h.dryHeldError = null; h.unlockWarning = null; h.stmtAt = null; h.sessions.length = 0; });
+beforeEach(() => { h.sent.length = 0; h.held = null; h.lockWaitAt = null; h.liveLockWaitAt = null; h.dryHeldError = null; h.unlockWarning = null; h.stmtAt = null; h.callStall = null; h.sessions.length = 0; });
+
+describe('R27-1: a stall that rejected the call itself, in the dry run', () => {
+  it('a preview: dry_run_failed, THAT batch failed with the stall; no later batch sent', async () => {
+    h.callStall = 'category dry';
+    const r = await run({ live: false });
+    expect(r.status).toBe('dry_run_failed');
+    expect(r.dryRun.categories.batches).toEqual([expect.objectContaining({ n: 1, status: 'failed', error: expect.stringMatching(/^a statement ran past the migration's 60 s statement_timeout/) })]);
+    expect(h.sent).toEqual(['category dry']);
+  });
+  it('with --live: a refused start naming the batch (exit 2), nothing live sent', async () => {
+    h.callStall = 'category dry';
+    const err = await run().then(() => null, (e: unknown) => e);
+    expect(err).not.toBeInstanceOf(MigrationStopped);
+    expect(String(err)).toMatch(/^Error: the dry run stopped at category batch 1 \(sage-mig-category-0001-[0-9a-f]+-dry\): a statement ran past the migration's 60 s statement_timeout .*; the live run was not started$/);
+    expect(live()).toEqual([]);
+  });
+});
 
 describe('B25-1 / R25-1: the dry run stops at its first lock wait', () => {
   it('a lock timeout in category batch 1: a preview is dry_run_failed with THAT batch named, who holds it said; no later batch sent', async () => {
     h.lockWaitAt = 'category dry';
     const r = await run({ live: false });
     expect(r.status).toBe('dry_run_failed');
-    expect(r.dryRun.categories.batches).toEqual([expect.objectContaining({ n: 1, status: 'failed', error: expect.stringMatching(/timed out .*held by backend pid 606, idle in transaction: a transaction left open; wait for the server to end it, or SELECT pg_terminate_backend\(606\)/) })]);
+    expect(r.dryRun.categories.batches).toEqual([expect.objectContaining({ n: 1, status: 'failed', error: expect.stringMatching(/timed out .*held by backend pid 606, idle in transaction, application \(none\): another session's open transaction; check with whoever owns it before ending it/) })]);
     expect(h.sent).toEqual(['category dry']); // not 2 categories x their own lock timeout
     expect(summaryLines(r).join('\n')).toMatch(/FAILED category batch 1 \(dry run\): a lock it needs is held by another session/);
   });
@@ -107,7 +128,7 @@ describe('R25-3: in the live phase a held key or a lock timeout stops the run (e
       const err = await run().then(() => null, (e: unknown) => e) as InstanceType<typeof MigrationStopped>;
       expect(err).toBeInstanceOf(MigrationStopped);
       expect(err.liveStarted).toBe(true);
-      expect(err.batches.failed).toEqual([expect.objectContaining({ entity: 'category', n: 1, status: 'failed', error: expect.stringMatching(/likely a previous run's live transaction whose COMMIT was not confirmed.*\(backend pid 505\); it may be committing|held by backend pid 707, active, application psql: it is at work; wait for it to finish/) })]);
+      expect(err.batches.failed).toEqual([expect.objectContaining({ entity: 'category', n: 1, status: 'failed', error: expect.stringMatching(/a live transaction that has not ended \(a previous run's, or another client using the same key\): backend pid 505, idle in transaction, application \(none\): another session's open transaction; check with whoever owns it before ending it; it was never sent a COMMIT|held by backend pid 707, active, application psql: it is at work; wait for it to finish/) })]);
       expect(live()).toEqual(['category live']); // the second category, the items: never sent
     });
   }
@@ -137,12 +158,13 @@ describe('B25-3: a run lock release not confirmed', () => {
   });
 });
 
-describe('R26-3: every session of the run gets onNotice (the plan, the dry run, each live batch, the reads between and after)', () => {
+describe('R26-3 / R27-6: every session of the run gets onNotice (the run lock, the plan, the dry run, each live batch, the reads between and after)', () => {
   it('a finished live run, and a stopped one (its books read after the stop included)', async () => {
     const onNotice = vi.fn();
     await run({ onNotice });
     expect(h.sessions.map((x) => `${x.commit ? 'live' : x.wrote ? 'dry' : 'read'}`)).toEqual(['read', 'dry', 'live', 'live', 'read', 'read']); // the plan, the dry run, 2 live categories, the reads after them
     expect(h.sessions.every((x) => x.notice === onNotice)).toBe(true);
+    expect(h.lockNotice).toBe(onNotice); // R27-6: the run lock's connect too
     h.sessions.length = 0;
     h.liveLockWaitAt = 'category live';
     await run({ onNotice }).catch(() => null);
