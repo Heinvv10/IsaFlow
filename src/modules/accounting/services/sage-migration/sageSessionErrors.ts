@@ -13,11 +13,23 @@ export class CommitUnconfirmedError extends Error {
   constructor(message: string, readonly result: unknown, readonly connectionLost = false) { super(message); }
 }
 
+import pg from 'pg';
 import { described, ownBackend, whoHolds, type LockHolder } from './sageLockHolder';
 
 export type { LockHolder } from './sageLockHolder';
 
 const text = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+
+/**
+ * The run's caller ended the run (R29-1: the CLI's terminate or its own exit): no request is started any more; nothing of this one was
+ * sent (no BEGIN).
+ */
+export class RunEndedError extends Error {
+  constructor(readonly why: string) {
+    super(`the run had ended (${why}): this request was not started, nothing of it was sent`);
+    this.name = 'RunEndedError';
+  }
+}
 
 /**
  * The server ANSWERED the COMMIT with an error (B28-2): a cancel (57014), a deferred constraint or trigger that failed (23xxx, P0001),
@@ -34,10 +46,19 @@ export class CommitRefusedError extends Error {
     this.name = 'CommitRefusedError';
   }
 }
-/** An error the server sent in reply to a COMMIT that leaves the connection up: an ERROR, so the transaction was rolled back. */
+/**
+ * An error the SERVER sent in reply to a COMMIT that leaves the connection up: an ERROR, so the transaction was rolled back (R29-5). Only
+ * a pg DatabaseError (the server's ErrorResponse) counts, never a client errno (EPIPE, EBADF) that happens to be five letters; a FATAL or
+ * PANIC never counts (the English severity is checked; a translated one falls to the code rule, whose classes 08 / 57P / 58 / XX and
+ * 25P03 are the ones that end a connection); 40003 (statement_completion_unknown) may have committed, so it never counts either.
+ */
 export const commitRefusedByServer = (err: unknown): boolean => {
-  const code = typeof err === 'object' && err !== null ? (err as { code?: unknown }).code : undefined;
-  return typeof code === 'string' && /^[0-9A-Z]{5}$/.test(code) && !/^(08|57P|58|XX)/.test(code) && code !== '25P03';
+  const ServerError = (pg as { DatabaseError?: abstract new (...a: never[]) => Error }).DatabaseError;
+  if (typeof ServerError !== 'function' || !(err instanceof ServerError)) return false;
+  const e = err as Error & { code?: string; severity?: string };
+  const code = e.code;
+  if (e.severity === 'FATAL' || e.severity === 'PANIC') return false;
+  return typeof code === 'string' && /^[0-9A-Z]{5}$/.test(code) && !/^(08|57P|58|XX)/.test(code) && code !== '25P03' && code !== '40003';
 };
 
 /**
@@ -114,8 +135,8 @@ const liveKeyHolder = (h: LockHolder | undefined, unread: boolean): string => {
 export class BatchKeyHeldError extends Error {
   constructor(readonly holder: LockHolder | undefined, readonly phase: LockPhase = 'dry', readonly unread = false) {
     super(phase === 'dry'
-      ? `another session holds this batch's lock: likely a previous run's dry transaction (${who(holder, unread)}); then re-run`
-      : `another session holds this batch's lock: a live transaction that has not ended (a previous run's, or another client using the same key): ${liveKeyHolder(holder, unread)}`);
+      ? `another session holds this batch's lock: likely a previous run's dry transaction, or a different key with the same 32-bit hash (${who(holder, unread)}); then re-run`
+      : `another session holds this batch's lock: a live transaction that has not ended (a previous run's, another client using the same key, or a different key with the same 32-bit hash): ${liveKeyHolder(holder, unread)}`);
     this.name = 'BatchKeyHeldError';
   }
 }
@@ -146,4 +167,18 @@ export class StatementTimeoutError extends Error {
       : `a statement was cancelled after ${Math.round(elapsedMs / 100) / 10} s, before the migration's ${timeoutMs / 1000} s statement_timeout (57014: ${text(cause)}): another session cancelled it (pg_cancel_backend); nothing of it was written; find out who, then re-run`, { cause });
     this.name = 'StatementTimeoutError';
   }
+}
+
+/**
+ * Why a request that READ (the books after a stop) failed, without the request's own "nothing of it was written" (R29-6, B28-6): said
+ * next to a list of committed batches, that sentence would read as said of them. Every typed error is worded from its cause.
+ */
+export function causeWording(err: unknown): string {
+  const cause = (e: unknown): string => { const c = (e as { cause?: unknown }).cause; return c === undefined ? text(e) : text(c); };
+  if (err instanceof ConnectionLostError) return `${err.how === 'no-connection' ? 'no connection could be had' : 'its connection was lost'}: ${cause(err)}`;
+  if (err instanceof LostBeforeCommitError) return `its connection was lost: ${cause(err)}`;
+  if (err instanceof StatementTimeoutError) return `a statement of it timed out or was cancelled: ${cause(err)}`;
+  if (err instanceof LockWaitError) return `a lock it needed was held by another session${err.holder === undefined ? '' : ` (backend pid ${err.holder.pid})`}: ${cause(err)}`;
+  if (err instanceof RunEndedError) return `the run had ended (${err.why})`;
+  return text(err);
 }

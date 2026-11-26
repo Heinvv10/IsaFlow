@@ -5,7 +5,6 @@
  */
 import { log } from '@/lib/logger';
 import { confirmIdle, HOLDER_COLUMNS, HOLDER_CONFIRM_MS, holderFrom, idleInTransaction } from './sageLockHolder';
-import { SAGE_APP_NAME } from './sageTimeouts';
 import { BatchKeyHeldError, type LockPhase } from './sageSessionErrors';
 
 /**
@@ -35,18 +34,18 @@ type Queryable = { query: (text: string, values?: unknown[]) => Promise<{ rows: 
  * `o.confirmMs` (HOLDER_CONFIRM_MS): only one still idle with its state unchanged can be offered for ending (R28-4). `o.runLockAt`: when
  * this run took its run lock.
  */
-export async function takeKeyLockNow(client: Queryable, lookup: Queryable, lockText: string, phase: LockPhase, o: { runLockAt?: number; confirmMs?: number } = {}): Promise<void> {
+export async function takeKeyLockNow(client: Queryable, lookup: Queryable, lockText: string, phase: LockPhase, o: { runLockAt?: number; appName?: string; confirmMs?: number } = {}): Promise<void> {
   const got = await client.query('SELECT pg_try_advisory_xact_lock(hashtext($1)::bigint) AS ok', [lockText]);
   if (got.rows[0]?.ok !== false) return;
   let unread = false;
-  const read = () => lookup.query(HOLDER_SQL, [lockText]).then((r) => holderFrom(r.rows[0], o.runLockAt), (err: unknown) => {
+  const read = () => lookup.query(HOLDER_SQL, [lockText]).then((r) => holderFrom(r.rows[0], o), (err: unknown) => {
     unread = true;
     log.warn('sage migration: who holds the batch key could not be read', { message: err instanceof Error ? err.message : String(err) }, 'sage-migration');
     return undefined;
   });
   const at = Date.now();
   let holder = await read();
-  if (holder !== undefined && holder.app === SAGE_APP_NAME && idleInTransaction(holder.state) && holder.olderThanRun === true) {
+  if (holder !== undefined && holder.ours === true && idleInTransaction(holder.state) && holder.olderThanRun === true) {
     const apart = o.confirmMs ?? HOLDER_CONFIRM_MS;
     const first = { holder, at };
     await new Promise((r) => { setTimeout(r, apart); });

@@ -28,6 +28,7 @@ vi.mock('@/lib/cancelBackend', () => ({ cancelBackend: () => { cancel.onCancel?.
 vi.mock('@/lib/logger', () => ({ log: { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() } }));
 
 import { EventEmitter } from 'node:events';
+import pg from 'pg';
 import { setRollbackBoundForTests } from '@/lib/rollbackFailed';
 import { CommitRefusedError, CommitUnconfirmedError, LockWaitError, LostBeforeCommitError, StatementTimeoutError, withToolSession } from '@/modules/accounting/services/sage-migration/sageToolSession';
 
@@ -37,7 +38,8 @@ const clientOf = (answer: (text: string) => unknown) => {
   return Object.assign(new EventEmitter(), { processID: 51, texts, release: vi.fn(), query: async (text: string) => { texts.push(text); const a = await answer(text); if (a instanceof Error) throw a; return a ?? { rows: [] }; } });
 };
 const poolOf = (client: unknown) => ({ connect: async () => client }) as never;
-const pgError = (code: string, text: string) => Object.assign(new Error(text), { code });
+/** A server's ErrorResponse, as pg gives it (a DatabaseError). */
+const pgError = (code: string, text: string) => Object.assign(new pg.DatabaseError(text, 0, 'error'), { code, severity: 'ERROR' });
 /** Rejects with `err` after `ms` of fake time. */
 const after = (ms: number, err: Error) => new Promise((_, reject) => setTimeout(() => reject(err), ms));
 const settle = async <T,>(p: Promise<T>, ms: number) => { await vi.advanceTimersByTimeAsync(ms); return p; };

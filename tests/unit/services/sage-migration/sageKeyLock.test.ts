@@ -55,26 +55,35 @@ describe('the holder is read through the lookup (the pool), not the request\'s a
 });
 
 describe('R28-4 / B28-3: a holder that looks like a migration transaction left open is looked up twice', () => {
-  const ownIdle = (stateChangeMs: number) => ({ pid: 77, state: 'idle in transaction', app: 'isaflow-sage-migration', stateChangeMs, xactStartMs: 1_000 });
+  const ownIdle = (stateChangeMs: number) => ({ pid: 77, state: 'idle in transaction', app: 'isaflow-sage-migration:00000000-0000-4000-8000-0000000000c1', stateChangeMs, xactStartMs: 1_000 });
+  const appName = 'isaflow-sage-migration:00000000-0000-4000-8000-0000000000c1'; // this company's (B29-3)
   const lookupOf = (rows: Array<Record<string, unknown>>) => ({ query: vi.fn(async () => ({ rows: [rows.length > 1 ? rows.shift()! : rows[0]!] })) });
   const held = { query: async () => ({ rows: [{ ok: false }] }) };
   it('still idle, state unchanged, older than the run lock: confirmed (offered for ending)', async () => {
     const lookup = lookupOf([ownIdle(500), ownIdle(500)]);
-    const err = await takeKeyLockNow(held, lookup, 'k', 'dry', { runLockAt: 2_000, confirmMs: 0 }).then(() => null, (e: unknown) => e) as BatchKeyHeldError;
+    const err = await takeKeyLockNow(held, lookup, 'k', 'dry', { runLockAt: 2_000, appName, confirmMs: 0 }).then(() => null, (e: unknown) => e) as BatchKeyHeldError;
     expect(lookup.query).toHaveBeenCalledTimes(2);
     expect(err.holder).toMatchObject({ pid: 77, confirmedIdle: true, olderThanRun: true });
     expect(err.message).toContain('SELECT pg_terminate_backend(77) ends it');
   });
   it('its state moved between the samples (a live client between statements): not confirmed, left to its owner', async () => {
-    const err = await takeKeyLockNow(held, lookupOf([ownIdle(500), ownIdle(900)]), 'k', 'dry', { runLockAt: 2_000, confirmMs: 0 }).then(() => null, (e: unknown) => e) as BatchKeyHeldError;
+    const err = await takeKeyLockNow(held, lookupOf([ownIdle(500), ownIdle(900)]), 'k', 'dry', { runLockAt: 2_000, appName, confirmMs: 0 }).then(() => null, (e: unknown) => e) as BatchKeyHeldError;
     expect(err.holder?.confirmedIdle).not.toBe(true);
     expect(err.message).toContain('check with whoever owns it before ending it');
     expect(err.message).not.toMatch(/pg_terminate_backend/);
   });
   it('a transaction from after this run took its lock is never "left open", and is looked up once only', async () => {
     const lookup = lookupOf([ownIdle(500)]);
-    const err = await takeKeyLockNow(held, lookup, 'k', 'dry', { runLockAt: 500, confirmMs: 0 }).then(() => null, (e: unknown) => e) as BatchKeyHeldError;
+    const err = await takeKeyLockNow(held, lookup, 'k', 'dry', { runLockAt: 500, appName, confirmMs: 0 }).then(() => null, (e: unknown) => e) as BatchKeyHeldError;
     expect(lookup.query).toHaveBeenCalledTimes(1);
     expect(err.message).not.toMatch(/pg_terminate_backend/);
+  });
+  it("B29-3: another company's migration (its own application_name) is never offered for ending, nor looked up twice", async () => {
+    const lookup = lookupOf([{ ...ownIdle(500), app: 'isaflow-sage-migration:8bcea06e-0000-4000-8000-000000000000' }]);
+    const err = await takeKeyLockNow(held, lookup, 'k', 'live', { runLockAt: 2_000, appName, confirmMs: 0 }).then(() => null, (e: unknown) => e) as BatchKeyHeldError;
+    expect(lookup.query).toHaveBeenCalledTimes(1);
+    expect(err.holder?.ours).toBe(false);
+    expect(err.message).not.toMatch(/pg_terminate_backend/);
+    expect(err.message).toContain('or a different key with the same 32-bit hash');
   });
 });

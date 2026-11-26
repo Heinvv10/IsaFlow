@@ -14,7 +14,7 @@ import { idleSettingMs } from '@/modules/accounting/services/sage-migration/sage
 const wait = (holder?: ConstructorParameters<typeof LockWaitError>[1]) => new LockWaitError(new Error('canceling statement due to lock timeout'), holder, 'dry').message;
 
 /** Our own application, idle in a transaction, confirmed across two samples and older than this run's lock: the only "left open". */
-const own = { app: SAGE_APP_NAME, state: 'idle in transaction', confirmedIdle: true, olderThanRun: true };
+const own = { app: SAGE_APP_NAME, ours: true, state: 'idle in transaction', confirmedIdle: true, olderThanRun: true };
 
 describe('the holder hint', () => {
   it("a migration transaction left open: ours, idle, confirmed by two samples, older than this run: ending it is offered, its client MAY be gone", () => {
@@ -27,7 +27,7 @@ describe('the holder hint', () => {
     expect(m).not.toMatch(/at work/);
   });
   it('R28-4 / B28-3: our application name alone is not enough: one sample, or a transaction from after this run took its lock, is "check with whoever owns it"', () => {
-    for (const h of [{ ...own, confirmedIdle: false }, { ...own, confirmedIdle: undefined }, { ...own, olderThanRun: false }, { ...own, app: 'IsaFlow web' }]) {
+    for (const h of [{ ...own, confirmedIdle: false }, { ...own, confirmedIdle: undefined }, { ...own, olderThanRun: false }, { ...own, app: 'IsaFlow web', ours: false }, { ...own, ours: false }]) {
       const m = wait({ pid: 3702489, ...h });
       expect(m, JSON.stringify(h)).toContain("another session's open transaction; check with whoever owns it before ending it");
       expect(m, JSON.stringify(h)).not.toMatch(/pg_terminate_backend|left open/);
@@ -48,7 +48,7 @@ describe('the holder hint', () => {
     expect(waiting).toContain('held by backend pid 536684, active, application IsaFlow web: chain W10: it is itself waiting on a lock (backend pids 527709, 536684) and no session ahead of it could be named as the root');
     expect(waiting).not.toMatch(/at work/);
     const cycle = wait({ pid: 1607589, state: 'active', app: 'IsaFlow web: stock take', waiting: true, cycle: true, chain: [1607589] });
-    expect(cycle).toContain("a lock cycle with this run's own request (backend pids 1607589): a deadlock the server breaks once a waiting session's deadlock check runs; this request gives way at its lock_timeout at the latest; then re-run");
+    expect(cycle).toContain("a lock cycle with this run's own request (backend pids 1607589): a deadlock the server breaks once a waiting session's deadlock check runs; this request gives way at its lock_timeout at the latest); then re-run"); // B29-6: said once
     expect(cycle).not.toMatch(/deadlock_timeout \(/); // the holder's own deadlock_timeout cannot be seen: no value is promised (dl3)
     expect(cycle).not.toMatch(/at work/);
   });
@@ -66,7 +66,7 @@ describe('the holder hint', () => {
     expect(wait()).toContain('held by backend pid unknown: wait for it to end');
   });
   it('a held DRY key keeps the dry attribution (a dry key ends in -dry), with the same rule', () => {
-    expect(new BatchKeyHeldError({ pid: 8, state: 'active' }, 'dry').message).toBe("another session holds this batch's lock: likely a previous run's dry transaction (backend pid 8, active, application (none): it is at work; wait for it to finish); then re-run");
+    expect(new BatchKeyHeldError({ pid: 8, state: 'active' }, 'dry').message).toBe("another session holds this batch's lock: likely a previous run's dry transaction, or a different key with the same 32-bit hash (backend pid 8, active, application (none): it is at work; wait for it to finish); then re-run");
   });
   it('R27-7: a holder lookup that failed is "could not be read", never "unknown"', () => {
     expect(new BatchKeyHeldError(undefined, 'dry', true).message).toContain('who holds it could not be read (the lookup failed; see the log)');

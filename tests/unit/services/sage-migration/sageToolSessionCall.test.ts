@@ -20,6 +20,7 @@ vi.mock('@/lib/rollbackFailed', () => {
 });
 
 import { EventEmitter } from 'node:events';
+import pg from 'pg';
 import { CommitUnconfirmedError, ConnectionLostError, DryRollbackUnconfirmedError, LostBeforeCommitError, withToolSession, CommitRefusedError } from '@/modules/accounting/services/sage-migration/sageToolSession';
 
 const sent: string[] = [];
@@ -157,20 +158,29 @@ describe('(d) B20-1: a connection lost in a request that commits nothing (the dr
   });
 });
 
+/** A server's ErrorResponse, as pg gives it (a DatabaseError), with its SQLSTATE and severity. */
+const server = (code: string, text: string, severity = 'ERROR') => Object.assign(new pg.DatabaseError(text, 0, 'error'), { code, severity });
 /** R21-1: errors that are NOT a lost connection (a cancel/timeout, a constraint, a serialization failure, a refused or full server). */
 const notLost = () => [
-  Object.assign(new Error('canceling statement due to statement timeout'), { code: '57014' }),
-  Object.assign(new Error('duplicate key value violates unique constraint'), { code: '23505' }),
-  Object.assign(new Error('could not serialize access due to concurrent update'), { code: '40001' }),
+  server('57014', 'canceling statement due to statement timeout'),
+  server('23505', 'duplicate key value violates unique constraint'),
+  server('40001', 'could not serialize access due to concurrent update'),
   new Error('connect ECONNREFUSED 127.0.0.1:5432: connection refused'),
-  Object.assign(new Error('sorry, too many clients already'), { code: '53300' }),
-  Object.assign(new Error('feature not supported'), { code: '0A000' }),
+  server('53300', 'sorry, too many clients already'),
+  server('0A000', 'feature not supported'),
   // B21-2: raised by the books' own SQL on a live connection (a trigger): a code or a message that only LOOKS like a loss
-  Object.assign(new Error('b21 fake connection failure'), { code: '08006' }),
-  Object.assign(new Error('terminating connection due to administrator command (b21 fake)'), { code: 'P0001' }),
+  server('08006', 'b21 fake connection failure'),
+  server('P0001', 'terminating connection due to administrator command (b21 fake)'),
   new Error('x: Connection terminated by a trigger'), // R22-3: pg's own message starts with it
   Object.assign(new Error('Connection terminated unexpectedly'), { code: null }), // R22-4: a code that is set (not a string): not pg's own
+  // R29-5: never "refused": a client errno of five letters, a COMMIT that may have committed (40003), a FATAL answer
+  Object.assign(new Error('write EPIPE'), { code: 'EPIPE' }),
+  Object.assign(new Error('bad file descriptor'), { code: 'EBADF' }),
+  server('40003', 'statement completion unknown'),
+  server('53200', 'out of memory', 'FATAL'),
 ];
+/** Which of those a COMMIT may call refused: a server ERROR whose code leaves the connection up and cannot have committed. */
+const refused = (e: Error): boolean => e instanceof pg.DatabaseError && (e as { severity?: string }).severity === 'ERROR' && !['08006', '40003'].includes((e as { code: string }).code);
 
 describe('R21-1: the classifier\'s negative side', () => {
   it('a COMMIT rejected for any of these is never connectionLost: a server ERROR (a SQLSTATE that leaves the connection up) is a refusal, rolled back (B28-2); the rest unconfirmed', async () => {
@@ -179,7 +189,7 @@ describe('R21-1: the classifier\'s negative side', () => {
       registry.call.mockResolvedValueOnce(ok('{"created":1}'));
       const err = await withToolSession({ connect: async () => client } as never, 'c1', 'u1', true, (x) => x.call('w', { idempotency_key: 'k' })).then(() => null, (r: unknown) => r);
       const code = (e as { code?: unknown }).code;
-      if (typeof code === 'string' && code !== '08006') {
+      if (refused(e)) {
         expect(err, e.message).toBeInstanceOf(CommitRefusedError);
         expect((err as Error).message, e.message).toBe(`the server refused the COMMIT (${code}: ${e.message}): the transaction was rolled back, nothing of it was written`);
       } else {

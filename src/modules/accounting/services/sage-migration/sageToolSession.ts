@@ -15,14 +15,14 @@ import { isActiveUserAccount } from '@/lib/auth/userAccountStatus';
 import { mcpRegistry } from '@/lib/mcp/toolIndex';
 import { rollbackError } from '@/lib/rollbackFailed';
 import type { McpToolContext } from '@/lib/mcp/types';
-import { CommitRefusedError, CommitUnconfirmedError, commitRefusedByServer, ConnectionLostError, DryRollbackUnconfirmedError, LockWaitError, LostBeforeCommitError, StatementTimeoutError, type LockHolder } from './sageSessionErrors';
+import { CommitRefusedError, CommitUnconfirmedError, RunEndedError, commitRefusedByServer, ConnectionLostError, DryRollbackUnconfirmedError, LockWaitError, LostBeforeCommitError, StatementTimeoutError, type LockHolder } from './sageSessionErrors';
 import { idempotencyLockText, takeKeyLockNow } from './sageKeyLock';
 import { watchWaits } from './sageWaitWatch';
-import { SAGE_COMMIT_TIMEOUT_MS, SAGE_LOCK_TIMEOUT_MS, SAGE_STATEMENT_TIMEOUT_MS } from './sageTimeouts';
+import { SAGE_COMMIT_TIMEOUT_MS, SAGE_LOCK_TIMEOUT_MS, SAGE_STATEMENT_TIMEOUT_MS, sageAppName } from './sageTimeouts';
 
 export { SAGE_CONNECT_TIMEOUT_MS, SAGE_KEEPALIVE_INITIAL_DELAY_MS, SAGE_LOCK_TIMEOUT_MS, SAGE_QUERY_TIMEOUT_MS, SAGE_STATEMENT_TIMEOUT_MS, sagePoolConfig } from './sageTimeouts';
 
-export { BatchKeyHeldError, CommitRefusedError, CommitUnconfirmedError, ConnectionLostError, DryRollbackUnconfirmedError, LockWaitError, LostBeforeCommitError, StatementTimeoutError } from './sageSessionErrors';
+export { BatchKeyHeldError, CommitRefusedError, CommitUnconfirmedError, RunEndedError, ConnectionLostError, DryRollbackUnconfirmedError, LockWaitError, LostBeforeCommitError, StatementTimeoutError } from './sageSessionErrors';
 
 export const MIGRATION_SCOPES = ['read:items', 'write:items', 'read:invoices', 'write:invoices', 'read:contacts'];
 
@@ -94,11 +94,15 @@ export function toolOutcome(text: string, isError: boolean): ToolOutcome {
  * A transaction the tools marked rollbackOnly, or whose COMMIT fails, is an error (`commit: true`), never a silent success.
  */
 export async function withToolSession<T>(
-  pool: Pool, companyId: string, userId: string, commit: boolean, fn: (s: ToolSession) => Promise<T>, o: { wrote?: boolean; onNotice?: (line: string) => void; runLockAt?: number } = {},
+  pool: Pool, companyId: string, userId: string, commit: boolean, fn: (s: ToolSession) => Promise<T>, o: { wrote?: boolean; onNotice?: (line: string) => void; runLockAt?: number; ended?: () => string | null } = {},
 ): Promise<T> {
   // The watch starts before the connect, so a connect that waits is said too (B26-1); a connect that cannot be had within the pool's
   // connectionTimeoutMillis sent nothing: before the live phase a refused start, in a live batch a failed batch, nothing written.
-  const watch = watchWaits(pool, o.onNotice, o.runLockAt); // runLockAt: a holder older than this run's lock may be a dead run's (R28-4)
+  // R29-1: a run that ended starts no request: nothing is sent, not even BEGIN.
+  const ended = o.ended?.() ?? null;
+  if (ended !== null) throw new RunEndedError(ended);
+  const appName = sageAppName(companyId); // this company's sessions' name: only those are ever offered for ending (B29-3)
+  const watch = watchWaits(pool, o.onNotice, { runLockAt: o.runLockAt, appName }); // runLockAt: a holder older than this run's lock may be a dead run's (R28-4)
   let client: PoolClient;
   const connecting = watch.begin();
   try {
@@ -197,7 +201,7 @@ export async function withToolSession<T>(
         let r: Awaited<ReturnType<typeof mcpRegistry.call>>;
         try {
           if (WRITE_TOOLS.has(name) && typeof args.idempotency_key === 'string' && args.idempotency_key.trim() !== '') {
-            await takeKeyLockNow(db as never, (typeof (pool as { query?: unknown }).query === 'function' ? pool : db) as never, idempotencyLockText(companyId, name, args.idempotency_key, PER_USER_TOOLS.has(name) ? userId : undefined), commit ? 'live' : 'dry', { runLockAt: o.runLockAt });
+            await takeKeyLockNow(db as never, (typeof (pool as { query?: unknown }).query === 'function' ? pool : db) as never, idempotencyLockText(companyId, name, args.idempotency_key, PER_USER_TOOLS.has(name) ? userId : undefined), commit ? 'live' : 'dry', { runLockAt: o.runLockAt, appName });
           }
           r = await mcpRegistry.call(name, sent, { ...ctx, onIdempotentReplay: () => { replayed = true; } });
         } catch (err) {

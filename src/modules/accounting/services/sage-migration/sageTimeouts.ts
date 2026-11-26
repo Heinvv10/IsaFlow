@@ -27,11 +27,13 @@ export const SAGE_KEEPALIVE_INITIAL_DELAY_MS = 10_000;
 /** How long the CLI waits for its pool to close before it exits anyway (B26-1): its result is already printed and written. */
 export const SAGE_POOL_END_TIMEOUT_MS = 5_000;
 /**
- * The application_name of the CLI's connections (R27-3): a lock holder with it is one of the migration's own sessions, the only kind it
- * offers to end. Every other holder is someone else's to end.
+ * The application_name of the CLI's connections (R27-3, B29-3): `isaflow-sage-migration:<company id>`. A lock holder with THIS company's
+ * name is one of this company's migration sessions, the only kind ever offered for ending; another company's run (a batch key may share
+ * the registry's 32-bit hashtext space) or any other client is someone else's to end.
  */
 export const SAGE_APP_NAME = 'isaflow-sage-migration';
-export const sagePoolConfig = (connectionString: string | undefined) => ({
+export const sageAppName = (companyId: string): string => `${SAGE_APP_NAME}:${companyId.toLowerCase()}`;
+export const sagePoolConfig = (connectionString: string | undefined, companyId: string) => ({
   connectionString, max: 4, keepAlive: true, keepAliveInitialDelayMillis: SAGE_KEEPALIVE_INITIAL_DELAY_MS, query_timeout: SAGE_QUERY_TIMEOUT_MS,
-  connectionTimeoutMillis: SAGE_CONNECT_TIMEOUT_MS, application_name: SAGE_APP_NAME,
+  connectionTimeoutMillis: SAGE_CONNECT_TIMEOUT_MS, application_name: sageAppName(companyId),
 });

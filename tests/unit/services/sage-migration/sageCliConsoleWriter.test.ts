@@ -10,6 +10,12 @@ import { describe, expect, it } from 'vitest';
 import { CONSOLE_WAIT_MS, Console, consoleApi } from '../../../../scripts/sage-migration/runConsole';
 
 type Step = number | 'EAGAIN' | 'EPIPE';
+type Sys = NonNullable<Parameters<typeof consoleApi>[1]>;
+/** The console's system side, faked: nothing of vitest's own fd 1 / 2 is touched; exits are recorded. */
+const exits: Array<number | undefined> = [];
+const nowWrites: Array<[number, string]> = [];
+const sys = (over: Partial<Sys> = {}): Sys => ({ sameFile: () => false, blockingFds: () => [], capture: () => () => undefined, saveFlags: () => () => undefined,
+  writeNow: (fd, text) => { nowWrites.push([fd, text]); return true; }, exit: (code) => { exits.push(code); }, ...over });
 /** A console whose fd `fd` takes what `take(fd)` says each call (bytes, EAGAIN or EPIPE); time moves only by `tick`. */
 function rig(take: (fd: number) => Step) {
   let clock = 0;
@@ -148,7 +154,7 @@ describe('2>&1: one file, one queue (R28-1)', () => {
 describe('B28-1: a stream given up is said on the other stream', () => {
   const apiOf = (take: (fd: number) => Step, sameFile: boolean) => {
     const r = rig(take);
-    const api = consoleApi(r.c, { sameFile: () => sameFile, blockingFds: () => [], capture: () => undefined });
+    const api = consoleApi(r.c, sys({ sameFile: () => sameFile }));
     return { r, api };
   };
   it('stderr given up (no reader): said on stdout, a different file, with where the report is', () => {
@@ -162,7 +168,7 @@ describe('B28-1: a stream given up is said on the other stream', () => {
     const { r, api } = apiOf((fd) => (fd === 1 ? 'EPIPE' : 1000), false);
     api.prepareConsole(() => null);
     api.out('SUMMARY');
-    expect(r.got[2]).toBe('stdout is closed (EPIPE): what it was given is not printed there; give --report <path>: a pipe holds only a few KiB, and a large run says more\n');
+    expect(r.got[2]).toBe('stdout is closed (EPIPE): what it was given is not printed there; give --report <path>: it always holds the whole report\n'); // B29-6: a closed stream is not a pipe's size
   });
   it('one file (2>&1): nothing is written into the pipe that was given up; one queue for both', () => {
     const { r, api } = apiOf(() => 'EAGAIN', true);
@@ -191,7 +197,7 @@ describe('B28-1: a stream given up is said on the other stream', () => {
   });
   it('a console in blocking mode is said', () => {
     const r = rig(() => 1000);
-    consoleApi(r.c, { sameFile: () => false, blockingFds: () => [2], capture: () => undefined }).prepareConsole(() => null);
+    consoleApi(r.c, sys({ blockingFds: () => [2] })).prepareConsole(() => null);
     expect(r.got[2]).toBe('the console (fd 2) is in blocking mode: a reader that stops reading holds the run up until it reads again\n');
   });
 });

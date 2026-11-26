@@ -182,7 +182,7 @@ describe('round 25: the pool the CLI gives the run', () => {
     await runCli(report);
     const { SAGE_QUERY_TIMEOUT_MS, SAGE_STATEMENT_TIMEOUT_MS, SAGE_KEEPALIVE_INITIAL_DELAY_MS, SAGE_CONNECT_TIMEOUT_MS, SAGE_COMMIT_TIMEOUT_MS } = await import('@/modules/accounting/services/sage-migration/sageTimeouts');
     expect(h.poolOptions).toMatchObject({ max: 4, keepAlive: true, keepAliveInitialDelayMillis: SAGE_KEEPALIVE_INITIAL_DELAY_MS, query_timeout: SAGE_QUERY_TIMEOUT_MS, connectionTimeoutMillis: SAGE_CONNECT_TIMEOUT_MS });
-    expect(h.poolOptions).toMatchObject({ application_name: 'isaflow-sage-migration' }); // R27-3: its own sessions are told apart by it
+    expect(h.poolOptions).toMatchObject({ application_name: `isaflow-sage-migration:${COMPANY}` }); // R27-3, B29-3: this company's sessions are told apart by it
     expect(SAGE_QUERY_TIMEOUT_MS).toBeGreaterThan(SAGE_STATEMENT_TIMEOUT_MS);
     // R26-8: the COMMIT bound sits between them, so on this pool it is the bound that fires on a COMMIT
     expect(SAGE_COMMIT_TIMEOUT_MS).toBeGreaterThan(SAGE_STATEMENT_TIMEOUT_MS);

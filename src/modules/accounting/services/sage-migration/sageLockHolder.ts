@@ -1,8 +1,8 @@
 /**
  * Who holds a lock a migration request needs, as pg_stat_activity showed it when it was looked up, and what to do about it (R26-4, R27-3,
  * R28-2..5, B28-3..5). Every holder is named: pid, state, application, how long its transaction has been open, how long it has been idle.
- *   - Ending it is offered only for a migration transaction LEFT OPEN: the migration's own application_name (SAGE_APP_NAME, set on the CLI's
- *     pool; any client can set the same name, so it is not enough alone), idle in a transaction, seen idle in two samples at least
+ *   - Ending it is offered only for a migration transaction LEFT OPEN: THIS company's migration application_name (sageAppName, set on the
+ *     CLI's pool; any client can set the same name, so it is not enough alone; another company's run never matches it, B29-3), idle in a transaction, seen idle in two samples at least
  *     HOLDER_CONFIRM_MS apart with its state unchanged (`confirmedIdle`: a live client between two statements moves on), and in a
  *     transaction that began before this run took its run lock (`olderThanRun`). Its client MAY be gone; that is all that is claimed.
  *   - Any other session idle in a transaction is left to whoever owns it (an application's request looks just like that between two of
@@ -12,7 +12,6 @@
  *   - "The server ends it" is said only from the holder's OWN role / database default (pg_db_role_setting), and as a default: a session's
  *     own SET cannot be seen from another session.
  */
-import { SAGE_APP_NAME } from './sageTimeouts';
 
 /**
  * Two samples of an idle holder this far apart, its state unchanged, make it "left open" rather than between two statements. Short
@@ -44,6 +43,8 @@ export interface LockHolder {
   confirmedIdle?: boolean;
   /** Its transaction began before this run took its run lock (set where that time is known). */
   olderThanRun?: boolean;
+  /** Its application_name is this company's migration's (sageAppName, B29-3): never set for another company's run or another client. */
+  ours?: boolean;
 }
 
 /** The columns HOLDER_SQL and BLOCKER_SQL select from pg_stat_activity `a` for a holder, in LockHolder's names. */
@@ -63,7 +64,9 @@ export function idleSettingMs(cfg: unknown): number | null {
 }
 
 /** A row of those columns as a LockHolder; undefined when there is none (no row, or no pid). */
-export function holderFrom(row: Record<string, unknown> | undefined, runLockAt?: number): LockHolder | undefined {
+/** `ctx`: when this run took its run lock, and this company's application_name. */
+export function holderFrom(row: Record<string, unknown> | undefined, ctx: { runLockAt?: number; appName?: string } = {}): LockHolder | undefined {
+  const { runLockAt, appName } = ctx;
   if (row === undefined || typeof row.pid !== 'number') return undefined;
   const num = (v: unknown): number | null => (typeof v === 'number' ? v : typeof v === 'string' && /^-?\d+$/.test(v) ? Number(v) : null);
   const xactStartMs = num(row.xactStartMs);
@@ -72,6 +75,7 @@ export function holderFrom(row: Record<string, unknown> | undefined, runLockAt?:
     stateChangeMs: num(row.stateChangeMs), xactStartMs, idleMs: idleSettingMs(row.idleDefault), waiting: row.waiting === true,
     cycle: row.cycle === true, chain: Array.isArray(row.chain) ? (row.chain as number[]) : null,
     olderThanRun: runLockAt !== undefined && xactStartMs !== null && xactStartMs < runLockAt,
+    ours: appName !== undefined && row.app === appName,
   };
 }
 
@@ -89,14 +93,14 @@ const seconds = (v: number | null | undefined, what: string): string => (v !== n
 export const described = (h: LockHolder): string => `backend pid ${h.pid}${h.state ? `, ${h.state}` : ''}, application ${h.app ? h.app : '(none)'}${seconds(h.ageS, 'in a transaction for')}${idleInTransaction(h.state) ? seconds(h.idleS, 'idle for') : ''}`;
 
 /** A migration transaction left open: our application, idle, confirmed idle across two samples, and older than this run's lock. */
-export const ownLeftOpen = (h: LockHolder): boolean => h.app === SAGE_APP_NAME && idleInTransaction(h.state) && h.confirmedIdle === true && h.olderThanRun === true;
+export const ownLeftOpen = (h: LockHolder): boolean => h.ours === true && idleInTransaction(h.state) && h.confirmedIdle === true && h.olderThanRun === true;
 
 const pids = (h: LockHolder): string => (h.chain && h.chain.length > 0 ? ` (backend pids ${h.chain.join(', ')})` : '');
 
 /** The advice for a known holder. */
 export function whoHolds(h: LockHolder): string {
-  if (h.cycle === true) return `${described(h)}: a lock cycle with this run's own request${pids(h)}: a deadlock the server breaks once a waiting session's deadlock check runs; this request gives way at its lock_timeout at the latest; then re-run`;
-  if (h.waiting === true) return `${described(h)}: it is itself waiting on a lock${pids(h)} and no session ahead of it could be named as the root (a cycle among them is broken by the server's deadlock check); wait, then re-run`;
+  if (h.cycle === true) return `${described(h)}: a lock cycle with this run's own request${pids(h)}: a deadlock the server breaks once a waiting session's deadlock check runs; this request gives way at its lock_timeout at the latest`; // the caller says "then re-run" (B29-6)
+  if (h.waiting === true) return `${described(h)}: it is itself waiting on a lock${pids(h)} and no session ahead of it could be named as the root (a cycle among them is broken by the server's deadlock check)`;
   if (ownLeftOpen(h)) return `${described(h)}: a migration transaction left open, from before this run (its client may be gone)${serverEnds(h)}; SELECT pg_terminate_backend(${h.pid}) ends it`;
   if (idleInTransaction(h.state)) return `${described(h)}: another session's open transaction; check with whoever owns it before ending it${serverEnds(h)}`;
   if (h.state === undefined || h.state === null) return `${described(h)} (its state could not be read): check what it is in pg_stat_activity before ending it`;

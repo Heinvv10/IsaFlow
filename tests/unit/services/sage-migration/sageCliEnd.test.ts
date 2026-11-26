@@ -1,0 +1,155 @@
+/**
+ * R29-1 (B29-1), R29-2, R29-9, B29-4 on run.ts / runEnd.ts, against a MOCKED runner that sends batches one by one, asking shouldStop
+ * before each, as the real one does; the console's stderr is STALLED (a reader that does not read), so every exit has to wait for it.
+ *   - an uncaught error / an unhandled rejection in the live phase ends the run: no batch is sent after it, the batch in flight settles
+ *     and is said as such, and the books (what the runner sent), the report and the console agree; no summary, no exit code from main;
+ *   - the same in the dry phase: the live phase never starts, exit 2;
+ *   - a stray error while the exit waits changes nothing (R29-2); a first signal then says the run has already stopped (B29-4) and a
+ *     second one exits at once, the code unchanged; after a finished run a second signal exits at once (R29-9).
+ */
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import type { BatchReport, MigrationOptions } from '@/modules/accounting/services/sage-migration/sageMigrationTypes';
+
+const h = vi.hoisted(() => ({
+  opts: null as MigrationOptions | null, phase: 'live' as 'dry' | 'live', batches: 8, sent: [] as string[], liveEntered: false,
+  crashAt: null as number | null, crash: (() => undefined) as () => void, throwAtEnd: null as string | null,
+  poolGate: Promise.resolve() as Promise<void>,
+}));
+const batch = (entity: BatchReport['entity'], n: number): BatchReport => ({ entity, n, size: 1, key: `k-${entity}-${n}`, status: 'ok', allRowsAlreadyPresent: false, rowsAbsent: 0, toolReported: { outcome: 'created' }, error: null });
+const tick = () => new Promise((r) => setImmediate(r));
+vi.mock('@/modules/accounting/services/sage-migration/sageMigrationRunner', () => ({
+  runSageMigration: vi.fn(async (_p: unknown, _x: unknown, opts: MigrationOptions) => {
+    h.opts = opts;
+    const phases = h.phase === 'dry' ? ['dry'] as const : ['dry', 'live'] as const;
+    for (const phase of phases) {
+      opts.onProgress?.({ kind: 'phase', phase });
+      if (phase === 'live') h.liveEntered = true;
+      for (let n = 1; n <= (phase === 'dry' && h.phase === 'live' ? 0 : h.batches); n++) {
+        const stop = opts.shouldStop?.();
+        if (stop) throw new Error(stop);
+        if (opts.ended?.() != null) throw new Error('a session was asked for after the run ended');
+        opts.onProgress?.({ kind: 'sending', batch: { entity: 'category', n, size: 1, key: `k-category-${n}` } });
+        if (n === h.crashAt) h.crash(); // the crash comes while this batch is in flight
+        await tick();
+        h.sent.push(`${phase} ${n}`);
+        opts.onProgress?.({ kind: 'recorded', phase, batch: batch('category', n) });
+      }
+    }
+    if (h.throwAtEnd) throw new Error(h.throwAtEnd);
+    return { live: null, marker: 'THE-FINAL-REPORT' };
+  }),
+}));
+vi.mock('@/modules/accounting/services/sage-migration/sageReportSummary', () => ({ CONSOLE_ERROR_CHARS: 600, summaryLines: () => ['SUMMARY LINE'], exitCodeFor: () => 0 }));
+vi.mock('pg', () => ({ default: { Pool: class { on() { return this; } async end() { await h.poolGate; } } } }));
+vi.mock('../../../../scripts/sage-migration/runConsole', async (orig) => (await import('./sageCliConsoleSpy')).spied(await orig()));
+
+const stall = (on: boolean) => { (globalThis as { __sageConsoleStall?: unknown }).__sageConsoleStall = { stderr: on }; };
+let d: string;
+let err: string[];
+let exit: ReturnType<typeof vi.spyOn>;
+let before: Record<string, Function[]>;
+const HOOKS = ['SIGINT', 'SIGTERM', 'uncaughtException', 'unhandledRejection'] as const;
+beforeEach(() => {
+  d = mkdtempSync(join(tmpdir(), 'sage-cli-end-'));
+  Object.assign(h, { opts: null, phase: 'live', batches: 8, sent: [], liveEntered: false, crashAt: null, crash: () => undefined, throwAtEnd: null, poolGate: Promise.resolve() });
+  err = [];
+  process.exitCode = undefined;
+  vi.resetModules();
+  vi.stubEnv('DATABASE_URL', 'postgresql://postgres@127.0.0.1:5433/isaflow_test');
+  for (const name of ['SERVICE_DATABASE_URL', 'PLATFORM_ADMIN_DATABASE_URL', 'MIGRATION_ADMIN_DATABASE_URL']) vi.stubEnv(name, '');
+  exit = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never);
+  vi.spyOn(process.stderr, 'write').mockImplementation((s) => { err.push(String(s)); return true; });
+  vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+  before = Object.fromEntries(HOOKS.map((e) => [e, process.listeners(e as NodeJS.Signals)]));
+  stall(true);
+});
+afterEach(() => { stall(false); process.exitCode = undefined; vi.unstubAllEnvs(); vi.restoreAllMocks(); rmSync(d, { recursive: true, force: true }); });
+
+const fire = (ev: (typeof HOOKS)[number], arg: unknown = ev) => { for (const l of process.listeners(ev as NodeJS.Signals).filter((x) => !before[ev]!.includes(x))) (l as (a: unknown) => void)(arg); };
+const report = () => JSON.parse(readFileSync(join(d, 'r.json'), 'utf8'));
+async function start() {
+  const argv = process.argv;
+  process.argv = [argv[0]!, 'scripts/sage-migration/run.ts', '--company', '00000000-0000-4000-8000-000000000001', '--user', '00000000-0000-4000-8000-000000000002',
+    '--file', 'tests/fixtures/sage-export/sage-export.json', '--report', join(d, 'r.json'), '--live', '--expect-items', '20', '--expect-pos', '10'];
+  const { runCli } = await import('../../../../scripts/sage-migration/run');
+  return { done: runCli({ removeHandlers: true }).finally(() => { process.argv = argv; }) };
+}
+/** Until the runner stopped asking (it threw or returned), at most 2 s. */
+const settle = async () => { for (let i = 0; i < 200 && exit.mock.calls.length === 0; i++) await tick(); for (let i = 0; i < 20; i++) await tick(); };
+
+describe('R29-1: an end at once while the console is still being written stops the run for real', () => {
+  for (const [what, ev] of [['an uncaught error', 'uncaughtException'], ['an unhandled rejection', 'unhandledRejection']] as const) {
+    it(`live, ${what}: no batch after it; the one in flight settles and is said; books = report = console; no summary, exit 4 once drained`, async () => {
+      h.crashAt = 3;
+      h.crash = () => fire(ev, new Error('injected'));
+      const { done } = await start();
+      await settle();
+      expect(h.sent).toEqual(['live 1', 'live 2', 'live 3']); // never batch 4
+      expect(exit).not.toHaveBeenCalled(); // the stop message still waits for its reader
+      const r = report();
+      expect(r).toMatchObject({ status: 'stopped', liveStarted: true });
+      expect(r.committed.map((b: BatchReport) => b.n)).toEqual([1, 2, 3]); // batch 3 settled after the end: written into the report as it settled
+      expect(r.commitUnconfirmed).toEqual([]);
+      stall(false);
+      await done;
+      expect(exit.mock.calls).toEqual([[4]]);
+      const said = err.join('');
+      expect(said).toMatch(/sage migration stopped: an (uncaught error|unhandled rejection) ended the run: injected/);
+      expect(said).toMatch(/committed: category batch 1 .*\n.*committed: category batch 2 /s);
+      expect(said).toMatch(/commit unconfirmed: category batch 3 /); // as known at the end...
+      expect(said).toContain('the batch in flight when the run ended, category batch 3 (k-category-3), then committed; no batch followed it: the report says so'); // ...then as it settled
+      expect(said).not.toMatch(/SUMMARY LINE|the run finished|report was not written/);
+    });
+  }
+  it('dry: the live phase never starts; exit 2, "nothing was written to the books"', async () => {
+    h.phase = 'dry';
+    h.crashAt = 2;
+    h.crash = () => fire('uncaughtException', new Error('injected'));
+    const { done } = await start();
+    await settle();
+    expect(h.sent).toEqual(['dry 1', 'dry 2']);
+    expect(h.liveEntered).toBe(false);
+    expect(report()).toMatchObject({ status: 'stopped', liveStarted: false });
+    stall(false);
+    await done;
+    expect(exit.mock.calls).toEqual([[2]]);
+    expect(err.join('')).toContain('nothing was written to the books (the live phase had not started)');
+  });
+});
+
+describe('R29-2 / B29-4 / R29-9: what else comes while the exit waits', () => {
+  it('a stray error changes nothing; a first signal says the run has already stopped; a second exits at once, the code unchanged', async () => {
+    h.throwAtEnd = 'the books refused it'; // an ERROR stop of the run itself (a plain error: exit 2 here)
+    const { done } = await start();
+    await settle();
+    fire('uncaughtException', new Error('late pg client error'));
+    for (let i = 0; i < 20; i++) await tick();
+    expect(exit).not.toHaveBeenCalled(); // R29-2: never cuts the stop message
+    fire('SIGINT');
+    for (let i = 0; i < 20; i++) await tick();
+    expect(exit).not.toHaveBeenCalled();
+    fire('SIGINT');
+    expect(exit.mock.calls).toEqual([[2]]); // at once, the stop's own code
+    stall(false);
+    await done;
+    expect(err.join('')).toContain('SIGINT: the run has already stopped; its stop message is still being written (send it again to exit at once)');
+    expect(err.join('')).not.toMatch(/stops before its next batch/);
+  });
+  it('R29-9: after a finished run, a second signal exits at once', async () => {
+    h.batches = 1;
+    let open: () => void = () => undefined;
+    h.poolGate = new Promise((r) => { open = r; }); // the run has finished; its pool is still closing: the handlers are still there
+    const { done } = await start();
+    await settle();
+    fire('SIGTERM'); // the run had finished: said (queued behind the stalled reader)
+    expect(exit).not.toHaveBeenCalled();
+    fire('SIGTERM');
+    expect(exit).toHaveBeenCalledTimes(1);
+    stall(false);
+    open();
+    await done;
+  });
+});

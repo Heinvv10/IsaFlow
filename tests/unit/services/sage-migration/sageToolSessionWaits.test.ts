@@ -61,7 +61,7 @@ describe('B24-2: a lock another session holds never hangs a migration request', 
     registry.call.mockClear();
     const err = await withToolSession({ connect: async () => client } as never, 'c1', 'u1', false, (s) => s.call('w', { idempotency_key: 'batch-1' })).then(() => null, (e: unknown) => e);
     expect(err).toBeInstanceOf(BatchKeyHeldError);
-    expect((err as Error).message).toBe("another session holds this batch's lock: likely a previous run's dry transaction (backend pid 777, idle in transaction, application isaflow-sage-migration: another session's open transaction; check with whoever owns it before ending it); then re-run"); // R28-4: one sample, no run-lock time: never ended blind
+    expect((err as Error).message).toBe("another session holds this batch's lock: likely a previous run's dry transaction, or a different key with the same 32-bit hash (backend pid 777, idle in transaction, application isaflow-sage-migration: another session's open transaction; check with whoever owns it before ending it); then re-run"); // R28-4: one sample, no run-lock time: never ended blind
     expect(registry.call).not.toHaveBeenCalled();
     // the key text the registry locks (src/lib/mcp/audit.ts acquireIdempotencyLock)
     expect(queries.find(([t]) => t.startsWith('SELECT pg_try_advisory_xact_lock'))?.[1]).toEqual(['mcp:c1:w:batch-1']);
@@ -164,7 +164,7 @@ describe('R25-2 / R25-8: the key lock, by phase, by the registry\'s text', () =>
     const client = clientOf((t) => (t.startsWith('SELECT pg_try_advisory_xact_lock') ? { rows: [{ ok: false }] } : t.includes('FROM pg_locks') ? { rows: [{ pid: 31 }] } : undefined));
     const err = await withToolSession(poolOf(client), 'c1', 'u1', true, (s) => s.call('w', { idempotency_key: 'k' })).then(() => null, (e: unknown) => e);
     expect(err).toBeInstanceOf(BatchKeyHeldError);
-    expect((err as Error).message).toBe("another session holds this batch's lock: a live transaction that has not ended (a previous run's, or another client using the same key): backend pid 31, application (none): it may be committing, so do not terminate it: check the books, wait for it to end, then re-run");
+    expect((err as Error).message).toBe("another session holds this batch's lock: a live transaction that has not ended (a previous run's, another client using the same key, or a different key with the same 32-bit hash): backend pid 31, application (none): it may be committing, so do not terminate it: check the books, wait for it to end, then re-run");
   });
   it('the key is trimmed, and a per-user tool\'s is namespaced by the caller, as the registry does', async () => {
     const values: unknown[] = [];

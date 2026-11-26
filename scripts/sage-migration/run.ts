@@ -31,110 +31,22 @@ import { runSageMigration } from '../../src/modules/accounting/services/sage-mig
 import { SAGE_POOL_END_TIMEOUT_MS, sagePoolConfig } from '../../src/modules/accounting/services/sage-migration/sageTimeouts';
 import type { ParsedExport } from '../../src/modules/accounting/services/sage-migration/sageExportTypes';
 import { exitCodeForError, stopMessage } from '../../src/modules/accounting/services/sage-migration/sageStopMessage';
-import { checkReportArgs, exitAfterReportFailure, OwnedReport, stopReportBody, summarize } from './runReport';
-import { RunState } from './runState';
-import { cliConsole, exitAfterConsole, exitPending, out, prepareConsole, say } from './runConsole';
+import { checkReportArgs, exitAfterReportFailure, OwnedReport, summarize } from './runReport';
+import { exitAfterConsole, out, prepareConsole, say } from './runConsole';
+import { cli, installHandlers, leaveStopReport, shouldStop } from './runEnd';
 
 /*
  * The console (runConsole.ts): every line through it, so no exit drops a line a lagging reader has not taken yet (R27-2, R28-1); every
- * exit waits for it (exitAfterConsole). A stream whose reader went away (EPIPE) or stalled past its budget is given up, said on the other
- * stream, and never kills the run (round 18, B18-2): the run goes on to its own end, its report in --report.
+ * exit waits for it (exitAfterConsole). How the run ends, and its state, signals and stop reports: runEnd.ts (R29-1).
  */
-/**
- * The --report file this run created (runReport.ts: a path that did not exist, created exclusively once every argument is checked and the
- * export is read, before the first database step). Every exit after that leaves a report in it, written through its held descriptor: the
- * stop report of a stop or a refusal, the run's own report at the end. A refusal before it exists writes nothing anywhere.
- */
-let owned: OwnedReport | null = null;
-/** The --report asked for, while it does not exist yet: a refusal then says it was not created. */
-let reportAsked: string | undefined;
-/** The create failed after it made the file, and the file could not be removed (R18-4): a refusal must not say "not created". */
-let reportLeft = false;
-/**
- * What the run did so far (the runner's onProgress): a stop at once says it. This state and the variables above are the module's: runCli
- * runs once per process (the CLI; each test re-imports the module) (R19-5).
- */
-const state = new RunState();
-/**
- * A stop report through the held descriptor, then the file is closed (a second report is refused). If it cannot be written, once more,
- * small, through the same descriptor (B18-5), so the file is never left truncated; the exit code is not changed by it.
- */
-const leaveStopReport = (err: unknown, exitCode: number): void => {
-  if (!owned) return;
-  const why = owned.write(stopReportBody(err));
-  if (why) {
-    say(why);
-    const again = owned.write({ status: 'stop_report_not_written', exitCode, why });
-    if (again) say(again);
-  }
-  owned.close();
-};
-/**
- * The note on a refusal before --report exists. Only main's catch can need it: main runs without an await up to the create, so no signal
- * or crash handler (terminate) runs while --report is asked for but not created.
- */
+/** The note on a refusal before --report exists (only main's catch can need it: main runs without an await up to the create). */
 const notCreated = () => {
-  if (reportLeft) return ` (nothing written to the books; --report ${reportAsked} was created but could not be written or removed: delete it)`;
-  return owned === null && reportAsked !== undefined ? ` (nothing written; --report ${reportAsked} was not created by this run)` : '';
+  if (cli.reportLeft) return ` (nothing written to the books; --report ${cli.reportAsked} was created but could not be written or removed: delete it)`;
+  return cli.owned === null && cli.reportAsked !== undefined ? ` (nothing written; --report ${cli.reportAsked} was not created by this run)` : '';
 };
-/**
- * A refused start: thrown, so every exit goes through main's one catch (the message, a stop report once --report exists, exit 2: nothing
- * written to the books).
- */
+/** A refused start: thrown, so every exit goes through main's one catch (the message, a stop report once --report exists, exit 2). */
 class RefusedStart extends Error {}
 const fail: (s: string) => never = (s) => { throw new RefusedStart(s); };
-
-/**
- * The one end AT ONCE (round 18 decision): a second signal, an uncaught error or an unhandled rejection. Its stop report is built from
- * what the run reported so far (RunState: the batches recorded, the one in flight as commit unconfirmed), written through the held
- * descriptor; exit 4 once the live phase started, else 2 (nothing written to the books). A run that already finished keeps its exit code.
- */
-function terminate(why: string): void {
-  // The run's exit is decided and waits for a reader that lags: this end comes at once, its code unchanged, nothing more said (B28-1).
-  if (exitPending()) { void exitAfterConsole(0); return; }
-  if (state.finished) {
-    say(`${why}: the run had finished; its report and exit code stand`);
-    void exitAfterConsole(undefined); // process.exit() keeps process.exitCode
-    return;
-  }
-  const err = state.stoppedAtOnce(state.liveStarted ? why : `${why}; nothing was written to the books (the live phase had not started)`);
-  const code = exitCodeForError(err);
-  say(stopMessage(err));
-  leaveStopReport(err, code);
-  void exitAfterConsole(code); // a further signal while the console drains ends it at once, with this code (B28-1)
-}
-
-/**
- * The first SIGINT / SIGTERM / SIGHUP asks the run to stop before its next batch (dry or live; the runner asks shouldStop), so it stops
- * through the usual path: in the dry run a refused start (exit 2), in the live phase a stop report listing what was committed (exit 4). A
- * second one ends it at once (terminate). Installed by runCli only, never on import (R18-3).
- */
-let stopSignal: string | null = null;
-/** Installs the handlers; returns what removes them (tests only: the CLI keeps them until it exits). */
-function installHandlers(): () => void {
-  const signal = (sig: NodeJS.Signals) => () => {
-    if (stopSignal !== null) return terminate(`stopped at once by a second signal (${sig})`);
-    stopSignal = sig;
-    // After the run returned (its report written or being written, the pool closing) there is nothing left to stop (B20-3).
-    if (state.finished) return say(`${sig}: the run had finished; its report and exit code stand`);
-    say(state.liveStarted
-      ? `${sig}: the live run stops before its next batch, if one remains; what it committed is then listed (send it again to stop at once)`
-      : `${sig}: the run stops before its next batch, if one remains; nothing is written to the books (send it again to stop at once)`);
-  };
-  const crash = (kind: string) => (e: unknown) => terminate(`${kind}: ${e instanceof Error ? e.message : String(e)}`);
-  const stream = (name: 'stdout' | 'stderr') => (e: NodeJS.ErrnoException) => {
-    // A write through the stream itself (the logger's) failed: said once (B19-3), the stream not written again; the run goes on.
-    cliConsole.markGone(name, e.code ?? e.message);
-  };
-  type Listener = (...a: unknown[]) => void;
-  const on: Array<[NodeJS.EventEmitter, string, Listener]> = [
-    ...(['SIGINT', 'SIGTERM', 'SIGHUP'] as const).map((sig): [NodeJS.EventEmitter, string, Listener] => [process, sig, signal(sig)]),
-    [process, 'uncaughtException', crash('an uncaught error ended the run')], [process, 'unhandledRejection', crash('an unhandled rejection ended the run')],
-    [process.stdout, 'error', stream('stdout') as Listener], [process.stderr, 'error', stream('stderr') as Listener],
-  ];
-  for (const [em, ev, fn] of on) em.on(ev, fn);
-  return () => { for (const [em, ev, fn] of on) em.off(ev, fn); };
-}
 
 /** "80950000.00" -> 8095000000 cents, exactly (no float). */
 function cents(text: string): number {
@@ -163,7 +75,7 @@ async function main(): Promise<void> {
   const { values } = parsedArgs;
   const target = checkReportArgs(process.argv.slice(2), values.report);
   if (!target.ok) fail(`${target.why} (nothing written)`);
-  reportAsked = target.path;
+  cli.reportAsked = target.path;
   // Every check that needs no database comes first (round 17): a refusal here writes nothing anywhere, --report not even created.
   try { assertLocalDatabase(); } catch (err) { fail(err instanceof Error ? err.message : String(err)); }
   if (!values.company || !UUID_RE.test(values.company)) fail('--company <uuid> is required');
@@ -184,10 +96,10 @@ async function main(): Promise<void> {
   // --report is created exclusively now, before the first database step: a path that exists is never written, and nothing else is.
   if (target.path !== undefined) {
     const created = OwnedReport.create(target.path);
-    if (!(created instanceof OwnedReport)) { reportLeft = created.left === true; fail(created.why); } else owned = created;
+    if (!(created instanceof OwnedReport)) { cli.reportLeft = created.left === true; fail(created.why); } else cli.owned = created;
   }
   // Round 25: every connection kept alive and every query bounded client-side (sagePoolConfig), the run lock's included.
-  const pool = new pg.Pool(sagePoolConfig(process.env.DATABASE_URL));
+  const pool = new pg.Pool(sagePoolConfig(process.env.DATABASE_URL, values.company!.toLowerCase()));
   pool.on('error', (err) => say(`database pool error: ${err.message}`));
   openPool = pool; // ended by runCli AFTER the result (or the stop message) is out, and bounded (B26-1)
   {
@@ -195,17 +107,22 @@ async function main(): Promise<void> {
       companyId: values.company!.toLowerCase(), userId: values.user!.toLowerCase(), live: values.live, skipBudgetCheck: values['skip-budget-check'], poGlAccountId: values['po-gl-account']?.toLowerCase(), runTag: values['run-tag'], allowRefusals: values['allow-refusals'] === true, allowDifferences: values['allow-differences'] === true,
       expect,
       // Before the live phase the answer says nothing was written (R19-6): the stop is then a refused start.
-      shouldStop: () => (stopSignal === null ? null : `stopped by ${stopSignal}: no further batch is sent${state.liveStarted ? '' : '; nothing was written to the books'}`),
-      onProgress: state.onProgress,
+      shouldStop,
+      ended: () => cli.state.ended, // R29-1: once the run ended, its sessions start no request
+      onProgress: cli.state.onProgress,
       onNotice: say, // a wait with no answer (and who blocks it), a run lock release not confirmed: never silent (round 25)
     });
+    // terminate ended the run while it ran (R29-1): its stop report and exit stand; nothing more is said, written or decided here.
+    if (cli.endedAtOnce) return;
     // From here to the report's write there is no await, so no signal or crash handler runs in between: an end at once after it changes
     // nothing (the run's own report is written; its exit code stands).
-    state.finished = true;
+    cli.state.finished = true;
+    cli.state.end('the run finished');
     // The summary is printed FIRST: a committed run must always tell what it did, whatever happens to the report file.
     const { lines, code } = summarize(report, values['allow-refusals'] === true, values['allow-differences'] === true);
     for (const line of lines) (code === 4 ? say(line) : out(line));
     process.exitCode = code;
+    const owned = cli.owned;
     if (owned) {
       const why = owned.write(report);
       if (why) {
@@ -221,7 +138,7 @@ async function main(): Promise<void> {
     }
     // A signal that came after the run's last stop check (during the last batch, its check, or a run with none): the run finished, and says
     // so last, with the exit code it ends with (B19-2, R19-3, R20-3).
-    if (stopSignal !== null) say(`${stopSignal} came after the run's last stop check: the run finished (exit ${process.exitCode})`);
+    if (cli.stopSignal !== null) say(`${cli.stopSignal} came after the run's last stop check: the run finished (exit ${process.exitCode})`);
   }
 }
 
@@ -243,7 +160,7 @@ async function endPool(): Promise<void> {
   clearTimeout(timer);
   if (outcome !== 'timeout') return;
   say(`closing the database pool did not finish within ${SAGE_POOL_END_TIMEOUT_MS / 1000} s: the run's result above stands (exit ${process.exitCode ?? 0})`);
-  await exitAfterConsole(process.exitCode ?? 0);
+  await exitAfterConsole(Number(process.exitCode ?? 0));
 }
 
 /**
@@ -253,11 +170,15 @@ async function endPool(): Promise<void> {
  */
 export async function runCli(o: { removeHandlers?: boolean } = {}): Promise<void> {
   const uninstall = installHandlers();
-  prepareConsole(() => (owned ? owned.path : null)); // fd 1 / 2 non-blocking, and a stream given up is said on the other (R28-1, R28-6)
+  prepareConsole(() => (cli.owned ? cli.owned.path : null)); // fd 1 / 2 non-blocking, and a stream given up is said on the other (R28-1, R28-6)
   try {
     await main();
+    if (cli.endedAtOnce) { await exitAfterConsole(undefined); return; } // terminate's exit stands (R29-1, R29-2: the same wait)
     await endPool(); // after the summary, the report and the closing line: a pool that does not close cannot swallow them
   } catch (err) {
+    // terminate ended the run: the runner's own stop that follows says, writes and decides nothing (R29-1); its exit is the same wait.
+    if (cli.endedAtOnce) { await exitAfterConsole(undefined); return; }
+    cli.state.end('the run stopped'); // FIRST: nothing new starts while the stop message is written
     // Said BEFORE the pool is ended (B26-1): the process exits here, so a pool that never ends cannot keep the stop message unsaid.
     const code = exitCodeForError(err);
     say(`${err instanceof RefusedStart ? err.message : stopMessage(err)}${notCreated()}`);

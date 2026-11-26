@@ -93,9 +93,9 @@ describe('watchWaits', () => {
   it('R28-4: an own-app holder idle in two samples HOLDER_CONFIRM_MS apart, its state unchanged and older than the run lock, is confirmed; one whose state moved is not', async () => {
     vi.useFakeTimers();
     let stateChangeMs = 100;
-    const row = () => ({ pid: 777, state: 'idle in transaction', app: 'isaflow-sage-migration', stateChangeMs, xactStartMs: 50 });
+    const row = () => ({ pid: 777, state: 'idle in transaction', app: 'isaflow-sage-migration:00000000-0000-4000-8000-0000000000c1', stateChangeMs, xactStartMs: 50 });
     const pool = { query: vi.fn(async () => ({ rows: [row()] })) } as never;
-    const w = watchWaits(pool, undefined, 1_000);
+    const w = watchWaits(pool, undefined, { runLockAt: 1_000, appName: 'isaflow-sage-migration:00000000-0000-4000-8000-0000000000c1' });
     w.setPid(42);
     const settle = w.begin();
     await vi.advanceTimersByTimeAsync(1_100);
@@ -111,8 +111,8 @@ describe('watchWaits', () => {
   });
   it('R28-4: the evidence adds up across two waits of one request on the same idle holder (a number lock wait, then a row wait)', async () => {
     vi.useFakeTimers();
-    const pool = { query: vi.fn(async () => ({ rows: [{ pid: 777, state: 'idle in transaction', app: 'isaflow-sage-migration', stateChangeMs: 100, xactStartMs: 50 }] })) } as never;
-    const w = watchWaits(pool, undefined, 1_000);
+    const pool = { query: vi.fn(async () => ({ rows: [{ pid: 777, state: 'idle in transaction', app: 'isaflow-sage-migration:00000000-0000-4000-8000-0000000000c1', stateChangeMs: 100, xactStartMs: 50 }] })) } as never;
+    const w = watchWaits(pool, undefined, { runLockAt: 1_000, appName: 'isaflow-sage-migration:00000000-0000-4000-8000-0000000000c1' });
     w.setPid(42);
     let settle = w.begin();
     await vi.advanceTimersByTimeAsync(1_100); // first sample, then the wait ends

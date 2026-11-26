@@ -25,7 +25,8 @@ import { keyFor, planBatches, sendBatch, type PlannedBatches, type Send } from '
 import { ownershipProblem } from './sageOwnership';
 import { recordSent, settleCommitted, stoppedBatches, unconfirmedBatch, verified, verifiedCategories, verifiedItems, type Sent } from './sageVerify';
 import { MigrationStopped } from './sageMigrationStopped';
-import { BatchKeyHeldError, CommitRefusedError, CommitUnconfirmedError, ConnectionLostError, DryRollbackUnconfirmedError, LockWaitError, LostBeforeCommitError, StatementTimeoutError } from './sageToolSession';
+import { BatchKeyHeldError, CommitRefusedError, CommitUnconfirmedError, DryRollbackUnconfirmedError, LockWaitError, LostBeforeCommitError, RunEndedError, StatementTimeoutError } from './sageToolSession';
+import { causeWording } from './sageSessionErrors';
 import { budgetWouldHaveFailed } from './sageBudgetReport';
 import { differencesFrom } from './sageDifferences';
 import { buildLineLinks } from './sageLineLinks';
@@ -65,7 +66,7 @@ function liveBlockers(rec: MigrationReport['reconciliation'], diff: MigrationRep
 export interface DryLockStop { batch: BatchReport; error: Error }
 
 /** What every session of the run is given: the notices, and when the run lock was taken (R28-4). */
-const sessionOpts = (o: MigrationOptions) => ({ onNotice: o.onNotice, runLockAt: o.runLockAt });
+const sessionOpts = (o: MigrationOptions) => ({ onNotice: o.onNotice, runLockAt: o.runLockAt, ended: o.ended });
 
 async function dryRun(pool: Pool, o: MigrationOptions, all: PlannedBatches, before: Snapshot) {
   return withToolSession(pool, o.companyId, o.userId, false, async (session) => {
@@ -129,7 +130,7 @@ async function livePhase(pool: Pool, o: MigrationOptions, list: Send[], before: 
       // Lost before its COMMIT was sent, its key held by another session, or a lock wait that timed out (R25-3): failed, nothing written;
       // the run still stops here (below): the connection went away, or every later batch would queue on the same holder.
       // A COMMIT the server refused (B28-2) is failed, nothing written, too; the run stops: its cause (a cancel, a constraint) would recur.
-      if (err instanceof LostBeforeCommitError || err instanceof BatchKeyHeldError || err instanceof LockWaitError || err instanceof StatementTimeoutError || err instanceof CommitRefusedError) stopHere = true;
+      if (err instanceof LostBeforeCommitError || err instanceof BatchKeyHeldError || err instanceof LockWaitError || err instanceof StatementTimeoutError || err instanceof CommitRefusedError || err instanceof RunEndedError) stopHere = true;
     }
     p.batches.push(b);
     if (b.status === 'failed') p.failed++;
@@ -155,9 +156,8 @@ async function settled(committed: BatchReport[], all: PlannedBatches, read: () =
   try { snapshot = await read(); } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.warn('sage migration: the books could not be read to check the committed batches', { message }, 'sage-migration');
-    // Only why the READ failed: never the read's own "nothing of it was written", which would read as said of the batches (B28-6).
-    const cause = err instanceof ConnectionLostError ? (err.cause instanceof Error ? err.cause.message : String(err.cause)) : message;
-    return { committed, unchecked: err instanceof ConnectionLostError ? `${err.how === 'no-connection' ? 'no connection could be had' : 'its connection was lost'}: ${cause}` : message };
+    // Only why the READ failed: never the read's own "nothing of it was written", which would read as said of the batches (B28-6, R29-6).
+    return { committed, unchecked: causeWording(err) };
   }
   return { committed: settleCommitted(committed, all, snapshot) };
 }

@@ -46,7 +46,7 @@ export interface WaitWatch {
 }
 
 /** `runLockAt`: when this run took its run lock (a holder older than that may be a dead run's, R28-4). */
-export function watchWaits(pool: Pool, onNotice?: (line: string) => void, runLockAt?: number): WaitWatch {
+export function watchWaits(pool: Pool, onNotice?: (line: string) => void, ctx: { runLockAt?: number; appName?: string } = {}): WaitWatch {
   let inFlight = 0;
   let since = 0;
   let noticed = 0;
@@ -70,7 +70,7 @@ export function watchWaits(pool: Pool, onNotice?: (line: string) => void, runLoc
         // No row: nothing blocks it now, so no earlier blocker is named for it (R27-5).
         .then((r) => {
           if (asked !== epoch || inFlight === 0) return;
-          const seen = holderFrom(r.rows[0], runLockAt);
+          const seen = holderFrom(r.rows[0], ctx);
           if (seen === undefined || firstSeen === undefined || firstSeen.holder.pid !== seen.pid || firstSeen.holder.stateChangeMs !== seen.stateChangeMs) firstSeen = seen && { holder: seen, at: Date.now() };
           blocker = seen && firstSeen ? confirmIdle(firstSeen, seen, Date.now()) : seen;
           if (blocker !== undefined) lastBlocker = blocker;
