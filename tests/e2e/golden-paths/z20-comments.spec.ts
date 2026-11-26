@@ -21,6 +21,9 @@ import { Api, gpRef, today } from './_api';
 import { findOrCreateSandbox, switchApiCompany, switchBrowserCompany } from './_migrationSandbox';
 import { expectNoSeriousA11yViolations } from './helpers/axe';
 import { THEMES, seedTheme, settle } from '../helpers/themeSpec';
+import { guardDevTarget } from '../helpers/devTarget';
+
+guardDevTarget(test);
 
 const SANDBOX_NAME = '0GP Golden Comments Sandbox';
 const SANDBOX_ONBOARDING_ID = '3b8f6d52-91c4-4e07-b6a8-5d2c7e1f9a30';

@@ -7,6 +7,9 @@
  * nobody has checked. The figures are proved by income-statement-pdf-ties.int.test.ts. Read-only.
  */
 import { expect, test } from '@playwright/test';
+import { guardDevTarget } from '../helpers/devTarget';
+
+guardDevTarget(test);
 
 const PDF_URL = '/api/accounting/income-statement-pdf?period_start=2026-01-01&period_end=2026-01-31';
 
