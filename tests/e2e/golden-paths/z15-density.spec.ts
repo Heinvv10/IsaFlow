@@ -11,6 +11,9 @@
  * Nothing is written.
  */
 import { test, expect, type Page } from '@playwright/test';
+import { guardDevTarget } from '../helpers/devTarget';
+
+guardDevTarget(test);
 
 const KEY = 'isaflow.tableDensity';
 

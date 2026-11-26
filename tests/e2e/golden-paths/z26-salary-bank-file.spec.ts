@@ -22,6 +22,9 @@ import { Api } from './_api';
 import { clearPayRunApproval } from './helpers/payRunApproval';
 import { findOrCreateSandbox, switchApiCompany, switchBrowserCompany } from './_migrationSandbox';
 import { seedTheme, settle, THEMES } from '../helpers/themeSpec';
+import { guardDevTarget } from '../helpers/devTarget';
+
+guardDevTarget(test);
 
 const EVIDENCE_DIR = process.env.EVIDENCE_DIR;
 const SANDBOX = { name: '0GP Golden Bank File Sandbox', onboardingId: 'e1bfbc2d-f9d7-4db7-805b-de47de2462f5' };
@@ -64,7 +67,6 @@ async function approvedRun(api: Api, baseURL: string): Promise<string | null> {
 }
 
 async function sandbox(context: BrowserContext, baseURL: string) {
-  expect(new URL(baseURL).hostname, 'z26 writes payroll data: dev/CI localhost only').toBe('localhost');
   const api = await Api.login(baseURL);
   const sandboxId = await findOrCreateSandbox(api, SANDBOX);
   await switchApiCompany(api, sandboxId);

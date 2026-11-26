@@ -15,11 +15,12 @@
  *   7. a browser context never switches company (the app's own recovery would move it out of the sandbox).
  */
 
+import { PRODUCTION_PORTS } from '../helpers/devTarget';
 import { loginAliases } from '../../../scripts/ci/golden/slotConfig';
 
 export const PORT_ALLOW_LIST: readonly number[] = [3271, 3272, 3273, 3274, 3275, 3276, 3277, 3278, 3279, 3280];
-/** Production: nginx (80, 3101) and the blue/green colours (3111, 3112). Checked before, and apart from, the allow-list. */
-export const PORT_DENY_LIST: readonly number[] = [80, 3101, 3111, 3112];
+/** Production (helpers/devTarget.ts). Checked before, and apart from, the allow-list. */
+export const PORT_DENY_LIST: readonly number[] = PRODUCTION_PORTS;
 export const REQUESTER_EMAIL = 'reporting-qa@isaflow.co.za';
 export const APPROVER_EMAIL = 'reporting-qa-approver@isaflow.co.za';
 export const SANDBOX_PREFIX = '0RS Rubric Sandbox ';

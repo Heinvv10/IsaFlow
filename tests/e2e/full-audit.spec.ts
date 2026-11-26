@@ -4,6 +4,9 @@
  * Catches 500 errors, broken pages, missing data, and auth issues.
  */
 import { test, expect } from '@playwright/test';
+import { guardDevTarget } from './helpers/devTarget';
+
+guardDevTarget(test);
 
 // ═══════════════════════════════════════════════════════════════════════════
 // SECTION 1: ALL PAGE ROUTES (157 pages)

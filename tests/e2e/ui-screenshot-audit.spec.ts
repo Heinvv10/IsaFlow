@@ -2,8 +2,11 @@
  * Screenshot-focused workflow audit — captures screenshots for visual evidence
  */
 import { test } from '@playwright/test';
+import { devBaseUrl, guardDevTarget } from './helpers/devTarget';
 
-const BASE = 'https://app.isaflow.co.za';
+guardDevTarget(test);
+
+const BASE = devBaseUrl();
 
 test('capture workflow screenshots', async ({ page }) => {
   // Verify auth works

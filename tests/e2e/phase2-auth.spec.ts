@@ -1,7 +1,10 @@
 // tests/e2e/phase2-auth.spec.ts
 import { test, expect } from '@playwright/test';
+import { devBaseUrl, guardDevTarget } from './helpers/devTarget';
 
-const APP_URL = process.env.E2E_BASE_URL ?? 'http://localhost:3000';
+guardDevTarget(test);
+
+const APP_URL = devBaseUrl(process.env.E2E_BASE_URL);
 const OWNER_EMAIL = process.env.E2E_OWNER_EMAIL ?? 'e2e-owner@isaflow.test';
 const OWNER_PASSWORD = process.env.E2E_OWNER_PASSWORD ?? 'SuperSecret12345!';
 

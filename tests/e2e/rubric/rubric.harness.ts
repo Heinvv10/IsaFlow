@@ -1,7 +1,7 @@
 /**
  * The rubric measurement harness (master plan wave 4, MW): the writes wave 3 could not measure, on dev, in a sandbox
  * company of its own, never on production and never in Demo. Run by playwright-rubric.config.ts only; the file name is
- * not `*.spec.ts` on purpose, so no other Playwright config (several point at production) ever collects it.
+ * not `*.spec.ts` on purpose, so no other Playwright config ever collects it.
  *
  * One test, serial steps. The guard (_rubricGuard.ts, _rubricDatabaseGuard.ts, _rubricSession.ts) runs before the first
  * request, and the harness Api checks the session's scope before each write. Each step records into

@@ -13,6 +13,9 @@
  */
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { auditContrast } from '../helpers/themeContrast';
+import { guardDevTarget } from '../helpers/devTarget';
+
+guardDevTarget(test);
 
 const EVIDENCE_DIR = process.env.EVIDENCE_DIR;
 const THEME = process.env.THEME === 'light' ? 'light' : 'dark';

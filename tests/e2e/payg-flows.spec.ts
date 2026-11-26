@@ -20,6 +20,9 @@
  */
 
 import { test, expect } from '@playwright/test';
+import { guardDevTarget } from './helpers/devTarget';
+
+guardDevTarget(test);
 
 test.describe('PAYG — Flow wallet lifecycle', () => {
   test('buy → burn → 402 → top-up → resume', async ({ page }) => {
