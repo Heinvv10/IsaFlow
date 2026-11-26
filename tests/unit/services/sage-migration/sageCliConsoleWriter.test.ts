@@ -148,7 +148,7 @@ describe('2>&1: one file, one queue (R28-1)', () => {
 describe('B28-1: a stream given up is said on the other stream', () => {
   const apiOf = (take: (fd: number) => Step, sameFile: boolean) => {
     const r = rig(take);
-    const api = consoleApi(r.c, { sameFile: () => sameFile, blockingFds: () => [] });
+    const api = consoleApi(r.c, { sameFile: () => sameFile, blockingFds: () => [], capture: () => undefined });
     return { r, api };
   };
   it('stderr given up (no reader): said on stdout, a different file, with where the report is', () => {
@@ -191,7 +191,7 @@ describe('B28-1: a stream given up is said on the other stream', () => {
   });
   it('a console in blocking mode is said', () => {
     const r = rig(() => 1000);
-    consoleApi(r.c, { sameFile: () => false, blockingFds: () => [2] }).prepareConsole(() => null);
+    consoleApi(r.c, { sameFile: () => false, blockingFds: () => [2], capture: () => undefined }).prepareConsole(() => null);
     expect(r.got[2]).toBe('the console (fd 2) is in blocking mode: a reader that stops reading holds the run up until it reads again\n');
   });
 });

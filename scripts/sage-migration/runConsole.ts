@@ -10,6 +10,7 @@
  *     said on the other stream when it is a different, writable file (`onGiveUp`); the exit code is never changed by it;
  *   - the CLI exits only once both streams are drained or given up (`exitAfterConsole`); a second request to end (a second signal) while
  *     it waits ends the process at once, with the same exit code.
+ * The process's other writers (the logger) are routed through it too, once the CLI starts (captureProcessStreams).
  * Precondition (R28-6): fd 1 and 2 must be O_NONBLOCK, or a write to a pipe nobody reads blocks for ever. bun sets that once
  * process.stdout / process.stderr are first touched: `prepareConsole` touches both at the CLI's start and reads the flags back
  * (/proc/self/fdinfo); one still blocking is said. A pipe holds little (8 KiB on velo): a large run should give --report.
@@ -146,8 +147,26 @@ export function blockingFds(): number[] {
   });
 }
 
-/** The console's CLI side, for one Console (the process's own; a test's). `sameFile` / `blockingFds` are replaced in tests only. */
-export function consoleApi(c: Console, sys: { sameFile: () => boolean; blockingFds: () => number[] } = { sameFile, blockingFds }) {
+/**
+ * Every other writer of the process (the logger: process.stdout.write / process.stderr.write) through the console too (R28-7): one queue
+ * per file, so a JSON log line is never cut by a CLI line (bun's own buffer wrote part of a line, ours went in after it), and no exit
+ * drops a log line the reader has not taken.
+ */
+function captureProcessStreams(c: Console): void {
+  for (const stream of ['stdout', 'stderr'] as const) {
+    const s = process[stream];
+    s.write = ((chunk: unknown, enc?: unknown, cb?: unknown): boolean => {
+      c.write(stream, typeof chunk === 'string' ? chunk : Buffer.from(chunk as Uint8Array).toString('utf8'));
+      const done = typeof enc === 'function' ? enc : cb;
+      if (typeof done === 'function') queueMicrotask(() => { (done as () => void)(); });
+      return true;
+    }) as typeof s.write;
+  }
+}
+
+interface ConsoleSys { sameFile: () => boolean; blockingFds: () => number[]; capture: (c: Console) => void }
+/** The console's CLI side, for one Console (the process's own; a test's). `sys` is replaced in tests only. */
+export function consoleApi(c: Console, sys: ConsoleSys = { sameFile, blockingFds, capture: captureProcessStreams }) {
   const say = (s: string): void => { c.write('stderr', `${s}\n`); };
   let exiting: number | null = null;
   return {
@@ -172,6 +191,7 @@ export function consoleApi(c: Console, sys: { sameFile: () => boolean; blockingF
       };
       void process.stdout; // bun makes fd 1 / 2 O_NONBLOCK when the stream is first touched
       void process.stderr;
+      sys.capture(c); // the logger's lines join the same queues
       const blocking = sys.blockingFds();
       if (blocking.length > 0) say(`the console (fd ${blocking.join(', ')}) is in blocking mode: a reader that stops reading holds the run up until it reads again`);
       return { blocking };

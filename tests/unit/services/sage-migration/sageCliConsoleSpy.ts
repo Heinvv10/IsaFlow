@@ -21,7 +21,7 @@ export function spied(real: ConsoleModule): ConsoleModule {
       later: (fn, ms) => { setTimeout(fn, ms); },
     }), { through });
     // vitest's own fd 1 / 2 say nothing about the CLI's: the streams count as two files, none blocking.
-    return real.consoleApi(c, { sameFile: () => false, blockingFds: () => [] });
+    return real.consoleApi(c, { sameFile: () => false, blockingFds: () => [], capture: () => undefined }); // the spies stay on the streams
   };
   // vitest keeps a mocked module across vi.resetModules: each run (runCli calls prepareConsole first) gets a fresh console and exit state.
   let api = make();

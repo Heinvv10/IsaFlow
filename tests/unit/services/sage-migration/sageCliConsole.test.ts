@@ -88,3 +88,17 @@ describe('R28-6: the O_NONBLOCK precondition', () => {
     expect(JSON.parse(text)).toEqual({ blocking: [1, 2] });
   }, 30_000);
 });
+
+describe('R28-7: the logger\'s lines go through the console too', () => {
+  it('2000 JSON log lines and 2000 CLI lines, interleaved, into one pipe whose reader starts 3 s late: every line whole, none lost', async () => {
+    const { text } = await shell(`${CHILD} 2>&1 | { sleep 3; cat; }; echo "exit=\${PIPESTATUS[0]}"`, { SPLICE: '2000' });
+    const lines = text.split('\n').filter((l) => l !== '');
+    const json = lines.filter((l) => { try { return JSON.parse(l).message === 'sage migration: batch committed'; } catch { return false; } });
+    const said = lines.filter((l) => /^committed: category batch \d+$/.test(l));
+    expect([json.length, said.length]).toEqual([2000, 2000]);
+    expect(lines.length).toBe(2000 + 2000 + 3); // + the closing line, the last log line, exit: no fragment anywhere
+    expect(lines.at(-3)).toBe('CLOSING LINE');
+    expect(JSON.parse(lines.at(-2)!).message).toBe('LAST LOG LINE'); // never dropped by the exit (it went through the console)
+    expect(lines.at(-1)).toBe('exit=4');
+  }, 60_000);
+});
