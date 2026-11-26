@@ -2,6 +2,9 @@
  * Sprint D: AI Invoice Pipeline + Receipt-to-Journal E2E Tests
  */
 import { test, expect } from '@playwright/test';
+import { guardDevTarget } from './helpers/devTarget';
+
+guardDevTarget(test);
 
 test.describe('AI Invoice Pipeline API', () => {
   test('POST /api/accounting/ai-invoice-pipeline responds', async ({ request }) => {

@@ -3,9 +3,10 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { execSync } from 'child_process';
 import { getE2ECredentials } from './_creds';
+import { assertDevServer, devBaseUrl } from './helpers/devTarget';
 
 const SCREENSHOTS_DIR = '/home/hein/Workspace/IsaFlow/tests/e2e/screenshots/pdf-qa';
-const BASE_URL = 'https://app.isaflow.co.za';
+const BASE_URL = devBaseUrl();
 
 async function login(page: any) {
   await page.goto(`${BASE_URL}/login`);
@@ -42,6 +43,7 @@ async function renderPdf(pdfPath: string, outPrefix: string) {
 }
 
 async function main() {
+  await assertDevServer(BASE_URL);
   fs.mkdirSync(SCREENSHOTS_DIR, { recursive: true });
 
   const browser = await chromium.launch({

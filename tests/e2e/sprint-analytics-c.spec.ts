@@ -2,6 +2,9 @@
  * Sprint C: Executive Dashboard, Report Packs & Three-Way Forecast E2E Tests
  */
 import { test, expect } from '@playwright/test';
+import { guardDevTarget } from './helpers/devTarget';
+
+guardDevTarget(test);
 
 test.describe('Executive Summary API', () => {
   test('GET /api/accounting/reports-executive-summary responds', async ({ request }) => {

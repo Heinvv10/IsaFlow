@@ -14,6 +14,9 @@ import { expect, test, type Page } from '@playwright/test';
 import { join } from 'path';
 import { expectNoSeriousA11yViolations } from './helpers/axe';
 import { THEMES, settle } from '../helpers/themeSpec';
+import { guardDevTarget } from '../helpers/devTarget';
+
+guardDevTarget(test);
 
 const evidenceDir = process.env.ASK_EVIDENCE_DIR;
 test.setTimeout(240_000);

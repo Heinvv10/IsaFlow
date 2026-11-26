@@ -30,12 +30,60 @@ const saved: Record<string, string | undefined> = {};
 beforeEach(() => {
   for (const k of KEYS) { saved[k] = process.env[k]; delete process.env[k]; }
   process.env.E2E_ADMIN_EMAIL = 'deploy-verify@isaflow.co.za';
+  // The guard judges every database URL in the env: none may leak in from the shell (the unit run sets a dummy one).
+  for (const k of Object.keys(process.env)) if (k.includes('DATABASE_URL') || k === 'GOLDEN_HOSTED_DB_URL') vi.stubEnv(k, '');
+  vi.stubEnv('GOLDEN_SKIP_A11Y', '1'); // the post-deploy run, which may name a production colour
   process.env[KEYS[1]!] = 'x'.repeat(12); // E2E_ADMIN_PASSWORD: the scripted app never reads it
   script.asked = [];
 });
-afterEach(() => { for (const k of KEYS) { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]; } });
+/** The server's answer to the database question. @returns the addresses asked. */
+function serverSays(testDatabase: boolean): string[] {
+  const asked: string[] = [];
+  vi.stubGlobal('fetch', async (url: string) => { asked.push(url); return new Response(JSON.stringify({ testDatabase })); });
+  return asked;
+}
+afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); for (const k of KEYS) { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]; } });
 
 describe('golden global setup', () => {
+  it.each(['http://localhost:3101', 'http://localhost:3111', 'http://localhost:3112', 'https://app.isaflow.co.za'])(
+    'outside the post-deploy run it refuses %s before any request', async (baseURL) => {
+      vi.stubEnv('GOLDEN_SKIP_A11Y', '');
+      const asked = serverSays(true);
+      await expect(globalSetup(config(baseURL))).rejects.toThrow(/base URL (names|has protocol)/);
+      expect([...script.asked, ...asked]).toEqual([]);
+    });
+
+  it('outside the post-deploy run it refuses a dev server while the env holds the production database', async () => {
+    vi.stubEnv('GOLDEN_SKIP_A11Y', '');
+    vi.stubEnv('DATABASE_URL', 'postgresql://probe@100.96.203.105:7772/isaflow');
+    const asked = serverSays(true);
+    await expect(globalSetup(config('http://localhost:3200'))).rejects.toThrow(/neither dev nor a CI database/);
+    expect([...script.asked, ...asked]).toEqual([]);
+  });
+
+  it('outside the post-deploy run it judges every project, not the first alone', async () => {
+    vi.stubEnv('GOLDEN_SKIP_A11Y', '');
+    serverSays(true);
+    const two = { projects: [{ use: { baseURL: 'http://localhost:3200' } }, { use: { baseURL: 'http://localhost:3111' } }] } as unknown as FullConfig;
+    await expect(globalSetup(two)).rejects.toThrow(/production port/);
+    expect(script.asked).toEqual([]);
+  });
+
+  it('outside the post-deploy run it refuses a dev server that is not on a test database, before any login', async () => {
+    vi.stubEnv('GOLDEN_SKIP_A11Y', '');
+    const asked = serverSays(false);
+    await expect(globalSetup(config('http://localhost:3458'))).rejects.toThrow(/does not report a dev or CI database/);
+    expect(asked).toEqual(['http://localhost:3458/api/health/test-database']);
+    expect(script.asked).toEqual([]);
+  });
+
+  it('the post-deploy run asks no server for its database', async () => {
+    const asked = serverSays(false);
+    script.answer = (): Answer => ({ status: 401, body: null });
+    await expect(globalSetup(config('http://localhost:3111'))).rejects.toThrow(/answered 401/);
+    expect(asked).toEqual([]);
+  });
+
   it('THE INCIDENT: login 200, then every GET 401 at http://127.0.0.1:3101 fails as a refused session pointing at localhost, not as missing accounts', async () => {
     script.answer = (): Answer => ({ status: 401, body: { success: false, error: { code: 'UNAUTHORIZED' } } });
     const err = await globalSetup(config('http://127.0.0.1:3101')).then(() => null, (e: Error) => e);
@@ -48,14 +96,14 @@ describe('golden global setup', () => {
     script.answer = (p): Answer => (p.includes('user-companies')
       ? { status: 200, body: { data: { activeCompanyId: 'c2', items: [{ companyId: 'c1', companyName: 'Deploy Verification', isDemo: true }, { companyId: 'c2', companyName: '0GP Golden Migration Sandbox', isDemo: true }] } } }
       : { status: 200, body: { data: [] } });
-    await expect(globalSetup(config('http://localhost:3101'))).rejects.toThrow(/not in the Deploy Verification company: the active company is "0GP Golden Migration Sandbox"/);
+    await expect(globalSetup(config('http://localhost:3111'))).rejects.toThrow(/not in the Deploy Verification company: the active company is "0GP Golden Migration Sandbox"/);
     expect(script.asked.filter((p) => p.includes('chart-of-accounts'))).toEqual([]);
   });
 
   it('a session that works in a company without the system accounts still fails on the accounts (Demo login)', async () => {
     process.env.E2E_ADMIN_EMAIL = 'admin@isaflow.co.za';
     script.answer = (p): Answer => (p.includes('user-companies') ? { status: 200, body: { data: { activeCompanyId: 'd', items: [] } } } : { status: 200, body: { data: [] } });
-    await expect(globalSetup(config('http://localhost:3101'))).rejects.toThrow(/company has no system account for \[receivable, default_revenue, vat_output, payable, vat_input, default_expense\]/);
+    await expect(globalSetup(config('http://localhost:3111'))).rejects.toThrow(/company has no system account for \[receivable, default_revenue, vat_output, payable, vat_input, default_expense\]/);
   });
 
   describe('approver failure message', () => {
@@ -75,14 +123,14 @@ describe('golden global setup', () => {
 
     it('a problem with no full stop is closed before "No spec runs", and joined problems never run together', async () => {
       withApprover({ status: 200, body: { data: { items: [home, sandbox] } } });
-      const err = await globalSetup(config('http://localhost:3101')).then(() => null, (e: Error) => e);
+      const err = await globalSetup(config('http://localhost:3111')).then(() => null, (e: Error) => e);
       expect(err?.message).toBe('golden-paths: the approver login\'s companies are ["Deploy Verification", "0GP Golden Migration Sandbox"]; they must be exactly '
         + '["Deploy Verification"] (is_demo). No spec runs: re-run scripts/deploy/provision-verify-company.sh or fix the approver\'s memberships.');
     });
 
     it('a problem that already ends in a full stop gets no second one', async () => {
       withApprover({ status: 403, body: null });
-      const err = await globalSetup(config('http://localhost:3101')).then(() => null, (e: Error) => e);
+      const err = await globalSetup(config('http://localhost:3111')).then(() => null, (e: Error) => e);
       expect(err?.message).toMatch(/the app refused the session\. No spec runs: re-run /);
       expect(err?.message).not.toMatch(/\.\./);
     });

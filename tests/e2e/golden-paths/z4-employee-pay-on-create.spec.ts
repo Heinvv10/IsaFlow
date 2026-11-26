@@ -23,6 +23,9 @@ import { findOrCreateSandbox, switchApiCompany, switchBrowserCompany } from './_
 import { seedTheme, settle, THEMES } from '../helpers/themeSpec';
 import { settleAnimations } from './helpers/settleAnimations';
 import { retryDropped } from '../helpers/droppedConnection';
+import { guardDevTarget } from '../helpers/devTarget';
+
+guardDevTarget(test);
 
 // Signed in as the wave-6 QA user (E2E_ADMIN_* = its login, see helpers/w6QaUser.ts) the spec works in that user's one
 // company. On the shared reporting-qa user it kept its own sandbox, and a peer's company switch moved that user off it
@@ -70,9 +73,6 @@ async function expectNoSideScroll(page: Page): Promise<void> {
 }
 
 test.beforeAll(async ({ baseURL }) => {
-  // Creates a company: never production, not app.isaflow.co.za and not this box's prod next-server on :3101.
-  const u = new URL(baseURL!);
-  expect(u.hostname === 'localhost' && u.port !== '3101', `z4 runs only on a dev/CI localhost port, not ${u.host}`).toBe(true);
   const api = await Api.login(baseURL!);
   try {
     if (AS_W6_QA) {

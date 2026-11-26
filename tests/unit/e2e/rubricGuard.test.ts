@@ -10,7 +10,7 @@ import {
   sandboxName, type MeView,
 } from '../../e2e/rubric/_rubricGuard';
 
-const LIVE = [80, 3101, 3111, 3112];
+const LIVE = [80, 443, 3101, 3111, 3112];
 const refused = (fn: () => unknown, msg: RegExp) => expect(fn).toThrow(msg);
 
 describe('deny-list (on its own)', () => {

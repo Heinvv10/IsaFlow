@@ -16,6 +16,9 @@
  * EVIDENCE_DIR=<dir> saves a screenshot at each size.
  */
 import { expect, test, type Page } from '@playwright/test';
+import { guardDevTarget } from '../helpers/devTarget';
+
+guardDevTarget(test);
 
 const BANK = '/accounting/bank-transactions';
 const ROWS = '[data-testid="bank-tx-table"] tbody tr';

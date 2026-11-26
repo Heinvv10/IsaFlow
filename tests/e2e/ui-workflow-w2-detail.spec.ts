@@ -2,8 +2,11 @@
  * W2: Navigate to invoice detail via invoice number link and check Record Payment
  */
 import { test } from '@playwright/test';
+import { devBaseUrl, guardDevTarget } from './helpers/devTarget';
 
-const BASE = 'https://app.isaflow.co.za';
+guardDevTarget(test);
+
+const BASE = devBaseUrl();
 
 test('W2: Invoice detail via link click', async ({ page }) => {
   await page.goto(`${BASE}/accounting/customer-invoices`);
