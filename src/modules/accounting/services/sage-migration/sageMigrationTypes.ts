@@ -86,6 +86,11 @@ export interface MigrationReport {
   status: 'dry_run_ok' | 'dry_run_failed' | 'live_blocked' | 'completed' | 'failed';
   /** Why --live did not start although the dry run was clean (expectations missed by what would be sent, refusals or differences not allowed). */
   liveBlockedBy: string[];
+  /**
+   * B24-1: the dry run's ROLLBACK was not confirmed, so its writes may still be held (with its backend pid). Set only on a run that kept its
+   * dry result because no live run followed (a preview, a failed or blocked dry run); a run that would have gone live refuses instead.
+   */
+  dryRunHeld?: string;
   refused: RowRefusal[];
   dryRun: { categories: PhaseReport; items: PhaseReport; purchaseOrders: PhaseReport; clean: boolean };
   live: { categories: PhaseReport; items: PhaseReport; purchaseOrders: PhaseReport } | null;

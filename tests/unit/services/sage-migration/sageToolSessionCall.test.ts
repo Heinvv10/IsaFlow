@@ -20,7 +20,7 @@ vi.mock('@/lib/rollbackFailed', () => {
 });
 
 import { EventEmitter } from 'node:events';
-import { CommitUnconfirmedError, ConnectionLostError, DryRollbackUnconfirmedError, LostBeforeCommitError, withToolSession } from '@/modules/accounting/services/sage-migration/sageToolSession';
+import { BatchKeyHeldError, CommitUnconfirmedError, ConnectionLostError, DryRollbackUnconfirmedError, LostBeforeCommitError, SAGE_LOCK_TIMEOUT_MS, withToolSession } from '@/modules/accounting/services/sage-migration/sageToolSession';
 
 const sent: string[] = [];
 const pool = { connect: async () => Object.assign(new EventEmitter(), { query: async (text: string) => { sent.push(text); return { rows: [] }; }, release: () => undefined }) } as never;
@@ -137,7 +137,7 @@ describe('(d) B20-1: a connection lost in a request that commits nothing (the dr
     });
     const err = await withToolSession({ connect: async () => client } as never, 'c1', 'u1', false, (s) => s.call('w', { idempotency_key: 'k' })).then(() => null, (e: unknown) => e);
     expect(err).toBeInstanceOf(ConnectionLostError);
-    expect((err as Error).message).toBe('the connection to the database was lost (Connection terminated unexpectedly) in a request that writes nothing (the dry run, the plan or a read of the books): that request wrote nothing');
+    expect((err as Error).message).toBe('the connection to the database was lost (Connection terminated unexpectedly) in a request that commits nothing (the dry run, which writes and rolls back, the plan or a read of the books): the server rolled it back, so nothing of it was written'); // R24-4
     expect((err as Error & { cause?: unknown }).cause).toEqual(new Error('Connection terminated unexpectedly')); // R21-5
     expect((err as Error).name).toBe('ConnectionLostError');
     expect(client.release).toHaveBeenCalledWith(true);
@@ -147,7 +147,7 @@ describe('(d) B20-1: a connection lost in a request that commits nothing (the dr
     const client = lossClient(async (text: string) => { if (text.startsWith('SELECT snapshot')) throw fatal; return { rows: [] }; });
     const err = await withToolSession({ connect: async () => client } as never, 'c1', 'u1', false, async () => { await client.query('SELECT snapshot'); }).then(() => null, (e: unknown) => e);
     expect(err).toBeInstanceOf(ConnectionLostError);
-    expect((err as Error).message).toMatch(/lost \(terminating connection due to administrator command\) in a request that writes nothing/);
+    expect((err as Error).message).toMatch(/lost \(terminating connection due to administrator command\) in a request that commits nothing/);
   });
   it('any other failure of such a request is thrown as it is', async () => {
     const client = lossClient(async () => ({ rows: [] }));
@@ -230,10 +230,11 @@ describe('R21-2: a loss first seen during the dry request\'s own ROLLBACK', () =
   });
   it('R23-5: the DRY RUN (it wrote): a ROLLBACK that fails or does not answer is a refused start, its writes may still be held', async () => {
     for (const why of ['ROLLBACK did not answer within 5000ms', 'Client was closed']) {
-      const client = Object.assign(new EventEmitter(), { query: async (text: string) => { if (text === 'ROLLBACK') throw new Error(why); return { rows: [] }; }, release: vi.fn() });
+      const client = Object.assign(new EventEmitter(), { processID: 4242, query: async (text: string) => { if (text === 'ROLLBACK') throw new Error(why); return { rows: [] }; }, release: vi.fn() });
       const err = await withToolSession({ connect: async () => client } as never, 'c1', 'u1', false, async () => 'the dry run', { wrote: true }).then(() => null, (r: unknown) => r);
       expect(err, why).toBeInstanceOf(DryRollbackUnconfirmedError);
-      expect((err as Error).message, why).toBe(`the dry run's ROLLBACK was not confirmed (${why}); its writes may still be held, so the live run was not started`);
+      expect((err as Error).message, why).toBe(`the dry run's ROLLBACK was not confirmed (${why}); its writes may still be held (backend pid 4242: wait for the server to end it, or SELECT pg_terminate_backend(4242)), so the live run was not started`);
+      expect((err as DryRollbackUnconfirmedError).result, why).toBe('the dry run'); // B24-1: the runner keeps it where no live run follows
       expect((err as Error & { cause?: unknown }).cause, why).toEqual(new Error(why));
       expect((err as Error).name, why).toBe('DryRollbackUnconfirmedError');
       expect(client.release, why).toHaveBeenCalledWith(true);
@@ -250,6 +251,55 @@ describe('R21-2: a loss first seen during the dry request\'s own ROLLBACK', () =
       expect(await withToolSession({ connect: async () => client } as never, 'c1', 'u1', false, async () => 'the snapshot'), why).toBe('the snapshot');
       expect(client.release, why).toHaveBeenCalledWith(true);
     }
+  });
+});
+
+describe('B24-2: a lock another session holds never hangs a migration request', () => {
+  it('every request sets a lock_timeout (SAGE_LOCK_TIMEOUT_MS) in its own transaction', async () => {
+    registry.call.mockResolvedValueOnce(ok('{"created":1}'));
+    await withToolSession(pool, 'c1', 'u1', true, (s) => s.call('w', { idempotency_key: 'k' }));
+    expect(sent).toContain(`SET LOCAL lock_timeout = '${SAGE_LOCK_TIMEOUT_MS}ms'`);
+    expect(SAGE_LOCK_TIMEOUT_MS).toBe(10_000);
+  });
+  it('a write tool\'s idempotency key held by another session: BatchKeyHeldError at once, naming its pid; the tool never runs', async () => {
+    const queries: Array<[string, unknown[] | undefined]> = [];
+    const client = Object.assign(new EventEmitter(), {
+      query: async (text: string, values?: unknown[]) => {
+        queries.push([text, values]);
+        if (text.startsWith('SELECT pg_try_advisory_xact_lock')) return { rows: [{ ok: false }] };
+        if (text.includes('FROM pg_locks')) return { rows: [{ pid: 777 }] };
+        return { rows: [] };
+      },
+      release: vi.fn(),
+    });
+    registry.call.mockClear();
+    const err = await withToolSession({ connect: async () => client } as never, 'c1', 'u1', false, (s) => s.call('w', { idempotency_key: 'batch-1' })).then(() => null, (e: unknown) => e);
+    expect(err).toBeInstanceOf(BatchKeyHeldError);
+    expect((err as Error).message).toBe("another session holds this batch's lock (likely a previous run's dry transaction, backend pid 777: wait for the server to end it, or SELECT pg_terminate_backend(777)); wait or terminate it, then re-run");
+    expect(registry.call).not.toHaveBeenCalled();
+    // the key text the registry locks (src/lib/mcp/audit.ts acquireIdempotencyLock)
+    expect(queries.find(([t]) => t.startsWith('SELECT pg_try_advisory_xact_lock'))?.[1]).toEqual(['mcp:c1:w:batch-1']);
+  });
+  it('a key that is free: the tool runs (the lock is this transaction\'s)', async () => {
+    const client = Object.assign(new EventEmitter(), { query: async (text: string) => (text.startsWith('SELECT pg_try_advisory_xact_lock') ? { rows: [{ ok: true }] } : { rows: [] }), release: vi.fn() });
+    registry.call.mockResolvedValueOnce(ok('{"created":1}'));
+    expect(await withToolSession({ connect: async () => client } as never, 'c1', 'u1', false, (s) => s.call('w', { idempotency_key: 'k' }))).toMatchObject({ isError: false });
+  });
+});
+
+describe('R24-5: a dry run that ends on an error and whose ROLLBACK is then not confirmed', () => {
+  it('still says its writes may be held, after the error it ended with (which stays its cause chain\'s first line)', async () => {
+    const client = Object.assign(new EventEmitter(), { processID: 99, query: async (text: string) => { if (text === 'ROLLBACK') throw new Error('ROLLBACK did not answer within 5000ms'); return { rows: [] }; }, release: vi.fn() });
+    const stop = new Error('stopped by SIGTERM: no further batch is sent; nothing was written to the books');
+    const err = await withToolSession({ connect: async () => client } as never, 'c1', 'u1', false, async () => { throw stop; }, { wrote: true }).then(() => null, (e: unknown) => e);
+    expect(err).toBeInstanceOf(DryRollbackUnconfirmedError);
+    expect((err as DryRollbackUnconfirmedError).after).toBe(stop);
+    expect((err as Error).message).toBe("stopped by SIGTERM: no further batch is sent; nothing was written to the books; and the dry run's ROLLBACK was not confirmed (ROLLBACK did not answer within 5000ms); its writes may still be held (backend pid 99: wait for the server to end it, or SELECT pg_terminate_backend(99))");
+  });
+  it('a plain read that ends on an error: the error as it is', async () => {
+    const client = Object.assign(new EventEmitter(), { query: async (text: string) => { if (text === 'ROLLBACK') throw new Error('ROLLBACK did not answer within 5000ms'); return { rows: [] }; }, release: vi.fn() });
+    const bug = new Error('a bug');
+    expect(await withToolSession({ connect: async () => client } as never, 'c1', 'u1', false, async () => { throw bug; }).then(() => null, (e: unknown) => e)).toBe(bug);
   });
 });
 

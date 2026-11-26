@@ -19,23 +19,23 @@ const h = vi.hoisted(() => ({
   loseBeforeCommit: null as string | null, // "<entity> live": that request loses its connection before its COMMIT is sent
   loseAtCommit: null as string | null, // "<entity> live": that request's COMMIT fails on a lost connection (its answer ok)
   sessions: [] as Array<{ commit: boolean; wrote: boolean }>,
+  dryHeld: false,
 }));
 const SUPPLIER = '0f7d6a3e-2b1c-4d5e-8f90-a1b2c3d4e5f6';
 vi.mock('@/modules/accounting/services/sage-migration/localGuard', () => ({ assertLocalDatabase: () => undefined, assertLocalPool: () => undefined }));
 vi.mock('@/modules/accounting/services/sage-migration/sageRunLock', () => ({ acquireRunLock: async () => ({ check: async () => undefined, unlock: async () => undefined }) }));
-vi.mock('@/modules/accounting/services/sage-migration/sageToolSession', () => {
-  class LostBeforeCommitError extends Error {}
-  class CommitUnconfirmedError extends Error { constructor(m: string, readonly result: unknown, readonly connectionLost = false) { super(m); } }
+vi.mock('@/modules/accounting/services/sage-migration/sageToolSession', async () => {
+  // R24-6: the REAL error classes (their constructors and fields), only the session itself faked.
+  const real = await vi.importActual<typeof import('@/modules/accounting/services/sage-migration/sageSessionErrors')>('@/modules/accounting/services/sage-migration/sageSessionErrors');
   return {
-    CommitUnconfirmedError,
-    LostBeforeCommitError,
+    ...real,
     withToolSession: async (_p: unknown, _c: unknown, _u: unknown, commit: boolean, fn: (s: unknown) => unknown, o?: { wrote?: boolean }) => {
       h.sessions.push({ commit, wrote: o?.wrote === true });
       const r = await fn({ companyId: 'c', call: async () => ({ isError: false, text: '{}', body: {} }) });
-      if (commit && h.loseAtCommit !== null && h.sent.at(-1) === h.loseAtCommit) throw new CommitUnconfirmedError('Connection terminated unexpectedly', r, true);
-      if (commit && h.loseBeforeCommit !== null && h.sent.at(-1) === h.loseBeforeCommit) {
-        throw new LostBeforeCommitError('the connection was lost before its COMMIT was sent (Connection terminated unexpectedly); nothing of it was written');
-      }
+      if (commit && h.loseAtCommit !== null && h.sent.at(-1) === h.loseAtCommit) throw new real.CommitUnconfirmedError('Connection terminated unexpectedly', r, true);
+      if (commit && h.loseBeforeCommit !== null && h.sent.at(-1) === h.loseBeforeCommit) throw new real.LostBeforeCommitError(new Error('Connection terminated unexpectedly'));
+      // B24-1: the dry run's ROLLBACK not confirmed: the real error, carrying the dry run's result
+      if (!commit && o?.wrote === true && h.dryHeld) throw new real.DryRollbackUnconfirmedError(new Error('ROLLBACK did not answer within 5000ms'), 4242, r);
       return r;
     },
   };
@@ -76,7 +76,7 @@ const parsed = () => parseSageExport({
 const pool = { options: { max: 4 } } as never;
 const run = (over: Record<string, unknown> = {}) => runSageMigration(pool, parsed(), { companyId: 'c', userId: 'u', live: true, expect: { items: 1, purchaseOrders: 1 }, ...over });
 
-beforeEach(() => { h.books.cats = []; h.books.items = []; h.books.pos = new Map(); h.fail.clear(); h.updated = false; h.sent.length = 0; h.loseBeforeCommit = null; h.loseAtCommit = null; h.sessions.length = 0; });
+beforeEach(() => { h.books.cats = []; h.books.items = []; h.books.pos = new Map(); h.fail.clear(); h.updated = false; h.sent.length = 0; h.loseBeforeCommit = null; h.loseAtCommit = null; h.sessions.length = 0; h.dryHeld = false; });
 
 describe('the dry run', () => {
   it('a failed category batch keeps the items and the POs from starting', async () => {
@@ -227,6 +227,32 @@ describe('R23-5: only the dry run\'s session is marked as one that wrote', () =>
     await run();
     expect(h.sessions.filter((x) => x.wrote)).toEqual([{ commit: false, wrote: true }]);
     expect(h.sessions.filter((x) => !x.commit && !x.wrote).length).toBeGreaterThan(0);
+  });
+});
+
+describe('B24-1: the dry run\'s ROLLBACK not confirmed', () => {
+  const HELD = "the dry run's ROLLBACK was not confirmed (ROLLBACK did not answer within 5000ms); its writes may still be held (backend pid 4242: wait for the server to end it, or SELECT pg_terminate_backend(4242))";
+  it('a preview (no --live): its result is kept (dry_run_ok), with the warning; no live run named', async () => {
+    h.dryHeld = true;
+    const r = await run({ live: false });
+    expect(r.status).toBe('dry_run_ok');
+    expect(r.dryRunHeld).toBe(HELD);
+    const { summaryLines } = await import('@/modules/accounting/services/sage-migration/sageReportSummary');
+    expect(summaryLines(r)).toContain(`WARNING: ${HELD}`);
+    expect(summaryLines(r).join('\n')).not.toMatch(/live run was not started/);
+  });
+  it('a failed dry run keeps dry_run_failed and its reasons, with the warning', async () => {
+    [h.dryHeld] = [true];
+    h.fail.add('item dry');
+    const r = await run();
+    expect(r).toMatchObject({ status: 'dry_run_failed', dryRunHeld: HELD });
+    expect(r.dryRun.items.failed).toBe(1);
+  });
+  it('a clean --live run: refused (the live run would start behind the held writes), nothing live sent', async () => {
+    h.dryHeld = true;
+    const err = await run().then(() => null, (e: unknown) => e);
+    expect(String(err)).toBe(`DryRollbackUnconfirmedError: ${HELD}, so the live run was not started`);
+    expect(h.sent.filter((x) => x.endsWith('live'))).toEqual([]);
   });
 });
 

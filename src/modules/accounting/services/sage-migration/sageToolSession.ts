@@ -13,8 +13,11 @@ import { getCompanyMembership } from '@/lib/auth/companyMembership';
 import { normalizeCompanyRole } from '@/lib/auth/companyRoles';
 import { isActiveUserAccount } from '@/lib/auth/userAccountStatus';
 import { mcpRegistry } from '@/lib/mcp/toolIndex';
-import { rollbackError, rollbackFailed } from '@/lib/rollbackFailed';
+import { rollbackError } from '@/lib/rollbackFailed';
 import type { McpToolContext } from '@/lib/mcp/types';
+import { BatchKeyHeldError, CommitUnconfirmedError, ConnectionLostError, DryRollbackUnconfirmedError, LostBeforeCommitError } from './sageSessionErrors';
+
+export { BatchKeyHeldError, CommitUnconfirmedError, ConnectionLostError, DryRollbackUnconfirmedError, LostBeforeCommitError } from './sageSessionErrors';
 
 export const MIGRATION_SCOPES = ['read:items', 'write:items', 'read:invoices', 'write:invoices', 'read:contacts'];
 
@@ -33,6 +36,30 @@ export interface ToolSession {
 }
 
 export class NotAMemberError extends Error {}
+/**
+ * How long a statement of a migration request may wait for a lock (B24-2): every other wait of the run is bounded (COMMIT, ROLLBACK, the
+ * run lock, the number lock). A lock held by a session that never ends (a previous run's dry transaction left open) fails the request
+ * after this, instead of hanging it.
+ */
+export const SAGE_LOCK_TIMEOUT_MS = 10_000;
+
+/**
+ * Takes the lock the registry takes for a write tool's idempotency key (src/lib/mcp/audit.ts acquireIdempotencyLock: the same key text)
+ * WITHOUT waiting: a key another session holds is said at once, with that session's pid (B24-2), instead of the registry waiting on it.
+ * Taken by this transaction, the registry's own wait on it then returns at once (advisory locks stack within a session).
+ */
+async function takeKeyLockNow(client: { query: (text: string, values?: unknown[]) => Promise<{ rows: Array<Record<string, unknown>> }> },
+  companyId: string, tool: string, key: string): Promise<void> {
+  const lockKey = `mcp:${companyId}:${tool}:${key}`;
+  const got = await client.query('SELECT pg_try_advisory_xact_lock(hashtext($1)::bigint) AS ok', [lockKey]);
+  if (got.rows[0]?.ok !== false) return;
+  const holder = await client.query(`SELECT l.pid FROM pg_locks l, (SELECT hashtext($1)::bigint AS k) x
+    WHERE l.locktype = 'advisory' AND l.granted AND l.objsubid = 1 AND l.pid <> pg_backend_pid()
+      AND l.classid = ((x.k >> 32) & 4294967295)::oid AND l.objid = (x.k & 4294967295)::oid LIMIT 1`, [lockKey]);
+  const pid = holder.rows[0]?.pid;
+  throw new BatchKeyHeldError(typeof pid === 'number' ? pid : undefined);
+}
+
 /** How long a COMMIT may take to answer: a batch of 500 items or 100 POs commits in well under this on a healthy server. */
 export const COMMIT_TIMEOUT_MS = 120_000;
 let commitBoundMs = COMMIT_TIMEOUT_MS;
@@ -41,52 +68,6 @@ export function setCommitBoundForTests(ms: number): () => void {
   if (process.env.NODE_ENV !== 'test') throw new Error('setCommitBoundForTests works only in a test run (NODE_ENV=test)');
   commitBoundMs = ms;
   return () => { commitBoundMs = COMMIT_TIMEOUT_MS; };
-}
-
-/**
- * The COMMIT of a request transaction did not answer (or failed): whether it landed is unknown. Any other failure rolled the batch back.
- * `result` is what the request's work returned before the COMMIT (a live batch: the tool's own answer), so a caller can say what the batch
- * did if the COMMIT landed, never falling back on the dry run's answer. `connectionLost`: the connection was lost DURING (or after) the
- * COMMIT (R20-2): the tool's answer stands, a refusal among them (B21-1). A loss seen before the COMMIT is LostBeforeCommitError instead.
- */
-export class CommitUnconfirmedError extends Error {
-  constructor(message: string, readonly result: unknown, readonly connectionLost = false) { super(message); }
-}
-
-/**
- * The connection of a committing request was lost BEFORE its COMMIT was sent (round 22, the structural rule): pg marks such a client not
- * queryable, so no COMMIT can reach the server, and the server rolls the transaction back. The batch FAILED and nothing of it was
- * written, whatever the tool answered (its answer is not needed to say so). `cause` is the error the loss came with.
- */
-export class LostBeforeCommitError extends Error {
-  constructor(cause: unknown) {
-    super(`the connection was lost before its COMMIT was sent (${cause instanceof Error ? cause.message : String(cause)}); nothing of it was written`, { cause });
-    this.name = 'LostBeforeCommitError';
-  }
-}
-
-/**
- * The connection of a request that commits nothing (the dry run, the plan, a read) was lost (B20-1): said so, never a tool's generic
- * failure blamed on a batch. The words name that request only (R21-3): after the live phase started, other batches may have committed.
- * Before the live phase it is a refused start (exit 2). `cause` is the error the loss came with.
- */
-export class ConnectionLostError extends Error {
-  constructor(cause: unknown) {
-    super(`the connection to the database was lost (${cause instanceof Error ? cause.message : String(cause)}) in a request that writes nothing (the dry run, the plan or a read of the books): that request wrote nothing`, { cause });
-    this.name = 'ConnectionLostError';
-  }
-}
-
-/**
- * The dry run's ROLLBACK failed or did not answer for a reason other than a lost connection (R23-5): the dry run WROTE (it calls the live
- * tools in a transaction), so its rows and its number lock may still be held on the server, and the live batches would wait on them. A
- * refused start (exit 2): the live run is not started. `cause` is the ROLLBACK's error.
- */
-export class DryRollbackUnconfirmedError extends Error {
-  constructor(cause: Error) {
-    super(`the dry run's ROLLBACK was not confirmed (${cause.message}); its writes may still be held, so the live run was not started`, { cause });
-    this.name = 'DryRollbackUnconfirmedError';
-  }
 }
 
 /**
@@ -126,6 +107,8 @@ export async function withToolSession<T>(
   pool: Pool, companyId: string, userId: string, commit: boolean, fn: (s: ToolSession) => Promise<T>, o: { wrote?: boolean } = {},
 ): Promise<T> {
   const client = await pool.connect();
+  const processID: unknown = (client as unknown as { processID?: unknown }).processID;
+  const pid = typeof processID === 'number' ? processID : undefined; // its backend pid, said if its ROLLBACK is not confirmed (B24-2)
   // pg-pool drops its idle 'error' listener while a client is checked out: without one, a backend that dies mid-request is an uncaught
   // error that ends the process (B19-1). Listened to here, the rejected query drives the runner's own lost-connection path.
   let lost: Error | null = null;
@@ -138,6 +121,7 @@ export async function withToolSession<T>(
   try {
     await client.query('BEGIN');
     await client.query('SET LOCAL ROLE app_user');
+    await client.query(`SET LOCAL lock_timeout = '${SAGE_LOCK_TIMEOUT_MS}ms'`); // B24-2: no lock wait of a migration request is unbounded
     const claims = { sub: userId, role: 'authenticated', company_id: companyId };
     await client.query(`SELECT set_config('request.jwt.claims', $1, true)`, [JSON.stringify(claims)]);
     await client.query(`SELECT set_config('app.current_company_id', $1, true)`, [companyId]);
@@ -158,6 +142,7 @@ export async function withToolSession<T>(
         // The registry's company guard only COMPARES this with the context's company (it selects nothing); the tenant is held by the
         // membership check above, app_user under RLS and the tools' own ownership checks.
         const sent = WRITE_TOOLS.has(name) ? { ...args, company_id: companyId } : args;
+        if (WRITE_TOOLS.has(name) && typeof args.idempotency_key === 'string') await takeKeyLockNow(client, companyId, name, args.idempotency_key);
         let replayed = false;
         const r = await mcpRegistry.call(name, sent, { ...ctx, onIdempotentReplay: () => { replayed = true; } });
         const outcome = toolOutcome(r.content[0]?.text ?? '', r.isError === true);
@@ -176,7 +161,7 @@ export async function withToolSession<T>(
       if (lost !== null) throw new ConnectionLostError(lost);
       if (rollback !== null && connectionEnded(rollback)) throw new ConnectionLostError(rollback);
       // A request that WROTE (the dry run) must have its ROLLBACK confirmed: else its writes may still be held (R23-5). Plain reads need not.
-      if (rollback !== null && o.wrote === true) throw new DryRollbackUnconfirmedError(rollback);
+      if (rollback !== null && o.wrote === true) throw new DryRollbackUnconfirmedError(rollback, pid, result);
       return result;
     }
     // Lost before the COMMIT is sent: pg would not send it (the client is not queryable): the batch wrote nothing (round 22).
@@ -200,9 +185,13 @@ export async function withToolSession<T>(
     drainAfterCommit(txCtx);
     return result;
   } catch (err) {
-    if (!rolledBack) unusable = await rollbackFailed(client, 'sage-migration');
-    const lossNotYetSaid = !(err instanceof ConnectionLostError || err instanceof LostBeforeCommitError || err instanceof CommitUnconfirmedError
-      || err instanceof DryRollbackUnconfirmedError);
+    if (!rolledBack) {
+      const rollback = await rollbackError(client, 'sage-migration');
+      unusable = rollback !== null;
+      // R24-5: a dry run that ended on an error (a stop, a bug) and whose ROLLBACK is then not confirmed still says its writes may be held.
+      if (rollback !== null && o.wrote === true && lost === null && !connectionEnded(rollback) && !connectionEnded(err)) throw new DryRollbackUnconfirmedError(rollback, pid, undefined, err);
+    }
+    const lossNotYetSaid = !(err instanceof ConnectionLostError || err instanceof LostBeforeCommitError || err instanceof CommitUnconfirmedError);
     if (lossNotYetSaid && (lost !== null || connectionEnded(err))) throw commit ? new LostBeforeCommitError(lost ?? err) : new ConnectionLostError(lost ?? err);
     throw err;
   } finally {

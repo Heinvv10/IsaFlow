@@ -25,7 +25,7 @@ import { keyFor, planBatches, sendBatch, type PlannedBatches, type Send } from '
 import { ownershipProblem } from './sageOwnership';
 import { recordSent, settleCommitted, stoppedBatches, unconfirmedBatch, verified, verifiedCategories, verifiedItems, type Sent } from './sageVerify';
 import { MigrationStopped } from './sageMigrationStopped';
-import { CommitUnconfirmedError, LostBeforeCommitError } from './sageToolSession';
+import { CommitUnconfirmedError, DryRollbackUnconfirmedError, LostBeforeCommitError } from './sageToolSession';
 import { budgetWouldHaveFailed } from './sageBudgetReport';
 import { differencesFrom } from './sageDifferences';
 import { buildLineLinks } from './sageLineLinks';
@@ -175,8 +175,15 @@ async function runLocked(pool: Pool, parsed: ParsedExport, opts: MigrationOption
     return { before: snapshot, plan: planMigration(parsed, resolved, snapshot, { poGlAccountId: opts.poGlAccountId, skipBudgetCheck: opts.skipBudgetCheck }) };
   });
   const all = planBatches(plan, opts);
-  const dry = await dryRun(pool, opts, all, before);
-  const base = { companyId: opts.companyId, refused: plan.refusals, dryRun: dry };
+  // B24-1: a dry run whose ROLLBACK is not confirmed keeps its result where no live run follows (a preview, a failed or blocked dry run),
+  // with the warning that its writes may still be held; only a run that would go live refuses (below, before the live phase).
+  let held: DryRollbackUnconfirmedError | null = null;
+  const dry = await dryRun(pool, opts, all, before).catch((err: unknown) => {
+    if (!(err instanceof DryRollbackUnconfirmedError) || err.result === undefined || err.after !== undefined) throw err;
+    held = err;
+    return err.result as Awaited<ReturnType<typeof dryRun>>;
+  });
+  const base = { companyId: opts.companyId, refused: plan.refusals, dryRun: dry, ...(held ? { dryRunHeld: (held as DryRollbackUnconfirmedError).held } : {}) };
   const skipped = (phase: PhaseReport) => (opts.skipBudgetCheck ? budgetWouldHaveFailed(phase.batches) : []);
   // What the PO tool does not compare (supplier, delivery date, reference, lines) is compared here, from the books as read before the run.
   const contentDifferences = poContentDifferences(plan, before.poContent);
@@ -191,6 +198,7 @@ async function runLocked(pool: Pool, parsed: ParsedExport, opts: MigrationOption
   // difference is there that they did not allow. Otherwise a live run would commit and then exit 1.
   const blockers = liveBlockers(dryReconciliation, dryDifferences, opts);
   if (blockers.length > 0) return noLive('live_blocked', blockers);
+  if (held) throw held; // the live run would start behind the dry run's held writes: a refused start (exit 2, R23-5)
 
   // The lock's connection sat idle through the dry run: if its backend was dropped, another run could start now, so this one stops. Checked
   // BEFORE the live phase counts as started: a refused start, nothing written (then between the phases, below). A stop asked for, too.
