@@ -73,6 +73,9 @@ async function nextPayrollSection(
            COALESCE(run_date, period_end)::text AS pay_date,
            ${sql.unsafe(payRunFinalSql('payroll_run_headers'))} AS final,
            total_gross, ${sql.unsafe(approvalCoveredPaydaySql('payroll_run_headers'))} AS disbursed,
+           paid_on::text AS paid_on,
+           (SELECT min(f.action_date)::text FROM payroll_bank_files f
+             WHERE f.company_id = payroll_run_headers.company_id AND f.run_id = payroll_run_headers.id AND f.status = 'confirmed') AS bank_paid_on,
            (SELECT sum(v::numeric) FROM jsonb_each_text(off_cycle_paid_gross) AS g(k, v)) AS paid_gross
       FROM payroll_run_headers
      WHERE company_id = ${companyId}::uuid
