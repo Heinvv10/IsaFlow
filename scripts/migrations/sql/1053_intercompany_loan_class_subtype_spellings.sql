@@ -3,10 +3,12 @@
 -- Production carries singular/plural pairs of the same subtype (current_liability 52 / current_liabilities 7, long_term_liability 76 /
 -- long_term_liabilities 3) and 346 NULLs; no case or whitespace variants. 1027's intercompany_is_loan_class compared exact singular strings, so
 -- a company whose loan account was spelled `current_liabilities` or `long_term_liabilities` could not be set up as a loan side (fail-closed,
--- never a wrong posting). It now normalises the way src/modules/accounting/services/gl/accountSubtypes.ts does (trim, lower-case, runs of
--- space or hyphen to one underscore) and accepts the plural of each class already allowed. Nothing else widens: NULL stays refused (the CASE is
--- NULL, the COALESCE makes it false), `current_asset(s)`, `fixed_asset(s)`, `receivable`, bank and cash are still not loan classes, and the
--- system-account and seven-bank-table exclusions are unchanged. The money side (CASH_SUBTYPES / 1031 H4) already lists every bank/cash spelling.
+-- never a wrong posting). It now accepts the plural of each class already allowed. Case and spacing need no handling here: trigger
+-- trg_gl_accounts_normalise_subtype (674) trims, lower-cases and underscores every written subtype (the SQL twin of canonicalSubtype), which
+-- is why production has no such variants; an earlier draft of this migration re-normalised in the function, which was dead code (and wrong for
+-- padded values: replace-then-trim). Nothing else widens: NULL stays refused (the CASE is NULL, the COALESCE makes it false),
+-- `current_asset(s)`, `fixed_asset(s)`, `receivable`, bank and cash are still not loan classes, and the system-account and seven-bank-table
+-- exclusions are unchanged. The money side (CASH_SUBTYPES / 1031 H4) already lists every bank/cash spelling.
 --
 -- Rollback: re-apply the CREATE OR REPLACE from 1027 section 0 (the one function, same signature, same grants).
 
@@ -23,8 +25,8 @@ AS $$
   SELECT COALESCE((
     SELECT ga.is_system_account = false
        AND CASE ga.account_type
-             WHEN 'asset' THEN lower(btrim(regexp_replace(ga.account_subtype, '[[:space:]-]+', '_', 'g'))) IN ('other_current_asset', 'other_current_assets', 'other')
-             WHEN 'liability' THEN lower(btrim(regexp_replace(ga.account_subtype, '[[:space:]-]+', '_', 'g'))) IN ('current_liability', 'current_liabilities', 'other_current_liability', 'other_current_liabilities', 'long_term_liability', 'long_term_liabilities', 'other')
+             WHEN 'asset' THEN ga.account_subtype IN ('other_current_asset', 'other_current_assets', 'other')
+             WHEN 'liability' THEN ga.account_subtype IN ('current_liability', 'current_liabilities', 'other_current_liability', 'other_current_liabilities', 'long_term_liability', 'long_term_liabilities', 'other')
              ELSE false END
        AND NOT EXISTS (SELECT 1 FROM public.bank_transactions bt WHERE bt.bank_account_id = ga.id AND bt.company_id = ga.company_id)
        -- (round 3, A) nor one any bank table of ITS OWN company names: a registered bank account, a bank feed, a statement import, an import
