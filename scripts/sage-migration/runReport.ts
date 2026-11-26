@@ -75,12 +75,16 @@ const message = (err: unknown) => (err instanceof Error ? err.message : String(e
 
 /**
  * The report file this run created, written ONLY through the file descriptor of its exclusive create, held open for the whole run
- * (team-lead decision, round 17): ftruncate(0) + write at offset 0 + fsync. No temp file, no rename, no path lookup after the create: the
- * run can only ever write the inode it created. If the path is swapped meanwhile, the run writes its own moved or unlinked file, never
- * another one. A kill in the middle of a write can leave a partial file of the run's OWN inode (named limit).
+ * (team-lead decision, round 17): write at offset 0, then ftruncate to the new length, then fsync (B31-2: never emptied first, so a write
+ * refused before its first byte leaves the last report as it was; `intact` says so). No temp file, no rename, no path lookup after the
+ * create: the run can only ever write the inode it created. If the path is swapped meanwhile, the run writes its own moved or unlinked
+ * file, never another one. A kill, or a disk that fails, in the middle of a write can leave a mix of the two bodies in the run's OWN inode
+ * (named limit; the caller writes the earlier body back when it can).
  */
 export class OwnedReport {
   private open = true;
+  /** The file holds the last body written whole: false once a write failed after it changed the file (B31-2). */
+  intact = true;
   private constructor(readonly path: string, private readonly fd: number) {}
 
   /**
@@ -112,14 +116,17 @@ export class OwnedReport {
   /** Replace the whole report with `body` through the held descriptor. Returns why not, or null when written; never throws. */
   write(body: unknown): string | null {
     if (!this.open) return `--report ${this.path} could not be written: the file is closed`;
+    let changed = false;
     try {
       const bytes = Buffer.from(json(body));
-      ftruncateSync(this.fd, 0);
       let at = 0;
-      while (at < bytes.length) at += writeSync(this.fd, bytes, at, bytes.length - at, at);
+      while (at < bytes.length) { const n = writeSync(this.fd, bytes, at, bytes.length - at, at); changed ||= n > 0; at += n; }
+      ftruncateSync(this.fd, bytes.length); // only now: a write refused before here never left the file empty (B31-2)
       fsyncSync(this.fd);
+      this.intact = true;
       return null;
     } catch (err) {
+      if (changed) this.intact = false;
       return `--report ${this.path} could not be written: ${message(err)}`;
     }
   }

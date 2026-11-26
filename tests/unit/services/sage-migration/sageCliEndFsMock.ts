@@ -1,0 +1,21 @@
+/**
+ * node:fs for the CLI end tests (sageCliEndHarness.ts), the --report writes faulted as `h.reportFault` says (B31-2: a failing disk). Its
+ * own module, importing no fs itself: the harness imports node:fs, so a factory that imported the harness would wait on itself.
+ */
+import type { H } from './sageCliEndHarness';
+
+/** fs with the report's writes faulted as `h.reportFault` says (B31-2: a failing disk); every report body has a "status". */
+export function fsMock(real: typeof import('node:fs')) {
+  const writeSync = ((fd: number, buf: unknown, ...rest: unknown[]) => {
+    const write = real.writeSync as (...x: unknown[]) => number;
+    const h = (globalThis as { __sageCliEnd?: H }).__sageCliEnd; // read at each call: this mock may load before the harness
+    if (h === undefined || !Buffer.isBuffer(buf) || !buf.includes('"status": ')) return write(fd, buf, ...rest);
+    const [offset] = rest as [number];
+    if (offset === 0) { h.reportWrites++; h.halfDone = false; } // a body starts at its first byte
+    const fault = h.reportFault(h.reportWrites);
+    if (fault === 'EIO' || (fault === 'half' && h.halfDone)) throw Object.assign(new Error('EIO: injected'), { code: 'EIO' });
+    if (fault === 'half') { h.halfDone = true; const half = Math.floor(buf.length / 2); return write(fd, buf, 0, half, 0); }
+    return write(fd, buf, ...rest);
+  }) as typeof real.writeSync;
+  return { ...real, default: { ...real, writeSync }, writeSync };
+}
