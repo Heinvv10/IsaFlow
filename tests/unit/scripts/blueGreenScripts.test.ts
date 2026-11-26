@@ -28,7 +28,7 @@ const idleSha = (port: number) => readFileSync(b.path('rel', `isaflow-${port}`, 
 
 describe('bg_deploy_release (deploy.sh steps 4-7)', () => {
   /** As deploy.sh calls it: `if ! bg_deploy_release`, so set -e is off inside, with both lock fds open. */
-  const deploy = (repo: string, verify = `bash -c 'echo "VERIFY $0 colour=$VERIFY_COLOUR_PORT run=$VERIFY_DEPLOY_RUN"' "$1"`, env: Record<string, string> = {}) => b.run(`exec 9>/dev/null
+  const deploy = (repo: string, verify = 'echo "VERIFY $1"', env: Record<string, string> = {}) => b.run(`exec 9>/dev/null
 verify() { [ -e /dev/fd/8 ] && echo FD8-OPEN; [ -e /dev/fd/9 ] && echo FD9-OPEN; ${verify}; }
 BG_VERIFY=verify; bg_lock
 rc=0; bg_deploy_release "${repo}" new-sha || rc=$?
@@ -38,7 +38,7 @@ if [ "$rc" -ne 0 ]; then echo "DEPLOY-FAILED rc=$rc"; exit 1; fi`, env);
     const { A, B } = await world();
     const out = deploy(b.build('N1', ['chunks/n.js']));
     expect({
-      verified: out.includes(`VERIFY http://localhost:${B} colour=${B} run=deploy:new-sha`), fdsLeaked: /FD[89]-OPEN/.test(out), live: b.live(), marker: b.marker(B),
+      verified: out.includes(`VERIFY http://localhost:${B}`), fdsLeaked: /FD[89]-OPEN/.test(out), live: b.live(), marker: b.marker(B),
       sha: readFileSync(b.path('envhome', 'RELEASE_SHA'), 'utf8').trim(), chunk: existsSync(b.path('static', '_next/static/chunks/n.js')),
       unit: readFileSync(b.env.BG_UNIT_FILE, 'utf8'), unitPrev: existsSync(`${b.env.BG_UNIT_FILE}.prev`),
       liveTouched: b.calls().some((c) => c.includes(`isaflow@${A}`)),
@@ -162,10 +162,9 @@ describe('rollback-deploy.sh', () => {
 describe('restart-colours.sh', () => {
   it('restarts both colours on the LIVE release, verifying the restarted one before users reach it', async () => {
     const { A, B } = await world();
-    b.stub('seen-verify', 'echo "$1 colour=$VERIFY_COLOUR_PORT run=$VERIFY_DEPLOY_RUN"');
-    const out = b.bash('bash scripts/deploy/restart-colours.sh', { BG_VERIFY: 'seen-verify' });
+    const out = b.bash('bash scripts/deploy/restart-colours.sh', { BG_VERIFY: 'echo' });
     expect({
-      done: out.includes('Both colours run live-sha'), verified: out.includes(`http://localhost:${B} colour=${B} run=restart:live-sha`), live: b.live(),
+      done: out.includes('Both colours run live-sha'), verified: out.includes(`http://localhost:${B}`), live: b.live(),
       served: idleSha(B), a: idleSha(A), marker: b.marker(B), restarts: b.calls().filter((c) => c.startsWith('systemctl restart')),
     }).toEqual({ done: true, verified: true, live: `[${B}]`, served: 'live-sha', a: 'live-sha', marker: null,
       restarts: [`systemctl restart isaflow@${B}`, `systemctl restart isaflow@${A}`] });

@@ -82,9 +82,7 @@ let server: Server | null = null;
 afterEach(() => new Promise<void>((resolve) => (server ? server.close(() => resolve()) : resolve())));
 
 /** What verify-deploy.sh handed the golden step: its arguments and the one variable the config reads. */
-async function goldenStep(extra: Record<string, string> = {}): Promise<{
-  code: number | null; args: string[]; skipA11y: string; deploy: string[]; out: string;
-}> {
+async function goldenStep(): Promise<{ code: number | null; args: string[]; skipA11y: string; out: string }> {
   // Answers step 1b as a healthy colour does: logged-out pages redirect to a relative /login.
   server = createServer((req, res) => {
     if (req.url !== '/api/health' && !req.headers.cookie) { res.statusCode = 307; res.setHeader('Location', '/login'); }
@@ -97,22 +95,18 @@ async function goldenStep(extra: Record<string, string> = {}): Promise<{
   const dir = mkdtempSync(path.join(tmpdir(), 'verify-deploy-'));
   const seen = path.join(dir, 'step.txt');
   const bun = path.join(dir, 'bun');
-  writeFileSync(bun, `#!/bin/bash\nif [[ "$*" == *test:e2e:golden* ]]; then { printf 'GOLDEN_SKIP_A11Y=%s\\n' "\${GOLDEN_SKIP_A11Y-<unset>}"; printf '%s\\n' "$@"; printf 'POST_DEPLOY=%s\\n' "\${GOLDEN_POST_DEPLOY-<unset>}"; printf 'DEPLOY_PORT=%s\\n' "\${GOLDEN_DEPLOY_PORT-<unset>}"; printf 'DEPLOY_RUN=%s\\n' "\${GOLDEN_DEPLOY_RUN-<unset>}"; } > "${seen}"; fi\nexit 0\n`);
+  writeFileSync(bun, `#!/bin/bash\nif [[ "$*" == *test:e2e:golden* ]]; then { printf 'GOLDEN_SKIP_A11Y=%s\\n' "\${GOLDEN_SKIP_A11Y-<unset>}"; printf '%s\\n' "$@"; } > "${seen}"; fi\nexit 0\n`);
   chmodSync(bun, 0o755);
 
   const env = { ...process.env, BUN: bun, VERIFY_SKIP_INTEGRITY: '1', E2E_ADMIN_EMAIL: 'e@x', E2E_ADMIN_PASSWORD: 'p' } as Record<string, string | undefined>;
   delete env.GOLDEN_SKIP_A11Y;
-  delete env.GOLDEN_POST_DEPLOY;
-  delete env.VERIFY_COLOUR_PORT;
-  delete env.VERIFY_DEPLOY_RUN;
-  Object.assign(env, extra);
   const child = spawn('bash', ['scripts/verify-deploy.sh', `http://127.0.0.1:${port}`], { env });
   let out = '';
   child.stdout.on('data', (d) => { out += d; });
   child.stderr.on('data', (d) => { out += d; });
   const code = await new Promise<number | null>((r) => child.on('close', r));
   const lines = readFileSync(seen, 'utf8').split('\n').filter(Boolean);
-  return { code, skipA11y: lines[0]!.replace('GOLDEN_SKIP_A11Y=', ''), args: lines.slice(lines.indexOf('test:e2e:golden') + 1, -3), deploy: lines.slice(-3), out };
+  return { code, skipA11y: lines[0]!.replace('GOLDEN_SKIP_A11Y=', ''), args: lines.slice(lines.indexOf('test:e2e:golden') + 1), out };
 }
 
 /** A --require module that makes `@axe-core/playwright` fail to resolve, exactly as a missing package would. */
@@ -147,23 +141,6 @@ describe('verify-deploy.sh and the a11y gate', () => {
     expect(tests.length).toBeGreaterThanOrEqual(10); // one file left out, not the suite
     for (const p of PREFIX) expect(tests.some((l) => l.includes(p))).toBe(true);
   }, 90_000);
-
-  it('hands the golden setup the switch, the colour port and the run marker its caller set', async () => {
-    const r = await goldenStep({ VERIFY_COLOUR_PORT: '3112', VERIFY_DEPLOY_RUN: 'deploy:abc123' });
-    expect(r.deploy).toEqual(['POST_DEPLOY=1', 'DEPLOY_PORT=3112', 'DEPLOY_RUN=deploy:abc123']);
-    expect(r.out).not.toContain('NOTE: VERIFY_COLOUR_PORT');
-  }, 90_000);
-
-  it('without a caller it passes no port or marker, whatever the shell still holds', async () => {
-    const r = await goldenStep({ GOLDEN_DEPLOY_PORT: '3111', GOLDEN_DEPLOY_RUN: 'left-over' });
-    expect(r.deploy).toEqual(['POST_DEPLOY=1', 'DEPLOY_PORT=', 'DEPLOY_RUN=']);
-    expect(r.out).toContain('NOTE: VERIFY_COLOUR_PORT and VERIFY_DEPLOY_RUN are not both set');
-  }, 90_000);
-
-  it.each([{ VERIFY_COLOUR_PORT: '3112' }, { VERIFY_DEPLOY_RUN: 'manual' }] as Record<string, string>[])(
-    'says so when only one of the two is set: %o', async (half) => {
-      expect((await goldenStep(half)).out).toContain('NOTE: VERIFY_COLOUR_PORT');
-    }, 90_000);
 
   it('control: without the variable the spec IS loaded, and with axe unresolvable that crashes the listing', () => {
     expect(() => listTests({ GOLDEN_SKIP_A11Y: '' })).toThrow(/TRAP: Cannot find module '@axe-core\/playwright'/);

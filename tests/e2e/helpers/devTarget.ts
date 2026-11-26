@@ -15,10 +15,10 @@
  * on a redirect (a dev server without NEXT_PUBLIC_ADMIN_URL sends /admin/* to the production admin host). `all-hooks-included` is Playwright's
  * own (unlisted) mode that also sets the fixture up for beforeAll and afterAll hooks; the runner test pins it.
  *
- * Named limits: over HTTP a dev server cannot be asked which database it uses, so a server on a dev port that was started
- * with production's env is not detected (the *DATABASE_URL keys of the runner's own env are judged). Other applications
- * on velo-server listen inside the dev port range; they do not serve IsaFlow's API, but a mistyped port there would still
- * be sent the dev login. A context a spec builds itself with
+ * A server is also asked which database it is on (assertDevServer): one started with production's env is refused,
+ * whatever its port, and so is anything on a dev port that cannot answer (another application, an older IsaFlow branch).
+ *
+ * Named limits: the answer is asked once per address and worker. A context a spec builds itself with
  * its own storageState or address is judged only by the census. After a refusal further down a file, an `afterEach` that
  * asks for no fixture, or only for `browser`, still runs.
  */
@@ -26,8 +26,6 @@ import { readFileSync } from 'node:fs';
 
 /** Production on velo-server: nginx (80, 443, 3101) and the blue/green colours (3111, 3112). Judged before the range. */
 export const PRODUCTION_PORTS: readonly number[] = [80, 443, 3101, 3111, 3112];
-/** The blue/green colours (BG_PORTS in scripts/deploy/bluegreen.sh): all a deploy run may name. */
-export const COLOUR_PORTS: readonly number[] = [3111, 3112];
 /** Dev and CI app servers. */
 export const DEV_PORT_MIN = 3200;
 export const DEV_PORT_MAX = 3799;
@@ -113,32 +111,6 @@ export function assertDevOrCiTarget(baseURL: string | undefined, env: Env = proc
   return url;
 }
 
-/**
- * A deploy run: scripts/verify-deploy.sh's two switches, plus a colour port and a run marker, which it hands on from
- * VERIFY_COLOUR_PORT and VERIFY_DEPLOY_RUN. deploy, restart-colours and cutover set those for the colour they are
- * changing; a person verifying a colour by hand sets them too. The marker is only checked for presence, and the guard
- * does not know which colour is live.
- */
-export function isDeployRun(env: Env): boolean {
-  return env.GOLDEN_SKIP_A11Y === '1' && env.GOLDEN_POST_DEPLOY === '1' && Boolean(env.GOLDEN_DEPLOY_PORT) && Boolean(env.GOLDEN_DEPLOY_RUN);
-}
-
-/**
- * What the golden setup judges before it sends a login. In a deploy run: exactly http://localhost:<the colour under
- * deploy>, so a mistyped port never hands the credentials to another service on this machine. Otherwise dev and CI only.
- */
-export function assertGoldenTarget(raw: string, env: Env = process.env): string {
-  if (!isDeployRun(env)) return assertDevOrCiTarget(raw, env);
-  const port = env.GOLDEN_DEPLOY_PORT;
-  if (!COLOUR_PORTS.some((p) => String(p) === port)) {
-    throw new DevTargetError('GOLDEN_DEPLOY_PORT', `is "${port}", not a colour port (${COLOUR_PORTS.join(', ')})`);
-  }
-  if (raw !== `http://localhost:${port}`) {
-    throw new DevTargetError('post-deploy base URL', `is not http://localhost:${port}, the colour under deploy`);
-  }
-  return raw;
-}
-
 interface SavedSession { cookies?: ReadonlyArray<{ domain: string }>; origins?: ReadonlyArray<{ origin: string }> }
 type StorageState = string | SavedSession | undefined;
 
@@ -162,9 +134,36 @@ export function assertDevStorageState(state: StorageState): void {
   for (const saved of origins) assertDevOrCiBaseUrl(saved?.origin, 'storageState origin');
 }
 
+/** The server's own answer (pages/api/health/test-database.ts). */
+export const TEST_DATABASE_PATH = '/api/health/test-database';
+/** Long enough for a dev server to compile the route on its first request. */
+const ANSWER_MS = 60_000;
+const confirmed = new Set<string>();
+
+/** Refuses a server that does not say it is on a dev or CI database. Only a yes is remembered. */
+export async function assertDevServer(baseUrl: string): Promise<void> {
+  const url = new URL(TEST_DATABASE_PATH, assertDevOrCiBaseUrl(baseUrl)).href;
+  if (confirmed.has(url)) return;
+  const refuse = (why: string): never => { throw new DevTargetError(`the server at ${new URL(url).origin}`, why); };
+  let answer: { testDatabase?: unknown } | null;
+  try {
+    const res = await fetch(url, { redirect: 'error', signal: AbortSignal.timeout(ANSWER_MS) });
+    answer = (await res.json()) as { testDatabase?: unknown } | null;
+  } catch (e) {
+    return refuse(`did not answer ${TEST_DATABASE_PATH} (${e instanceof Error ? e.message : String(e)})`);
+  }
+  if (answer?.testDatabase !== true) return refuse(`does not report a dev or CI database at ${TEST_DATABASE_PATH}`);
+  confirmed.add(url);
+}
+
+/** Every address a spec took for itself: each is asked for its database along with the config's. */
+const named = new Set<string>();
+
 /** For a spec or script that addresses the server itself instead of through Playwright's baseURL. */
 export function devBaseUrl(raw: string | undefined = process.env.BASE_URL): string {
-  return assertDevOrCiTarget(raw || DEFAULT_DEV_BASE_URL);
+  const url = assertDevOrCiTarget(raw || DEFAULT_DEV_BASE_URL);
+  named.add(url);
+  return url;
 }
 
 /** The built-in fixture, unchanged, but only after the guard passed. */
@@ -183,10 +182,15 @@ interface GuardFixtures {
 /** Call once, at the top level of a spec file, before any hook or test. */
 export function guardDevTarget(test: { use(fixtures: never): void }): void {
   const fixtures: GuardFixtures = {
-    baseURL: async ({ baseURL }, use) => { await use(assertDevOrCiTarget(baseURL)); },
+    baseURL: async ({ baseURL }, use) => {
+      const url = assertDevOrCiTarget(baseURL);
+      for (const target of [url, ...named]) await assertDevServer(target);
+      await use(url);
+    },
     _devTargetGuard: [async ({ baseURL, storageState }, use) => {
-      assertDevOrCiTarget(baseURL);
+      const url = assertDevOrCiTarget(baseURL);
       assertDevStorageState(storageState);
+      await assertDevServer(url);
       await use();
     }, { auto: 'all-hooks-included' }],
     // A failed automatic fixture does not stop a later beforeEach or afterEach; one that needs a failed fixture does not run.

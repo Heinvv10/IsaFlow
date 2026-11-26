@@ -153,7 +153,7 @@ describe('e2e dev-target census', () => {
   it('nothing the post-deploy verification loads applies the dev guard', () => {
     const closure = postDeployClosure();
     expect(closure.length).toBeGreaterThan(prodVerify.size);
-    const applies = /\b(?:devBaseUrl|guardDevTarget|assertDevOr\w+|assertDevStorageState)\s*\(/;
+    const applies = /\b(?:devBaseUrl|guardDevTarget|assertDevOr\w+|assertDevServer|assertDevStorageState)\s*\(/;
     // The golden global setup applies it only outside the post-deploy run (unit/ci/goldenGlobalSetupPreconditions).
     const own = ['helpers/devTarget.ts', 'golden-paths/_global-setup.ts'];
     expect(closure.filter((f) => !own.includes(f) && applies.test(code(read(f))))).toEqual([]);

@@ -212,7 +212,7 @@ fi
 # The same verification gate a deploy runs, before any user reaches the colour:
 # the unit itself is new (loopback bind, working directory, write paths).
 if [ "${SKIP_VERIFY:-0}" != "1" ]; then
-  if ! VERIFY_COLOUR_PORT="$FIRST" VERIFY_DEPLOY_RUN="cutover" "${BG_VERIFY:-verify_first}" "http://localhost:$FIRST"; then
+  if ! "${BG_VERIFY:-verify_first}" "http://localhost:$FIRST"; then
     echo "ERROR: isaflow@$FIRST failed verification. Nothing switched; isaflow.service still serves."
     $S "$BG_SYSTEMCTL" disable --now "isaflow@$FIRST"; exit 1
   fi

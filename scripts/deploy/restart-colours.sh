@@ -41,7 +41,7 @@ echo "2. Starting isaflow@$IDLE with the current env..."
 $BG_SUDO "$BG_SYSTEMCTL" enable "isaflow@$IDLE"
 bg_start "$IDLE"
 echo "   verifying isaflow@$IDLE with the new env before any user reaches it..."
-if ! VERIFY_COLOUR_PORT="$IDLE" VERIFY_DEPLOY_RUN="restart:$SHA" "$BG_VERIFY" "http://localhost:$IDLE" 8>&-; then
+if ! "$BG_VERIFY" "http://localhost:$IDLE" 8>&-; then
   bg_retire_failed "$IDLE" "$SHA: failed verification with the new env"
   echo "ERROR: isaflow@$IDLE failed verification with the new env. Users stay on isaflow@$LIVE (old env). Fix .env.local and re-run."
   exit 1

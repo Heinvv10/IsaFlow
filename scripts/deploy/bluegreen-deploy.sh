@@ -49,7 +49,7 @@ bg_deploy_release() {
     why="unit install failed"
   elif ! $BG_SUDO "$BG_SYSTEMCTL" enable "isaflow@$idle"; then why="unit install failed"
   elif ! bg_start "$idle"; then why="did not start"
-  elif ! VERIFY_COLOUR_PORT="$idle" VERIFY_DEPLOY_RUN="deploy:$sha" "$BG_VERIFY" "http://localhost:$idle" 8>&- 9>&-; then why="VERIFICATION FAILED"
+  elif ! "$BG_VERIFY" "http://localhost:$idle" 8>&- 9>&-; then why="VERIFICATION FAILED"
   fi
   if [ -n "$why" ]; then
     echo "!!! $why — users stay on isaflow@$live; retiring isaflow@$idle !!!" >&2

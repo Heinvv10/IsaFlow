@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { FullConfig } from '@playwright/test';
 import {
   assertDevOrCiBaseUrl, assertDevOrCiDatabaseEnv, assertDevOrCiDatabaseUrl, assertDevOrCiTarget, assertDevStorageState,
-  assertGoldenTarget, COLOUR_PORTS, devBaseUrl, DevTargetError, isDeployRun, PRODUCTION_PORTS,
+  assertDevServer, devBaseUrl, DevTargetError,
 } from '../../e2e/helpers/devTarget';
 import devTargetGlobalSetup from '../../e2e/helpers/devTargetGlobalSetup';
 
@@ -23,7 +23,14 @@ const PROD_DB = devStack('isaflow');
 const CI_DB = 'postgresql://postgres@127.0.0.1:41234/isaflow_golden?sslmode=disable';
 const CI = { GITHUB_ACTIONS: 'true' };
 
-afterEach(() => { vi.unstubAllEnvs(); });
+afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
+
+/** Every request answers `body`. @returns the addresses asked. */
+function serverSays(body: unknown): string[] {
+  const asked: string[] = [];
+  vi.stubGlobal('fetch', async (url: string) => { asked.push(url); return new Response(JSON.stringify(body)); });
+  return asked;
+}
 
 describe('base URL', () => {
   it.each(['http://localhost:3200', 'http://localhost:3299', 'http://localhost:3300', 'http://localhost:3799', 'http://127.0.0.1:3457', 'http://localhost:3243/'])(
@@ -128,54 +135,25 @@ describe('target', () => {
 
   const config = (...urls: (string | undefined)[]) => ({ projects: urls.map((baseURL) => ({ use: { baseURL } })) }) as unknown as FullConfig;
 
-  it('the shared global setup passes an all-dev config', () => {
+  it('the shared global setup passes an all-dev config', async () => {
     clearTargetEnv();
-    expect(() => devTargetGlobalSetup(config('http://localhost:3200', 'http://127.0.0.1:3457'))).not.toThrow();
+    const asked = serverSays({ testDatabase: true });
+    await expect(devTargetGlobalSetup(config('http://localhost:3201', 'http://127.0.0.1:3202'))).resolves.toBeUndefined();
+    expect(asked).toEqual(['http://localhost:3201', 'http://127.0.0.1:3202'].map((o) => `${o}/api/health/test-database`));
   });
 
-  it('the shared global setup refuses a config with any production project, or none', () => {
+  it('the shared global setup refuses a config with any production project, or none', async () => {
     clearTargetEnv();
-    expect(() => devTargetGlobalSetup(config('http://localhost:3200', 'http://localhost:3111'))).toThrow(/production port/);
-    expect(() => devTargetGlobalSetup(config(undefined))).toThrow(/is not set/);
-    expect(() => devTargetGlobalSetup(config())).toThrow(/is not set/);
+    serverSays({ testDatabase: true });
+    await expect(devTargetGlobalSetup(config('http://localhost:3200', 'http://localhost:3111'))).rejects.toThrow(/production port/);
+    await expect(devTargetGlobalSetup(config(undefined))).rejects.toThrow(/is not set/);
+    await expect(devTargetGlobalSetup(config())).rejects.toThrow(/is not set/);
   });
 
-  it('the shared global setup refuses a dev config while the env holds the production database', () => {
+  it('the shared global setup refuses a dev config while the env holds the production database', async () => {
     clearTargetEnv();
     vi.stubEnv('DATABASE_URL', PROD_DB);
-    expect(() => devTargetGlobalSetup(config('http://localhost:3200'))).toThrow(/neither dev nor a CI database/);
-  });
-
-  const RUN = { GOLDEN_SKIP_A11Y: '1', GOLDEN_POST_DEPLOY: '1', GOLDEN_DEPLOY_PORT: '3112', GOLDEN_DEPLOY_RUN: 'deploy:abc' };
-
-  it.each(['3111', '3112'])('a deploy run may name its own colour, %s, even with production\'s database in the env', (port) => {
-    const url = `http://localhost:${port}`;
-    expect(assertGoldenTarget(url, { ...RUN, GOLDEN_DEPLOY_PORT: port, DATABASE_URL: PROD_DB })).toBe(url);
-  });
-
-  it.each([
-    'http://localhost:3111', 'http://localhost:3101', 'http://localhost:7770', 'http://127.0.0.1:3112', 'https://localhost:3112',
-    'http://localhost:3112/', 'http://u@localhost:3112', 'https://app.isaflow.co.za', 'not a url',
-  ])('a deploy run of colour 3112 refuses %s', (url) => {
-    expect(() => assertGoldenTarget(url, RUN)).toThrow(/the colour under deploy/);
-  });
-
-  it.each(['3101', '443', '7770', '3200', '03111', ' 3111'])('a deploy run naming %s, no colour port, is refused', (port) => {
-    expect(() => assertGoldenTarget(`http://localhost:${port}`, { ...RUN, GOLDEN_DEPLOY_PORT: port })).toThrow(/not a colour port/);
-  });
-
-  it.each(Object.keys(RUN))('without %s it is not a deploy run: dev is accepted and the colour refused', (key) => {
-    const env = { ...RUN, [key]: '' };
-    expect(isDeployRun(env)).toBe(false);
-    expect(() => assertGoldenTarget('http://localhost:3112', env)).toThrow(/a production port/);
-    expect(assertGoldenTarget('http://localhost:3457', env)).toBe('http://localhost:3457');
-    expect(() => assertGoldenTarget('http://localhost:3457', { ...env, DATABASE_URL: PROD_DB })).toThrow(/neither dev nor a CI database/);
-  });
-
-  it('the colour ports are the deploy scripts\' own, and every one is a production port', () => {
-    const sh = readFileSync(path.resolve(__dirname, '../../../scripts/deploy/bluegreen.sh'), 'utf8');
-    expect(/^BG_PORTS="\$\{BG_PORTS:-([0-9 ]+)\}"/m.exec(sh)?.[1]?.split(' ').map(Number)).toEqual([...COLOUR_PORTS]);
-    for (const port of COLOUR_PORTS) expect(PRODUCTION_PORTS).toContain(port);
+    await expect(devTargetGlobalSetup(config('http://localhost:3200'))).rejects.toThrow(/neither dev nor a CI database/);
   });
 
   it.each([
@@ -221,5 +199,35 @@ describe('target', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('the server\'s database', () => {
+  it('a yes is asked once; the question goes to the server itself, following no redirect', async () => {
+    const seen: [string, string | undefined][] = [];
+    vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => { seen.push([url, init?.redirect]); return new Response('{"testDatabase":true}'); });
+    await assertDevServer('http://localhost:3611/accounting');
+    await assertDevServer('http://localhost:3611');
+    expect(seen).toEqual([['http://localhost:3611/api/health/test-database', 'error']]);
+  });
+
+  it.each([{ testDatabase: false }, { testDatabase: 'true' }, { status: 'ok' }, null])('refuses a server answering %j, every time it is asked', async (body) => {
+    const asked = serverSays(body);
+    await expect(assertDevServer('http://localhost:3612')).rejects.toThrow(/does not report a dev or CI database/);
+    await expect(assertDevServer('http://localhost:3612')).rejects.toThrow(DevTargetError);
+    expect(asked).toHaveLength(2);
+  });
+
+  it('refuses a server that cannot be reached or answers no JSON', async () => {
+    vi.stubGlobal('fetch', async () => { throw new Error('ECONNREFUSED'); });
+    await expect(assertDevServer('http://localhost:3613')).rejects.toThrow(/did not answer .*ECONNREFUSED/);
+    vi.stubGlobal('fetch', async () => new Response('<html>another app</html>', { status: 404 }));
+    await expect(assertDevServer('http://localhost:3613')).rejects.toThrow(/did not answer/);
+  });
+
+  it('asks nothing of an address that is not dev or CI', async () => {
+    const asked = serverSays({ testDatabase: true });
+    await expect(assertDevServer('http://localhost:3111')).rejects.toThrow(/production port/);
+    expect(asked).toEqual([]);
   });
 });

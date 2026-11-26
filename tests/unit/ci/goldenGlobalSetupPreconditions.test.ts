@@ -32,57 +32,63 @@ beforeEach(() => {
   process.env.E2E_ADMIN_EMAIL = 'deploy-verify@isaflow.co.za';
   // The guard judges every database URL in the env: none may leak in from the shell (the unit run sets a dummy one).
   for (const k of Object.keys(process.env)) if (k.includes('DATABASE_URL') || k === 'GOLDEN_HOSTED_DB_URL') vi.stubEnv(k, '');
-  // A deploy run of colour 3111, the only kind that may name a production address.
-  vi.stubEnv('GOLDEN_SKIP_A11Y', '1');
-  vi.stubEnv('GOLDEN_POST_DEPLOY', '1');
-  vi.stubEnv('GOLDEN_DEPLOY_PORT', '3111');
-  vi.stubEnv('GOLDEN_DEPLOY_RUN', 'deploy:test');
+  vi.stubEnv('GOLDEN_SKIP_A11Y', '1'); // the post-deploy run, which may name a production colour
   process.env[KEYS[1]!] = 'x'.repeat(12); // E2E_ADMIN_PASSWORD: the scripted app never reads it
   script.asked = [];
 });
-afterEach(() => { vi.unstubAllEnvs(); for (const k of KEYS) { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]; } });
+/** The server's answer to the database question. @returns the addresses asked. */
+function serverSays(testDatabase: boolean): string[] {
+  const asked: string[] = [];
+  vi.stubGlobal('fetch', async (url: string) => { asked.push(url); return new Response(JSON.stringify({ testDatabase })); });
+  return asked;
+}
+afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); for (const k of KEYS) { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]; } });
 
 describe('golden global setup', () => {
   it.each(['http://localhost:3101', 'http://localhost:3111', 'http://localhost:3112', 'https://app.isaflow.co.za'])(
     'outside the post-deploy run it refuses %s before any request', async (baseURL) => {
       vi.stubEnv('GOLDEN_SKIP_A11Y', '');
+      const asked = serverSays(true);
       await expect(globalSetup(config(baseURL))).rejects.toThrow(/base URL (names|has protocol)/);
-      expect(script.asked).toEqual([]);
+      expect([...script.asked, ...asked]).toEqual([]);
     });
-
-  it.each(['GOLDEN_SKIP_A11Y', 'GOLDEN_POST_DEPLOY', 'GOLDEN_DEPLOY_PORT', 'GOLDEN_DEPLOY_RUN'])('%s missing is not a deploy run: the colour is refused', async (missing) => {
-    vi.stubEnv(missing, '');
-    await expect(globalSetup(config('http://localhost:3111'))).rejects.toThrow(/production port/);
-    expect(script.asked).toEqual([]);
-  });
 
   it('outside the post-deploy run it refuses a dev server while the env holds the production database', async () => {
     vi.stubEnv('GOLDEN_SKIP_A11Y', '');
     vi.stubEnv('DATABASE_URL', 'postgresql://probe@100.96.203.105:7772/isaflow');
+    const asked = serverSays(true);
     await expect(globalSetup(config('http://localhost:3200'))).rejects.toThrow(/neither dev nor a CI database/);
-    expect(script.asked).toEqual([]);
+    expect([...script.asked, ...asked]).toEqual([]);
   });
 
-  it.each([
-    'http://localhost:3112', 'http://localhost:3101', 'http://localhost:7770', 'http://localhost:3200', 'http://127.0.0.1:3111',
-    'https://localhost:3111', 'https://app.isaflow.co.za', 'http://100.96.203.105:3111',
-  ])('a deploy run of colour 3111 refuses %s before any request', async (baseURL) => {
-    await expect(globalSetup(config(baseURL))).rejects.toThrow(/is not http:\/\/localhost:3111, the colour under deploy/);
-    expect(script.asked).toEqual([]);
-  });
-
-  it.each(['3101', '7770'])('a deploy run naming port %s, no colour, is refused before any request', async (port) => {
-    vi.stubEnv('GOLDEN_DEPLOY_PORT', port);
-    await expect(globalSetup(config(`http://localhost:${port}`))).rejects.toThrow(/not a colour port/);
-    expect(script.asked).toEqual([]);
-  });
-
-  it('THE INCIDENT: login 200, then every GET 401 at an IP address (a dev server here) fails as a refused session pointing at localhost, not as missing accounts', async () => {
-    script.answer = (): Answer => ({ status: 401, body: { success: false, error: { code: 'UNAUTHORIZED' } } });
+  it('outside the post-deploy run it judges every project, not the first alone', async () => {
     vi.stubEnv('GOLDEN_SKIP_A11Y', '');
-    const err = await globalSetup(config('http://127.0.0.1:3457')).then(() => null, (e: Error) => e);
+    serverSays(true);
+    const two = { projects: [{ use: { baseURL: 'http://localhost:3200' } }, { use: { baseURL: 'http://localhost:3111' } }] } as unknown as FullConfig;
+    await expect(globalSetup(two)).rejects.toThrow(/production port/);
+    expect(script.asked).toEqual([]);
+  });
+
+  it('outside the post-deploy run it refuses a dev server that is not on a test database, before any login', async () => {
+    vi.stubEnv('GOLDEN_SKIP_A11Y', '');
+    const asked = serverSays(false);
+    await expect(globalSetup(config('http://localhost:3458'))).rejects.toThrow(/does not report a dev or CI database/);
+    expect(asked).toEqual(['http://localhost:3458/api/health/test-database']);
+    expect(script.asked).toEqual([]);
+  });
+
+  it('the post-deploy run asks no server for its database', async () => {
+    const asked = serverSays(false);
+    script.answer = (): Answer => ({ status: 401, body: null });
+    await expect(globalSetup(config('http://localhost:3111'))).rejects.toThrow(/answered 401/);
+    expect(asked).toEqual([]);
+  });
+
+  it('THE INCIDENT: login 200, then every GET 401 at http://127.0.0.1:3101 fails as a refused session pointing at localhost, not as missing accounts', async () => {
+    script.answer = (): Answer => ({ status: 401, body: { success: false, error: { code: 'UNAUTHORIZED' } } });
+    const err = await globalSetup(config('http://127.0.0.1:3101')).then(() => null, (e: Error) => e);
     expect(err?.message).toContain('answered 401');
-    expect(err?.message).toContain('http://localhost:3457');
+    expect(err?.message).toContain('http://localhost:3101');
     expect(err?.message).not.toMatch(/system account/);
   });
 

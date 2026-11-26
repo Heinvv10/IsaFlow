@@ -73,10 +73,7 @@ describe('cutover.sh', () => {
   it('cuts over: colour seeded from the live release (no env files), :80 then :3101 to nginx, old unit moved and masked', async () => {
     const { A } = await box();
     writeFileSync(b.path('stage', 'isaflow-combined.pre-bluegreen'), '# a stale backup from an earlier cutover/undo cycle');
-    b.stub('seen-verify', 'echo "$1 colour=$VERIFY_COLOUR_PORT run=$VERIFY_DEPLOY_RUN"');
-    const out = cutover('', { CUTOVER_CONFIRM: 'yes', BG_VERIFY: 'seen-verify' });
-    expect(out).toContain('Cutover complete');
-    expect(out).toContain(`http://localhost:${A} colour=${A} run=cutover`);
+    expect(cutover('', { CUTOVER_CONFIRM: 'yes' })).toContain('Cutover complete');
     const probe = readFileSync(b.env.BG_PROBE_FILE, 'utf8');
     expect({
       live: b.live(), site: site() === repoSite(), available: readFileSync(b.path('site-available'), 'utf8') === repoSite(),

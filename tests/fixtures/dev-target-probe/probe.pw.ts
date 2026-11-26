@@ -1,8 +1,10 @@
 // Fixture of tests/unit/e2e/devTargetRunner.test.ts: says which of a guarded file's hooks and tests ran. No browser.
 import { test } from '@playwright/test';
-import { guardDevTarget } from '../../e2e/helpers/devTarget';
+import { devBaseUrl, guardDevTarget } from '../../e2e/helpers/devTarget';
 
 guardDevTarget(test);
+// A spec that addresses a server itself, as the legacy specs do.
+if (process.env.PROBE_NAMED_URL) devBaseUrl(process.env.PROBE_NAMED_URL);
 
 const ran = (what: string): void => { process.stdout.write(`PROBE-RAN ${what}\n`); };
 

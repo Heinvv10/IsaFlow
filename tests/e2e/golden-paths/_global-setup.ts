@@ -18,7 +18,7 @@
 import { request as pwRequest, type APIRequestContext, type FullConfig } from '@playwright/test';
 import { mkdirSync } from 'fs';
 import { dirname } from 'path';
-import { assertGoldenTarget } from '../helpers/devTarget';
+import { assertDevOrCiTarget, assertDevServer } from '../helpers/devTarget';
 import { loginGolden } from './helpers/goldenLogin';
 import { readGoldenSlot } from './helpers/goldenSlot';
 import { approverFailure, approverProblems, suitePreconditionProblems, type SuiteGet } from './helpers/suitePreconditions';
@@ -65,9 +65,11 @@ async function warnBudgetYear(ctx: APIRequestContext): Promise<void> {
 export default async function globalSetup(config: FullConfig): Promise<void> {
   const baseURL = config.projects[0]?.use?.baseURL;
   if (!baseURL) throw new Error('golden config must define use.baseURL');
-  // Before any login. Only a deploy run may name a production colour, and only the one under deploy; every other run is
-  // refused anything but dev and CI.
-  assertGoldenTarget(baseURL);
+  // Before any login: every project dev or CI, on a test database. The post-deploy verification (scripts/verify-deploy.sh
+  // sets GOLDEN_SKIP_A11Y=1) names a production colour, loads no dev-only spec and is not judged here.
+  if (process.env.GOLDEN_SKIP_A11Y !== '1') {
+    for (const project of config.projects) await assertDevServer(assertDevOrCiTarget(project.use?.baseURL));
+  }
 
   const ctx = await pwRequest.newContext({ baseURL });
   await loginGolden(ctx, readGoldenSlot(process.env));

@@ -2,8 +2,8 @@
  * Golden-paths E2E config (A–Z fix programme, Phase 0).
  *
  * Runs the money-path suite in tests/e2e/golden-paths/. Dev and CI only (tests/e2e/helpers/devTarget.ts, enforced in
- * the global setup), except the post-deploy verification (a deploy run: isDeployRun there, only http://localhost:<the colour under
- * verification>), which loads no dev-only spec:
+ * the global setup), except the post-deploy verification (GOLDEN_SKIP_A11Y=1, scripts/verify-deploy.sh), which loads no dev-only spec
+ * and which the guard does not judge:
  *   BASE_URL=http://localhost:3200 (default — workspace dev server)
  *   BASE_URL=<the idle colour> (post-deploy verification, scripts/verify-deploy.sh: logs in as the dedicated verify user,
  *   whose only company is the hidden "Deploy Verification" company; without E2E_VERIFY_* it falls back to the Demo company)
