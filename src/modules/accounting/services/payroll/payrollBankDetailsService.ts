@@ -185,23 +185,32 @@ export async function getEmployeeBankDetails(
 }
 
 /**
- * The details that were active at `asOf` (an ISO instant), masked for `role`; null when none were (wave 7 EA2: a FILED
- * EMP501 version re-serves the accounts as they stood when it was filed). Rows are insert-only and a change inserts the
- * next one (the only writer, setEmployeeBankDetails, deactivates the old row in the same transaction), so the row active
- * then is the newest created at or before it.
+ * One recorded row of the employee's details, by id, masked for `role`; null when it is not this company's employee's
+ * (wave 7 EA2: a FILED EMP501 version re-serves exactly the rows its filing pinned; rows are insert-only and never
+ * rewritten, app_user's UPDATE being is_active alone).
  */
-export async function getEmployeeBankDetailsAsOf(
-  companyId: string, employeeId: string, asOf: string, role: string | undefined,
+export async function getEmployeeBankDetailsByRowId(
+  companyId: string, employeeId: string, rowId: string, role: string | undefined,
 ): Promise<EmployeeBankDetails | null> {
   const rows = (await sql`
     SELECT id, employee_id, bank_name, account_number, account_type, branch_code, account_holder, account_holder_relationship,
            effective_from::text AS effective_from
     FROM payroll_bank_details
-    WHERE company_id = ${companyId}::uuid AND employee_id = ${employeeId}::uuid AND created_at <= ${asOf}::timestamptz
-    ORDER BY created_at DESC, id DESC
-    LIMIT 1
+    WHERE company_id = ${companyId}::uuid AND employee_id = ${employeeId}::uuid AND id = ${rowId}::uuid
   `) as BankRow[];
   return rows[0] ? toView(rows[0], role) : null;
+}
+
+/** Each employee's active row id (ids only, no value: nothing to audit), null for one with none. */
+export async function activeBankRowIds(companyId: string, employeeIds: string[]): Promise<Map<string, string | null>> {
+  const out = new Map<string, string | null>(employeeIds.map((id) => [id, null]));
+  if (employeeIds.length === 0) return out;
+  const rows = (await sql`
+    SELECT employee_id::text AS employee_id, id::text AS id FROM payroll_bank_details
+    WHERE company_id = ${companyId}::uuid AND employee_id = ANY(${employeeIds}::uuid[]) AND is_active
+  `) as Array<{ employee_id: string; id: string }>;
+  for (const r of rows) out.set(r.employee_id, r.id);
+  return out;
 }
 
 /**

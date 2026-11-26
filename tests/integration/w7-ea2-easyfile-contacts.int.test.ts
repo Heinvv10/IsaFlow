@@ -24,6 +24,7 @@ import { preValidateTaxYear } from '@/modules/accounting/services/payroll/preVal
 import { request, response } from './mfa-impersonation-postgres.helpers';
 import { agent, approvedRun, loginAs, type R } from './pe-payslip-email.helpers';
 import filingFile from '../../pages/api/payroll/emp501/returns/filing-file';
+import returnsRoute from '../../pages/api/payroll/emp501/returns/index';
 import { UNWRITTEN_FIELDS_WARNING_NO_CONTACTS } from '@/modules/accounting/services/payroll/easyFileCertificateCodes';
 import { rig } from './brkr.helpers';
 
@@ -271,38 +272,51 @@ describe('e@syFile addresses and bank accounts (wave 7 EA2)', () => {
       await a.pool.query(`UPDATE payroll_bank_details SET is_active = true WHERE id = $1`, [bankIds[emp.bare]]);
     });
 
-    it('a FILED version re-serves the accounts as they stood when it was filed: same bytes, same served hash after a change', async () => {
+    it('filing pins the rows of the latest download: refused after a change, then filed, then re-served byte for byte (R1, R2)', async () => {
       const sha = (t: string) => createHash('sha256').update(t, 'utf8').digest('hex');
-      const figures = (await a.pool.query('SELECT figures FROM tax_return_versions WHERE id = $1', [versionId])).rows[0]!.figures;
-      const filedId = String((await a.pool.query(
-        `INSERT INTO tax_return_versions (company_id, form_type, period_start, period_end, version_no, figures, posted_through,
-           finalised_by, status, filed_at, filed_by)
-         VALUES ($1, 'EMP501', '2024-03-01', '2025-02-28', 1, $2, now(), 'fixture', 'filed', clock_timestamp(), 'fixture') RETURNING id`,
-        [a.company, JSON.stringify(figures)])).rows[0]!.id);
-      const get = async (id: string) => {
-        const req = request({ 'sb-access-token': a.tokens[a.approver]!, active_company_id: a.company }, 'POST') as unknown as { url: string; body: unknown };
-        req.url = '/api/payroll/emp501/returns/filing-file';
-        req.body = { versionId: id, format: 'irp5' };
-        const out = response();
-        await (filingFile as unknown as (q: unknown, s: NextApiResponse) => Promise<void>)(req, out.res);
-        expect((out.state as unknown as { statusCode: number }).statusCode).toBe(200);
-        return { body: String((out.state as unknown as { body: unknown }).body), served: out.headers.get('x-filing-file-served-sha256') };
+      const fileIt = () => a.call(returnsRoute as never, 'POST', '/api/payroll/emp501/returns', undefined,
+        { user: a.approver, body: { action: 'file', versionId, reference: '1234567890' } });
+      const newAccount = async (employee: string, number: string, q: (t: string, v: unknown[]) => Promise<unknown> = (t, v) => a.pool.query(t, v)) => {
+        await q('UPDATE payroll_bank_details SET is_active = false WHERE company_id = $1 AND employee_id = $2 AND is_active', [a.company, employee]);
+        await q(`INSERT INTO payroll_bank_details (company_id, employee_id, bank_name, account_number, account_type, branch_code,
+            account_holder, account_holder_relationship, is_active) VALUES ($1, $2, 'Capitec', $3, 'savings', '470010', 'T Molefe', 'own', true)`,
+          [a.company, employee, number]);
       };
-      const filed = await get(filedId);
-      expect(filed.body).toContain('3241,"62123456789"');
-      expect(filed.served).toBe(sha(filed.body));
-      // The account changes after filing (the only writer's way: deactivate, insert the next row).
-      await a.pool.query('UPDATE payroll_bank_details SET is_active = false WHERE id = $1', [bankIds[emp.full]]);
-      await a.pool.query(`INSERT INTO payroll_bank_details (company_id, employee_id, bank_name, account_number, account_type, branch_code,
-          account_holder, account_holder_relationship, is_active, created_at)
-        VALUES ($1, $2, 'Capitec', '70000000007', 'savings', '470010', 'T Molefe', 'own', true, clock_timestamp() + interval '1 second')`, [a.company, emp.full]);
-      const again = await get(filedId);
-      expect(again.body).toBe(filed.body);
-      expect(again.served).toBe(filed.served);
-      // A version not yet filed reads today's account.
-      const live = await get(versionId);
-      expect(live.body).toContain('3241,"70000000007"');
-      expect(live.body).not.toContain('3241,"62123456789"');
+      const status = async () => String((await a.pool.query('SELECT status FROM tax_return_versions WHERE id = $1', [versionId])).rows[0]!.status);
+      // R1: downloaded (the earlier case), then the account changes: filing is refused, nothing written.
+      await newAccount(emp.full, '70000000007');
+      const refused = await fileIt();
+      expect([refused.statusCode, refused.body.error?.details?.code]).toEqual([409, 'BANK_DETAILS_CHANGED']);
+      expect(JSON.stringify(refused.body)).toContain('download it again');
+      expect(await status()).toBe('finalised');
+      // Downloaded again: these bytes are what is filed.
+      const last = await download(a.approver);
+      expect(String(last.body)).toContain('3241,"70000000007"');
+      // R2: a bank change open in another transaction while filing (its row would predate the filing) changes nothing.
+      const open = await a.pool.connect();
+      try {
+        await open.query('BEGIN');
+        await newAccount(emp.bare, '80000000008', (t, v) => open.query(t, v as unknown[]));
+        const filed = await fileIt();
+        expect(filed.statusCode, JSON.stringify(filed.body)).toBe(200);
+        await open.query('COMMIT');
+      } finally {
+        open.release();
+      }
+      expect(await status()).toBe('filed');
+      const again = await download(a.approver);
+      expect(String(again.body)).toBe(String(last.body));
+      expect(again.headers.get('x-filing-file-served-sha256')).toBe(sha(String(last.body)));
+      expect(String(again.body)).not.toContain('80000000008');
+      // Another change after filing: the filed file still re-serves the pinned rows.
+      await newAccount(emp.full, '90000000009');
+      const later = await download(a.approver);
+      expect(String(later.body)).toBe(String(last.body));
+      const pin = (await a.pool.query(`SELECT changes FROM audit_log WHERE company_id = $1 AND entity_type = 'tax_return_version'
+        AND entity_id = $2 AND action = 'update' AND changes -> 'metadata' ->> 'bankRows' IS NOT NULL`, [a.company, versionId])).rows;
+      expect(pin).toHaveLength(1);
+      expect(pin[0]!.changes.metadata.servedSha256).toBe(sha(String(last.body)));
+      expect(JSON.stringify(pin[0]!.changes)).not.toMatch(/70000000007|62123456789/);
     });
 
     it('a version finalised before EA2 (no bankOverlay marker) is served byte for byte as stored: no 324x line, served = stored', async () => {
