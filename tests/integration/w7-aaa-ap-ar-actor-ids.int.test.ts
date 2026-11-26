@@ -14,6 +14,8 @@ import { als } from '@/lib/als';
 import { sql } from '@/lib/neon';
 import { createRecurringJournal } from '@/modules/accounting/services/gl/recurringJournalService';
 import { cancelAdjustment, createAdjustment } from '@/modules/accounting/services/items/adjustmentService';
+import { createRecurringInvoice } from '@/modules/accounting/services/ar/recurringInvoiceService';
+import { runRecurringInvoice } from '@/modules/accounting/services/ar/recurringInvoiceRun';
 import { rig } from './brkr.helpers';
 
 const TABLES = ['supplier_invoices', 'supplier_payments', 'customer_payments', 'credit_notes', 'recurring_invoices',
@@ -70,6 +72,31 @@ describe('AP/AR actor ids are compared as text (AAa)', () => {
       const [a] = (await sql`SELECT created_by::text AS by FROM accounting_adjustments WHERE id = ${adj.id}::uuid AND company_id = ${r.company}::uuid`) as { by: string }[];
       expect(a!.by).toBe(upper.toLowerCase());
       await cancelAdjustment(r.company, adj.id);
+    });
+  });
+
+  it('a non-UUID actor is stored as given in the varchar customer_invoices.created_by (only an untyped bind allows it)', async () => {
+    // customer_invoices.created_by is varchar, recurring_invoices.created_by still uuid: the template is made by a UUID user and
+    // RUN by a non-UUID one. `${userId}::UUID` in recurringInvoiceRun raised 22P02 here on master.
+    const creator = crypto.randomUUID();
+    await rolledBack(NON_UUID, async (c) => {
+      for (const id of [creator, NON_UUID]) {
+        await c.query("INSERT INTO users(id,email,role,is_active) VALUES($1,$2,'admin',true)", [id, `${id}@example.invalid`]);
+        await c.query("INSERT INTO company_users(company_id,user_id,role) VALUES($1,$2,'admin')", [r.company, id]);
+      }
+      for (const [code, type, normal, sub] of [['1200', 'asset', 'debit', 'receivable'], ['4000', 'revenue', 'credit', 'default_revenue'], ['2200', 'liability', 'credit', 'vat_output']]) {
+        await c.query(`INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, normal_balance, level, account_subtype, is_system_account)
+          VALUES ($1,$2,$3,$4,$5,1,$6,true)`, [r.company, code, `AAa ${code}`, type, normal, sub]);
+      }
+      const customer = crypto.randomUUID();
+      await c.query("INSERT INTO customers (id, company_id, name) VALUES ($1, $2, 'AAa recurring customer')", [customer, r.company]);
+      const tpl = await createRecurringInvoice(r.company, {
+        templateName: 'AAa', clientId: customer, frequency: 'monthly', nextRunDate: '2026-01-01',
+        lineItems: [{ description: 'Service', quantity: 1, unitPrice: 100 }],
+      } as never, creator);
+      const run = await runRecurringInvoice(r.company, tpl.id, NON_UUID);
+      const [inv] = (await sql`SELECT created_by FROM customer_invoices WHERE id = ${run.invoiceId}::uuid AND company_id = ${r.company}::uuid`) as { created_by: string }[];
+      expect(inv!.created_by).toBe(NON_UUID);
     });
   });
 });
