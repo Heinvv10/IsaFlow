@@ -10,7 +10,7 @@
 --
 -- GRANTS AND RLS unchanged: app_user's table-level INSERT (952) reaches the new column; its UPDATE stays is_active alone,
 -- so a row's relationship, like the rest of it, is never rewritten (a change inserts the next row). No SECURITY DEFINER
--- writes the table: 888's entity_change_capture (a definer, unchanged, so no 930 registry row) records the whole row,
+-- writes the table: 888's change-history capture (a definer, unchanged, so no 930 registry row) records the whole row,
 -- so the history gains the key; entityChangeMasking masks it with the other bank fields.
 --
 -- OLD COLOUR (the release before this one, running against this schema while the deploy switches colours):
