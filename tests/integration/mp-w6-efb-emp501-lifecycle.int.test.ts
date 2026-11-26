@@ -91,7 +91,7 @@ describeIfDb('EMP501 lifecycle (interim 2026), two tenants', () => {
     await sql`INSERT INTO companies (id, name) VALUES (${other.companyId}::UUID, 'EFb other tenant')`;
     await sql`INSERT INTO users (id, email, role, is_active) VALUES (${other.userId}, ${`efb-${other.userId}@example.invalid`}, 'admin', true)`;
     await sql`INSERT INTO company_users (company_id, user_id, role) VALUES (${other.companyId}::UUID, ${other.userId}, 'admin')`;
-    other.token = await new SignJWT({ sub: other.userId, aal: 'aal2' }).setProtectedHeader({ alg: 'HS256' })
+    other.token = await new SignJWT({ sub: other.userId, aal: 'aal2', session_id: crypto.randomUUID() }).setProtectedHeader({ alg: 'HS256' })
       .setExpirationTime('1h').sign(new TextEncoder().encode(process.env.JWT_SECRET));
     await finalRun(3, [[await employee('Zed', '0123456789', other.companyId), 99_000, 9_000]], other.companyId);
   }, 240000);

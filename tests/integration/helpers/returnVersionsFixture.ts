@@ -27,7 +27,9 @@ async function member(companyId: string, userId: string, role: string): Promise<
   await sql`INSERT INTO users (id, email, role, is_active)
     VALUES (${userId}, ${`rv-${userId}@isaflow.test`}, 'admin', true)`;
   await sql`INSERT INTO company_users (company_id, user_id, role) VALUES (${companyId}::UUID, ${userId}, ${role})`;
-  return { userId, token: await sign(userId) };
+  // A person in their own session (a session id, as GoTrue gives one): the EMP501 filing file refuses a token without
+  // one (wave 7 EA2: the file carries employees' addresses), as the address and bank-details routes do.
+  return { userId, token: await sign(userId, crypto.randomUUID()) };
 }
 
 export async function seedReturnFixture(prefix: string, databaseUrl: string): Promise<ReturnFixture> {
