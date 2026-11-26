@@ -683,6 +683,10 @@
    {"line":99,"text":"JOIN payroll_run_headers h ON h.id = d.run_id AND h.company_id = d.company_id","class":"S","owner":"FQb1","why":"GA: by each deduction's run id: a sum over the approved/paid runs (rev #1574 L3)"},
    {"line":102,"text":"JOIN payroll_run_headers h ON h.id = d.run_id AND h.company_id = d.company_id","class":"S","owner":"FQb1","why":"GA: by each deduction's run id: a sum over the runs not yet approved"}
   ],
+  "src/modules/accounting/services/payroll/payrollGarnisheeMonth.ts": [
+   {"line":34,"text":"SELECT 1 FROM payroll_run_headers me","class":"S","owner":"GT","why":"wave 7 GT: the run being costed or approved, by id"},
+   {"line":35,"text":"JOIN payroll_run_headers h2 ON h2.company_id = me.company_id AND h2.id <> me.id","class":"S","owner":"GT","why":"an EXISTS over every OTHER final monthly run of its month (payRunFinalSql) holding a deduction for the order: correct with several runs a month"}
+  ],
   "src/modules/accounting/services/payroll/payrollGarnisheeRun.ts": [
    {"line":93,"text":"FROM payroll_run_headers h","class":"S","owner":"FQb1","why":"GA: by run id; the run's own period_start/period_end and calculated_at (stale-order refusal, rev #1574 M2), right for any frequency"}
   ]
