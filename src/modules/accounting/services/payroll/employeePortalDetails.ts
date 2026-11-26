@@ -28,6 +28,19 @@ export interface PortalDetails {
   bankUnavailable: boolean;
 }
 
+/**
+ * Degrade only when the database cannot answer (breaker #1932 round 2): no MIGRATION_ADMIN_DATABASE_URL, a connection
+ * failure or timeout, or a Postgres error (a SQLSTATE: five characters, digits and capitals). Anything else is a
+ * defect and is rethrown.
+ */
+const CONNECTION_CODES = new Set(['ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'ENOTFOUND', 'EHOSTUNREACH', 'EPIPE']);
+export function isBankReadUnavailable(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const code = (err as { code?: unknown }).code;
+  if (typeof code === 'string' && (/^[0-9A-Z]{5}$/.test(code) || CONNECTION_CODES.has(code))) return true;
+  return /MIGRATION_ADMIN_DATABASE_URL required|timeout exceeded when trying to connect|Connection terminated/.test(err.message);
+}
+
 /** The employee's own details, or null when the session's employee is not that company's. */
 export async function readPortalDetails(companyId: string, employeeId: string): Promise<PortalDetails | null> {
   const row = ((await sql`
@@ -52,6 +65,7 @@ export async function readPortalDetails(companyId: string, employeeId: string): 
       [companyId, employeeId],
     )).rows[0]);
   } catch (err) {
+    if (!isBankReadUnavailable(err)) throw err; // a defect, not an outage: the request fails as any other would
     bankUnavailable = true;
     log.warn('Employee portal: bank line unavailable', {
       companyId, employeeId, error: err instanceof Error ? err.name : 'unknown',

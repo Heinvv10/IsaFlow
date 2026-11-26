@@ -31,7 +31,9 @@ describe('readPortalDetails', () => {
 
   it.each([
     ['the URL is unset', new Error('MIGRATION_ADMIN_DATABASE_URL required: credential, membership and portal writes (S-07b/c/d)')],
-    ['the query fails quoting a value', Object.assign(new Error('value "62000123456" violates something'), { name: 'DatabaseError' })],
+    ['the query fails quoting a value', Object.assign(new Error('value "62000123456" violates something'), { name: 'DatabaseError', code: '23514' })],
+    ['the connection is refused', Object.assign(new Error('connect ECONNREFUSED 127.0.0.1:5432'), { code: 'ECONNREFUSED' })],
+    ['the pool times out', new Error('timeout exceeded when trying to connect')],
   ])('when %s: the address still shows, the bank is unavailable, the log holds ids only', async (_what, err) => {
     m.tx.mockRejectedValue(err);
     const d = await readPortalDetails('co-A', 'emp-1');
@@ -41,6 +43,12 @@ describe('readPortalDetails', () => {
     const logged = JSON.stringify(m.warn.mock.calls[0]);
     expect(logged).toContain('emp-1');
     for (const leak of ['Kingfisher', '0028', '62000123456', 'required']) expect(logged).not.toContain(leak);
+  });
+
+  it('a defect in the bank read (a TypeError) is not hidden: it is rethrown, so the request 500s', async () => {
+    m.tx.mockRejectedValue(new TypeError("Cannot read properties of undefined (reading 'rows')"));
+    await expect(readPortalDetails('co-A', 'emp-1')).rejects.toThrow(TypeError);
+    expect(m.warn).not.toHaveBeenCalled();
   });
 
   it('no employee row: null, and no bank read at all', async () => {
