@@ -99,14 +99,16 @@ export async function recurringRowsNeedingProRata(
   // W29: the rows the run reads as having ended inside employment (payrollRecurringShareRead), so the guard and the pay
   // agree on which rows the share pays: a package-cut row replaced by a once-off is not among them, and stays flagged.
   const endedIds = new Set<string>();
-  // Option B (#1901): the components either reader pays, per employee, to find a half-paid monthly leaver (below). A
-  // recurring row starting after the last day is not paid (apportionRecurringRows), so it pays nothing beside the row.
+  // Option B (#1901): the components a RECURRING row of either reader pays, per employee, to find a half-paid monthly leaver
+  // (below). A once-off is not counted: master's workflow pays a before-band leaver's part month as a hand once-off, often of
+  // the same component (review M, 6a5f990df1). A recurring row starting after the last day is not paid (apportionRecurringRows).
   const readComponents = new Set<string>();
   const monthly = isMonthlyPeriod(period);
   const lastDayOf = new Map(rows.map((r) => [String(r.employee_id), r.end_date == null ? null : fmtDate(r.end_date)]));
   const paysBeside = (employeeId: string, c: EmployeeComponent) => {
     const lastDay = lastDayOf.get(employeeId);
-    if (!(c.isRecurring && lastDay != null && c.effectiveFrom !== undefined && c.effectiveFrom > lastDay)) readComponents.add(`${employeeId}:${c.component.id}`);
+    if (!c.isRecurring) return;
+    if (!(lastDay != null && c.effectiveFrom !== undefined && c.effectiveFrom > lastDay)) readComponents.add(`${employeeId}:${c.component.id}`);
   };
   for (const employeeId of new Set(rows.map((r) => String(r.employee_id)))) {
     for (const c of await getEmployeeComponents(employeeId, companyId, last)) {
@@ -130,8 +132,8 @@ export async function recurringRowsNeedingProRata(
       continue;
     }
     // Option B (coordinator ruling on #1901, 2026-11-26; Hein 2026-11-02): a monthly leaver's own row ending before the 27th
-    // is not paid and not flagged, as on master (the part month is entered by hand), unless another row of its component
-    // IS paid this month (a raise on the 10th paid at its share): that leaver would be half paid, so the row is flagged
+    // is not paid and not flagged, as on master (the part month is entered by hand), unless another RECURRING row of its
+    // component IS paid this month (a raise on the 10th paid at its share): that leaver would be half paid, so the row is flagged
     // and approval refused, never silently underpaid.
     if (!paid && monthly && r.end_date != null && r.effective_to != null && fmtDate(r.effective_to) === fmtDate(r.end_date)
       && fmtDate(r.effective_to) < day27 && !readComponents.has(`${String(r.employee_id)}:${String(r.component_id)}`)) continue;
