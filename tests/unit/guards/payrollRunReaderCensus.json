@@ -669,7 +669,7 @@
   "src/modules/accounting/services/payroll/payrollOffCycleCorrection.ts": [
    {"line":87,"text":"FROM payroll_run_lines l JOIN payroll_run_headers h ON h.id = l.run_id","class":"S","owner":"OC","why":"this run's own lines, by id (each employee's gross against what was last approved)"}
   ],
-  "src/modules/accounting/services/payroll/payrollOffCycleCancel.ts": [
+  "src/modules/accounting/services/payroll/payrollRunCancel.ts": [
    {"line":34,"text":"OR EXISTS (SELECT 1 FROM payroll_run_directive_uses d WHERE d.run_id = h.id AND d.company_id = h.company_id)","class":"S","owner":"OC","why":"EXISTS by run id: the run being cancelled carries a directive use"},
    {"line":36,"text":"OR EXISTS (SELECT 1 FROM payroll_loan_payments p WHERE p.run_id = h.id)) AS ever_approved","class":"S","owner":"OC","why":"EXISTS by run id: the run being cancelled carries a loan payment"},
    {"line":37,"text":"FROM payroll_run_headers h","class":"S","owner":"OC","why":"the run being cancelled, by id, FOR UPDATE"},

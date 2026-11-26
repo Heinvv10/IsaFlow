@@ -162,7 +162,7 @@ export async function restoreRunGarnishees(companyId: string, runId: string): Pr
 }
 
 /**
- * Wave 7 GT (grill F12): an off-cycle run being cancelled (payrollOffCycleCancel, in its transaction `tx`, the header
+ * Wave 7 GT (grill F12): an off-cycle run being cancelled (payrollRunCancel, in its transaction `tx`, the header
  * locked) drops its deductions. A run that can be cancelled was never approved or is reopened, so 999z holds its
  * deductions unapplied and the balances already exclude them; any applied row is restored first all the same, and the
  * balance is set again from what is counted (total_debt - payroll_garnishee_order_counted). Returns the rows dropped.

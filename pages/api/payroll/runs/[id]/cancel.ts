@@ -1,7 +1,7 @@
 /**
  * POST /api/payroll/runs/[id]/cancel - cancel a draft or calculated off-cycle run (wave 6 OC, UI review #1620 H).
  * Owner or admin only; refused under Login-as (403 IMPERSONATION_FORBIDDEN); every other refusal is a 409 judged
- * before any write (payrollOffCycleCancel).
+ * before any write (payrollRunCancel).
  */
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
@@ -14,7 +14,7 @@ import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
 import { withPayrollModule } from '@/lib/auth/withPayrollModule';
 import { respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
 import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
-import { cancelOffCycleRun } from '@/modules/accounting/services/payroll/payrollOffCycleCancel';
+import { cancelOffCycleRun } from '@/modules/accounting/services/payroll/payrollRunCancel';
 import { OffCycleRunRefusedError } from '@/modules/accounting/services/payroll/payrollOffCycleRun';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

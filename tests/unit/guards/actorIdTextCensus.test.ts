@@ -62,7 +62,7 @@ const NON_ACTOR_UUID_BINDS: ReadonlySet<string> = new Set([
 /** Non-actor uuid binds allowed in ONE file only (review L-b of 87708dc593): a generic name stays an actor suspect elsewhere. */
 const NON_ACTOR_UUID_BINDS_IN_FILE: Readonly<Record<string, ReadonlySet<string>>> = {
   // wave 6 OC (review L3 of 819c2861c0): the pending approval request cancel locks and re-reads
-  'src/modules/accounting/services/payroll/payrollOffCycleCancel.ts': new Set(['requestId']),
+  'src/modules/accounting/services/payroll/payrollRunCancel.ts': new Set(['requestId']),
 };
 const unlistedUuidBinds = (line: string, file?: string) => [...line.matchAll(/\$\{([^}]*)\}\s*::\s*uuid\b/gi)]
   .map((m) => m[1]!.trim())
@@ -98,7 +98,7 @@ const SITES: Readonly<Record<string, Readonly<Record<number, string>>>> = {
     171: "ELSE public.approval_company_member_name(h.company_id, to_jsonb(h) ->> 'paid_by') END AS paid_by_name",
   },
   // Wave 6 OC: Cancel run stamps who cancelled it, an untyped bind (TEXT column).
-  [`${S}payroll/payrollOffCycleCancel.ts`]: { 88: 'cancelled_by = ${userId}, cancelled_at = now()' },
+  [`${S}payroll/payrollRunCancel.ts`]: { 88: 'cancelled_by = ${userId}, cancelled_at = now()' },
   // Wave 6 OC: an off-cycle run's header and its employees (payroll_off_cycle_employees.created_by is TEXT, 999x).
   [`${S}payroll/payrollOffCycleRun.ts`]: {
     198: 'company_id, period_month, period_year, created_by, pay_frequency, run_kind, off_cycle_reason, period_start, period_end, run_date',
@@ -251,7 +251,7 @@ describe('actor ids on the payroll, SARS and tax tables are bound as text (HYa c
     expect(castsActorToUuid('VALUES (${companyId}::uuid, ${runId}::uuid, ${actor})')).toBe(false);
     expect(castsActorToUuid('WHERE company_id = ${companyId}::uuid AND id = ${id}::uuid')).toBe(false);
     // A file-scoped non-actor bind is allowed in its file only.
-    expect(castsActorToUuid('WHERE id = ${requestId}::uuid', 'src/modules/accounting/services/payroll/payrollOffCycleCancel.ts')).toBe(false);
+    expect(castsActorToUuid('WHERE id = ${requestId}::uuid', 'src/modules/accounting/services/payroll/payrollRunCancel.ts')).toBe(false);
     expect(castsActorToUuid('WHERE id = ${requestId}::uuid', 'src/modules/accounting/services/payroll/payrollOffCycleRun.ts')).toBe(true);
     expect(castsActorToUuid('WHERE id = ${requestId}::uuid')).toBe(true);
     expect(castsActorToUuid('prepared_by::text AS prepared_by')).toBe(false);

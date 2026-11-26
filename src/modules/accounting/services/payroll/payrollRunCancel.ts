@@ -89,7 +89,7 @@ export async function cancelOffCycleRun(companyId: string, runId: string, userId
        WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid
        RETURNING *
     `) as DbRow[];
-    log.info('Off-cycle payroll run cancelled', { companyId, runId, previousStatus: String(run.status), userId, garnishees }, 'payrollOffCycleCancel');
+    log.info('Off-cycle payroll run cancelled', { companyId, runId, previousStatus: String(run.status), userId, garnishees }, 'payrollRunCancel');
     return mapRunRow(rows[0]!);
   });
 }

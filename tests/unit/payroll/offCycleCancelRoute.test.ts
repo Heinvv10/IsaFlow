@@ -15,9 +15,9 @@ vi.mock('@/lib/auth/withPayrollModule', () => ({ withPayrollModule: (h: H) => h 
 vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (h: H) => h }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 vi.mock('@/modules/accounting/services/core/approvePermissionResponse', () => ({ refuseWithoutApprove: vi.fn(async () => false) }));
-vi.mock('@/modules/accounting/services/payroll/payrollOffCycleCancel', () => ({ cancelOffCycleRun: vi.fn() }));
+vi.mock('@/modules/accounting/services/payroll/payrollRunCancel', () => ({ cancelOffCycleRun: vi.fn() }));
 
-import { cancelOffCycleRun } from '@/modules/accounting/services/payroll/payrollOffCycleCancel';
+import { cancelOffCycleRun } from '@/modules/accounting/services/payroll/payrollRunCancel';
 import { ApprovalRequestNotFoundError } from '@/modules/accounting/services/gl/approvalAuthority';
 import { ApprovalRequestLockTimeoutError } from '@/modules/accounting/services/gl/approvalRequestLock';
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
