@@ -10,6 +10,9 @@
  * No login required; the spec aborts its own network calls only.
  */
 import { test, expect } from '@playwright/test';
+import { guardDevTarget } from './helpers/devTarget';
+
+guardDevTarget(test);
 
 test('accept-invite surfaces a network error instead of hanging on the spinner', async ({
   page,

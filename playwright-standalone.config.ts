@@ -14,6 +14,7 @@ import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
   testDir: './tests/e2e',
+  globalSetup: './tests/e2e/helpers/devTargetGlobalSetup.ts',
   testIgnore: ['**/golden-paths/**'],
   timeout: 60_000,
   retries: 0,

@@ -10,6 +10,9 @@
 import { expect, test } from '@playwright/test';
 import { countPuts, draft, sandbox } from './_invoiceAutosaveFixture';
 import { settle } from '../helpers/themeSpec';
+import { guardDevTarget } from '../helpers/devTarget';
+
+guardDevTarget(test);
 
 test('a change autosave is holding: Forward, Back and a two-step jump ask; Stay undoes each with history order kept; Leave sends nothing', async ({ page, context, baseURL }) => {
   const { api, customerId } = await sandbox(context, baseURL!);
