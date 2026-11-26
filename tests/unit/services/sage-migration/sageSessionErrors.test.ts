@@ -1,9 +1,10 @@
 /**
- * R26-4, R27-3: what a lock's holder is told. Ending it is offered only for one of the migration's OWN sessions (its application name)
- * idle in a transaction ("aborted" included): a dead run's transaction left open. Any other session idle in a transaction (a user's
- * request between two statements looks just like that) is named with its application, state and age, and left to whoever owns it. "The
- * server ends it" only when idle_in_transaction_session_timeout is set. R27-7: a holder lookup that failed is "could not be read".
- * R27-8: a held LIVE key never claims an unconfirmed COMMIT; one idle in its transaction was never sent a COMMIT.
+ * R26-4, R27-3, R28-2..5: what a lock's holder is told. Ending it is offered only for a migration transaction left open: our application
+ * name, idle in a transaction ("aborted" included) in two samples apart with its state unchanged, older than this run's lock. Any other
+ * session idle in a transaction is named (application, state, ages) and left to whoever owns it. The server's ending is said only from
+ * the holder's own role / database default. A holder that is itself waiting is never "at work"; a cycle is named as a deadlock.
+ * R27-7: a failed holder lookup is "could not be read". R27-8 / R28-3: a held LIVE key never claims an unconfirmed COMMIT; one idle when
+ * looked up had not received a COMMIT then. R27-1: a 57014 is worded by how long it ran.
  */
 import { describe, expect, it } from 'vitest';
 import { BatchKeyHeldError, LockWaitError, LostBeforeCommitError, StatementTimeoutError } from '@/modules/accounting/services/sage-migration/sageSessionErrors';
