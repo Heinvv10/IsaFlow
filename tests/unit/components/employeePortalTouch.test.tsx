@@ -10,7 +10,7 @@ vi.mock('@/components/employeePortal/portalFetch', () => ({
   PortalCallError: class extends Error { status = 0; },
   portalCall: vi.fn(async (url: string) => {
     if (url.endsWith('/me')) return { employeeName: 'Thandi', employeeNumber: 'E1', employer: 'Acme' };
-    if (url.endsWith('/payslips')) return [{ runId: 'r1', periodYear: 2026, periodMonth: 10, runDate: null, netPay: 100 }];
+    if (url.endsWith('/payslips')) return [{ runId: 'r1', periodYear: 2026, periodMonth: 10, periodLabel: 'October 2026', runDate: null, netPay: 100 }];
     if (url.endsWith('/leave')) return [{ leaveType: 'Annual', year: 2026, accrued: 15, taken: 5, pending: 0, balance: 10 }];
     return { payFrequency: 'monthly', certificates: [{ versionId: 'v1', taxYear: 2026, kind: 'annual', filedAt: null, certificateNumber: 'IRP5-1', income: [{ code: '3601', label: 'Salary', amount: 100 }], deductions: [], tax: [] }] };
   }),
