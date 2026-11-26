@@ -126,8 +126,10 @@ it('Including VAT warns BEFORE Create that the quote converts to an invoice, not
   const notice = /converts to an invoice, not a sales order/;
   expect(within(dialog()).queryByText(notice)).toBeNull();
   await pickOption('Amounts are', /Including VAT/);
-  expect(within(dialog()).getByText(notice)).toBeTruthy();
-  expect(posts()).toHaveLength(0); // said before anything is sent
+  const shown = within(dialog()).getByText(notice);
+  expect(shown.closest('[role="status"]')).toBeTruthy(); // announced as it appears
+  expect(shown.textContent).toMatch(/no exempt lines/); // the server also refuses an exempt line
+  expect(posts()).toHaveLength(0); // before Create is pressed
   await pickOption('Amounts are', /Excluding VAT/);
   expect(within(dialog()).queryByText(notice)).toBeNull();
 });
