@@ -55,16 +55,9 @@ export interface QuoteInvoiceVat {
  * Refuses (LineValidationError, a 400) a quote a sales order cannot carry as priced: a typed one with an EXEMPT line (an
  * order line has a rate only, so exempt would come back zero-rated: another VAT201 field). Until sales orders carry
  * per-line VAT types. An INCLUSIVE quote is carried: the order takes each line's unit price EX VAT (orderUnitPrice) and
- * the quote's own net, VAT and total, so its figures are the quote's. A line whose order price (a cent) would price it more
- * than MAX_ORDER_DRIFT from the quote's net is refused too: editing the order re-prices qty x unit price, so the total
- * would jump (1 000 x R0.03 incl: R26.09 net, but R30.00 at R0.03 a unit).
+ * the quote's own net, VAT and total, so its figures are the quote's.
  */
 export function assertOrderableVat(quote: Quote): void {
-  const far = (quote.lines ?? []).findIndex((l) => orderPricingDrift(quote, l) > MAX_ORDER_DRIFT);
-  if (far >= 0) {
-    throw new LineValidationError(`Quote ${quote.quoteNumber}: line ${far + 1}'s price includes VAT, and a sales order holds prices before VAT to the `
-      + 'cent: at this quantity its order price would be more than 5c from the quote\'s figure, and an edit of the order would move its total. Convert the quote to an invoice instead.');
-  }
   const exempt = (quote.lines ?? []).findIndex((l) => l.vatType === 'exempt');
   if (exempt >= 0) {
     throw new LineValidationError(`Quote ${quote.quoteNumber}: line ${exempt + 1} is exempt from VAT, and a sales order cannot `
@@ -78,15 +71,6 @@ export function assertOrderableVat(quote: Quote): void {
  * stored NET over its quantity is used instead, to the cent. The order's line total and header are the quote's stored
  * figures, so the totals are the quote's whatever a unit price rounds to (1 000 x R0.03 incl: R0.03 a unit, R26.09 net).
  */
-/** How far an order line's qty x unit price (the price an edit re-prices from) is from the quote's net, in rands. */
-export function orderPricingDrift(quote: Quote, line: { quantity: number; unitPrice: number; lineTotal: number }): number {
-  if (quote.amountsAre !== 'inclusive') return 0;
-  return Math.abs(Math.round(line.quantity * orderUnitPrice(quote, line) * 100) / 100 - line.lineTotal);
-}
-
-/** The most an order line may drift from the quote's net: a cent of unit price at a few units is a few cents (3 x R10 incl: 1c). */
-export const MAX_ORDER_DRIFT = 0.05;
-
 export function orderUnitPrice(quote: Quote, line: { quantity: number; unitPrice: number; lineTotal: number }): number {
   if (quote.amountsAre !== 'inclusive' || line.quantity === 0) return line.unitPrice;
   const cents = Math.abs(line.lineTotal / line.quantity) * 100;
