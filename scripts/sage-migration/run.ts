@@ -33,15 +33,13 @@ import type { ParsedExport } from '../../src/modules/accounting/services/sage-mi
 import { exitCodeForError, stopMessage } from '../../src/modules/accounting/services/sage-migration/sageStopMessage';
 import { checkReportArgs, exitAfterReportFailure, OwnedReport, stopReportBody, summarize } from './runReport';
 import { RunState } from './runState';
-import { cliConsole, say } from './runConsole';
+import { cliConsole, exitAfterConsole, exitPending, out, prepareConsole, say } from './runConsole';
 
-/**
- * The console (runConsole.ts): every line written synchronously, so a process.exit after it cannot drop it (R27-2). A stream whose reader
- * went away (`| head`, a dead `tee` or log shipper: EPIPE) is no longer written, and never kills the run (round 18, B18-2): the run goes
- * on to its own end, its report in --report.
+/*
+ * The console (runConsole.ts): every line through it, so no exit drops a line a lagging reader has not taken yet (R27-2, R28-1); every
+ * exit waits for it (exitAfterConsole). A stream whose reader went away (EPIPE) or stalled past its budget is given up, said on the other
+ * stream, and never kills the run (round 18, B18-2): the run goes on to its own end, its report in --report.
  */
-const stdoutClosed = (why: string) => say(`stdout is closed (${why}): the summary is not printed there; --report holds the run's report`);
-const out = (s: string) => { const r = cliConsole.write('stdout', `${s}\n`); if (typeof r === 'object') stdoutClosed(r.gone); };
 /**
  * The --report file this run created (runReport.ts: a path that did not exist, created exclusively once every argument is checked and the
  * export is read, before the first database step). Every exit after that leaves a report in it, written through its held descriptor: the
@@ -92,16 +90,18 @@ const fail: (s: string) => never = (s) => { throw new RefusedStart(s); };
  * descriptor; exit 4 once the live phase started, else 2 (nothing written to the books). A run that already finished keeps its exit code.
  */
 function terminate(why: string): void {
+  // The run's exit is decided and waits for a reader that lags: this end comes at once, its code unchanged, nothing more said (B28-1).
+  if (exitPending()) { void exitAfterConsole(0); return; }
   if (state.finished) {
     say(`${why}: the run had finished; its report and exit code stand`);
-    process.exit();
+    void exitAfterConsole(undefined); // process.exit() keeps process.exitCode
     return;
   }
   const err = state.stoppedAtOnce(state.liveStarted ? why : `${why}; nothing was written to the books (the live phase had not started)`);
   const code = exitCodeForError(err);
   say(stopMessage(err));
   leaveStopReport(err, code);
-  process.exit(code);
+  void exitAfterConsole(code); // a further signal while the console drains ends it at once, with this code (B28-1)
 }
 
 /**
@@ -124,9 +124,7 @@ function installHandlers(): () => void {
   const crash = (kind: string) => (e: unknown) => terminate(`${kind}: ${e instanceof Error ? e.message : String(e)}`);
   const stream = (name: 'stdout' | 'stderr') => (e: NodeJS.ErrnoException) => {
     // A write through the stream itself (the logger's) failed: said once (B19-3), the stream not written again; the run goes on.
-    if (cliConsole.gone[name]) return;
-    cliConsole.markGone(name);
-    if (name === 'stdout') stdoutClosed(e.code ?? e.message);
+    cliConsole.markGone(name, e.code ?? e.message);
   };
   type Listener = (...a: unknown[]) => void;
   const on: Array<[NodeJS.EventEmitter, string, Listener]> = [
@@ -245,7 +243,7 @@ async function endPool(): Promise<void> {
   clearTimeout(timer);
   if (outcome !== 'timeout') return;
   say(`closing the database pool did not finish within ${SAGE_POOL_END_TIMEOUT_MS / 1000} s: the run's result above stands (exit ${process.exitCode ?? 0})`);
-  process.exit(process.exitCode ?? 0);
+  await exitAfterConsole(process.exitCode ?? 0);
 }
 
 /**
@@ -255,6 +253,7 @@ async function endPool(): Promise<void> {
  */
 export async function runCli(o: { removeHandlers?: boolean } = {}): Promise<void> {
   const uninstall = installHandlers();
+  prepareConsole(() => (owned ? owned.path : null)); // fd 1 / 2 non-blocking, and a stream given up is said on the other (R28-1, R28-6)
   try {
     await main();
     await endPool(); // after the summary, the report and the closing line: a pool that does not close cannot swallow them
@@ -263,7 +262,7 @@ export async function runCli(o: { removeHandlers?: boolean } = {}): Promise<void
     const code = exitCodeForError(err);
     say(`${err instanceof RefusedStart ? err.message : stopMessage(err)}${notCreated()}`);
     leaveStopReport(err, code); // every other exit path after the create (a stop, a refusal, a summary that failed after a dry run) leaves a stop report
-    process.exit(code);
+    await exitAfterConsole(code); // once the stop message is out or its stream given up; a second signal meanwhile ends it at once
   } finally {
     if (o.removeHandlers === true) uninstall();
   }

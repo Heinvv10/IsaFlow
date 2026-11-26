@@ -1,19 +1,22 @@
 /**
- * R27-2 / B27-1: the CLI's console writes synchronously, so `process.exit` right after a large message cannot drop what a pipe whose
- * reader lags did not take yet (bun kept it in its own buffer and process.exit dropped it: a stop message cut at 64 KiB, mid-line).
- *   - Through a REAL pipe: the CLI refuses a 100 KB argument (the refusal echoes it, then process.exit(2)), its stderr read by a reader
- *     that sleeps 2 s first. The whole message arrives, and the exit code is 2. A reader that is gone (EPIPE) still ends it at once, 2.
- *   - The writer itself (Console, fake system calls): partial writes looped; EAGAIN waited on and retried, bounded in all; past the bound,
- *     or on EPIPE, the stream is given up (never written again), and nothing is thrown.
+ * The CLI's console through REAL pipes (the writer itself, with a fake clock: sageCliConsoleWriter.test.ts):
+ *   - R27-2 / B27-1: the CLI refuses a 100 KB argument (the refusal echoes it, then exits 2), its stderr read by a reader that sleeps 2 s
+ *     first: the whole message arrives, and the exit code is 2. A reader that is gone (EPIPE) still ends it at once, 2.
+ *   - R28-1: stdout and stderr on one pipe (2>&1) whose reader pauses 20 s, reads a little, pauses 20 s again: 40 s in all, never 30 s
+ *     without progress, so the stdout output AND the stop message after it arrive whole (a budget per stream, of no progress).
+ *   - B28-1: a second SIGINT while the stop message waits for a reader ends the process at once, with the refusal's exit code (2).
+ *   - R28-6: after prepareConsole, fd 1 and fd 2 (pipes) are O_NONBLOCK, and nothing is reported blocking.
  */
 import { describe, expect, it } from 'vitest';
 import { spawn } from 'node:child_process';
-import { CONSOLE_WAIT_MS, Console } from '../../../../scripts/sage-migration/runConsole';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 const BIG = 'x'.repeat(100_000);
-function shell(script: string): Promise<{ text: string; ms: number }> {
+function shell(script: string, extra: NodeJS.ProcessEnv = {}): Promise<{ text: string; ms: number }> {
   const t0 = Date.now();
-  const env: NodeJS.ProcessEnv = { ...process.env, BIG, DATABASE_URL: 'postgresql://postgres@127.0.0.1:5433/isaflow_test' };
+  const env: NodeJS.ProcessEnv = { ...process.env, ...extra, BIG, DATABASE_URL: 'postgresql://postgres@127.0.0.1:5433/isaflow_test' };
   for (const name of ['SERVICE_DATABASE_URL', 'PLATFORM_ADMIN_DATABASE_URL', 'MIGRATION_ADMIN_DATABASE_URL']) delete env[name];
   return new Promise((resolve, reject) => {
     const child = spawn('bash', ['-c', script], { env, stdio: ['ignore', 'pipe', 'inherit'] });
@@ -41,54 +44,42 @@ describe('R27-2: the console through a real pipe', () => {
   }, 30_000);
 });
 
-const fail = (code: string) => Object.assign(new Error(code), { code });
-function fake(script: Array<number | string>) {
-  const calls: Array<{ fd: number; text: string }> = [];
-  let pauses = 0;
-  const c = new Console({
-    write: (fd, buf, offset, length) => {
-      const step = script.length > 0 ? script.shift()! : length;
-      if (typeof step === 'string') throw fail(step);
-      const n = Math.min(step, length);
-      calls.push({ fd, text: buf.subarray(offset, offset + n).toString('utf8') });
-      return n;
-    },
-    pause: () => { pauses++; },
-  });
-  return { c, calls, pauses: () => pauses };
-}
+const CHILD = 'bun --no-env-file tests/unit/services/sage-migration/fixtures/consoleChild.ts';
+describe('R28-1: one pipe for both streams (2>&1), a reader that pauses twice', () => {
+  it('stdout first, then the stop message: both arrive whole, 40 s of pauses in all, and the exit code stands', async () => {
+    const reader = '{ sleep 20; dd bs=1000 count=70 iflag=fullblock status=none; sleep 20; cat; }';
+    const { text } = await shell(`${CHILD} 2>&1 | ${reader}; echo "exit=\${PIPESTATUS[0]}"`, { OUT: '100000', ERR: '100000' });
+    expect(text.length).toBe(100_001 + 100_000 + '\nSTOP-END\n'.length + 'exit=4\n'.length);
+    expect(text).toBe(`${'o'.repeat(100_000)}\n${'e'.repeat(100_000)}\nSTOP-END\nexit=4\n`);
+  }, 90_000);
+});
 
-describe('R27-2: the writer', () => {
-  it('loops on partial writes until all of it is written, to fd 2 for stderr and fd 1 for stdout', () => {
-    const f = fake([3, 3, 3]);
-    expect(f.c.write('stderr', 'abcdefghij\n')).toBe('written');
-    expect(f.calls.map((x) => x.text).join('')).toBe('abcdefghij\n');
-    expect(new Set(f.calls.map((x) => x.fd))).toEqual(new Set([2]));
-    expect(f.c.write('stdout', 'out\n')).toBe('written');
-    expect(f.calls.at(-1)).toEqual({ fd: 1, text: 'out\n' });
-  });
+describe('B28-1: a second SIGINT while the stop message waits for a reader', () => {
+  it('ends the process at once, exit 2 (the refusal\'s), not after the console\'s 30 s', async () => {
+    const d = mkdtempSync(join(tmpdir(), 'sage-console-int2-'));
+    try {
+      const run = shell(`( ${CLI} 2>&1 >/dev/null & echo $! > ${d}/pid; wait $!; echo "exit=$?" > ${d}/exit ) | { sleep 40; cat > /dev/null; }`);
+      const until = async (p: string, ms = 15_000) => { for (const t = Date.now(); Date.now() - t < ms && !existsSync(p);) await new Promise((r) => setTimeout(r, 50)); };
+      await until(join(d, 'pid'));
+      const pid = Number(readFileSync(join(d, 'pid'), 'utf8'));
+      await new Promise((r) => setTimeout(r, 2_000)); // the refusal is said by now, and waits on the paused reader
+      const t0 = Date.now();
+      process.kill(pid, 'SIGINT');
+      await new Promise((r) => setTimeout(r, 300));
+      process.kill(pid, 'SIGINT');
+      await until(join(d, 'exit'));
+      expect(readFileSync(join(d, 'exit'), 'utf8')).toBe('exit=2\n');
+      expect(Date.now() - t0).toBeLessThan(10_000);
+      await run;
+    } finally { rmSync(d, { recursive: true, force: true }); }
+  }, 90_000);
+});
 
-  it('waits on EAGAIN and retries, without losing a byte', () => {
-    const f = fake([4, 'EAGAIN', 'EAGAIN', 'EAGAIN']);
-    expect(f.c.write('stderr', 'committed: batch 881\n')).toBe('written');
-    expect(f.calls.map((x) => x.text).join('')).toBe('committed: batch 881\n');
-    expect(f.pauses()).toBe(3);
-  });
-
-  it('gives a stream up past the bound (in all, for the process), throws nothing, and never writes it again', () => {
-    const f = fake(Array.from({ length: CONSOLE_WAIT_MS }, () => 'EAGAIN'));
-    expect(f.c.write('stderr', 'stop message\n')).toEqual({ gone: `no reader within ${CONSOLE_WAIT_MS / 1000} s` });
-    expect(f.pauses()).toBe(CONSOLE_WAIT_MS / 5);
-    const before = f.calls.length;
-    expect(f.c.write('stderr', 'closing line\n')).toBe('skipped');
-    expect(f.calls.length).toBe(before);
-    expect(f.c.gone).toEqual({ stdout: false, stderr: true });
-  });
-
-  it('gives a stream up at once on EPIPE, no wait; the other stream is still written', () => {
-    const f = fake(['EPIPE']);
-    expect(f.c.write('stdout', 'summary\n')).toEqual({ gone: 'EPIPE' });
-    expect(f.pauses()).toBe(0);
-    expect(f.c.write('stderr', 'note\n')).toBe('written');
-  });
+describe('R28-6: the O_NONBLOCK precondition', () => {
+  it('after prepareConsole, fd 1 and fd 2 (pipes) are non-blocking, and none is reported blocking', async () => {
+    const { text } = await shell(`${CHILD} 2>&1 | cat`, { FLAGS: '1' });
+    const got = JSON.parse(text) as { blocking: number[] | null; fd1: string; fd2: string };
+    expect(got.blocking).toEqual([]);
+    for (const f of [got.fd1, got.fd2]) expect(Number.parseInt(f, 8) & 0o4000).toBe(0o4000);
+  }, 30_000);
 });
