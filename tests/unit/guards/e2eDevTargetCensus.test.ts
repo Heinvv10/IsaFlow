@@ -73,6 +73,30 @@ export function baseUrlOverrides(src: string): number[] {
   return hits;
 }
 
+/**
+ * The lines of every beforeEach/afterEach that asks for none of page, context and request. After a refusal Playwright
+ * still runs such a hook; one that asks for a guarded fixture does not run. A hook passed by name cannot be read.
+ */
+export function ungatedEachHooks(src: string): number[] {
+  const file = ts.createSourceFile('spec.ts', src, ts.ScriptTarget.Latest, true);
+  const hits: number[] = [];
+  const asks = (hook: ts.Node | undefined): boolean => {
+    if (!hook || !(ts.isArrowFunction(hook) || ts.isFunctionExpression(hook))) return false;
+    const first = hook.parameters[0]?.name;
+    return !!first && ts.isObjectBindingPattern(first)
+      && first.elements.some((e) => /^(?:page|context|request)$/.test((e.propertyName ?? e.name).getText()));
+  };
+  const visit = (node: ts.Node): void => {
+    if (ts.isCallExpression(node) && /^(?:test|setup)\.(?:beforeEach|afterEach)$/.test(node.expression.getText())) {
+      const hook = node.arguments[node.arguments.length - 1];
+      if (!asks(hook)) hits.push(file.getLineAndCharacterOfPosition(node.getStart()).line + 1);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(file);
+  return hits;
+}
+
 /** What a file may not say for itself: a production address, or its own idea of which hosts and ports are safe. */
 export const OWN_TARGET: ReadonlyArray<readonly [string, RegExp]> = [
   // A loopback address with no port is port 80, and https is 443: production's nginx on velo-server.
@@ -129,6 +153,21 @@ describe('e2e dev-target census', () => {
     ]) expect(baseUrlOverrides(src), src).toEqual([1]);
   });
 
+  it.each(specs.filter((f) => !prodVerify.has(f)))('%s has no beforeEach or afterEach a refusal would not stop', (f) => {
+    expect(ungatedEachHooks(read(f)), `${f}: the hook must ask for page, context or request`).toEqual([]);
+  });
+
+  it('the each-hook rule reads what the hook asks for', () => {
+    for (const src of [
+      'test.beforeEach(({ page }) => {});', "test.afterEach('name', async ({ request: r }) => {});", 'setup.beforeEach(function ({ context }) {});',
+      'test.beforeAll(() => {});',
+    ]) expect(ungatedEachHooks(src), src).toEqual([]);
+    for (const src of [
+      'test.beforeEach(() => {});', 'test.afterEach(async ({ browser }) => {});', 'test.beforeEach(({ baseURL }) => {});',
+      'test.beforeEach(({}, info) => {});', 'test.beforeEach(reset);', 'setup.afterEach((fixtures) => {});',
+    ]) expect(ungatedEachHooks(src), src).toEqual([1]);
+  });
+
   it('every spec is a .ts file, the only kind the rules below are written for', () => {
     expect(specs.filter((f) => !f.endsWith('.ts'))).toEqual([]);
   });
@@ -159,10 +198,11 @@ describe('e2e dev-target census', () => {
     expect(closure.filter((f) => !own.includes(f) && applies.test(code(read(f))))).toEqual([]);
   });
 
-  it('a script that launches its own browser takes its address from devBaseUrl', () => {
+  it('a script that launches its own browser takes its address from devBaseUrl, and asks the server for its database first', () => {
     const scripts = files.filter((f) => !specs.includes(f) && /chromium\.launch\(/.test(read(f)) && !f.startsWith('rubric/'));
     expect(scripts.length).toBeGreaterThan(5);
     expect(scripts.filter((f) => !/^const BASE_URL = devBaseUrl\(\);$/m.test(read(f)))).toEqual([]);
+    expect(scripts.filter((f) => !/^async function main\(\) \{\n {2}await assertDevServer\(BASE_URL\);$/m.test(read(f)))).toEqual([]);
   });
 
   it.each(files)('%s names no target of its own', (f) => {

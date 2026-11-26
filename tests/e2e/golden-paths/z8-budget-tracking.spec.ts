@@ -130,7 +130,8 @@ test.describe('Budget tracking: Budget vs Actual page and the income statement B
     }
   });
 
-  test.beforeEach(() => {
+  test.beforeEach(({ request }) => {
+    void request; // asked so that a refused target stops this hook (devTarget.ts)
     test.skip(!hasVersion, 'the company has no budget version for the current financial year: nothing to track');
   });
 

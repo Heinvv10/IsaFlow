@@ -24,6 +24,8 @@ describe('isTestDatabaseServer', () => {
   it.each([
     ['DATABASE_URL', url('isaflow')], ['PLATFORM_ADMIN_DATABASE_URL', url('isaflow')], ['MIGRATION_ADMIN_DATABASE_URL', 'not a url'],
     ['SERVICE_DATABASE_URL', url('isaflow_dev', '?dbname=isaflow')], ['APP_DATABASE_URL', url('isaflow_dev', '?host=elsewhere')],
+    ['APP_DATABASE_URL', url('isaflow_dev', '?database=isaflow')], ['APP_DATABASE_URL', url('isaflow_dev', '?service=prod')],
+    ['APP_DATABASE_URL', url('isaflow_dev', '?options=-c%20search_path%3Dx')],
   ])('no when %s holds %s, whatever the connected database', (key, value) => {
     expect(isTestDatabaseServer('isaflow_dev', { DATABASE_URL: url('isaflow_dev'), [key]: value })).toBe(false);
   });

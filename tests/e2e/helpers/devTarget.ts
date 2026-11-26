@@ -7,8 +7,10 @@
  * (playwright-golden.config.ts). tests/unit/guards/e2eDevTargetCensus.test.ts keeps both sides true.
  *
  * `guardDevTarget` overrides the `baseURL` fixture instead of registering a `beforeAll`: Playwright runs a file's other
- * beforeAll and afterAll hooks after one of them throws, so a hook guard does not stop the writes. A failing baseURL
- * fixture stops every hook and test of the file (tests/unit/e2e/devTargetRunner.test.ts).
+ * beforeAll and afterAll hooks after one of them throws, so a hook guard does not stop the writes. A failing guard
+ * fixture stops the tests, the beforeAll and afterAll hooks, and every beforeEach or afterEach that asks for page,
+ * context or request (tests/unit/e2e/devTargetRunner.test.ts). One that asks for none of them still runs, so the census
+ * refuses it in a spec.
  *
  * A second, automatic fixture judges the FINAL values: a `test.use({ baseURL })` further down a file replaces the
  * override above, and a saved session (`storageState`) holding another host's cookies or local storage would be restored
@@ -18,9 +20,9 @@
  * A server is also asked which database it is on (assertDevServer): one started with production's env is refused,
  * whatever its port, and so is anything on a dev port that cannot answer (another application, an older IsaFlow branch).
  *
- * Named limits: the answer is asked once per address and worker. A context a spec builds itself with
- * its own storageState or address is judged only by the census. After a refusal further down a file, an `afterEach` that
- * asks for no fixture, or only for `browser`, still runs.
+ * Named limits: the answer is asked once per address and worker, and covers the databases only: a server with test
+ * databases but another environment's auth or storage service (GOTRUE_URL, SUPABASE_URL) still says yes. A context a spec
+ * builds itself with its own storageState or address is judged only by the census.
  */
 import { readFileSync } from 'node:fs';
 

@@ -2,7 +2,7 @@ import { chromium } from 'playwright';
 import * as fs from 'fs';
 import * as path from 'path';
 import { getE2ECredentials } from './_creds';
-import { devBaseUrl } from './helpers/devTarget';
+import { assertDevServer, devBaseUrl } from './helpers/devTarget';
 
 const SCREENSHOTS_DIR = '/home/hein/Workspace/IsaFlow/tests/e2e/screenshots/pdf-qa';
 const BASE_URL = devBaseUrl();
@@ -34,6 +34,7 @@ async function screenshot(page: any, name: string) {
 }
 
 async function main() {
+  await assertDevServer(BASE_URL);
   fs.mkdirSync(SCREENSHOTS_DIR, { recursive: true });
 
   const browser = await chromium.launch({

@@ -8,16 +8,6 @@ if (process.env.PROBE_NAMED_URL) devBaseUrl(process.env.PROBE_NAMED_URL);
 
 const ran = (what: string): void => { process.stdout.write(`PROBE-RAN ${what}\n`); };
 
-test.beforeAll(() => ran('first-beforeAll'));
-test.beforeAll(({ baseURL }) => ran(baseURL === process.env.PROBE_BASE_URL ? 'second-beforeAll' : 'wrong-base-url'));
-test.afterAll(() => ran('afterAll'));
-test('plain', () => ran('test'));
-test.describe('nested', () => {
-  test.beforeAll(() => ran('nested-beforeAll'));
-  test.afterAll(() => ran('nested-afterAll'));
-  test('inside', () => ran('nested-test'));
-});
-
 // A later override, and a saved session for another host. After the refusal no hook that holds a request, a context or a
 // page may run, whatever its kind or position.
 const eachHooks = (name: string): void => {
@@ -33,6 +23,20 @@ const eachHooks = (name: string): void => {
   test.afterEach(({ request }) => ran(request ? `${name}-afterEach` : 'no-request'));
   test(name, () => ran(`${name}-test`));
 };
+// The file's own hooks and tests; or, with no beforeAll to skip what follows it, the each-hooks alone.
+if (process.env.PROBE_EACH_ONLY) {
+  eachHooks('each');
+} else {
+  test.beforeAll(() => ran('first-beforeAll'));
+  test.beforeAll(({ baseURL }) => ran(baseURL === process.env.PROBE_BASE_URL ? 'second-beforeAll' : 'wrong-base-url'));
+  test.afterAll(() => ran('afterAll'));
+  test('plain', () => ran('test'));
+  test.describe('nested', () => {
+    test.beforeAll(() => ran('nested-beforeAll'));
+    test.afterAll(() => ran('nested-afterAll'));
+    test('inside', () => ran('nested-test'));
+  });
+}
 const override = process.env.PROBE_OVERRIDE_URL;
 if (override) {
   test.describe('overridden', () => {

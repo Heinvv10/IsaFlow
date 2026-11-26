@@ -8,6 +8,7 @@ import { createServer, type Server } from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { BAD_PORTS } from '../../../scripts/ci/golden-free-port';
 
 const ROOT = path.resolve(__dirname, '../../..');
 const OUTPUT = mkdtempSync(path.join(os.tmpdir(), 'dev-target-probe-'));
@@ -17,6 +18,7 @@ async function appServer(testDatabase: boolean): Promise<{ server: Server; url: 
   const server = createServer((_req, res) => { res.setHeader('content-type', 'application/json'); res.end(JSON.stringify({ testDatabase })); });
   for (let attempt = 0; attempt < 50; attempt++) {
     const port = 3200 + Math.floor(Math.random() * 600);
+    if (BAD_PORTS.has(port)) continue; // fetch refuses it
     const listening = await new Promise<boolean>((resolve) => {
       const failed = (): void => resolve(false);
       server.once('error', failed);
@@ -74,6 +76,16 @@ describe('guardDevTarget in a Playwright run', () => {
     expect(r.out).toContain('does not report a dev or CI database');
     expect(r.ran).toEqual([]);
   }, 120_000);
+
+  it('without a beforeAll, a refused file runs no test and no each-hook that asks for a guarded fixture', async () => {
+    const refused = await probe({ PROBE_BASE_URL: NOT_TEST, PROBE_EACH_ONLY: '1' });
+    expect(refused.code).not.toBe(0);
+    expect(refused.out).toContain('does not report a dev or CI database');
+    expect(refused.ran).toEqual([]);
+    const allowed = await probe({ PROBE_BASE_URL: DEV, PROBE_EACH_ONLY: '1' });
+    expect(allowed.code, allowed.out).toBe(0);
+    expect(allowed.ran).toEqual(['beforeEach', 'beforeEach-second', 'test', 'afterEach'].map((k) => `each-${k}`));
+  }, 240_000);
 
   it.each(['1', ''])('refuses a later test.use that names a server off a test database (beforeAll "%s")', async (beforeAll) => {
     const r = await probe({ PROBE_BASE_URL: DEV, PROBE_BROWSER_HOOKS: '1', PROBE_BEFORE_ALL: beforeAll, PROBE_OVERRIDE_URL: NOT_TEST });
