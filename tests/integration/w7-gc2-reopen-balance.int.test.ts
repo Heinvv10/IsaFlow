@@ -141,6 +141,78 @@ describe('the balance keeps what a confirmed file paid', () => {
     expect(await paid(o)).toBe(30000);
   }, 300_000);
 
+  it('N1: an order paid by a confirmed file, then ended with a date backdated before that month: the reopened run re-deducts exactly the paid amount and re-approves (tenant B)', async () => {
+    const home = a;
+    a = b;
+    try {
+      const emp = (await a.employee(200000)).employee;
+      await bank(a, emp, '4071234560');
+      const o = await newOrder(emp, { reference: 'EAO N1', instalment: 10000, totalDebt: 50000, startDate: '2026-01-01' });
+      const { run } = await payMonth(7, 2026);
+      expect(await paid(o)).toBe(10000);
+      const route = ((req: { query: Record<string, unknown> }, res: unknown) => {
+        req.query = { ...req.query, orderId: o };
+        return (orderRoute as unknown as (q: unknown, s: unknown) => Promise<unknown>)(req, res);
+      }) as unknown as Route;
+      const ended = await a.call(route, 'POST', `/api/payroll/employees/${emp}/garnishee-orders/${o}`, emp,
+        { body: { endDate: '2026-01-31', reason: 'Court rescinded the order, backdated' } });
+      expect(ended.statusCode, JSON.stringify(ended.body)).toBe(200);
+      expect((await a.api.reopen(run)).statusCode).toBe(200);
+      expect(await order(o)).toMatchObject({ status: 'ended', balance: 40000 }); // the reopen kept the paid R10 000
+      expect((await a.api.reverse(await journalOf(run))).statusCode).toBe(200);
+      expect((await a.api.calculate(run)).statusCode).toBe(200);
+      expect(await deducted(run, o)).toBe(10000); // exactly what the bank paid, though the order no longer covers July
+      await a.authorise(run);
+      const re = await a.api.approve(run);
+      expect(re.statusCode, JSON.stringify(re.body)).toBe(200);
+      expect(await order(o)).toMatchObject({ status: 'ended', balance: 40000 }); // counted once
+      expect(await paid(o)).toBe(10000);
+    } finally { a = home; }
+  }, 300_000);
+
+  it('payroll_garnishee_order_counted: per run the GREATER of applied and confirmed-paid (applied only, paid only, equal, both differ); unapplied and unconfirmed never count', async () => {
+    // Synthetic rows in a rolled-back transaction with guards and FK checks off (superuser; DDL rolls back): the
+    // function alone, over shapes the routes can no longer produce together. CHECK constraints still hold.
+    const c = await a.pool.connect();
+    const id = () => crypto.randomUUID();
+    const [co, order, emp] = [id(), id(), id()];
+    const runs = Array.from({ length: 7 }, id);
+    try {
+      await c.query('BEGIN');
+      await c.query("SET LOCAL session_replication_role = 'replica'"); // FK checks off
+      // The guards are ENABLE ALWAYS (they fire under replica too): off for this rolled-back transaction only.
+      for (const t of ['payroll_garnishee_deductions', 'payroll_bank_files', 'payroll_bank_file_items']) await c.query(`ALTER TABLE ${t} DISABLE TRIGGER USER`);
+      const deduction = (run: string, amount: number, applied: boolean) => c.query(
+        `INSERT INTO payroll_garnishee_deductions (company_id, run_id, order_id, employee_id, requested, amount, balance_applied)
+         VALUES ($1, $2, $3, $4, $5, $5, $6)`, [co, run, order, emp, amount, applied]);
+      const paidBy = async (run: string, rands: number, status: 'confirmed' | 'generated') => {
+        const file = id();
+        await c.query(
+          `INSERT INTO payroll_bank_files (id, company_id, run_id, layout, sha256, line_count, total_cents, action_date, run_approved_at, status,
+             created_by, confirmed_by, confirmed_at)
+           VALUES ($1, $2, $3, 'fnb_obe_2023_02', repeat('a', 64), 1, $4, '2026-11-25', now(), $5, 'u', CASE WHEN $5 = 'confirmed' THEN 'u' END,
+                   CASE WHEN $5 = 'confirmed' THEN now() END)`, [file, co, run, rands * 100, status]);
+        await c.query(
+          `INSERT INTO payroll_bank_file_items (company_id, file_id, employee_id, amount_cents, garnishee_order_id, creditor_bank_name,
+             creditor_branch_code, creditor_account_number, creditor_account_type, creditor_bank_set_at)
+           VALUES ($1, $2, $3, $4, $5, 'FNB', '250655', '62001234567', 'cheque', now())`, [co, file, emp, rands * 100, order]);
+      };
+      await deduction(runs[0]!, 100, true); //                applied only            -> 100
+      await paidBy(runs[1]!, 200, 'confirmed'); //            paid only (reopened)    -> 200
+      await deduction(runs[2]!, 300, true); await paidBy(runs[2]!, 300, 'confirmed'); // equal -> 300 (once)
+      await deduction(runs[3]!, 400, true); await paidBy(runs[3]!, 250, 'confirmed'); // differ -> 400
+      await deduction(runs[4]!, 50, true); await paidBy(runs[4]!, 80, 'confirmed'); //  differ -> 80
+      await deduction(runs[5]!, 999, false); //               not applied             -> 0
+      await paidBy(runs[6]!, 500, 'generated'); //            not confirmed           -> 0
+      const counted = Number((await c.query('SELECT public.payroll_garnishee_order_counted($1)::float8 AS n', [order])).rows[0]!.n);
+      expect(counted).toBe(100 + 200 + 300 + 400 + 80);
+      expect(Number((await c.query('SELECT public.payroll_garnishee_order_counted($1)::float8 AS n', [id()])).rows[0]!.n)).toBe(0);
+    } finally {
+      await c.query('ROLLBACK');
+      c.release();
+    }
+  }, 60_000);
+
   it('G5: a period closed in the judge -> post window answers 409 PERIOD_CLOSED and leaves no draft journal (tenant B)', async () => {
     const home = a;
     a = b; // the helpers act on `a`; B has its own months
@@ -148,7 +220,7 @@ describe('the balance keeps what a confirmed file paid', () => {
     const emp = (await a.employee(200000)).employee;
     await bank(a, emp, '4071234569');
     await newOrder(emp, { reference: 'EAO 6', creditorName: 'Beta', instalment: 1000, totalDebt: 30000, startDate: '2026-01-01' });
-    const run = await a.calculatedRun(7, 2026);
+    const run = await a.calculatedRun(8, 2026);
     expect((await a.api.approve(run)).statusCode).toBe(200);
     const g = await generate(a, run, { actionDate: TODAY });
     expect(g.statusCode, JSON.stringify(g.body)).toBe(200);

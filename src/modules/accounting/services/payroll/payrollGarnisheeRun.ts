@@ -35,7 +35,8 @@ const day = (v: unknown): string => (v instanceof Date ? v.toISOString().slice(0
  * Each employee's orders in force for the period [periodStart, periodEnd], keyed by employee id. GC2 (1057): the
  * balance this run may take adds back what a confirmed salary bank file of THIS run already paid the creditor (the
  * order's balance keeps that payment through a reopen), so recalculating a reopened run whose file the bank paid
- * deducts it again, and its re-approval counts it once (payroll_garnishee_order_counted), even on a last instalment.
+ * deducts it again, and its re-approval counts it once (payroll_garnishee_order_counted), even on a last instalment
+ * or on an order ended since (breaker N1): such an order is loaded for exactly the paid amount, never apportioned.
  */
 export async function loadRunGarnisheeOrders(
   companyId: string, employeeIds: readonly string[], periodStart: unknown, periodEnd: unknown, runId?: string,
@@ -43,15 +44,21 @@ export async function loadRunGarnisheeOrders(
   const byEmployee = new Map<string, GarnisheeOrderInput[]>();
   if (employeeIds.length === 0) return byEmployee;
   const rows = (await sql`
-    SELECT o.id::text AS id, o.employee_id::text AS employee_id, o.kind, o.reference, o.creditor_name, o.instalment,
-           o.balance + p.paid AS balance, o.priority, o.created_at,
-           (o.start_date > ${day(periodStart)}::date OR o.end_date < ${day(periodEnd)}::date) AS part_month
+    SELECT o.id::text AS id, o.employee_id::text AS employee_id, o.kind, o.reference, o.creditor_name,
+           CASE WHEN p.paid > 0 THEN p.paid ELSE o.instalment END AS instalment,
+           CASE WHEN p.paid > 0 THEN p.paid ELSE o.balance END AS balance, o.priority, o.created_at,
+           (p.paid = 0 AND (o.start_date > ${day(periodStart)}::date OR o.end_date < ${day(periodEnd)}::date)) AS part_month
       FROM payroll_garnishee_orders o
       CROSS JOIN LATERAL (${runCreditorPaidSql(runId ?? null)}) p
      WHERE o.company_id = ${companyId}::uuid AND o.employee_id::text = ANY(${[...employeeIds]}::text[])
-       AND (o.status IN ('active', 'ended') OR p.paid > 0) AND o.start_date <= ${day(periodEnd)}::date
-       AND (o.end_date IS NULL OR o.end_date >= ${day(periodStart)}::date)
-       AND (o.balance IS NULL OR o.balance + p.paid > 0)
+       AND (
+         -- GC2 (breaker N1): an order THIS run's confirmed bank file paid is taken again for exactly that amount, whatever
+         -- has happened to the order since (ended, even backdated before the period; satisfied): the bank paid it, and
+         -- the re-approval guard accepts only that amount. A part-month apportioning would make it differ.
+         p.paid > 0
+         OR (o.status IN ('active', 'ended') AND o.start_date <= ${day(periodEnd)}::date
+             AND (o.end_date IS NULL OR o.end_date >= ${day(periodStart)}::date)
+             AND (o.balance IS NULL OR o.balance > 0)))
   `) as DbRow[];
   for (const r of rows) {
     const list = byEmployee.get(String(r.employee_id)) ?? [];
