@@ -61,7 +61,7 @@ describe('BLOCKER_SQL on real sessions', () => {
     await reqWaits;
   }, 60_000);
 
-  it('a cycle through the request: the nearest blocker, waiting, the cycle flagged, with the server deadlock_timeout', async () => {
+  it('a cycle through the request: the nearest blocker, waiting, the cycle flagged', async () => {
     const b = await session('r25 cycle B');
     const req = await session('r25 cycle request');
     for (const s of [b, req]) await s.c.query("SET deadlock_timeout = '60s'"); // the server must not break it before we look
@@ -75,7 +75,6 @@ describe('BLOCKER_SQL on real sessions', () => {
     await blocked(b.pid);
     const h = await blockerOf(req.pid);
     expect(h).toMatchObject({ pid: b.pid, waiting: true, cycle: true, chain: [b.pid] });
-    expect(typeof h!.deadlockTimeout).toBe('string');
     await pool.query('SELECT pg_cancel_backend($1)', [b.pid]); // break it
     await bWaits;
     await b.c.query('ROLLBACK');

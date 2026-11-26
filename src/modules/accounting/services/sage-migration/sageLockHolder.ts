@@ -8,7 +8,7 @@
  *   - Any other session idle in a transaction is left to whoever owns it (an application's request looks just like that between two of
  *     its statements).
  *   - A holder that is itself waiting on a lock is never "at work": it is said to be waiting, with the sessions ahead; a cycle through this
- *     run's own request is a deadlock the server breaks after deadlock_timeout.
+ *     run's own request is a deadlock the server breaks itself (no deadlock_timeout is named: each session has its own, unseen).
  *   - "The server ends it" is said only from the holder's OWN role / database default (pg_db_role_setting), and as a default: a session's
  *     own SET cannot be seen from another session.
  */
@@ -38,9 +38,8 @@ export interface LockHolder {
   waiting?: boolean;
   /** The walk from this run's request came back to it: a lock cycle (a deadlock not broken yet). */
   cycle?: boolean;
-  /** The sessions the walk found ahead of this run's request (pids), and the server's deadlock_timeout. */
+  /** The sessions the walk found ahead of this run's request (pids). */
   chain?: number[] | null;
-  deadlockTimeout?: string | null;
   /** Seen idle in two samples HOLDER_CONFIRM_MS apart, its state unchanged (set by the watcher / the key lookup). */
   confirmedIdle?: boolean;
   /** Its transaction began before this run took its run lock (set where that time is known). */
@@ -71,7 +70,7 @@ export function holderFrom(row: Record<string, unknown> | undefined, runLockAt?:
   return {
     pid: row.pid, state: (row.state as string | null) ?? null, app: (row.app as string | null) ?? null, ageS: num(row.ageS), idleS: num(row.idleS),
     stateChangeMs: num(row.stateChangeMs), xactStartMs, idleMs: idleSettingMs(row.idleDefault), waiting: row.waiting === true,
-    cycle: row.cycle === true, chain: Array.isArray(row.chain) ? (row.chain as number[]) : null, deadlockTimeout: (row.deadlockTimeout as string | null) ?? null,
+    cycle: row.cycle === true, chain: Array.isArray(row.chain) ? (row.chain as number[]) : null,
     olderThanRun: runLockAt !== undefined && xactStartMs !== null && xactStartMs < runLockAt,
   };
 }
@@ -96,8 +95,8 @@ const pids = (h: LockHolder): string => (h.chain && h.chain.length > 0 ? ` (back
 
 /** The advice for a known holder. */
 export function whoHolds(h: LockHolder): string {
-  if (h.cycle === true) return `${described(h)}: a lock cycle with this run's own request${pids(h)}, a deadlock the server breaks after deadlock_timeout (${h.deadlockTimeout ?? 'its setting'}); this request gives way at its lock_timeout; then re-run`;
-  if (h.waiting === true) return `${described(h)}: it is itself waiting on a lock${pids(h)} and no session ahead of it could be named as the root (the server's deadlock check, deadlock_timeout ${h.deadlockTimeout ?? 'its setting'}, breaks a cycle among them); wait, then re-run`;
+  if (h.cycle === true) return `${described(h)}: a lock cycle with this run's own request${pids(h)}: a deadlock the server breaks once a waiting session's deadlock check runs; this request gives way at its lock_timeout at the latest; then re-run`;
+  if (h.waiting === true) return `${described(h)}: it is itself waiting on a lock${pids(h)} and no session ahead of it could be named as the root (a cycle among them is broken by the server's deadlock check); wait, then re-run`;
   if (ownLeftOpen(h)) return `${described(h)}: a migration transaction left open, from before this run (its client may be gone)${serverEnds(h)}; SELECT pg_terminate_backend(${h.pid}) ends it`;
   if (idleInTransaction(h.state)) return `${described(h)}: another session's open transaction; check with whoever owns it before ending it${serverEnds(h)}`;
   if (h.state === undefined || h.state === null) return `${described(h)} (its state could not be read): check what it is in pg_stat_activity before ending it`;

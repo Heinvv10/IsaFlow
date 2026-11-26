@@ -44,11 +44,12 @@ describe('the holder hint', () => {
     expect(wait({ pid: 9, ...own, idleMs: null })).not.toMatch(/ends it once/);
   });
   it('B28-5: a holder that is itself waiting is never "at work"; a cycle through this run\'s request is a deadlock, with the hint', () => {
-    const waiting = wait({ pid: 536684, state: 'active', app: 'IsaFlow web: chain W10', waiting: true, chain: [527709, 536684], deadlockTimeout: '1s' });
+    const waiting = wait({ pid: 536684, state: 'active', app: 'IsaFlow web: chain W10', waiting: true, chain: [527709, 536684] });
     expect(waiting).toContain('held by backend pid 536684, active, application IsaFlow web: chain W10: it is itself waiting on a lock (backend pids 527709, 536684) and no session ahead of it could be named as the root');
     expect(waiting).not.toMatch(/at work/);
-    const cycle = wait({ pid: 1607589, state: 'active', app: 'IsaFlow web: stock take', waiting: true, cycle: true, chain: [1607589], deadlockTimeout: '20s' });
-    expect(cycle).toContain("a lock cycle with this run's own request (backend pids 1607589), a deadlock the server breaks after deadlock_timeout (20s); this request gives way at its lock_timeout; then re-run");
+    const cycle = wait({ pid: 1607589, state: 'active', app: 'IsaFlow web: stock take', waiting: true, cycle: true, chain: [1607589] });
+    expect(cycle).toContain("a lock cycle with this run's own request (backend pids 1607589): a deadlock the server breaks once a waiting session's deadlock check runs; this request gives way at its lock_timeout at the latest; then re-run");
+    expect(cycle).not.toMatch(/deadlock_timeout \(/); // the holder's own deadlock_timeout cannot be seen: no value is promised (dl3)
     expect(cycle).not.toMatch(/at work/);
   });
   it('at work (active, not waiting): named with its state and application; waited for, never ended', () => {

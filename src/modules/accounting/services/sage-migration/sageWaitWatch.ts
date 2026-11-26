@@ -24,7 +24,7 @@ export const BLOCKER_SQL = `WITH RECURSIVE chain(pid) AS (
       SELECT b.pid FROM unnest(pg_blocking_pids($1)) AS b(pid)
       UNION SELECT b.pid FROM chain c, unnest(pg_blocking_pids(c.pid)) AS b(pid))
     SELECT ${HOLDER_COLUMNS}, EXISTS (SELECT 1 FROM chain WHERE pid = $1) AS "cycle",
-      (SELECT array_agg(pid ORDER BY pid) FROM chain WHERE pid <> $1) AS "chain", current_setting('deadlock_timeout') AS "deadlockTimeout"
+      (SELECT array_agg(pid ORDER BY pid) FROM chain WHERE pid <> $1) AS "chain"
     FROM chain c JOIN pg_stat_activity a ON a.pid = c.pid
     WHERE c.pid <> $1
     ORDER BY cardinality(pg_blocking_pids(a.pid)) = 0 DESC, a.pid = ANY (pg_blocking_pids($1)) DESC, a.pid LIMIT 1`;
