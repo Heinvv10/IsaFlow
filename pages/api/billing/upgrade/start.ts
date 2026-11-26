@@ -65,6 +65,9 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       return apiResponse.conflict(res, 'A payment method is already authorised. Confirm the upgrade instead.');
     case 'no_email':
       return apiResponse.badRequest(res, 'Your account has no email address to authorise the payment with.');
+    case 'below_current_charge':
+      // Unreachable for a company on a trial (it has no paid subscription); refused rather than assumed.
+      return apiResponse.badRequest(res, 'This plan cannot be chosen for an upgrade.');
     case 'init_failed':
       return apiResponse.internalError(res, 'Could not start the payment authorisation. Please try again.');
     case 'started':

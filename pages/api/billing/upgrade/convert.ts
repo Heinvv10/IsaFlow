@@ -11,7 +11,9 @@
  * 404 without the dark flag `trial_self_serve_upgrade` (every role) or for an
  * unknown plan; 403 for any role but owner and for a company not on a trial (or
  * already paying on another plan); 400 for a plan that cannot be chosen; 409
- * without a mandate or with a paused subscription. The company is the verified
+ * without a mandate, with a paused subscription, or when the mandate was
+ * authorised for a different plan (its ceiling is not this plan's price: any
+ * plan change needs a new authorisation). The company is the verified
  * request's; a company id in the body is a 400.
  */
 
@@ -64,6 +66,8 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       case 'company_not_convertible': return apiResponse.forbidden(res, 'This company is not on a trial that can be upgraded.');
       case 'mandate_required': return apiResponse.conflict(res, 'Authorise a payment method before upgrading.');
       case 'subscription_paused': return apiResponse.conflict(res, err.message);
+      case 'mandate_plan_mismatch': return apiResponse.conflict(res,
+        'Your payment method was authorised for a different amount than this plan costs. Choose the plan you authorised.');
       case 'plan_not_convertible': return apiResponse.badRequest(res, 'This plan cannot be chosen for an upgrade.');
     }
   }
