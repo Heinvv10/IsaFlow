@@ -73,11 +73,15 @@ export async function downloadEmp501File(
   companyId: string, versionId: string, actor: ReturnActor, bankReader?: CertificateBankReader,
 ): Promise<{ filename: string; body: string; storedSha256: string; servedSha256: string; stamped: boolean }> {
   const file = await downloadStoredEmp501File(companyId, versionId, actor);
-  const f = file.figures as { employees?: StoredEmployee[]; certificateEmployees?: Array<{ certificateNumber: string; employeeId: string }> };
+  const f = file.figures as { employees?: StoredEmployee[]; certificateEmployees?: Array<{ certificateNumber: string; employeeId: string }>; bankOverlay?: unknown };
   const names = new Map((f.employees ?? []).map((e) => [e.certificateNumber, `${e.firstNames} ${e.surname}`.trim()]));
   // A filed version: the accounts as they stood when it was filed (PII breaker of #1944: its re-download must be the
   // bytes submitted); otherwise today's.
-  const body = await withLiveBankAccounts(companyId, file.body, f.certificateEmployees, names, bankReader, file.filedAt ?? undefined);
+  // Only a version finalised since EA2 carries the marker; one finalised before (and so filed, if filed, without any bank
+  // field) is served byte for byte as stored, served hash = stored hash (quality round 3 of #1944).
+  const body = f.bankOverlay === 1
+    ? await withLiveBankAccounts(companyId, file.body, f.certificateEmployees, names, bankReader, file.filedAt ?? undefined)
+    : file.body;
   const servedSha256 = createHash('sha256').update(body, 'utf8').digest('hex');
   // Every download (not only the stamping one): which bytes left, by hash only; never a bank value.
   await logAuditOrThrow({

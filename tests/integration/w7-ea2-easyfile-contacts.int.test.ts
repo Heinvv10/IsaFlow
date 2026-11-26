@@ -305,6 +305,31 @@ describe('e@syFile addresses and bank accounts (wave 7 EA2)', () => {
       expect(live.body).not.toContain('3241,"62123456789"');
     });
 
+    it('a version finalised before EA2 (no bankOverlay marker) is served byte for byte as stored: no 324x line, served = stored', async () => {
+      const sha = (t: string) => createHash('sha256').update(t, 'utf8').digest('hex');
+      const { bankOverlay, ...pre } = (await a.pool.query('SELECT figures FROM tax_return_versions WHERE id = $1', [versionId])).rows[0]!.figures;
+      expect(bankOverlay).toBe(1); // premise: EA2's finalise writes the marker
+      const preId = String((await a.pool.query(
+        `INSERT INTO tax_return_versions (company_id, form_type, period_start, period_end, version_no, figures, posted_through,
+           finalised_by, status, filed_at, filed_by)
+         VALUES ($1, 'EMP501', '2023-03-01', '2024-02-29', 1, $2, now(), 'fixture', 'filed', clock_timestamp(), 'fixture') RETURNING id`,
+        [a.company, JSON.stringify(pre)])).rows[0]!.id);
+      const req = request({ 'sb-access-token': a.tokens[a.approver]!, active_company_id: a.company }, 'POST') as unknown as { url: string; body: unknown };
+      req.url = '/api/payroll/emp501/returns/filing-file';
+      req.body = { versionId: preId, format: 'irp5' };
+      const out = response();
+      await (filingFile as unknown as (q: unknown, s: NextApiResponse) => Promise<void>)(req, out.res);
+      const body = String((out.state as unknown as { body: unknown }).body);
+      expect((out.state as unknown as { statusCode: number }).statusCode).toBe(200);
+      expect(body).not.toMatch(/^324[0-6],/m);
+      expect(out.headers.get('x-filing-file-served-sha256')).toBe(sha(body));
+      expect(out.headers.get('x-filing-file-stored-sha256')).toBe(out.headers.get('x-filing-file-served-sha256'));
+      const dl = (await a.pool.query(`SELECT changes::text AS changes FROM audit_log WHERE company_id = $1 AND entity_type = 'tax_return_version'
+        AND action = 'export' AND entity_id = $2`, [a.company, preId])).rows;
+      expect(dl).toHaveLength(1);
+      expect(JSON.parse(String(dl[0]!.changes)).metadata).toMatchObject({ liveBankFields: 'false', servedSha256: sha(body) });
+    });
+
     it('a manager is refused and reads no account; a token is refused', async () => {
       const before = (await audits(a)).length;
       const manager = await a.addUser('manager');
