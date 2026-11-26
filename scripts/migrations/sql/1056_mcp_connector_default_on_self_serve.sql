@@ -46,10 +46,13 @@
 --   -- 1. List what self-serve and default-on wrote (the column carries the provenance):
 --   SELECT company_id, enabled, set_via, set_by, created_at FROM public.company_feature_overrides
 --    WHERE set_via IN ('company_admin', 'default_new_company') ORDER BY set_via, created_at;
---   -- 2. Default-on rows only. Platform-admin rows (set_via NULL or platform_admin) are never touched.
---   DELETE FROM public.company_feature_overrides WHERE reason = 'Default on for new companies';
---   -- 3. Optional: company_admin rows. Deleting an ON row switches that company's connector off.
---   -- DELETE FROM public.company_feature_overrides WHERE set_via = 'company_admin';
+--   -- 2. Default-on rows only, mcp_connector only. Platform-admin rows (set_via NULL or platform_admin) and
+--   --    every other feature's rows are never touched, whatever their reason.
+--   DELETE FROM public.company_feature_overrides o USING public.feature_flags ff
+--    WHERE ff.id = o.feature_id AND ff.code = 'mcp_connector' AND o.set_via = 'default_new_company';
+--   -- 3. Optional: company_admin rows (mcp_connector only). Deleting an ON row switches that company's connector off.
+--   -- DELETE FROM public.company_feature_overrides o USING public.feature_flags ff
+--   --  WHERE ff.id = o.feature_id AND ff.code = 'mcp_connector' AND o.set_via = 'company_admin';
 --   -- 4. Restore create_company_with_owner: re-run its CREATE OR REPLACE from 513, then
 --   --    sed -n '/^CREATE OR REPLACE FUNCTION public.create_company_with_owner/,/^\$\$;/p' scripts/migrations/sql/513_create_company_writes_vat_system_type.sql | psql ...
 --   UPDATE public.app_definer_reviews SET body_md5 = public.app_definer_hash('public.create_company_with_owner(jsonb)'::regprocedure),
@@ -302,12 +305,13 @@ BEGIN
 
   PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('mcp_connector_self_serve:' || p_company::text, 0));
 
-  -- FOR SHARE (not FOR UPDATE): migration_admin has no UPDATE on the table. Combined with the same
-  -- advisory lock on platform-admin writes, a concurrent OFF cannot sneak in after this read.
+  -- No row lock: FOR SHARE / FOR UPDATE need UPDATE privilege, which migration_admin is not given here. The
+  -- advisory lock above is the serialisation: every writer of this row takes it first (this function, and both
+  -- platform-admin writes in featureFlagService), so no other write can land between this read and the
+  -- DELETE + INSERT below, and this read (a fresh READ COMMITTED snapshot) sees every write committed before it.
   SELECT o.enabled, COALESCE(o.set_via, 'platform_admin') INTO v_was, v_was_via
     FROM public.company_feature_overrides o
-   WHERE o.company_id = p_company AND o.feature_id = v_feature
-   FOR SHARE;
+   WHERE o.company_id = p_company AND o.feature_id = v_feature;
   v_had := FOUND;
 
   IF v_had THEN

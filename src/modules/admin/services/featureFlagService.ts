@@ -10,8 +10,8 @@
  * the ordering, and why) in all three readers below, so they cannot drift.
  */
 
-import { sql } from '@/lib/neon';
-import type { DbRow } from '@/lib/neon';
+import { sql, withTransaction } from '@/lib/neon';
+import type { DbRow, TxSql } from '@/lib/neon';
 import { CURRENT_PLAN_ID_SQL } from './currentPlanSql';
 import { log } from '@/lib/logger';
 import type {
@@ -153,6 +153,19 @@ export async function getCompanyEffectiveFeatures(
   });
 }
 
+/**
+ * Migration 1056: when `featureId` is mcp_connector, take the advisory key mcp_connector_self_serve_set takes,
+ * so a platform-admin write and an owner's toggle of the same company never interleave (the toggle holds no
+ * row lock). Its own statement, run first, inside the caller's transaction: it lasts until that commits.
+ */
+async function lockMcpConnectorRow(tx: TxSql, companyId: string, featureId: string): Promise<void> {
+  await tx`
+    SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('mcp_connector_self_serve:' || ${companyId}::text, 0))
+      FROM feature_flags
+     WHERE id = ${featureId}::uuid AND code = 'mcp_connector'
+  `;
+}
+
 export async function setCompanyFeatureOverride(
   companyId: string,
   featureId: string,
@@ -160,26 +173,22 @@ export async function setCompanyFeatureOverride(
   reason: string,
   setBy: string
 ): Promise<void> {
-  // Same advisory key as mcp_connector_self_serve_set, taken in this statement so it lives
-  // for the request transaction (a separate SELECT would drop the lock if this ran autocommit).
-  await sql`
-    WITH taken AS (
-      SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('mcp_connector_self_serve:' || ${companyId}::text, 0))
-      FROM feature_flags
-      WHERE id = ${featureId}::uuid AND code = 'mcp_connector'
-    )
-    INSERT INTO company_feature_overrides
-      (company_id, feature_id, enabled, reason, set_by, set_via, created_at)
-    VALUES
-      (${companyId}, ${featureId}, ${enabled}, ${reason}, ${setBy}, 'platform_admin', NOW())
-    ON CONFLICT (company_id, feature_id)
-    DO UPDATE SET
-      enabled    = EXCLUDED.enabled,
-      reason     = EXCLUDED.reason,
-      set_by     = EXCLUDED.set_by,
-      set_via    = 'platform_admin',
-      created_at = NOW()
-  `;
+  await withTransaction(async (tx) => {
+    await lockMcpConnectorRow(tx, companyId, featureId);
+    await tx`
+      INSERT INTO company_feature_overrides
+        (company_id, feature_id, enabled, reason, set_by, set_via, created_at)
+      VALUES
+        (${companyId}, ${featureId}, ${enabled}, ${reason}, ${setBy}, 'platform_admin', NOW())
+      ON CONFLICT (company_id, feature_id)
+      DO UPDATE SET
+        enabled    = EXCLUDED.enabled,
+        reason     = EXCLUDED.reason,
+        set_by     = EXCLUDED.set_by,
+        set_via    = 'platform_admin',
+        created_at = NOW()
+    `;
+  });
 
   log.info('setCompanyFeatureOverride', { companyId, featureId, enabled }, 'FeatureFlagService');
 }
@@ -189,17 +198,15 @@ export async function removeCompanyFeatureOverride(
   companyId: string,
   featureId: string
 ): Promise<boolean> {
-  const rows = await sql`
-    WITH taken AS (
-      SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('mcp_connector_self_serve:' || ${companyId}::text, 0))
-      FROM feature_flags
-      WHERE id = ${featureId}::uuid AND code = 'mcp_connector'
-    )
-    DELETE FROM company_feature_overrides
-    WHERE company_id = ${companyId}
-      AND feature_id = ${featureId}
-    RETURNING feature_id
-  `;
+  const rows = await withTransaction(async (tx) => {
+    await lockMcpConnectorRow(tx, companyId, featureId);
+    return tx`
+      DELETE FROM company_feature_overrides
+      WHERE company_id = ${companyId}
+        AND feature_id = ${featureId}
+      RETURNING feature_id
+    `;
+  });
   if (rows.length === 0) return false;
 
   log.info('removeCompanyFeatureOverride', { companyId, featureId }, 'FeatureFlagService');

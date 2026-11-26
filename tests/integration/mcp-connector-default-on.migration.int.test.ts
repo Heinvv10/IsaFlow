@@ -138,8 +138,8 @@ describe('1056: the owner/admin toggle', () => {
   });
 
   it('an in-flight owner toggle holds the advisory lock a platform-admin OFF also takes', async () => {
-    // Two connections: the owner transaction keeps the lock until ROLLBACK, so the admin
-    // upsert (same key as setCompanyFeatureOverride) must wait, not sneak an OFF in after the read.
+    // Two connections: the owner transaction keeps the advisory key until ROLLBACK, so anything taking the
+    // same key (both platform-admin writes) must wait, not sneak an OFF in after the read.
     const owner = await fixture.connect();
     const admin = await fixture.connect();
     const q = (c: typeof owner) => (text: string) => c.query(text);
@@ -150,17 +150,10 @@ describe('1056: the owner/admin toggle', () => {
 
       await admin.query('BEGIN');
       await admin.query("SET LOCAL lock_timeout = '250ms'");
+      // The key alone, nothing else: a row lock cannot explain this wait (the admin writes themselves are
+      // proved to take this key in mcp-connector-1056-locks.int.test.ts).
       await expect(admin.query(
-        `WITH taken AS (
-           SELECT pg_advisory_xact_lock(hashtextextended('mcp_connector_self_serve:' || $1::text, 0))
-           FROM feature_flags WHERE code = 'mcp_connector'
-         )
-         INSERT INTO company_feature_overrides (company_id, feature_id, enabled, reason, set_by, set_via, created_at)
-         SELECT $1::uuid, id, false, 'lock', $2::uuid, 'platform_admin', now() FROM feature_flags WHERE code = 'mcp_connector'
-         ON CONFLICT (company_id, feature_id) DO UPDATE SET
-           enabled = EXCLUDED.enabled, reason = EXCLUDED.reason, set_by = EXCLUDED.set_by,
-           set_via = 'platform_admin', created_at = now()`,
-        [ids.company, ids.admin],
+        `SELECT pg_advisory_xact_lock(hashtextextended('mcp_connector_self_serve:' || $1::text, 0))`, [ids.company],
       )).rejects.toMatchObject({ code: '55P03' });
     } finally {
       await owner.query('ROLLBACK').catch(() => undefined);
