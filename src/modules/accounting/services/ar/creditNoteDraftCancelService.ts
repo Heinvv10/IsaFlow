@@ -50,7 +50,7 @@ export async function cancelDraftCreditNote(
   // `status = 'draft'` again in the WHERE: the lock makes it redundant, and a surprise fails closed.
   const rows = (await sql`
     UPDATE credit_notes
-    SET status = 'cancelled', cancelled_by = ${userId}::UUID, cancelled_at = NOW(), cancel_reason = ${reason || null}
+    SET status = 'cancelled', cancelled_by = ${userId}, cancelled_at = NOW(), cancel_reason = ${reason || null}
     WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID AND status = 'draft'
     RETURNING *
   `) as DbRow[];

@@ -61,7 +61,7 @@ describe('cancelDraftCreditNote', () => {
     expect(lockCreditNoteForUpdate).toHaveBeenCalledWith(COMPANY, ID);
     expect(writes()).toHaveLength(1);
     const sqlText = text(updateCall());
-    expect(sqlText).toMatch(/^UPDATE credit_notes SET status = 'cancelled', cancelled_by = \?::UUID, cancelled_at = NOW\(\), cancel_reason = \?/);
+    expect(sqlText).toMatch(/^UPDATE credit_notes SET status = 'cancelled', cancelled_by = \?, cancelled_at = NOW\(\), cancel_reason = \?/);
     expect(sqlText).toMatch(/company_id = \?::UUID/);
     expect(updateCall().slice(1)).toEqual([USER, 'duplicate', ID, COMPANY]);
     expect(sqlText).not.toMatch(/credit_note_number|applied_amount|total_amount|gl_journal_entry_id/);

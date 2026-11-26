@@ -88,7 +88,7 @@ export async function approveBatch(
   // re-approval moves them to its approver: they vouch for the content paid now).
   if (!reapproval) {
     await sql`
-      UPDATE supplier_payments SET status = 'approved', approved_by = ${userId}::UUID, approved_at = NOW()
+      UPDATE supplier_payments SET status = 'approved', approved_by = ${userId}, approved_at = NOW()
       WHERE batch_id = ${id}::UUID AND company_id = ${companyId}::UUID AND status = 'draft'
     `;
     log.info('Approved batch', { id }, 'accounting');
@@ -96,7 +96,7 @@ export async function approveBatch(
   }
   // Re-approval: every member still paid by the batch, its status left as it is.
   await sql`
-    UPDATE supplier_payments SET approved_by = ${userId}::UUID, approved_at = NOW()
+    UPDATE supplier_payments SET approved_by = ${userId}, approved_at = NOW()
     WHERE batch_id = ${id}::UUID AND company_id = ${companyId}::UUID AND status IS DISTINCT FROM 'cancelled'
   `;
   await logAuditOrThrow({

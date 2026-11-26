@@ -194,7 +194,7 @@ export async function recordGatewayInvoiceReceipt(
     ) VALUES (
       ${paymentId}::UUID, ${companyId}::UUID, ${invoice.client_id}::UUID, ${paymentDate},
       ${amountRand}, 'card', ${reference}, ${String(bankAccount.id)}::UUID,
-      ${description}, ${actorId}::UUID
+      ${description}, ${actorId}
     )
   `;
   // A non-ZAR figure never settles a ZAR invoice: banked (Hein), left unapplied, flagged.

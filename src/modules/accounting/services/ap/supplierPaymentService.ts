@@ -219,7 +219,7 @@ export async function createSupplierPayment(companyId: string,
         ) VALUES (
           ${companyId}::UUID, ${input.supplierId}, ${input.paymentDate}, ${input.totalAmount},
           ${input.paymentMethod || 'eft'}, ${input.bankAccountId || null},
-          ${input.reference || null}, ${input.description || null}, ${userId}::UUID
+          ${input.reference || null}, ${input.description || null}, ${userId}
         ) RETURNING *
       `) as Row[];
 

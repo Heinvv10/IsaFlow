@@ -149,7 +149,7 @@ async function confirmCustomerPaymentInner(
 
     const updatedRows = (await sql`
       UPDATE customer_payments
-      SET status = 'confirmed', confirmed_by = ${userId}::UUID, confirmed_at = NOW(),
+      SET status = 'confirmed', confirmed_by = ${userId}, confirmed_at = NOW(),
           gl_journal_entry_id = ${je.id}::UUID
       WHERE id = ${id} AND company_id = ${companyId}::UUID RETURNING *
     `) as Row[];

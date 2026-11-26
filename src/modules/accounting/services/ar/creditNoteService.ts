@@ -169,7 +169,7 @@ export async function createCreditNote(companyId: string,
         ${input.supplierInvoiceId || null},
         ${input.creditDate}, ${input.reason || null},
         ${input.subtotal}, ${taxRate}, ${taxAmount}, ${totalAmount},
-        ${projectId}, ${userId}::UUID,
+        ${projectId}, ${userId},
         ${actor?.actorType ?? null}, ${actor?.actorTokenJti ?? null},
         ${dims?.cc1Id || null}::UUID, ${dims?.cc2Id || null}::UUID, ${dims?.buId || null}::UUID,
         ${glAccountId}::UUID, ${vatBasis}, ${ackMatches}::JSONB

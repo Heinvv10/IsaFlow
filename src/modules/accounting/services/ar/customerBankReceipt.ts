@@ -22,7 +22,7 @@ export async function insertCustomerBankReceipt(q: TxSql, r: {
     ) VALUES (
       ${r.companyId}::UUID, ${r.customerId}::UUID, ${r.paymentDate}, ${r.amount}, 'eft',
       ${r.bankReference}, ${r.bankAccountId}::UUID, ${r.description}, 'confirmed',
-      ${r.journalEntryId}::UUID, ${r.createdBy}::UUID, ${r.createdBy}::UUID, NOW()
+      ${r.journalEntryId}::UUID, ${r.createdBy}, ${r.createdBy}, NOW()
     )
     RETURNING id`) as DbRow[];
   return rows.length > 0 ? String(rows[0]!.id) : null;

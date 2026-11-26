@@ -162,7 +162,7 @@ export async function createCustomerPayment(companyId: string,
           ${paymentId}::UUID, ${companyId}::UUID, ${input.clientId}::UUID, ${input.paymentDate}, ${input.totalAmount},
           ${input.paymentMethod || 'eft'}, ${input.bankReference || null},
           ${input.bankAccountId || null}, ${input.description || null},
-          ${input.projectId || null}, ${userId}::UUID
+          ${input.projectId || null}, ${userId}
         )
       `,
       ...input.allocations.map(alloc =>

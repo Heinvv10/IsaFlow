@@ -161,7 +161,7 @@ export async function recordCustomerRefund(args: {
       ${companyId}::UUID, ${customerId}::UUID, ${paymentDate}::DATE,
       ${total}, ${REFUND_PAYMENT_METHOD},
       ${bankTxId}, ${bankAccountId}::UUID, ${description}, ${'confirmed'},
-      ${journalEntryId}::UUID, ${createdBy}::UUID, ${createdBy}::UUID, NOW()
+      ${journalEntryId}::UUID, ${createdBy}, ${createdBy}, NOW()
     )
     RETURNING id
   `) as DbRow[];

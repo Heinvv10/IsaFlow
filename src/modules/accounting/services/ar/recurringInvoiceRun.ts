@@ -145,7 +145,7 @@ async function runOneTemplate(companyId: string, id: string, userId: string): Pr
           ${ri.project_id || null},
           ${invoiceDate}::DATE, ${dueDate}::DATE, 'terms',
           ${totals.subtotal}, ${taxRate}, ${totals.taxAmount}, ${totals.totalAmount},
-          'draft', ${ri.description || ri.template_name}, ${userId}::UUID
+          'draft', ${ri.description || ri.template_name}, ${userId}
         ) RETURNING id
       `) as Row[];
       return String(inv[0]!.id);

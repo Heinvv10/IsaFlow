@@ -87,7 +87,7 @@ export async function createBatch(companyId: string,
         payment_count, total_amount, created_by
       ) VALUES (
         ${companyId}::UUID, ${batchDate}, ${paymentMethod}, ${input.bankAccountId || null},
-        ${input.notes || null}, ${input.payments.length}, 0, ${userId}::UUID
+        ${input.notes || null}, ${input.payments.length}, 0, ${userId}
       ) RETURNING id
     `) as Row[];
 
@@ -104,7 +104,7 @@ export async function createBatch(companyId: string,
           status, batch_id, created_by
         ) VALUES (
           ${companyId}::UUID, ${p.supplierId}::UUID, ${batchDate},
-          ${payTotal}, ${paymentMethod}, 'draft', ${id}::UUID, ${userId}::UUID
+          ${payTotal}, ${paymentMethod}, 'draft', ${id}::UUID, ${userId}
         ) RETURNING id
       `) as Row[];
 
@@ -181,7 +181,7 @@ export async function processBatch(companyId: string, id: string, userId: string
   // loser matches zero rows and stops here, before the first posting.
   const claimed = await claimUnderLockTimeout('payment batch', async () => (await sql`
     UPDATE supplier_payment_batches
-    SET status = 'processed', processed_by = ${userId}::UUID, processed_at = NOW(), updated_at = NOW()
+    SET status = 'processed', processed_by = ${userId}, processed_at = NOW(), updated_at = NOW()
     WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID AND status = 'approved'
     RETURNING id
   `) as Row[]);
