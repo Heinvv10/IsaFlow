@@ -1,6 +1,10 @@
 /**
  * The e@syFile IRP5 file of a finalised EMP501 version (wave 6 EFb), built from the version's stored figures only
- * (emp501Figures), never from the live payroll: the same version always gives the same bytes and the same sha256.
+ * (emp501Figures), never from the live payroll: the same version always gives the same STORED bytes and the same
+ * stamp (sha256). Since wave 7 EA2 (Hein's ruling 25) the bytes SERVED add each certificate's bank account, read live at
+ * download (a filed version: as they stood at its filed_at, so it re-serves the bytes filed) and never stored, so a
+ * version not yet filed can differ between downloads (an account changed): each download's audit row
+ * records the served bytes' sha256 beside the stored one, so the exact file sent to SARS is provable later.
  * Built in memory; nothing is written to disk.
  */
 import { createHash } from 'node:crypto';
@@ -16,6 +20,7 @@ import { FILING_FILE_KIND } from './filingFileContent';
 import { stampFilingFile, storedContent } from './filingFileService';
 import { assertMayActOnReturns } from './returnGuards';
 import { getVersionForUpdate } from './returnVersionWrites';
+import { logAuditOrThrow } from '@/modules/accounting/services/core/auditTrailService';
 import { withLiveBankAccounts } from '@/modules/accounting/services/payroll/easyFileBankOverlay';
 import type { CertificateBankReader } from '@/modules/accounting/services/payroll/easyFileBankAccounts';
 import { ReturnRefusal, STALE_RETURN_REFUSAL, type ReturnActor, type ReturnVersion } from './returnVersionTypes';
@@ -66,17 +71,25 @@ export function emp501FileOf(v: Pick<ReturnVersion, 'formType' | 'figures'>): Em
  */
 export async function downloadEmp501File(
   companyId: string, versionId: string, actor: ReturnActor, bankReader?: CertificateBankReader,
-): Promise<Emp501File & { stamped: boolean }> {
+): Promise<{ filename: string; body: string; storedSha256: string; servedSha256: string; stamped: boolean }> {
   const file = await downloadStoredEmp501File(companyId, versionId, actor);
   const f = file.figures as { employees?: StoredEmployee[]; certificateEmployees?: Array<{ certificateNumber: string; employeeId: string }> };
   const names = new Map((f.employees ?? []).map((e) => [e.certificateNumber, `${e.firstNames} ${e.surname}`.trim()]));
-  const body = await withLiveBankAccounts(companyId, file.body, f.certificateEmployees, names, bankReader);
-  return { filename: file.filename, body, sha256: file.sha256, stamped: file.stamped };
+  // A filed version: the accounts as they stood when it was filed (PII breaker of #1944: its re-download must be the
+  // bytes submitted); otherwise today's.
+  const body = await withLiveBankAccounts(companyId, file.body, f.certificateEmployees, names, bankReader, file.filedAt ?? undefined);
+  const servedSha256 = createHash('sha256').update(body, 'utf8').digest('hex');
+  // Every download (not only the stamping one): which bytes left, by hash only; never a bank value.
+  await logAuditOrThrow({
+    companyId, userId: actor.userId, action: 'export', entityType: 'tax_return_version', entityId: versionId,
+    changes: { fields: [], metadata: { file: 'emp501_easyfile', storedSha256: file.sha256, servedSha256, liveBankFields: String(body !== file.body) } },
+  });
+  return { filename: file.filename, body, storedSha256: file.sha256, servedSha256, stamped: file.stamped };
 }
 
 async function downloadStoredEmp501File(
   companyId: string, versionId: string, actor: ReturnActor,
-): Promise<Emp501File & { stamped: boolean; figures: unknown }> {
+): Promise<Emp501File & { stamped: boolean; figures: unknown; filedAt?: string | null }> {
   await assertNotImpersonating(); // a stamp names the person
   assertMayActOnReturns(actor.role, 'file');
   const v = await getVersionForUpdate(companyId, versionId);
@@ -88,14 +101,14 @@ async function downloadStoredEmp501File(
   if (v.filingFileSha256) {
     // A stamp in the current layout, or a FILED version's (the record of what was filed, in whatever layout): the stored bytes.
     if (v.filingFileKind === EMP501_FILE_KIND || v.status === 'filed') {
-      return { filename: emp501FileName(v), body: await storedContent(companyId, v.id), sha256: v.filingFileSha256, stamped: false, figures: v.figures };
+      return { filename: emp501FileName(v), body: await storedContent(companyId, v.id), sha256: v.filingFileSha256, stamped: false, figures: v.figures, filedAt: v.status === 'filed' ? v.filedAt : null };
     }
     // Stamped in an earlier layout and not filed (emp501LayoutNote says so on the bar): rebuilt in the current layout,
     // not stored (999v writes a stamp once); amending and finalising again stamps the current file.
-    return { ...emp501FileOf(v), stamped: false, figures: v.figures };
+    return { ...emp501FileOf(v), stamped: false, figures: v.figures, filedAt: null }; // not filed (a filed one served its bytes above)
   }
   const file = emp501FileOf(v); // unstamped: the bytes (a version that cannot build one is refused here)
-  if (v.status !== 'finalised') return { ...file, stamped: false, figures: v.figures }; // filed before 999v: the trigger keeps it unstamped
+  if (v.status !== 'finalised') return { ...file, stamped: false, figures: v.figures, filedAt: v.status === 'filed' ? v.filedAt : null }; // filed before 999v: the trigger keeps it unstamped
   const sha256 = await stampFilingFile(companyId, v, file.body, EMP501_FILE_KIND, 'irp5', actor.userId);
-  return { ...file, sha256, stamped: true, figures: v.figures };
+  return { ...file, sha256, stamped: true, figures: v.figures, filedAt: null }; // finalised, not filed
 }

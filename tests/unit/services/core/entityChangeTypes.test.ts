@@ -124,7 +124,7 @@ describe('888, 952, 961, 962 and their TypeScript agree', () => {
       company: ['bank_account_number', 'tax_number', 'paye_reference_number', 'sdl_reference_number', 'uif_reference_number'],
       approval_rule: [],
       approval_enforcement: [],
-      payroll_bank_detail: ['account_number', 'branch_code', 'account_holder', 'account_holder_relationship'],
+      payroll_bank_detail: ['account_number', 'branch_code', 'account_holder'],
       company_setting: [],
       supplier_invoice: [],
       customer_invoice: [],

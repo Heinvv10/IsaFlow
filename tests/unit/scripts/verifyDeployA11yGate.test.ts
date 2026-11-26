@@ -72,6 +72,8 @@ const DEV_ONLY_SPECS = [
   'z37-employee-address',
   'z38-portal-payslip-periods',
   'z4-employee-pay-on-create',
+  // Wave 7 EA2: the bank-details "Account held by" select (3246); it writes an employee in its own sandbox.
+  'z40-bank-holder-relationship',
   'z5-employee-bank-details',
   'z6-payrun-review-grid',
   'z7-undo-drawers',

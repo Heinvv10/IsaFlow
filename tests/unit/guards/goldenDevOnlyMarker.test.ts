@@ -71,6 +71,7 @@ describe('golden dev-only marker', () => {
       'z28-late-claims', 'z30-bank-bulk-accept', 'z26-salary-bank-file', 'z24-payslip-email', 'z31-bank-tx-modal-a11y', 'z27-filing-files',
       'z32-bank-tx-layout', 'z25-employee-portal', 'z33-off-cycle-run', 'z34-settings-dirty-state', 'z38-portal-payslip-periods',
       'z37-employee-address',
+      'z40-bank-holder-relationship',
     ].sort());
   });
 });

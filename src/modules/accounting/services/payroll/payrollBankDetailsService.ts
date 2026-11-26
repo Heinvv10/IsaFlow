@@ -87,7 +87,7 @@ export interface EmployeeBankDetails {
   branchCode: string;
   /** In full for owner / admin, else its first letter and `…`. */
   accountHolder: string | null;
-  /** Not masked: it names no one (3246). */
+  /** Not masked, here or in the history: it names no one (3246). */
   accountHolderRelationship: HolderRelationship | null;
   effectiveFrom: string;
 }
@@ -180,6 +180,26 @@ export async function getEmployeeBankDetails(
            effective_from::text AS effective_from
     FROM payroll_bank_details
     WHERE company_id = ${companyId}::uuid AND employee_id = ${employeeId}::uuid AND is_active
+  `) as BankRow[];
+  return rows[0] ? toView(rows[0], role) : null;
+}
+
+/**
+ * The details that were active at `asOf` (an ISO instant), masked for `role`; null when none were (wave 7 EA2: a FILED
+ * EMP501 version re-serves the accounts as they stood when it was filed). Rows are insert-only and a change inserts the
+ * next one (the only writer, setEmployeeBankDetails, deactivates the old row in the same transaction), so the row active
+ * then is the newest created at or before it.
+ */
+export async function getEmployeeBankDetailsAsOf(
+  companyId: string, employeeId: string, asOf: string, role: string | undefined,
+): Promise<EmployeeBankDetails | null> {
+  const rows = (await sql`
+    SELECT id, employee_id, bank_name, account_number, account_type, branch_code, account_holder, account_holder_relationship,
+           effective_from::text AS effective_from
+    FROM payroll_bank_details
+    WHERE company_id = ${companyId}::uuid AND employee_id = ${employeeId}::uuid AND created_at <= ${asOf}::timestamptz
+    ORDER BY created_at DESC, id DESC
+    LIMIT 1
   `) as BankRow[];
   return rows[0] ? toView(rows[0], role) : null;
 }

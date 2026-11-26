@@ -6,7 +6,8 @@
  * served, at the place the record writer puts them (after the address codes that follow 3210), so the served file is
  * byte for byte the file the writer would build with the account on the certificate. An employee with no account on
  * record is 3240 = 0. The version's stamp (sha256) stays the hash of the stored file: the accounts are not part of
- * the figures a version freezes.
+ * the figures a version freezes. A FILED version reads the accounts as they stood at its filed_at (rows are insert-only),
+ * so its re-download is the file submitted, byte for byte; a version not yet filed reads today's.
  */
 import { certificateContactLines, type CertificateBankAccount } from './easyFileContactFields';
 import { loadCertificateBankAccounts, type CertificateBankReader } from './easyFileBankAccounts';
@@ -47,10 +48,12 @@ export function overlayBankAccounts(body: string, accounts: Map<string, Certific
 export async function withLiveBankAccounts(
   companyId: string, body: string, certificateEmployees: Array<{ certificateNumber: string; employeeId: string }> | undefined,
   names: Map<string, string>, reader: CertificateBankReader | undefined,
+  /** A filed version's filed_at: the accounts as they stood when it was filed, so its re-download is the bytes filed. */
+  asOf?: string,
 ): Promise<string> {
   if (!certificateEmployees || certificateEmployees.length === 0) return body;
   const read = await loadCertificateBankAccounts(companyId,
-    certificateEmployees.map((c) => ({ id: c.employeeId, name: names.get(c.certificateNumber) ?? '' })), reader);
+    certificateEmployees.map((c) => ({ id: c.employeeId, name: names.get(c.certificateNumber) ?? '' })), reader, asOf);
   if (!read.written) return body;
   const byCertificate = new Map<string, CertificateBankAccount>();
   for (const c of certificateEmployees) {

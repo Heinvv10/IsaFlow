@@ -13,7 +13,7 @@
 import { isHistoryAdmin } from '@/modules/accounting/services/core/entityChanges/entityChangeTypes';
 import type { RevealActor } from '@/modules/accounting/services/core/entityChanges/entityChangeReveal';
 import { isHumanSession } from '@/modules/accounting/services/bank/bankControlRefusal';
-import { getEmployeeBankDetails } from './payrollBankDetailsService';
+import { getEmployeeBankDetails, getEmployeeBankDetailsAsOf } from './payrollBankDetailsService';
 import { auditBankDetailsRead } from './payrollBankReadAudit';
 import { bankAccountForCertificate, NOT_ELECTRONIC, type CertificateBankAccount } from './easyFileContactFields';
 
@@ -43,13 +43,15 @@ export interface CertificateBankAccounts {
 
 export async function loadCertificateBankAccounts(
   companyId: string, employees: Array<{ id: string; name: string }>, reader: CertificateBankReader | undefined,
+  /** An ISO instant: the accounts as they stood then (a filed EMP501 version's filed_at); absent = the active ones. */
+  asOf?: string,
 ): Promise<CertificateBankAccounts> {
   const byEmployee = new Map<string, CertificateBankAccount>();
   // As GET bank-details (assertHumanSession there): Login-as and tokens / jobs read no account; the file then has none.
   if (!reader || !isHistoryAdmin(reader.role) || !(await isHumanSession())) return { written: false, byEmployee, warnings: [] };
   const warnings: string[] = [];
   for (const e of employees) {
-    const details = await getEmployeeBankDetails(companyId, e.id, reader.role);
+    const details = asOf ? await getEmployeeBankDetailsAsOf(companyId, e.id, asOf, reader.role) : await getEmployeeBankDetails(companyId, e.id, reader.role);
     if (!details) { byEmployee.set(e.id, NOT_ELECTRONIC); continue; } // 3240 = 0; pre-validation names them
     if (details.masked) throw new Error('getEmployeeBankDetails returned a masked view to an owner / admin');
     await auditBankDetailsRead(companyId, reader.actor, details);

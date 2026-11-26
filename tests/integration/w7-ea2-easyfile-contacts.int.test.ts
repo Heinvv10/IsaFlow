@@ -14,6 +14,7 @@
  *
  * Disposable DB only (rig -> assertDisposable). Every address and number is made up.
  */
+import { createHash } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { NextApiResponse } from 'next';
 import exportRoute from '../../pages/api/payroll/irp5/easyfile-export';
@@ -229,7 +230,7 @@ describe('e@syFile addresses and bank accounts (wave 7 EA2)', () => {
       req.body = { versionId, format: 'irp5' };
       const out = response();
       await (filingFile as unknown as (q: unknown, s: NextApiResponse) => Promise<void>)(req, out.res);
-      return out.state as unknown as { statusCode: number; body: unknown };
+      return { ...(out.state as unknown as { statusCode: number; body: unknown }), headers: out.headers };
     };
 
     it('the owner\'s download carries each account (3246 too, 3240 = 0 with none), audited; nothing of it is stored', async () => {
@@ -248,6 +249,60 @@ describe('e@syFile addresses and bank accounts (wave 7 EA2)', () => {
       expect(String(row.filing_file_content)).not.toMatch(/^324[0-6],/m);
       expect(String(row.filing_file_content)).toContain('3214,"Main Road"');
       expect(row.figures).not.toMatch(/62123456789|1234567890/);
+      // Evidence of what was sent (coordinator decision): the stamp is the stored file's, the served hash is the bytes
+      // sent, both on the response and the served one on this download's audit row, which carries no bank value.
+      const sha = (t: string) => createHash('sha256').update(t, 'utf8').digest('hex');
+      expect(out.headers.get('x-filing-file-stored-sha256')).toBe(sha(String(row.filing_file_content)));
+      expect(out.headers.get('x-filing-file-served-sha256')).toBe(sha(body));
+      expect(out.headers.get('x-filing-file-stored-sha256')).not.toBe(out.headers.get('x-filing-file-served-sha256'));
+      expect(out.headers.has('x-filing-file-sha256')).toBe(false);
+      const dl = (await a.pool.query(`SELECT changes::text AS changes FROM audit_log WHERE company_id = $1 AND entity_type = 'tax_return_version'
+        AND action = 'export' AND entity_id = $2`, [a.company, versionId])).rows;
+      expect(dl).toHaveLength(1);
+      expect(JSON.parse(String(dl[0]!.changes)).metadata).toMatchObject({ servedSha256: sha(body), storedSha256: sha(String(row.filing_file_content)) });
+      expect(String(dl[0]!.changes)).not.toMatch(/62123456789|1234567890|051001/);
+      // A second download with the same accounts sends the same bytes; a changed account changes only the served hash.
+      const again = await download(a.approver);
+      expect(again.headers.get('x-filing-file-served-sha256')).toBe(sha(body));
+      await a.pool.query(`UPDATE payroll_bank_details SET is_active = false WHERE id = $1`, [bankIds[emp.bare]]);
+      const changed = await download(a.approver);
+      expect(changed.headers.get('x-filing-file-stored-sha256')).toBe(sha(String(row.filing_file_content)));
+      expect(changed.headers.get('x-filing-file-served-sha256')).not.toBe(sha(body));
+      await a.pool.query(`UPDATE payroll_bank_details SET is_active = true WHERE id = $1`, [bankIds[emp.bare]]);
+    });
+
+    it('a FILED version re-serves the accounts as they stood when it was filed: same bytes, same served hash after a change', async () => {
+      const sha = (t: string) => createHash('sha256').update(t, 'utf8').digest('hex');
+      const figures = (await a.pool.query('SELECT figures FROM tax_return_versions WHERE id = $1', [versionId])).rows[0]!.figures;
+      const filedId = String((await a.pool.query(
+        `INSERT INTO tax_return_versions (company_id, form_type, period_start, period_end, version_no, figures, posted_through,
+           finalised_by, status, filed_at, filed_by)
+         VALUES ($1, 'EMP501', '2024-03-01', '2025-02-28', 1, $2, now(), 'fixture', 'filed', clock_timestamp(), 'fixture') RETURNING id`,
+        [a.company, JSON.stringify(figures)])).rows[0]!.id);
+      const get = async (id: string) => {
+        const req = request({ 'sb-access-token': a.tokens[a.approver]!, active_company_id: a.company }, 'POST') as unknown as { url: string; body: unknown };
+        req.url = '/api/payroll/emp501/returns/filing-file';
+        req.body = { versionId: id, format: 'irp5' };
+        const out = response();
+        await (filingFile as unknown as (q: unknown, s: NextApiResponse) => Promise<void>)(req, out.res);
+        expect((out.state as unknown as { statusCode: number }).statusCode).toBe(200);
+        return { body: String((out.state as unknown as { body: unknown }).body), served: out.headers.get('x-filing-file-served-sha256') };
+      };
+      const filed = await get(filedId);
+      expect(filed.body).toContain('3241,"62123456789"');
+      expect(filed.served).toBe(sha(filed.body));
+      // The account changes after filing (the only writer's way: deactivate, insert the next row).
+      await a.pool.query('UPDATE payroll_bank_details SET is_active = false WHERE id = $1', [bankIds[emp.full]]);
+      await a.pool.query(`INSERT INTO payroll_bank_details (company_id, employee_id, bank_name, account_number, account_type, branch_code,
+          account_holder, account_holder_relationship, is_active, created_at)
+        VALUES ($1, $2, 'Capitec', '70000000007', 'savings', '470010', 'T Molefe', 'own', true, clock_timestamp() + interval '1 second')`, [a.company, emp.full]);
+      const again = await get(filedId);
+      expect(again.body).toBe(filed.body);
+      expect(again.served).toBe(filed.served);
+      // A version not yet filed reads today's account.
+      const live = await get(versionId);
+      expect(live.body).toContain('3241,"70000000007"');
+      expect(live.body).not.toContain('3241,"62123456789"');
     });
 
     it('a manager is refused and reads no account; a token is refused', async () => {

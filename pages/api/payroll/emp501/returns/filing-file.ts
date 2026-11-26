@@ -48,7 +48,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     log.info('EMP501 filing file downloaded', { companyId, versionId: parsed.data.versionId, stamped: file.stamped }, 'emp501-returns');
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${file.filename}"`);
-    res.setHeader('X-Filing-File-Sha256', file.sha256);
+    // Wave 7 EA2: the stamp is the stored file's; the bytes sent add the live bank fields (ruling 25). Both, named.
+    res.setHeader('X-Filing-File-Stored-Sha256', file.storedSha256);
+    res.setHeader('X-Filing-File-Served-Sha256', file.servedSha256);
     return res.status(200).send(file.body);
   } catch (err) {
     if (respondIfImpersonationForbidden(res, err)) return;
