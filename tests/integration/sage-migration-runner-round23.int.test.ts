@@ -167,7 +167,7 @@ describe('R23-5 / B23-1: the dry run\'s ROLLBACK never answers (blackholed: the 
     const r = await startCli(args(join(d, 'run2.json'), ['--run-tag', 'b25x']), process.env.DATABASE_URL!, 90_000).done;
     const took = Date.now() - t0;
     expect(r.code, r.err).toBe(2);
-    expect(took).toBeLessThan(30_000); // not one lock timeout per category
+    expect(took).toBeLessThan(15_000); // one lock timeout (5 s), not one per category (4 x 5 s)
     expect(r.err).toMatch(new RegExp(`the dry run stopped at category batch 1 \\(.*\\): a lock it needs is held by another session and the wait timed out .*likely a previous run's dry transaction, backend pid ${zombie[0]}`));
     expect(r.err).not.toMatch(/retry in a moment/);
     await proxy.close();
