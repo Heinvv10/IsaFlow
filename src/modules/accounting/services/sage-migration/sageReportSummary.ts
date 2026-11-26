@@ -25,6 +25,7 @@ export function summaryLines(r: MigrationReport): string[] {
   const lines = [
     `company ${r.companyId}: ${r.status}`,
     ...(r.dryRunHeld ? [`WARNING: ${r.dryRunHeld}`] : []),
+    ...(r.runLockUnconfirmed ? [`WARNING: ${r.runLockUnconfirmed}`] : []),
     `items: ${rec.items.inExport} in export, ${rec.items.refused} refused, ${rec.items.sent} sent, ${rec.items.presentBefore} already there, ${rec.items.presentAfter} there after (+${rec.items.addedByRun})`,
     `purchase orders: ${po.inExport} in export, ${po.refused} refused, ${po.sent} sent, ${po.presentBefore} already there, ${po.presentAfter} there after (+${po.addedByRun})`,
     `PO total: export ${money(po.exportTotalCents)}, sent ${money(po.sentTotalCents)}, not sent ${money(po.notSentTotalCents)}, ${po.bookedTotalCents === null || po.differenceCents === null ? 'booked n/a (dry run), difference n/a' : `booked ${money(po.bookedTotalCents)}, difference ${money(po.differenceCents)}`}`,

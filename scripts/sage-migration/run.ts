@@ -28,6 +28,7 @@ import { RUN_TAG } from '../../src/modules/accounting/services/sage-migration/sa
 import { assertLocalDatabase } from '../../src/modules/accounting/services/sage-migration/localGuard';
 import { parseSageExport } from '../../src/modules/accounting/services/sage-migration/sageExportParser';
 import { runSageMigration } from '../../src/modules/accounting/services/sage-migration/sageMigrationRunner';
+import { sagePoolConfig } from '../../src/modules/accounting/services/sage-migration/sageTimeouts';
 import type { ParsedExport } from '../../src/modules/accounting/services/sage-migration/sageExportTypes';
 import { exitCodeForError, stopMessage } from '../../src/modules/accounting/services/sage-migration/sageStopMessage';
 import { checkReportArgs, exitAfterReportFailure, OwnedReport, stopReportBody, summarize } from './runReport';
@@ -185,7 +186,8 @@ async function main(): Promise<void> {
     const created = OwnedReport.create(target.path);
     if (!(created instanceof OwnedReport)) { reportLeft = created.left === true; fail(created.why); } else owned = created;
   }
-  const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
+  // Round 25: every connection kept alive and every query bounded client-side (sagePoolConfig), the run lock's included.
+  const pool = new pg.Pool(sagePoolConfig(process.env.DATABASE_URL));
   pool.on('error', (err) => say(`database pool error: ${err.message}`));
   try {
     const report = await runSageMigration(pool, parsed, {
@@ -194,6 +196,7 @@ async function main(): Promise<void> {
       // Before the live phase the answer says nothing was written (R19-6): the stop is then a refused start.
       shouldStop: () => (stopSignal === null ? null : `stopped by ${stopSignal}: no further batch is sent${state.liveStarted ? '' : '; nothing was written to the books'}`),
       onProgress: state.onProgress,
+      onNotice: say, // a wait with no answer (and who blocks it), a run lock release not confirmed: never silent (round 25)
     });
     // From here to the report's write there is no await, so no signal or crash handler runs in between: an end at once after it changes
     // nothing (the run's own report is written; its exit code stands).

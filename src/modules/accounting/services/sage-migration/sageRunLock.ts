@@ -25,8 +25,8 @@ export const CHECK_TIMEOUT_MS = 10_000;
 export class LockLostError extends Error {}
 
 export interface RunLock {
-  /** Gives the lock up (call it in a `finally`). */
-  unlock: () => Promise<void>;
+  /** Gives the lock up (call it in a `finally`). Returns a warning when its release was not confirmed (B25-3), else null. */
+  unlock: () => Promise<string | null>;
   /** Throws LockLostError when the lock's connection is gone: the run is no longer the only one for this company. Probes the connection. */
   check: () => Promise<void>;
   /** The same, from what the connection's 'error' event and the pings already recorded (no query): cheap enough to ask before every batch. */
@@ -54,10 +54,22 @@ export async function acquireRunLock(pool: Pool, companyId: string): Promise<Run
     failure = err instanceof Error ? err : new Error(String(err));
   }
   if (failure || !gotLock) {
+    // Who holds it (B25-3): a running run, or a dead run's connection the server has not dropped yet. Best effort: unknown is said so.
+    let holder: number | undefined;
+    if (!failure) {
+      try {
+        const h = await client.query<{ pid: number }>(`SELECT pid FROM pg_locks WHERE locktype = 'advisory' AND granted AND objsubid = 2 AND pid <> pg_backend_pid()
+          AND classid = ($1::int::bigint & 4294967295)::oid AND objid = ($2::int::bigint & 4294967295)::oid LIMIT 1`, [k1, k2]);
+        holder = h.rows[0]?.pid;
+      } catch (err) {
+        log.warn('sage migration: the run lock holder could not be read', { message: err instanceof Error ? err.message : String(err) }, 'sage-migration');
+      }
+    }
     // One release for both: with the error when a query failed (pg destroys the connection), plain when someone else holds the lock (it is fine).
     client.removeListener('error', onError);
     client.release(failure);
-    throw failure ?? new RunInProgressError(`another Sage migration is running for this company (${companyId}): wait for it to finish, then run again; nothing was written`);
+    const who = holder === undefined ? 'its holder\'s backend pid unknown' : `held by backend pid ${holder}; if no run is running, that is a dead run's connection: SELECT pg_terminate_backend(${holder})`;
+    throw failure ?? new RunInProgressError(`another Sage migration is running for this company (${companyId}; ${who}): wait for it to finish, then run again; nothing was written`);
   }
   // The server may end an idle session (idle_session_timeout, set per role or database): this one idles for the whole run, so for this
   // session only it is off. A failure here is a failure of the connection like any other.
@@ -95,7 +107,8 @@ export async function acquireRunLock(pool: Pool, companyId: string): Promise<Run
   };
   const keepalive = setInterval(() => { check().catch(() => undefined); }, KEEPALIVE_MS); // a failed ping records the loss (check() sets it)
   keepalive.unref();
-  const unlock = async (): Promise<void> => {
+  const processID: unknown = (client as unknown as { processID?: unknown }).processID;
+  const unlock = async (): Promise<string | null> => {
     clearInterval(keepalive);
     let unlockFailure: Error | undefined = lost;
     if (!lost) {
@@ -109,6 +122,9 @@ export async function acquireRunLock(pool: Pool, companyId: string): Promise<Run
     }
     client.removeListener('error', onError);
     client.release(unlockFailure);
+    if (!unlockFailure) return null;
+    const pid = typeof processID === 'number' ? `backend pid ${processID}: if a re-run is refused as running, it still holds it: SELECT pg_terminate_backend(${processID})` : 'backend pid unknown';
+    return `its run lock release was not confirmed (${unlockFailure.message}); ${pid}`;
   };
   return { unlock, check, held };
 }

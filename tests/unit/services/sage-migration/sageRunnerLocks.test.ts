@@ -1,0 +1,131 @@
+/**
+ * Round 25, the runner's side of a wait on another session's lock, with its database seams mocked (the REAL error classes):
+ *   - B25-1 / R25-1: the dry run stops at the FIRST lock wait (a held key, or a lock timeout the session reports), the batch named with who
+ *     holds it; a --live run refuses its start (exit 2), a preview reports dry_run_failed (exit 1);
+ *   - R25-3: in the live phase a held key or a lock timeout stops the run there (MigrationStopped, exit 4), no further batch sent;
+ *   - R25-4: a DryRollbackUnconfirmedError with no result, or that followed the dry run's own error, is thrown, never kept;
+ *   - B25-3: a run lock release that is not confirmed is said (in the report, or as a notice when the run itself stopped).
+ */
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { BatchReport } from '@/modules/accounting/services/sage-migration/sageMigrationTypes';
+import type { Send } from '@/modules/accounting/services/sage-migration/sageBatchRun';
+
+const h = vi.hoisted(() => ({
+  sent: [] as string[],
+  held: null as string | null, // "<entity> <dry|live>": its key is held by another session
+  lockWaitAt: null as string | null, // "<entity> dry": a lock timeout inside it (the session reports it)
+  liveLockWaitAt: null as string | null, // "<entity> live": a lock timeout inside it (the committing session throws)
+  dryHeldError: null as 'no-result' | 'after' | null,
+  unlockWarning: null as string | null,
+}));
+vi.mock('@/modules/accounting/services/sage-migration/localGuard', () => ({ assertLocalDatabase: () => undefined, assertLocalPool: () => undefined }));
+vi.mock('@/modules/accounting/services/sage-migration/sageRunLock', () => ({ acquireRunLock: async () => ({ check: async () => undefined, unlock: async () => h.unlockWarning }) }));
+vi.mock('@/modules/accounting/services/sage-migration/sageToolSession', async () => {
+  const real = await vi.importActual<typeof import('@/modules/accounting/services/sage-migration/sageSessionErrors')>('@/modules/accounting/services/sage-migration/sageSessionErrors');
+  return {
+    ...real,
+    withToolSession: async (_p: unknown, _c: unknown, _u: unknown, commit: boolean, fn: (s: unknown) => unknown, o?: { wrote?: boolean }) => {
+      const lockWait = () => (h.lockWaitAt !== null && h.sent.at(-1) === h.lockWaitAt ? new real.LockWaitError(new Error('canceling statement due to lock timeout'), 606, 'dry') : null);
+      if (!commit && o?.wrote === true && h.dryHeldError === 'no-result') throw new real.DryRollbackUnconfirmedError(new Error('ROLLBACK did not answer'), 1, undefined);
+      if (!commit && o?.wrote === true && h.dryHeldError === 'after') throw new real.DryRollbackUnconfirmedError(new Error('ROLLBACK did not answer'), 1, { categories: {} }, new Error('stopped by SIGTERM'));
+      const r = await fn({ companyId: 'c', lockWait, call: async () => ({ isError: false, text: '{}', body: {} }) });
+      if (commit && h.liveLockWaitAt !== null && h.sent.at(-1) === h.liveLockWaitAt) throw new real.LockWaitError(new Error('canceling statement due to lock timeout'), 707, 'live');
+      return r;
+    },
+  };
+});
+vi.mock('@/modules/accounting/services/sage-migration/sageSuppliers', () => ({ resolveSuppliers: async () => new Map([['301', { id: '0f7d6a3e-2b1c-4d5e-8f90-a1b2c3d4e5f6' }]]) }));
+vi.mock('@/modules/accounting/services/sage-migration/sageSnapshot', () => ({
+  readSnapshot: async () => ({
+    itemRefs: new Set(), poTotals: new Map(), poStates: new Map(), poLinkedLines: new Map(), poContent: new Map(), duplicatePoRefs: new Map(), stockMovements: 0,
+    budgetPolicy: 'warn', inactiveSuppliers: new Set(), supplierSageRefs: new Map(), poNumbers: new Map(), items: [], categories: [],
+  }),
+}));
+vi.mock('@/modules/accounting/services/sage-migration/sageBatchRun', async (orig) => {
+  const real = await vi.importActual<typeof import('@/modules/accounting/services/sage-migration/sageSessionErrors')>('@/modules/accounting/services/sage-migration/sageSessionErrors');
+  return {
+    ...(await orig<typeof import('@/modules/accounting/services/sage-migration/sageBatchRun')>()),
+    sendBatch: async (_s: unknown, s: Send, _b: unknown, dry: boolean): Promise<BatchReport> => {
+      const label = `${s.entity} ${dry ? 'dry' : 'live'}`;
+      h.sent.push(label);
+      if (h.held === label) throw new real.BatchKeyHeldError(505, dry ? 'dry' : 'live');
+      const fails = h.lockWaitAt === label;
+      return { entity: s.entity, n: s.n, size: s.size, key: `k-${s.entity}-${s.n}`, allRowsAlreadyPresent: false, rowsAbsent: 0,
+        status: fails ? 'failed' : 'ok', toolReported: fails ? null : (s.entity === 'item' ? { written: true, rows: [] } : { outcome: 'created' }), error: fails ? 'retry in a moment' : null };
+    },
+  };
+});
+
+import { runSageMigration } from '@/modules/accounting/services/sage-migration/sageMigrationRunner';
+import { parseSageExport } from '@/modules/accounting/services/sage-migration/sageExportParser';
+import { MigrationStopped } from '@/modules/accounting/services/sage-migration/sageMigrationStopped';
+import { summaryLines } from '@/modules/accounting/services/sage-migration/sageReportSummary';
+
+const parsed = () => parseSageExport({ Items: [
+  { ID: 50, Code: 'FIB-50', Description: 'a', Active: true, Physical: true, Category: { ID: 10, Description: 'Optics' } },
+  { ID: 51, Code: 'FIB-51', Description: 'b', Active: true, Physical: true, Category: { ID: 11, Description: 'Cable' } },
+] });
+const run = (over: Record<string, unknown> = {}) => runSageMigration({ options: { max: 4 } } as never, parsed(), { companyId: 'c', userId: 'u', live: true, expect: { items: 2, purchaseOrders: 0 }, ...over });
+const live = () => h.sent.filter((x) => x.endsWith('live'));
+beforeEach(() => { h.sent.length = 0; h.held = null; h.lockWaitAt = null; h.liveLockWaitAt = null; h.dryHeldError = null; h.unlockWarning = null; });
+
+describe('B25-1 / R25-1: the dry run stops at its first lock wait', () => {
+  it('a lock timeout in category batch 1: a preview is dry_run_failed with THAT batch named, who holds it said; no later batch sent', async () => {
+    h.lockWaitAt = 'category dry';
+    const r = await run({ live: false });
+    expect(r.status).toBe('dry_run_failed');
+    expect(r.dryRun.categories.batches).toEqual([expect.objectContaining({ n: 1, status: 'failed', error: expect.stringMatching(/timed out .*likely a previous run's dry transaction, backend pid 606/) })]);
+    expect(h.sent).toEqual(['category dry']); // not 2 categories x their own lock timeout
+    expect(summaryLines(r).join('\n')).toMatch(/FAILED category batch 1 \(dry run\): a lock it needs is held by another session/);
+  });
+  it('with --live: a refused start naming the batch (exit 2), nothing live sent', async () => {
+    h.lockWaitAt = 'category dry';
+    const err = await run().then(() => null, (e: unknown) => e);
+    expect(err).not.toBeInstanceOf(MigrationStopped);
+    expect(String(err)).toMatch(/^Error: the dry run stopped at category batch 1 \(k-category-1\): a lock it needs is held by another session .*; the live run was not started$/);
+    expect(live()).toEqual([]);
+  });
+  it('a held key in the dry run (R25-1): the same, the batch named with the holder', async () => {
+    h.held = 'category dry';
+    const err = await run().then(() => null, (e: unknown) => e);
+    expect(String(err)).toMatch(/the dry run stopped at category batch 1 \(.*\): another session holds this batch's lock \(likely a previous run's dry transaction, backend pid 505/);
+    expect(h.sent).toEqual(['category dry']);
+  });
+});
+
+describe('R25-3: in the live phase a held key or a lock timeout stops the run (exit 4), nothing of that batch written', () => {
+  for (const [what, set] of [['a held key', () => { h.held = 'category live'; }], ['a lock timeout', () => { h.liveLockWaitAt = 'category live'; }]] as const) {
+    it(what, async () => {
+      set();
+      const err = await run().then(() => null, (e: unknown) => e) as InstanceType<typeof MigrationStopped>;
+      expect(err).toBeInstanceOf(MigrationStopped);
+      expect(err.liveStarted).toBe(true);
+      expect(err.batches.failed).toEqual([expect.objectContaining({ entity: 'category', n: 1, status: 'failed', error: expect.stringMatching(/backend pid (505|707): likely a previous run's live transaction/) })]);
+      expect(live()).toEqual(['category live']); // the second category, the items: never sent
+    });
+  }
+});
+
+describe('R25-4: a dry ROLLBACK not confirmed that cannot be kept', () => {
+  it('with no result: thrown as it is (never a TypeError from an absent dry result)', async () => {
+    h.dryHeldError = 'no-result';
+    expect(String(await run({ live: false }).then(() => null, (e: unknown) => e))).toMatch(/^DryRollbackUnconfirmedError: the dry run's ROLLBACK was not confirmed/);
+  });
+  it('after the dry run\'s own error: thrown as it is', async () => {
+    h.dryHeldError = 'after';
+    expect(String(await run({ live: false }).then(() => null, (e: unknown) => e))).toMatch(/^DryRollbackUnconfirmedError: stopped by SIGTERM; and the dry run's ROLLBACK was not confirmed/);
+  });
+});
+
+describe('B25-3: a run lock release not confirmed', () => {
+  it('a finished run carries it (and its summary says it); a stopped one says it as a notice', async () => {
+    h.unlockWarning = 'its run lock release was not confirmed (no answer within 10 s); backend pid 3';
+    const r = await run({ live: false });
+    expect(r.runLockUnconfirmed).toBe(h.unlockWarning);
+    expect(summaryLines(r)).toContain(`WARNING: ${h.unlockWarning}`);
+    const notices: string[] = [];
+    h.lockWaitAt = 'category dry';
+    await run({ onNotice: (l: string) => notices.push(l) }).catch(() => null);
+    expect(notices).toEqual([`WARNING: ${h.unlockWarning}`]);
+  });
+});

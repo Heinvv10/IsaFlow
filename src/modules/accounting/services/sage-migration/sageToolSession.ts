@@ -15,9 +15,14 @@ import { isActiveUserAccount } from '@/lib/auth/userAccountStatus';
 import { mcpRegistry } from '@/lib/mcp/toolIndex';
 import { rollbackError } from '@/lib/rollbackFailed';
 import type { McpToolContext } from '@/lib/mcp/types';
-import { BatchKeyHeldError, CommitUnconfirmedError, ConnectionLostError, DryRollbackUnconfirmedError, LostBeforeCommitError } from './sageSessionErrors';
+import { CommitUnconfirmedError, ConnectionLostError, DryRollbackUnconfirmedError, LockWaitError, LostBeforeCommitError } from './sageSessionErrors';
+import { idempotencyLockText, takeKeyLockNow } from './sageKeyLock';
+import { watchWaits } from './sageWaitWatch';
+import { SAGE_LOCK_TIMEOUT_MS, SAGE_STATEMENT_TIMEOUT_MS } from './sageTimeouts';
 
-export { BatchKeyHeldError, CommitUnconfirmedError, ConnectionLostError, DryRollbackUnconfirmedError, LostBeforeCommitError } from './sageSessionErrors';
+export { SAGE_KEEPALIVE_INITIAL_DELAY_MS, SAGE_LOCK_TIMEOUT_MS, SAGE_QUERY_TIMEOUT_MS, SAGE_STATEMENT_TIMEOUT_MS, sagePoolConfig } from './sageTimeouts';
+
+export { BatchKeyHeldError, CommitUnconfirmedError, ConnectionLostError, DryRollbackUnconfirmedError, LockWaitError, LostBeforeCommitError } from './sageSessionErrors';
 
 export const MIGRATION_SCOPES = ['read:items', 'write:items', 'read:invoices', 'write:invoices', 'read:contacts'];
 
@@ -33,32 +38,12 @@ export interface ToolOutcome {
 export interface ToolSession {
   call(name: string, args: Record<string, unknown>): Promise<ToolOutcome>;
   readonly companyId: string;
+  /** A statement of this request hit its lock_timeout (55P03, round 25): the wait, with its holder when seen; null when none did. */
+  lockWait?: () => LockWaitError | null;
 }
 
 export class NotAMemberError extends Error {}
-/**
- * How long a statement of a migration request may wait for a lock (B24-2): every other wait of the run is bounded (COMMIT, ROLLBACK, the
- * run lock, the number lock). A lock held by a session that never ends (a previous run's dry transaction left open) fails the request
- * after this, instead of hanging it.
- */
-export const SAGE_LOCK_TIMEOUT_MS = 10_000;
 
-/**
- * Takes the lock the registry takes for a write tool's idempotency key (src/lib/mcp/audit.ts acquireIdempotencyLock: the same key text)
- * WITHOUT waiting: a key another session holds is said at once, with that session's pid (B24-2), instead of the registry waiting on it.
- * Taken by this transaction, the registry's own wait on it then returns at once (advisory locks stack within a session).
- */
-async function takeKeyLockNow(client: { query: (text: string, values?: unknown[]) => Promise<{ rows: Array<Record<string, unknown>> }> },
-  companyId: string, tool: string, key: string): Promise<void> {
-  const lockKey = `mcp:${companyId}:${tool}:${key}`;
-  const got = await client.query('SELECT pg_try_advisory_xact_lock(hashtext($1)::bigint) AS ok', [lockKey]);
-  if (got.rows[0]?.ok !== false) return;
-  const holder = await client.query(`SELECT l.pid FROM pg_locks l, (SELECT hashtext($1)::bigint AS k) x
-    WHERE l.locktype = 'advisory' AND l.granted AND l.objsubid = 1 AND l.pid <> pg_backend_pid()
-      AND l.classid = ((x.k >> 32) & 4294967295)::oid AND l.objid = (x.k & 4294967295)::oid LIMIT 1`, [lockKey]);
-  const pid = holder.rows[0]?.pid;
-  throw new BatchKeyHeldError(typeof pid === 'number' ? pid : undefined);
-}
 
 /** How long a COMMIT may take to answer: a batch of 500 items or 100 POs commits in well under this on a healthy server. */
 export const COMMIT_TIMEOUT_MS = 120_000;
@@ -83,6 +68,7 @@ const connectionEnded = (err: unknown): boolean => {
 };
 
 const WRITE_TOOLS = new Set(mcpRegistry.listTools().filter((t) => t.write).map((t) => t.name));
+const PER_USER_TOOLS = new Set(mcpRegistry.listTools().filter((t) => (t as { perUserIdempotency?: boolean }).perUserIdempotency === true).map((t) => t.name));
 
 /**
  * What a tool call answered. A SUCCESS whose text is not a JSON object (a proxy's HTML page, an empty answer, a list) is a failure here,
@@ -104,7 +90,7 @@ export function toolOutcome(text: string, isError: boolean): ToolOutcome {
  * A transaction the tools marked rollbackOnly, or whose COMMIT fails, is an error (`commit: true`), never a silent success.
  */
 export async function withToolSession<T>(
-  pool: Pool, companyId: string, userId: string, commit: boolean, fn: (s: ToolSession) => Promise<T>, o: { wrote?: boolean } = {},
+  pool: Pool, companyId: string, userId: string, commit: boolean, fn: (s: ToolSession) => Promise<T>, o: { wrote?: boolean; onNotice?: (line: string) => void } = {},
 ): Promise<T> {
   const client = await pool.connect();
   const processID: unknown = (client as unknown as { processID?: unknown }).processID;
@@ -114,6 +100,26 @@ export async function withToolSession<T>(
   let lost: Error | null = null;
   const onError = (err: Error): void => { lost = err; };
   client.on('error', onError);
+  // Round 25: every query of the request is watched. A client query_timeout ("Query read timeout": pg leaves that query running on the
+  // server) makes the connection unusable, as a loss does; a lock timeout (55P03) is kept, with the holder the watch saw. No wait is silent.
+  const watch = watchWaits(pool, pid, o.onNotice);
+  let lockTimedOut: unknown = null;
+  const target = client as unknown as Record<string, unknown>;
+  const ownQuery = Object.prototype.hasOwnProperty.call(target, 'query');
+  const query = target.query as (...a: unknown[]) => unknown;
+  target.query = (...a: unknown[]): unknown => {
+    const r = query.apply(client, a);
+    if (r instanceof Promise) {
+      r.then(() => watch.touch(), (err: unknown) => {
+        watch.touch();
+        if (err instanceof Error && err.message === 'Query read timeout') lost ??= err;
+        else if ((err as { code?: unknown } | null)?.code === '55P03') lockTimedOut ??= err;
+      });
+    }
+    return r;
+  };
+  const lockWait = (): LockWaitError | null => (lockTimedOut === null ? null : new LockWaitError(lockTimedOut, watch.blocker(), commit ? 'live' : 'dry'));
+  let fnStarted = false; // R25-6: only a request whose work ran can have writes still held
   let committed = false;
   let owned: RequestContext | null = null;
   let unusable = false; // set when a ROLLBACK fails: the connection may still be inside its transaction
@@ -122,6 +128,7 @@ export async function withToolSession<T>(
     await client.query('BEGIN');
     await client.query('SET LOCAL ROLE app_user');
     await client.query(`SET LOCAL lock_timeout = '${SAGE_LOCK_TIMEOUT_MS}ms'`); // B24-2: no lock wait of a migration request is unbounded
+    await client.query(`SET LOCAL statement_timeout = '${SAGE_STATEMENT_TIMEOUT_MS}ms'`); // round 25: no statement of it either
     const claims = { sub: userId, role: 'authenticated', company_id: companyId };
     await client.query(`SELECT set_config('request.jwt.claims', $1, true)`, [JSON.stringify(claims)]);
     await client.query(`SELECT set_config('app.current_company_id', $1, true)`, [companyId]);
@@ -138,11 +145,14 @@ export async function withToolSession<T>(
     owned = txCtx;
     const session: ToolSession = {
       companyId,
+      lockWait,
       call: async (name, args) => {
         // The registry's company guard only COMPARES this with the context's company (it selects nothing); the tenant is held by the
         // membership check above, app_user under RLS and the tools' own ownership checks.
         const sent = WRITE_TOOLS.has(name) ? { ...args, company_id: companyId } : args;
-        if (WRITE_TOOLS.has(name) && typeof args.idempotency_key === 'string') await takeKeyLockNow(client, companyId, name, args.idempotency_key);
+        if (WRITE_TOOLS.has(name) && typeof args.idempotency_key === 'string' && args.idempotency_key.trim() !== '') {
+          await takeKeyLockNow(client as never, idempotencyLockText(companyId, name, args.idempotency_key, PER_USER_TOOLS.has(name) ? userId : undefined), commit ? 'live' : 'dry');
+        }
         let replayed = false;
         const r = await mcpRegistry.call(name, sent, { ...ctx, onIdempotentReplay: () => { replayed = true; } });
         const outcome = toolOutcome(r.content[0]?.text ?? '', r.isError === true);
@@ -152,6 +162,7 @@ export async function withToolSession<T>(
         return replayed ? { ...outcome, replayed: true } : outcome;
       },
     };
+    fnStarted = true;
     const result = await runOwnedContext(txCtx, () => fn(session));
     if (!commit) {
       const rollback = await rollbackError(client, 'sage-migration');
@@ -166,6 +177,9 @@ export async function withToolSession<T>(
     }
     // Lost before the COMMIT is sent: pg would not send it (the client is not queryable): the batch wrote nothing (round 22).
     if (lost !== null) throw new LostBeforeCommitError(lost);
+    // A lock timeout in a committing request (its tool answered a failure): nothing of it is written, and the run stops there (R25-3).
+    const waited = lockWait();
+    if (waited !== null) throw waited;
     if (txCtx.rollbackOnly) throw new Error(`the request transaction was marked rollback-only: ${txCtx.rollbackOnly}`);
     let commitTimer: ReturnType<typeof setTimeout> | undefined;
     try {
@@ -189,12 +203,14 @@ export async function withToolSession<T>(
       const rollback = await rollbackError(client, 'sage-migration');
       unusable = rollback !== null;
       // R24-5: a dry run that ended on an error (a stop, a bug) and whose ROLLBACK is then not confirmed still says its writes may be held.
-      if (rollback !== null && o.wrote === true && lost === null && !connectionEnded(rollback) && !connectionEnded(err)) throw new DryRollbackUnconfirmedError(rollback, pid, undefined, err);
+      if (rollback !== null && o.wrote === true && fnStarted && lost === null && !connectionEnded(rollback) && !connectionEnded(err)) throw new DryRollbackUnconfirmedError(rollback, pid, undefined, err);
     }
-    const lossNotYetSaid = !(err instanceof ConnectionLostError || err instanceof LostBeforeCommitError || err instanceof CommitUnconfirmedError);
+    const lossNotYetSaid = !(err instanceof ConnectionLostError || err instanceof LostBeforeCommitError || err instanceof CommitUnconfirmedError || err instanceof LockWaitError);
     if (lossNotYetSaid && (lost !== null || connectionEnded(err))) throw commit ? new LostBeforeCommitError(lost ?? err) : new ConnectionLostError(lost ?? err);
     throw err;
   } finally {
+    watch.stop();
+    if (ownQuery) target.query = query; else delete target.query;
     client.off('error', onError);
     client.release(unusable || lost !== null);
     settleAfterRollback(owned, committed);

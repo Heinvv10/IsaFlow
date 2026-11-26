@@ -7,11 +7,13 @@ import { acquireRunLock, CHECK_TIMEOUT_MS, KEEPALIVE_MS, LockLostError, migratio
 const A = '11111111-1111-4111-8111-111111111111';
 const B = '22222222-2222-4222-8222-222222222222';
 
-function fakePool(over: { ok?: boolean; unlockFails?: boolean; lockThrows?: boolean; checkFails?: boolean } = {}) {
+function fakePool(over: { ok?: boolean; unlockFails?: boolean; lockThrows?: boolean; checkFails?: boolean; holder?: number } = {}) {
   const calls: string[] = [];
   const client = Object.assign(new EventEmitter(), {
+    processID: 5150,
     query: vi.fn(async (text: string) => {
-      calls.push(text.includes('pg_try_advisory_lock') ? 'lock' : text.includes('idle_session_timeout') ? text.split(' ')[0]!.toLowerCase() : text.includes('SELECT 1') ? 'check' : 'unlock');
+      calls.push(text.includes('pg_try_advisory_lock') ? 'lock' : text.includes('FROM pg_locks') ? 'holder' : text.includes('idle_session_timeout') ? text.split(' ')[0]!.toLowerCase() : text.includes('SELECT 1') ? 'check' : 'unlock');
+      if (text.includes('FROM pg_locks')) return { rows: over.holder === undefined ? [] : [{ pid: over.holder }] };
       if (text.includes('pg_try_advisory_lock')) { if (over.lockThrows) throw new Error('lock query failed'); return { rows: [{ ok: over.ok ?? true }] }; }
       if (text.includes('SELECT 1') && over.checkFails) throw new Error('Connection terminated');
       if (over.unlockFails && text.includes('unlock')) throw new Error('unlock failed');
@@ -114,10 +116,29 @@ describe('the lock connection is kept from idling out (round 5, B5-B2)', () => {
     await unlock();
     expect(calls).toEqual(['lock', 'set', 'unlock', 'reset']);
   });
-  it('a refused lock sets nothing on the connection it hands back', async () => {
+  it('a refused lock sets nothing on the connection it hands back (it only reads who holds it)', async () => {
     const { pool, calls } = fakePool({ ok: false });
     await acquireRunLock(pool, A).catch(() => null);
-    expect(calls).toEqual(['lock']);
+    expect(calls).toEqual(['lock', 'holder']);
+  });
+  it('B25-3: the refusal names the holder\'s pid and what a dead run\'s connection needs; unknown is said so', async () => {
+    const err = await acquireRunLock(fakePool({ ok: false, holder: 4321 }).pool, A).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(RunInProgressError);
+    expect((err as Error).message).toBe(`another Sage migration is running for this company (${A}; held by backend pid 4321; if no run is running, that is a dead run's connection: SELECT pg_terminate_backend(4321)): wait for it to finish, then run again; nothing was written`);
+    expect(((await acquireRunLock(fakePool({ ok: false }).pool, A).catch((e: unknown) => e)) as Error).message).toMatch(/its holder's backend pid unknown/);
+  });
+  it('B25-3: the holder is read by the run lock\'s own key (objsubid 2, granted, another backend)', async () => {
+    const { pool, client } = fakePool({ ok: false, holder: 1 });
+    await acquireRunLock(pool, A).catch(() => null);
+    const [text, values] = (client.query.mock.calls as unknown as Array<[string, unknown[]]>).find(([t]) => t.includes('FROM pg_locks'))!;
+    expect(text).toMatch(/locktype = 'advisory' AND granted AND objsubid = 2 AND pid <> pg_backend_pid\(\)/);
+    expect(text).toMatch(/classid = \(\$1::int::bigint & 4294967295\)::oid AND objid = \(\$2::int::bigint & 4294967295\)::oid/);
+    expect(values).toEqual(migrationLockKey(A));
+  });
+  it('B25-3: a release that is not confirmed returns the warning with its pid; a confirmed one returns null', async () => {
+    const failing = await acquireRunLock(fakePool({ unlockFails: true }).pool, A);
+    expect(await failing.unlock()).toBe('its run lock release was not confirmed (unlock failed); backend pid 5150: if a re-run is refused as running, it still holds it: SELECT pg_terminate_backend(5150)');
+    expect(await (await acquireRunLock(fakePool().pool, A)).unlock()).toBeNull();
   });
   it('pings the connection while the lock is held, and not after it is given up', async () => {
     vi.useFakeTimers();

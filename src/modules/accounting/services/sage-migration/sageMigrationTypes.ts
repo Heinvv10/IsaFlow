@@ -91,6 +91,8 @@ export interface MigrationReport {
    * dry result because no live run followed (a preview, a failed or blocked dry run); a run that would have gone live refuses instead.
    */
   dryRunHeld?: string;
+  /** B25-3: the run lock's release was not confirmed (its connection's backend pid said): a re-run may be refused as running until it ends. */
+  runLockUnconfirmed?: string;
   refused: RowRefusal[];
   dryRun: { categories: PhaseReport; items: PhaseReport; purchaseOrders: PhaseReport; clean: boolean };
   live: { categories: PhaseReport; items: PhaseReport; purchaseOrders: PhaseReport } | null;
@@ -136,6 +138,8 @@ export interface MigrationOptions {
    * exit 2); in the live phase, MigrationStopped (exit 4). The CLI answers once SIGINT / SIGTERM / SIGHUP came.
    */
   shouldStop?: () => string | null;
+  /** Round 25: a line a person should see now (a request waiting with no answer, who blocks it; a run lock release not confirmed). */
+  onNotice?: (line: string) => void;
   /** The run's progress as it happens (round 18): the CLI keeps it, so a stop at once (a second signal, a crash) still says what is known. */
   onProgress?: (p: MigrationProgress) => void;
 }

@@ -25,7 +25,7 @@ import { keyFor, planBatches, sendBatch, type PlannedBatches, type Send } from '
 import { ownershipProblem } from './sageOwnership';
 import { recordSent, settleCommitted, stoppedBatches, unconfirmedBatch, verified, verifiedCategories, verifiedItems, type Sent } from './sageVerify';
 import { MigrationStopped } from './sageMigrationStopped';
-import { CommitUnconfirmedError, DryRollbackUnconfirmedError, LostBeforeCommitError } from './sageToolSession';
+import { BatchKeyHeldError, CommitUnconfirmedError, DryRollbackUnconfirmedError, LockWaitError, LostBeforeCommitError } from './sageToolSession';
 import { budgetWouldHaveFailed } from './sageBudgetReport';
 import { differencesFrom } from './sageDifferences';
 import { buildLineLinks } from './sageLineLinks';
@@ -61,21 +61,35 @@ function liveBlockers(rec: MigrationReport['reconciliation'], diff: MigrationRep
   return why;
 }
 
+/** A dry batch that waited on another session's lock (a held key, a lock timeout): the dry run stops at it (round 25). */
+export interface DryLockStop { batch: BatchReport; error: Error }
+
 async function dryRun(pool: Pool, o: MigrationOptions, all: PlannedBatches, before: Snapshot) {
   return withToolSession(pool, o.companyId, o.userId, false, async (session) => {
+    let lockStop: DryLockStop | null = null;
     const run = async (list: Send[]): Promise<PhaseReport> => {
       const p = emptyPhase();
       for (const s of list) {
         // A stop asked for in the dry run (round 18, B18-3): thrown inside its transaction, so it rolls back: a refused start, nothing written.
         const stop = o.shouldStop?.();
         if (stop) throw new StopRequested(stop);
-        let b = await sendBatch(session, s, before, true);
+        let b: BatchReport;
+        let waited: Error | null = null;
+        try { b = await sendBatch(session, s, before, true); } catch (err) {
+          if (!(err instanceof BatchKeyHeldError)) throw err;
+          [waited, b] = [err, { entity: s.entity, n: s.n, size: s.size, key: keyFor(s, before, true), status: 'failed', allRowsAlreadyPresent: false, rowsAbsent: 0, toolReported: null, error: err.message }];
+        }
+        // A lock wait that timed out (55P03) inside the tool: its generic "retry in a moment" is replaced by who holds it and what to do.
+        waited ??= session.lockWait?.() ?? null;
+        if (waited !== null) b = { ...b, status: 'failed', error: waited.message };
         // The dry run's item outcomes say what the live call would do: they must agree with what the plan was made from.
         const problem = b.status === 'ok' && s.itemRows ? ownershipProblem(b, s.itemRows, before) : null;
         if (problem) b = { ...b, status: 'failed', error: problem };
         p.batches.push(b);
         if (b.status === 'failed') p.failed++;
         o.onProgress?.({ kind: 'recorded', phase: 'dry', batch: b });
+        // The FIRST lock wait stops the dry run (B25-1): every later batch would queue on the same holder for its own lock timeout.
+        if (waited !== null) { lockStop = { batch: b, error: waited }; break; }
       }
       return p;
     };
@@ -84,8 +98,8 @@ async function dryRun(pool: Pool, o: MigrationOptions, all: PlannedBatches, befo
     const categories = await run(all.categories);
     const items = categories.failed === 0 ? await run(all.items) : skippedPhase();
     const purchaseOrders = categories.failed + items.failed === 0 ? await run(all.purchaseOrders) : skippedPhase();
-    return { categories, items, purchaseOrders, clean: categories.failed + items.failed + purchaseOrders.failed === 0 };
-  }, { wrote: true }); // the dry run WRITES (rolled back): its ROLLBACK must be confirmed (R23-5)
+    return { categories, items, purchaseOrders, clean: categories.failed + items.failed + purchaseOrders.failed === 0, lockStop: lockStop as DryLockStop | null };
+  }, { wrote: true, onNotice: o.onNotice }); // the dry run WRITES (rolled back): its ROLLBACK must be confirmed (R23-5)
 }
 
 async function livePhase(pool: Pool, o: MigrationOptions, list: Send[], before: Snapshot, sent: Sent, beforeBatch: () => Promise<void>): Promise<PhaseReport> {
@@ -96,10 +110,10 @@ async function livePhase(pool: Pool, o: MigrationOptions, list: Send[], before: 
     // beyond the loss. Thrown outside the batch's own try, so it stops the run, listing what was committed. A stop asked for, too.
     await beforeBatch();
     let b: BatchReport;
-    let lostBeforeCommit = false;
+    let stopHere = false;
     o.onProgress?.({ kind: 'sending', batch: { entity: s.entity, n: s.n, size: s.size, key: keyFor(s, before, false) } });
     try {
-      b = await withToolSession(pool, o.companyId, o.userId, true, (session) => sendBatch(session, s, before, false));
+      b = await withToolSession(pool, o.companyId, o.userId, true, (session) => sendBatch(session, s, before, false), { onNotice: o.onNotice });
     } catch (err) {
       // The request transaction failed as a whole (a lost connection, a failed COMMIT): the batch is reported failed. A COMMIT whose answer
       // never came may still have landed, so the books are the judge: the run stops (below) and a re-run finds what landed.
@@ -108,8 +122,9 @@ async function livePhase(pool: Pool, o: MigrationOptions, list: Send[], before: 
       b = { entity: s.entity, n: s.n, size: s.size, key: keyFor(s, before, false), status: 'failed', allRowsAlreadyPresent: false, rowsAbsent: 0, toolReported: null, error: message };
       // An unconfirmed COMMIT may have landed: keep the LIVE tool answer the request had before its COMMIT (what the batch did if it landed).
       if (err instanceof CommitUnconfirmedError) b = unconfirmedBatch(b, err.result as BatchReport | undefined, err.connectionLost);
-      // Lost before its COMMIT was sent: failed, nothing written; the run still stops here (below): the connection went away mid-run.
-      if (err instanceof LostBeforeCommitError) lostBeforeCommit = true;
+      // Lost before its COMMIT was sent, its key held by another session, or a lock wait that timed out (R25-3): failed, nothing written;
+      // the run still stops here (below): the connection went away, or every later batch would queue on the same holder.
+      if (err instanceof LostBeforeCommitError || err instanceof BatchKeyHeldError || err instanceof LockWaitError) stopHere = true;
     }
     p.batches.push(b);
     if (b.status === 'failed') p.failed++;
@@ -121,7 +136,7 @@ async function livePhase(pool: Pool, o: MigrationOptions, list: Send[], before: 
     if (b.commitUnconfirmed) {
       throw new Error(`the COMMIT of ${b.entity} batch ${b.n} (${b.key}) did not answer (${b.error ?? 'no detail'}): it may still land, so no further batch is sent. Check the books; a re-run resumes`);
     }
-    if (lostBeforeCommit) throw new Error(`${b.entity} batch ${b.n} (${b.key}) failed: ${b.error}; no further batch is sent, a re-run resumes`);
+    if (stopHere) throw new Error(`${b.entity} batch ${b.n} (${b.key}) failed: ${b.error}; no further batch is sent, a re-run resumes`);
   }
   return p;
 }
@@ -150,11 +165,16 @@ export async function runSageMigration(pool: Pool, parsed: ParsedExport, opts: M
   // The run lock holds one connection for the whole run and every tool session needs another: with one in all, the run would wait forever.
   if ((pool.options?.max ?? 10) < 2) throw new Error('the Sage migration needs a pool of at least 2 connections (the run lock holds one for the whole run)');
   const lock = await acquireRunLock(pool, opts.companyId);
+  let report: MigrationReport;
   try {
-    return await runLocked(pool, parsed, opts, lock);
-  } finally {
-    await lock.unlock();
+    report = await runLocked(pool, parsed, opts, lock);
+  } catch (err) {
+    const unconfirmed = await lock.unlock(); // B25-3: said even when the run itself stopped
+    if (unconfirmed) opts.onNotice?.(`WARNING: ${unconfirmed}`);
+    throw err;
   }
+  const unconfirmed = await lock.unlock();
+  return unconfirmed ? { ...report, runLockUnconfirmed: unconfirmed } : report;
 }
 
 async function runLocked(pool: Pool, parsed: ParsedExport, opts: MigrationOptions, lock: RunLock): Promise<MigrationReport> {
@@ -168,22 +188,30 @@ async function runLocked(pool: Pool, parsed: ParsedExport, opts: MigrationOption
     if (stop) throw new StopRequested(stop);
   };
   if (opts.runTag !== undefined && !RUN_TAG.test(opts.runTag)) throw new Error('runTag must be 1-32 letters, digits, - or _');
+  const notice = { onNotice: opts.onNotice };
   const { before, plan } = await withToolSession(pool, opts.companyId, opts.userId, false, async (session) => {
     if (opts.poGlAccountId) await assertPoGlAccount(opts.companyId, opts.poGlAccountId);
     const snapshot = await readSnapshot(opts.companyId);
     const resolved = await resolveSuppliers(session, parsed.purchaseOrders, snapshot.supplierSageRefs);
     return { before: snapshot, plan: planMigration(parsed, resolved, snapshot, { poGlAccountId: opts.poGlAccountId, skipBudgetCheck: opts.skipBudgetCheck }) };
-  });
+  }, notice);
   const all = planBatches(plan, opts);
   // B24-1: a dry run whose ROLLBACK is not confirmed keeps its result where no live run follows (a preview, a failed or blocked dry run),
   // with the warning that its writes may still be held; only a run that would go live refuses (below, before the live phase).
   let held: DryRollbackUnconfirmedError | null = null;
-  const dry = await dryRun(pool, opts, all, before).catch((err: unknown) => {
+  let dryOut: Awaited<ReturnType<typeof dryRun>>;
+  try {
+    dryOut = await dryRun(pool, opts, all, before);
+  } catch (err) {
+    // Kept only with a result the dry run finished with: one that ended on its own error (`after`, R24-5) or before any result is thrown.
     if (!(err instanceof DryRollbackUnconfirmedError) || err.result === undefined || err.after !== undefined) throw err;
     held = err;
-    return err.result as Awaited<ReturnType<typeof dryRun>>;
-  });
-  const base = { companyId: opts.companyId, refused: plan.refusals, dryRun: dry, ...(held ? { dryRunHeld: (held as DryRollbackUnconfirmedError).held } : {}) };
+    dryOut = err.result as Awaited<ReturnType<typeof dryRun>>;
+  }
+  const { lockStop, ...dry } = dryOut;
+  // The dry run stopped on another session's lock (round 25): a --live run refuses its start (exit 2); a preview reports dry_run_failed.
+  if (lockStop && opts.live) throw new Error(`the dry run stopped at ${lockStop.batch.entity} batch ${lockStop.batch.n} (${lockStop.batch.key}): ${lockStop.error.message}; the live run was not started`);
+  const base = { companyId: opts.companyId, refused: plan.refusals, dryRun: dry, ...(held ? { dryRunHeld: held.held } : {}) };
   const skipped = (phase: PhaseReport) => (opts.skipBudgetCheck ? budgetWouldHaveFailed(phase.batches) : []);
   // What the PO tool does not compare (supplier, delivery date, reference, lines) is compared here, from the books as read before the run.
   const contentDifferences = poContentDifferences(plan, before.poContent);
@@ -207,7 +235,7 @@ async function runLocked(pool: Pool, parsed: ParsedExport, opts: MigrationOption
   const sent: Sent = { committed: [], failed: [] };
   opts.onProgress?.({ kind: 'phase', phase: 'live' });
   try {
-    const readAfter = () => withToolSession(pool, opts.companyId, opts.userId, false, () => readSnapshot(opts.companyId));
+    const readAfter = () => withToolSession(pool, opts.companyId, opts.userId, false, () => readSnapshot(opts.companyId), notice);
     // Every phase is checked against the books BETWEEN the phases (sageVerify), so the next phase does not start behind absent rows or rows
     // other than what was sent (an item batch with its rows gone would otherwise fail every PO naming those items, a misleading cascade).
     const liveCategories = await livePhase(pool, opts, all.categories, before, sent, beforeBatch);
@@ -235,7 +263,7 @@ async function runLocked(pool: Pool, parsed: ParsedExport, opts: MigrationOption
       }),
     };
   } catch (err) {
-    const committed = await settled(sent.committed, all, () => withToolSession(pool, opts.companyId, opts.userId, false, () => readSnapshot(opts.companyId)));
+    const committed = await settled(sent.committed, all, () => withToolSession(pool, opts.companyId, opts.userId, false, () => readSnapshot(opts.companyId), notice));
     throw new MigrationStopped(err, true, committed, stoppedBatches(sent));
   }
 }

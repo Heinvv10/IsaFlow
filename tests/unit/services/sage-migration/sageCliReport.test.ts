@@ -14,7 +14,7 @@ import { join } from 'node:path';
 
 const h = vi.hoisted(() => ({
   behave: 'ok' as 'ok' | 'locked-out' | 'live-summary-fails',
-  code: 0, calls: 0, failFinalWrite: false, poolEndThrows: false, poolEnded: 0, failPlaceholder: false, failStopReport: false,
+  code: 0, calls: 0, failFinalWrite: false, poolEndThrows: false, poolEnded: 0, failPlaceholder: false, failStopReport: false, poolOptions: null as unknown,
 }));
 vi.mock('@/modules/accounting/services/sage-migration/sageMigrationRunner', () => ({
   runSageMigration: vi.fn(async () => {
@@ -29,7 +29,7 @@ vi.mock('@/modules/accounting/services/sage-migration/sageReportSummary', () => 
   summaryLines: () => { if (h.behave === 'live-summary-fails') throw new Error('summary bug'); return ['SUMMARY LINE']; },
   exitCodeFor: () => h.code,
 }));
-vi.mock('pg', () => ({ default: { Pool: class { on() { return this; } async end() { h.poolEnded++; if (h.poolEndThrows) throw new Error('end failed'); } } } }));
+vi.mock('pg', () => ({ default: { Pool: class { constructor(o: unknown) { h.poolOptions = o; } on() { return this; } async end() { h.poolEnded++; if (h.poolEndThrows) throw new Error('end failed'); } } } }));
 vi.mock('node:fs', async (orig) => {
   const real = await orig<typeof import('node:fs')>();
   const writeSync = ((fd: number, buf: unknown, ...rest: unknown[]) => {
@@ -171,3 +171,14 @@ describe('R17-2: the success path', () => {
     expect(json(report)).toMatchObject({ marker: 'THE-FINAL-REPORT' });
   });
 });
+
+describe('round 25: the pool the CLI gives the run', () => {
+  it('keeps every socket alive and bounds every query client-side, above the statement timeout (the run lock\'s connection included)', async () => {
+    const report = join(d, 'report.json');
+    await runCli(report);
+    const { SAGE_QUERY_TIMEOUT_MS, SAGE_STATEMENT_TIMEOUT_MS, SAGE_KEEPALIVE_INITIAL_DELAY_MS } = await import('@/modules/accounting/services/sage-migration/sageTimeouts');
+    expect(h.poolOptions).toMatchObject({ max: 4, keepAlive: true, keepAliveInitialDelayMillis: SAGE_KEEPALIVE_INITIAL_DELAY_MS, query_timeout: SAGE_QUERY_TIMEOUT_MS });
+    expect(SAGE_QUERY_TIMEOUT_MS).toBeGreaterThan(SAGE_STATEMENT_TIMEOUT_MS);
+  });
+});
+
