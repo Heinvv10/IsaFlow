@@ -144,7 +144,7 @@ describe('R26-3: every session of the run gets onNotice (the plan, the dry run, 
     expect(h.sessions.map((x) => `${x.commit ? 'live' : x.wrote ? 'dry' : 'read'}`)).toEqual(['read', 'dry', 'live', 'live', 'read', 'read']); // the plan, the dry run, 2 live categories, the reads after them
     expect(h.sessions.every((x) => x.notice === onNotice)).toBe(true);
     h.sessions.length = 0;
-    h.liveLockWaitAt = 'item live';
+    h.liveLockWaitAt = 'category live';
     await run({ onNotice }).catch(() => null);
     expect(h.sessions.at(-1)).toMatchObject({ commit: false, wrote: false }); // settled(): the books read after the stop
     expect(h.sessions.every((x) => x.notice === onNotice)).toBe(true);

@@ -7,13 +7,13 @@ import { acquireRunLock, CHECK_TIMEOUT_MS, KEEPALIVE_MS, LockLostError, migratio
 const A = '11111111-1111-4111-8111-111111111111';
 const B = '22222222-2222-4222-8222-222222222222';
 
-function fakePool(over: { ok?: boolean; unlockFails?: boolean; lockThrows?: boolean; checkFails?: boolean; holder?: number } = {}) {
+function fakePool(over: { ok?: boolean; unlockFails?: boolean; lockThrows?: boolean; checkFails?: boolean; holder?: number; holderThrows?: boolean } = {}) {
   const calls: string[] = [];
   const client = Object.assign(new EventEmitter(), {
     processID: 5150,
     query: vi.fn(async (text: string) => {
       calls.push(text.includes('pg_try_advisory_lock') ? 'lock' : text.includes('FROM pg_locks') ? 'holder' : text.includes('idle_session_timeout') ? text.split(' ')[0]!.toLowerCase() : text.includes('SELECT 1') ? 'check' : 'unlock');
-      if (text.includes('FROM pg_locks')) return { rows: over.holder === undefined ? [] : [{ pid: over.holder }] };
+      if (text.includes('FROM pg_locks')) { if (over.holderThrows) throw new Error('Query read timeout'); return { rows: over.holder === undefined ? [] : [{ pid: over.holder }] }; }
       if (text.includes('pg_try_advisory_lock')) { if (over.lockThrows) throw new Error('lock query failed'); return { rows: [{ ok: over.ok ?? true }] }; }
       if (text.includes('SELECT 1') && over.checkFails) throw new Error('Connection terminated');
       if (over.unlockFails && text.includes('unlock')) throw new Error('unlock failed');
@@ -216,3 +216,14 @@ describe('unlock cannot hang the run on a dead connection (round 7 L2)', () => {
     } finally { vi.useRealTimers(); }
   });
 });
+
+describe('R26-10: a holder lookup that fails', () => {
+  it('still refuses (RunInProgressError, holder unknown), and gives the connection back WITH that error (pg destroys it)', async () => {
+    const { pool, client } = fakePool({ ok: false, holderThrows: true });
+    const err = await acquireRunLock(pool, A).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(RunInProgressError);
+    expect((err as Error).message).toMatch(/its holder's backend pid unknown/);
+    expect(client.release).toHaveBeenCalledWith(new Error('Query read timeout'));
+  });
+});
+
