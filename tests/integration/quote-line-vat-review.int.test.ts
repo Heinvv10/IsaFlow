@@ -58,7 +58,9 @@ describeIfDisposable('per-line VAT on quotes, review round 1', () => {
   afterAll(async () => {
     if (!f) return;
     await sql`DELETE FROM customer_quote_lines WHERE quote_id IN (SELECT id FROM customer_quotes WHERE company_id = ${f.fx.companyId}::UUID)`;
-    await sql`UPDATE customer_quotes SET converted_invoice_id = NULL WHERE company_id = ${f.fx.companyId}::UUID`;
+    await sql`UPDATE customer_quotes SET converted_invoice_id = NULL, converted_order_id = NULL WHERE company_id = ${f.fx.companyId}::UUID`;
+    await sql`DELETE FROM customer_sales_order_items WHERE sales_order_id IN (SELECT id FROM customer_sales_orders WHERE company_id = ${f.fx.companyId}::UUID)`;
+    await sql`DELETE FROM customer_sales_orders WHERE company_id = ${f.fx.companyId}::UUID`;
     await sql`DELETE FROM customer_quotes WHERE company_id = ${f.fx.companyId}::UUID`;
     await pool?.query('DELETE FROM company_users WHERE user_id = $1', [user]);
     await pool?.end();
@@ -151,6 +153,21 @@ describeIfDisposable('per-line VAT on quotes, review round 1', () => {
     expect((r.state.body as { error?: { message?: string } }).error?.message).toMatch(/exempt from VAT/);
     expect(await count('customer_sales_orders')).toBe(orders);
     expect((await head(id))).toMatchObject({ total: 100 });
+  });
+
+  it('an inclusive quote converts to a sales order with the quote\'s totals (3 x R10 incl: R8.70 a unit, R26.09 + R3.91 = R30.00)', async () => {
+    const id = await create([{ description: 'Day rate', quantity: 3, unitPrice: 10, vatType: 'standard' }], { amountsAre: 'inclusive' });
+    expect(await head(id)).toMatchObject({ subtotal: 26.09, tax: 3.91, total: 30, amounts_are: 'inclusive' });
+    expect((await action(id, 'accept')).state.statusCode).toBe(200);
+    const r = await action(id, 'convert-to-order');
+    expect(r.state.statusCode, JSON.stringify(r.state.body)).toBe(200);
+    const orderId = data<{ salesOrderId: string }>(r).salesOrderId;
+    const [order] = (await sql`SELECT subtotal::FLOAT8 AS subtotal, tax_amount::FLOAT8 AS tax, total_amount::FLOAT8 AS total
+      FROM customer_sales_orders WHERE id = ${orderId}::UUID AND company_id = ${f.fx.companyId}::UUID`) as Record<string, unknown>[];
+    expect(order).toEqual({ subtotal: 26.09, tax: 3.91, total: 30 });
+    const items = (await sql`SELECT quantity::FLOAT8 AS qty, unit_price::FLOAT8 AS price, tax_rate::FLOAT8 AS rate, line_total::FLOAT8 AS total
+      FROM customer_sales_order_items WHERE sales_order_id = ${orderId}::UUID ORDER BY line_number`) as Record<string, unknown>[];
+    expect(items).toEqual([{ qty: 3, price: 8.7, rate: 15, total: 26.09 }]);
   });
 
   it('a quantity that stores as 0 (0.004) is a 400, nothing written', async () => {

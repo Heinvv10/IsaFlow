@@ -24,7 +24,7 @@ import { assertLineAccountIds } from './invoiceLineCodingGuard';
 import { revenueLineDefaults } from '../gl/dimensions/dimensionDerivation';
 import { dueDateForContact } from '../core/paymentTermsResolver';
 import { todayInSast } from '@/lib/saDateParser';
-import { assertOrderableVat, quoteInvoiceVat, type QuoteConvertWarning } from './quoteInvoiceVat';
+import { assertOrderableVat, orderUnitPrice, quoteInvoiceVat, type QuoteConvertWarning } from './quoteInvoiceVat';
 
 type Row = DbRow;
 
@@ -104,7 +104,7 @@ export async function convertToSalesOrder(
   if (!quote) return null;
   // A quote its status already refuses answers that (409, the winner's order id) before any VAT refusal.
   if (!CONVERTIBLE_TO_ORDER.includes(quote.status) || quote.convertedInvoiceId || quote.convertedOrderId) await refuseOrder(companyId, id, quote.status);
-  // What a sales order cannot carry yet (an inclusive quote, an exempt line), refused before the claim.
+  // What a sales order cannot carry yet (an exempt line), refused before the claim.
   assertOrderableVat(quote);
 
   // CLAIM THE QUOTE BEFORE ANYTHING IS MINTED. The existence check above is a
@@ -156,7 +156,7 @@ export async function convertToSalesOrder(
         sales_order_id, line_number, description, quantity, unit_price, tax_rate, line_total
       ) VALUES (
         ${salesOrderId}::UUID, ${i + 1}, ${line.description}, ${line.quantity},
-        ${line.unitPrice}, ${line.taxRate}, ${line.lineTotal}
+        ${orderUnitPrice(quote, line)}, ${line.taxRate}, ${line.lineTotal}
       )
     `;
   }

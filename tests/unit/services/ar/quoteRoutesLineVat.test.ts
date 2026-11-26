@@ -1,7 +1,7 @@
 /**
  * The quote routes and per-line VAT (migration 1024): create / edit answer a VAT refusal 400 with its code
  * (INVOICE_LINE_VAT_REFUSED / INVOICE_VAT_NOT_REGISTERED), as the invoice create does; convert answers the invoice's VAT
- * refused as priced the same way; convert-to-order answers an inclusive quote's refusal 400. Every one is raised before
+ * refused as priced the same way; convert-to-order answers a refusal 400. Every one is raised before
  * the first write (withAuth commits a 4xx).
  */
 import { describe, expect, it, vi, beforeEach } from 'vitest';
@@ -66,8 +66,8 @@ describe('customer-quotes-action', () => {
     expect(await run(quoteActionHandler, 'POST', { id: 'q1', action: 'convert' })).toEqual({ kind: 'success', data: { quote: { id: 'q1' }, invoiceId: 'inv-1', warnings } });
   });
 
-  it('convert-to-order answers an inclusive quote\'s refusal 400', async () => {
-    const err = new LineValidationError('Quote QUO1\'s prices include VAT, and a sales order holds prices before VAT');
+  it('convert-to-order answers a refusal (an exempt line) 400', async () => {
+    const err = new LineValidationError('Quote QUO1: line 1 is exempt from VAT, and a sales order cannot carry a VAT type yet');
     m.toOrder.mockRejectedValueOnce(err);
     expect(await run(quoteActionHandler, 'POST', { id: 'q1', action: 'convert-to-order' })).toEqual({ kind: 'badRequest', error: err.message, details: undefined });
   });
