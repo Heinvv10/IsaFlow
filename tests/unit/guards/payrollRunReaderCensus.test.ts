@@ -46,7 +46,7 @@ interface Census { tables: string[]; orderKeys: Record<string, string[]>; consum
 const census = JSON.parse(readFileSync(resolve(__dirname, 'payrollRunReaderCensus.json'), 'utf8')) as Census;
 
 const CLASSES = new Set(['S', 'R', 'L']);
-const OWNERS = new Set(['FQb1', 'FQb2', 'FQb2/EF', 'FQc', 'OC']);
+const OWNERS = new Set(['FQb1', 'FQb2', 'FQb2/EF', 'FQc', 'OC', 'PRA']); // PRA: wave 7 W29's ended-rows reader
 const FQB1_PATH = /^(src\/modules\/accounting\/services\/payroll\/|pages\/api\/payroll\/|src\/lib\/mcp\/tools\/(payroll|writePayroll))/;
 
 function sourceFiles(): string[] {

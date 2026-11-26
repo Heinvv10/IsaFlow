@@ -1,6 +1,7 @@
 /**
  * The pay-run grid's reads (payrollRunPeriodInputs): what the run pays each employee for the grid's components,
- * through the run's own reader (getEmployeeComponents on payrollRunReadDate, the period's last day), never a window
+ * through the run's own reader (readRunComponents: getEmployeeComponents on payrollRunReadDate, the period's last day,
+ * with W29's shares), never a window
  * of the grid's own, so a cell conflicts exactly when the run pays a row it cannot show (merge with #1117, which
  * moved the reader to the last day and pays a once-off dated in the month whatever its end).
  */
@@ -8,6 +9,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow, TxSql } from '@/lib/neon';
 import { endOfMonthIso } from './leaveAccrualService';
 import { getEmployeeComponents } from './payrollComponentService';
+import { readRunComponents, shareEmployeesOf } from './payrollRecurringShareRead';
 import { payrollRunReadDate } from './payrollRunReadDate';
 import { isRunInputUnitRow } from './payrollRunInputUnits';
 import type { RunInputAmount, RunInputRecurring } from './payrollRunPeriodInputs';
@@ -31,8 +33,14 @@ type Period = RunPeriod;
 async function paidByRun(companyId: string, employeeIds: string[], period: Period, componentIds: string[]) {
   const wanted = new Set(componentIds);
   const paid: Array<{ employeeId: string; componentId: string; id: string; recurring: boolean; amount: number; quantity: number | null }> = [];
+  // W29 (review #1901 M5): the run's reading, apportioned shares and earnings ended inside employment included, so a
+  // recurring cell shows what the line pays.
+  const employees = await shareEmployeesOf(companyId, employeeIds);
   for (const employeeId of employeeIds) {
-    for (const c of await getEmployeeComponents(employeeId, companyId, payrollRunReadDate(period), period.start)) {
+    const employee = employees.get(employeeId);
+    const read = employee ? await readRunComponents(employee, companyId, period, payrollRunReadDate(period))
+      : await getEmployeeComponents(employeeId, companyId, payrollRunReadDate(period), period.start);
+    for (const c of read) {
       // RI's overtime and km rows are the grid's own cells (payrollRunUnitsRead), never an amount cell's.
       if (wanted.has(c.component.id) && c.assignmentId && !isRunInputUnitRow(c)) {
         paid.push({ employeeId, componentId: c.component.id, id: c.assignmentId, recurring: c.isRecurring !== false, amount: c.amount, quantity: c.quantity ?? null });

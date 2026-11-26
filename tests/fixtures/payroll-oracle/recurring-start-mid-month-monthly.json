@@ -1,0 +1,51 @@
+{
+  "id": "recurring-start-mid-month-monthly",
+  "source": "sars-guide:SARS PAYE-GEN-01-G21 Guide for Employers iro Employees Tax 2027, Revision 1 p. 9-10 (annual equivalent of part-period pay; a part period as its share of days, 3 of 7 = 0.4285) and p. 13; apportionment basis: wave-7 ruling 13 (monthly working days, weekly calendar days), scope ruling 19",
+  "sourceRef": "https://www.sars.gov.za/wp-content/uploads/Ops/Guides/PAYE-GEN-01-G21-Guide-for-Employers-iro-Employees-Tax-for-2027-External-Guide.pdf",
+  "notes": "July 2026 (23 working days, Monday to Friday; 1 July is a Wednesday), employed since 1 March 2020, age 40 (no ETI). Basic R4 000 (whole month) and a recurring R2 100 standby allowance from Thursday 16 July: 12 of 23 working days, 2 100 x 12 / 23 = 1 095.652 -> 1 095.65 (ruling 13: monthly = working days, employedShareOfMonth). Gross 5 095.65; annual equivalent about R61 000, under the R95 750 threshold: PAYE R0 (G21 p. 13). UIF 1% = 50.96 each side; SDL 1% = 50.96; net 5 095.65 - 50.96 = 5 044.69. Before W29 the allowance paid in full (gross 6 100, net 6 039).",
+  "input": {
+    "period": {
+      "year": 2026,
+      "month": 7
+    },
+    "taxYear": 2027,
+    "employee": {
+      "dateOfBirth": "1986-01-01",
+      "startDate": "2020-03-01",
+      "taxStatus": "statutory",
+      "uifExcluded": false,
+      "medicalAidMainMember": false,
+      "medicalAidDependantsCount": 0,
+      "s18aReceiptHeld": false
+    },
+    "employerAnnualRemuneration": 10000000,
+    "components": [
+      {
+        "code": "3601",
+        "name": "Basic salary",
+        "type": "earning",
+        "amount": 4000,
+        "taxable": true,
+        "uif": true,
+        "sdl": true
+      },
+      {
+        "code": "3601",
+        "name": "Standby allowance",
+        "type": "earning",
+        "amount": 2100,
+        "taxable": true,
+        "uif": true,
+        "sdl": true,
+        "effectiveFrom": "2026-07-16"
+      }
+    ]
+  },
+  "expected": {
+    "paye": 0,
+    "uifEmployee": 50.96,
+    "uifEmployer": 50.96,
+    "sdl": 50.96,
+    "net": 5044.69
+  }
+}

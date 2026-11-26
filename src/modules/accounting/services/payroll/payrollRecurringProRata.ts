@@ -11,14 +11,19 @@
  * calculation nor the gate looks at that leaver's rows. The fix is the profile's "Edit dates" (PATCH
  * /api/payroll/employees/:id/components?aid=…), then a recalculation.
  * Rows that start or end on other days keep the behaviour they always had (paid in full / not paid) and are not
- * flagged. Once-offs are not flagged: each is paid once in its own month. A voided row (ends before it starts) is
+ * flagged. W29 (wave 7 PRA, rulings 7, 13, 19): a recurring EARNING with a plain amount that starts or ends strictly inside
+ * employment is now paid its share of the period (payrollRecurringShare), so it is not flagged either; the guard still
+ * flags a starter's or leaver's own row in the band, a deduction, and an hours, percent-of-RFI or defined-benefit row. Once-offs are not flagged: each is paid once in its own month. A voided row (ends before it starts) is
  * never paid and is ignored.
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { payrollRunReadDate } from './payrollRunReadDate';
-import { getEmployeeComponents } from './payrollComponentService';
+import { insideEmploymentEdge, isApportionable, periodBoundsOf } from './payrollRecurringShare';
+import { runShareAckBlocker } from './payrollRecurringShareAck';
+import { overlappingRecurringRows } from './payrollRecurringOverlap';
+import { getEmployeeComponents, recurringEarningsEndedInPeriod } from './payrollComponentService';
 import { listPayrollRunEmployees } from './payrollEmployeeService';
 import { payFrequencyOf, runPeriodOf } from './payrollFrequency';
 import type { PayrollJournalNote } from './payrollJournalBuilder';
@@ -30,8 +35,12 @@ export interface ProRataRow {
   employeeId: string;
   employeeNumber: string;
   componentName: string;
-  /** starts after the 27th (paid in full) | ends from the 27th to the day before the last day (not paid) | both (not paid). */
-  edge: 'starts' | 'ends' | 'within';
+  /**
+   * starts after the 27th (paid in full) | ends from the 27th to the day before the last day (not paid) | both (not paid) |
+   * after_end: a recurring earning starting after the employee's last day (not paid; review #1901 round 3) |
+   * overlap: it overlaps another live recurring row of its component (both paid for those days; round 4).
+   */
+  edge: 'starts' | 'ends' | 'within' | 'after_end' | 'overlap';
   from: string;
   to: string | null;
   /** A pay package replaced it (superseded_at): Edit dates refuses it, so the flag points at End. */
@@ -41,6 +50,8 @@ export interface ProRataRow {
 /** "starts on 2026-03-28", "ends on 2026-03-30", "starts on 2026-03-28 and ends on 2026-03-29". */
 export function describeProRataRow(row: ProRataRow): string {
   if (row.edge === 'starts') return `starts on ${row.from}`;
+  if (row.edge === 'after_end') return `starts on ${row.from}, after the employee's last day`;
+  if (row.edge === 'overlap') return `starts on ${row.from}, overlapping another of its rows`;
   if (row.edge === 'ends') return `ends on ${row.to}`;
   return `starts on ${row.from} and ends on ${row.to}`;
 }
@@ -62,9 +73,11 @@ export async function recurringRowsNeedingProRata(
   // it reads on its own last day and does not apportion either: a row starting after its first day is paid in full, one
   // ending before its last day is not paid.
   const day27 = period.start ?? `${last.slice(0, 8)}27`;
+  const { start: periodStart } = periodBoundsOf(period);
   const rows = (await sql`
     SELECT pec.id, pec.employee_id, e.employee_number, pc.name, pec.effective_from, pec.effective_to, pec.superseded_at,
-           pec.effective_from > ${day27}::date AS starts
+           pec.effective_from > ${day27}::date AS starts,
+           pc.component_type, pec.quantity, pec.percent_of_rfi, pec.db_member_category_factor, e.start_date, e.end_date
     FROM payroll_employee_components pec
     JOIN payroll_employees e ON e.id = pec.employee_id AND e.company_id = ${companyId}::uuid
     JOIN payroll_components pc ON pc.id = pec.component_id AND pc.company_id = ${companyId}::uuid
@@ -75,16 +88,32 @@ export async function recurringRowsNeedingProRata(
       AND (
         (pec.effective_from > ${day27}::date AND pec.effective_from <= ${last}::date)
         OR (pec.effective_to >= ${day27}::date AND pec.effective_to < ${last}::date)
+        -- Review #1901 round 3: a leaver's own row ending on their end date anywhere in the period (both readers judge it
+        -- by one successor predicate), and a row starting after their last day inside the period.
+        OR (e.end_date IS NOT NULL AND pec.effective_to = e.end_date AND pec.effective_to >= ${periodStart}::date AND pec.effective_to < ${last}::date)
+        OR (e.end_date IS NOT NULL AND pec.effective_from > e.end_date AND pec.effective_from >= ${periodStart}::date AND pec.effective_from <= ${last}::date)
       )
     ORDER BY e.employee_number, pc.name, pec.effective_from
   `) as DbRow[];
   const paidIds = new Set<string>();
+  // W29: the rows the run reads as having ended inside employment (payrollRecurringShareRead), so the guard and the pay
+  // agree on which rows the share pays: a package-cut row replaced by a once-off is not among them, and stays flagged.
+  const endedIds = new Set<string>();
   for (const employeeId of new Set(rows.map((r) => String(r.employee_id)))) {
     for (const c of await getEmployeeComponents(employeeId, companyId, last)) if (c.assignmentId) paidIds.add(c.assignmentId);
+    for (const c of await recurringEarningsEndedInPeriod(employeeId, companyId, periodStart, last)) if (c.assignmentId) endedIds.add(c.assignmentId);
   }
   const out: ProRataRow[] = [];
   for (const r of rows) {
-    const paid = paidIds.has(String(r.id));
+    // W29: a recurring earning starting or ending inside employment is paid its share (payrollRecurringShare): not flagged.
+    if ((paidIds.has(String(r.id)) || endedIds.has(String(r.id))) && sharePays(period, r)) continue;
+    // A row either reader reads is paid (review #1901 round 3: a weekly leaver row the ended-rows reader pays whole).
+    const paid = (paidIds.has(String(r.id)) || endedIds.has(String(r.id))) && !startsAfterEnd(r);
+    if (startsAfterEnd(r)) {
+      out.push({ employeeId: String(r.employee_id), employeeNumber: String(r.employee_number), componentName: String(r.name), edge: 'after_end',
+        from: fmtDate(r.effective_from), to: r.effective_to ? fmtDate(r.effective_to) : null, superseded: r.superseded_at != null });
+      continue;
+    }
     // Read in full and ending in the band: a leaver's last month (Hein), exempt. Starting in the band and read: paid in
     // full, flagged as starting. Not read: flagged as ending (also when it starts in the band too).
     if (paid && !r.starts) continue;
@@ -98,13 +127,43 @@ export async function recurringRowsNeedingProRata(
       superseded: r.superseded_at != null,
     });
   }
+  // Round 4: two live recurring rows of one component overlapping in the period are both paid for the shared days.
+  for (const o of await overlappingRecurringRows(companyId, employeeIds, periodStart, last)) {
+    out.push({ employeeId: o.employeeId, employeeNumber: o.employeeNumber, componentName: o.componentName, edge: 'overlap', from: o.from, to: o.to });
+  }
   return out;
+}
+
+/** A recurring earning with a plain amount, as a stored row (the guard's mapping of isApportionable; round 4: one helper). */
+function apportionableRow(r: DbRow): boolean {
+  return isApportionable({ component: { componentType: String(r.component_type) }, isRecurring: true,
+    quantity: r.quantity == null ? null : Number(r.quantity), percentOfRfi: r.percent_of_rfi == null ? null : Number(r.percent_of_rfi),
+    dbMemberCategoryFactor: r.db_member_category_factor == null ? null : Number(r.db_member_category_factor) });
+}
+
+/** A recurring earning (plain amount) that starts after the employee's last day: the run does not pay it (apportionRecurringRows). */
+function startsAfterEnd(r: DbRow): boolean {
+  return r.end_date != null && fmtDate(r.effective_from) > fmtDate(r.end_date) && apportionableRow(r);
+}
+
+/** The run apportions this row when it reads it (W29): the same predicate the run's reading applies (payrollRecurringShareRead). */
+export function sharePays(period: PayrollPeriod, r: DbRow): boolean {
+  if (!apportionableRow(r)) return false;
+  return insideEmploymentEdge(period, { effectiveFrom: fmtDate(r.effective_from), effectiveTo: r.effective_to ? fmtDate(r.effective_to) : null },
+    { startDate: new Date(`${fmtDate(r.start_date)}T00:00:00Z`), endDate: r.end_date ? new Date(`${fmtDate(r.end_date)}T00:00:00Z`) : null });
 }
 
 /** The line's flag for one such row. A row starting in the band and one ending there are fixed differently. */
 export function proRataValidation(row: ProRataRow): ValidationResult {
   const what = `${row.componentName} ${describeProRataRow(row)}`;
-  const message = row.edge === 'starts'
+  const message = row.edge === 'overlap'
+    ? `${what}: two recurring rows of this component overlap, so both are paid for the shared days. Use Edit dates on the `
+      + 'employee\'s Pay Components so one ends before the other starts, then recalculate. Approval is refused until then.'
+    : row.edge === 'after_end'
+    ? `${what}: this recurring earning starts after the employee left, so this run does not pay it. Use Edit dates or End `
+      + 'on the employee\'s Pay Components to correct or remove it (pay anything due as a once-off), then recalculate. '
+      + 'Approval is refused until then.'
+    : row.edge === 'starts'
     ? `${what}: this recurring component is paid in full in this run and needs a manual pro-rata. Use Edit dates on the `
       + 'employee\'s Pay Components (for example, start it on the 1st of next month and assign the part month as a '
       + 'once-off), then recalculate. Approval is refused until then.'
@@ -128,7 +187,7 @@ export function proRataValidation(row: ProRataRow): ValidationResult {
   };
 }
 
-/** The approval refusal for the run, or null (always for an off-cycle run). Read-only. */
+/** The approval refusal for the run (pro-rata first, then an unacknowledged share beside a once-off), or null (always for an off-cycle run). Read-only. */
 export async function runProRataBlocker(companyId: string, runId: string): Promise<PayrollJournalNote | null> {
   const lines = (await sql`
     SELECT l.employee_id, e.employee_number, h.period_year, h.period_month, h.pay_frequency, h.period_start, h.period_end, h.run_kind,
@@ -151,11 +210,14 @@ export async function runProRataBlocker(companyId: string, runId: string): Promi
   );
   const liveIds = new Set(live.map((r) => r.employeeId));
   const stale = lines.filter((l) => l.flagged && !liveIds.has(String(l.employee_id))).map((l) => String(l.employee_number));
-  if (live.length === 0 && stale.length === 0) return null;
+  // W29 (review #1901 M2): with no row left to pro-rate, a share beside a once-off earning still waits for its acknowledgement.
+  if (live.length === 0 && stale.length === 0) return runShareAckBlocker(companyId, runId);
   const parts: string[] = [];
   if (live.length > 0) {
-    parts.push('Recurring components start after the 27th or end between the 27th and the last day of the month, so this '
-      + 'run pays them in full or not at all; each needs a manual pro-rata: '
+    // Round 4: one lead sentence true for every edge (a late start or end, an after-the-last-day start, a leaver's end-date
+    // row on any day, an overlap).
+    parts.push('Recurring components on this run would be paid in full, not at all, or twice for some days, and need '
+      + 'their dates corrected: '
       + live.map((r) => `${r.employeeNumber} ${r.componentName} ${describeProRataRow(r)}`).join('; ')
       + '. Use Edit dates on each employee\'s Pay Components, then recalculate.');
   }

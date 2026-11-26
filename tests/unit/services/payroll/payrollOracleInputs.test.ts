@@ -4,6 +4,7 @@
  * the hours get there. Each input is either passed (checked per fixture below) or named with the PR that will take it:
  * a new fixture key that is neither is red.
  */
+import { isoOfDate } from '@/modules/accounting/services/payroll/payFrequencyPeriods';
 import { describe, expect, it } from 'vitest';
 import { buildCaseInput, loadCases, oracleTaxStatus } from '../../../fixtures/payroll-oracle/oracle';
 import { runHoursOf } from '@/modules/accounting/services/payroll/payrollRunHours';
@@ -73,4 +74,67 @@ describe('every fixture input reaches the calculator, or has a named owner', () 
     expect(inputs.filter(e => e.taxStatus === 'director').length).toBeGreaterThanOrEqual(1);
     expect(inputs.filter(e => e.dailyRate != null && e.hoursPerWeek != null).length).toBeGreaterThanOrEqual(4);
   });
+
+  // W29 (wave 7 PRA, F4 rule 11): a component's window and the employee's end date reach the calculator, and the dated rows
+  // are apportioned there exactly as the run's reading does (payrollRecurringShare), so the oracle asserts the share.
+  it.each(cases.filter(c => c.input.employee.endDate !== undefined || c.input.components.some(x => x.effectiveFrom !== undefined)).map(c => [c.id, c] as const))(
+    '%s: the end date and each dated row reach the calculator, at their share', (_id, c) => {
+      const { employee, components } = buildCaseInput(c);
+      expect(employee.endDate ? isoOfDate(employee.endDate) : undefined).toBe(c.input.employee.endDate);
+      // A recurring row starting after the leaver's last day is dropped (round 3): the rest keep their order.
+      const lastDay = c.input.employee.endDate;
+      const kept = c.input.components.filter(x => !(lastDay && x.effectiveFrom !== undefined && x.effectiveFrom > lastDay && x.type === 'earning'));
+      kept.forEach((x, i) => {
+        const got = components[i]!;
+        if (x.effectiveFrom === undefined) { expect(got.share).toBeUndefined(); expect(got.amount).toBe(x.amount); return; }
+        expect(got).toMatchObject({ isRecurring: true, effectiveFrom: x.effectiveFrom, effectiveTo: x.effectiveTo ?? null });
+        // A tiling run of one amount: the last row takes the remainder (R2-L1), within a cent of its own share.
+        if (got.share) expect(Math.abs(got.amount - Math.round((x.amount * got.share.days / got.share.of) * 100) / 100)).toBeLessThanOrEqual(0.011);
+        else expect(got.amount).toBe(x.amount);
+      });
+    },
+  );
+
+  it('the W29 cases apportion where ruling 19 says and only there', () => {
+    const shareOf = (id: string) => {
+      const c = cases.find(k => k.id === id);
+      if (!c) throw new Error(`${id} missing`);
+      return buildCaseInput(c).components.map(x => x.share ? `${x.share.days}/${x.share.of}` : 'whole');
+    };
+    expect(shareOf('recurring-start-mid-month-monthly')).toEqual(['whole', '12/23']);
+    expect(shareOf('recurring-end-mid-month-monthly')).toEqual(['whole', '8/23']);
+    expect(shareOf('recurring-start-mid-week-weekly')).toEqual(['whole', '4/7']);
+    expect(shareOf('starter-mid-month-full-salary')).toEqual(['whole']);
+    expect(shareOf('leaver-mid-month-full-salary')).toEqual(['whole']);
+    expect(shareOf('leaver-raise-mid-month-sums-to-window')).toEqual(['7/11', '4/11']);
+    expect(shareOf('starter-raise-mid-month-sums-to-window')).toEqual(['8/18', '10/18']);
+    expect(shareOf('weekly-split-same-amount-sums-to-whole')).toEqual(['3/7', '4/7']);
+    expect(shareOf('leaver-row-ends-on-end-date-mid-month-full')).toEqual(['whole']);
+    expect(shareOf('leaver-row-after-end-not-paid')).toEqual(['whole']); // the later row is dropped: not paid
+    expect(shareOf('three-rows-one-amount-sums-to-month')).toEqual(['7/23', '8/23', '8/23']);
+  });
+
+  // Review #1901 L3: overtime is priced on the basic in force on the period's last day, as production's monthlyBasicOf reads it.
+  it('overtime after a mid-month raise is priced on the raised basic, not the row that ended', () => {
+    const c = JSON.parse(JSON.stringify(cases.find(k => k.id === 'recurring-start-mid-month-monthly'))) as typeof cases[number];
+    c.input.components = [
+      { code: '3601', name: 'Basic salary', type: 'earning', amount: 4000, taxable: true, uif: true, sdl: true, effectiveFrom: '2020-03-01', effectiveTo: '2026-07-15' },
+      { code: '3601', name: 'Basic salary (raised)', type: 'earning', amount: 4800, taxable: true, uif: true, sdl: true, effectiveFrom: '2026-07-16' },
+    ];
+    c.input.unmodelled = { ordinaryHoursPerWeek: 40, overtimeHours: 10, overtimeMultiplier: 1.5 };
+    const ot = buildCaseInput(c).components.find(x => x.component.sarsSourceCode === '3607')!;
+    // 4 800 / (40 x 52 / 12) = 27.69 an hour, x 1.5 x 10 hours = 415.35 (on the ended R4 000 row it would be 346.20).
+    expect(ot.amount).toBe(415.35);
+  });
+
+  // Review #1901 round 3 L: dated rows are one component only when code AND name match, so two components of one SARS code
+  // (a salary and an allowance on 3601) never share a remainder.
+  it('dated rows of one code but different names are different components; same code and name, one', () => {
+    const c = cases.find(k => k.id === 'leaver-raise-mid-month-sums-to-window')!;
+    const ids = buildCaseInput(c).components.map(x => x.component.id);
+    expect(new Set(ids).size).toBe(2);
+    const w = cases.find(k => k.id === 'weekly-split-same-amount-sums-to-whole')!;
+    expect(new Set(buildCaseInput(w).components.map(x => x.component.id)).size).toBe(1);
+  });
 });
+

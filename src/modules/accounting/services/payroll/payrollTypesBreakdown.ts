@@ -4,6 +4,20 @@
  */
 import type { DirectiveFigures, QuantityUnit } from './payrollTypes';
 
+/**
+ * W29 (wave 7 PRA): the part of its period a recurring earning paid, when it starts or ends strictly inside employment
+ * (payrollRecurringShare). `amount` = round2(fullAmount x share). Monthly: working days (Monday to Friday) of the month;
+ * weekly / fortnightly: calendar days of the period.
+ */
+export interface RecurringShare {
+  share: number;
+  days: number;
+  of: number;
+  basis: 'working_days' | 'calendar_days';
+  /** The row's amount for a whole period, before the share. */
+  fullAmount: number;
+}
+
 export interface ComponentBreakdownItem {
   componentId: string;
   componentName: string;
@@ -50,4 +64,6 @@ export interface ComponentBreakdownItem {
   /** DBF: the contribution the employer pays the fund (GL 2175, IRP5 4472 / 4473, or 4585 / 4586 when dbMemberRetired). */
   dbEmployerContribution?: number;
   dbMemberRetired?: true;
+  /** W29: the row paid this share of its period (payrollRecurringShare); the payslip line prints it. */
+  share?: RecurringShare;
 }

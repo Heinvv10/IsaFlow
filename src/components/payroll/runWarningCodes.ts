@@ -26,6 +26,8 @@ export const GROUP_LABEL: Record<string, string> = {
   LOAN_FRINGE_NOT_RECORDED: 'Loan fringe benefit not recorded — add the 3801 earning under Setup → Pay Components, then recalculate',
   UIF_CLAWBACK: 'A clawback reduced this month\'s UIF pay: check the earlier month\'s UI-19 / EMP201 for an over-declaration',
   OVERTIME_ABOVE_BCEA_THRESHOLD: 'Overtime multiplier paid above the BCEA earnings threshold — the BCEA rates do not bind; check the contract',
+  // W1 (wave 7 W53): SARS's guide is silent on an extra pay day (PAYE-GEN-01-G21 (2027) Rev 1 p. 9); not blocking.
+  WEEK_53_PAY_DAY: 'A 53rd weekly or 27th fortnightly pay day in the tax year — PAYE kept at ×52 / ×26 a period (SARS\'s guide is silent); an alternate tax period avoids it',
   RECURRING_NEEDS_PRO_RATA: 'A recurring component starts after the 27th or ends before month end — needs a manual pro-rata: use Edit dates on the employee\'s Pay Components, then recalculate',
 };
 

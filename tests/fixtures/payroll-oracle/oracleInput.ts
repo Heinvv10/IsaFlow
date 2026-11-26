@@ -3,12 +3,14 @@
  * calculator's PayrollLineInput. oracle.ts re-exports buildCaseInput, saIdFor and oracleTaxStatus.
  */
 import type {
-  EmployeeComponent, LineCadence, PayeYearToDate, PayrollEmployee, PayrollLineInput, PspEntityType, TaxStatus,
+  EmployeeComponent, LineCadence, PayrollEmployee, PayrollLineInput, PspEntityType, TaxStatus,
 } from '@/modules/accounting/services/payroll/payrollTypes';
 import type { GarnisheeKind } from '@/modules/accounting/services/payroll/payrollGarnishee';
-import { closesPayMonth, dayNumber, isoOfDay, PERIOD_DAYS, periodShareOf } from '@/modules/accounting/services/payroll/payFrequencyPeriods';
+import { closesPayMonth, periodShareOf } from '@/modules/accounting/services/payroll/payFrequencyPeriods';
 import { addEtiMonthParts, NO_ETI_PARTS } from '@/modules/accounting/services/payroll/payrollLineEtiMonth';
 import { withFringeBenefits } from './fringeInput';
+import { priorEnd, priorYearToDate, sumOf } from './oraclePriors';
+import { apportionRecurringRows } from '@/modules/accounting/services/payroll/payrollRecurringShare';
 import type { OracleCase, OraclePriorPeriod } from './oracle';
 import type { MonthEarlierLines } from '@/modules/accounting/services/payroll/payrollOffCycleMonth';
 import { costRfi, withEmployerRetirement } from './rfiInput';
@@ -100,6 +102,7 @@ export function buildCaseInput(c: OracleCase): PayrollLineInput {
     lastName: 'Case',
     employmentType: input.employee.taxStatus === 'temporary_part_time' ? 'casual' : 'permanent',
     startDate: parseDate(input.employee.startDate),
+    ...(input.employee.endDate ? { endDate: parseDate(input.employee.endDate) } : {}),
     ...(input.employee.dateOfBirth ? { dateOfBirth: parseDate(input.employee.dateOfBirth) } : {}),
     // ETI Act s6(b): the oracle's employees hold an ID document (a valid SA ID number for their date of birth); the cases
     // test the incentive's amount, not the document.
@@ -118,15 +121,22 @@ export function buildCaseInput(c: OracleCase): PayrollLineInput {
   };
   const base: EmployeeComponent[] = input.components.map((x, i) => ({
     component: {
-      id: `${c.id}-${i}`, name: x.name, sarsSourceCode: x.code, componentType: x.type,
+      // W29: dated rows of one code AND name are one component's assignments, as a re-dated row is in a run (R2-L1 rounds them
+      // together; review round 3: keyed by code + name, so two components of one SARS code stay apart).
+      id: x.effectiveFrom !== undefined ? `${c.id}-${x.code}-${x.name}` : `${c.id}-${i}`, name: x.name, sarsSourceCode: x.code, componentType: x.type,
       isTaxable: x.taxable, isUifApplicable: x.uif, isSdlApplicable: x.sdl,
     },
     amount: x.amount,
     ...(monthlyHours != null && x === basic[0] ? { quantity: monthlyHours, quantityUnit: 'hour' as const } : {}),
+    // W29: a dated row is a recurring assignment (getEmployeeComponents reads its window); undated rows are as before.
+    ...(x.effectiveFrom !== undefined ? { isRecurring: true, effectiveFrom: x.effectiveFrom, effectiveTo: x.effectiveTo ?? null } : {}),
   }));
+  // As a run reads them (payrollRecurringShareRead): a row starting or ending inside employment at its share, before fringe and RFI.
+  const period = { year: input.period.year, month: input.period.month, ...(input.period.periodStart && input.period.periodEnd ? { start: input.period.periodStart, end: input.period.periodEnd } : {}) };
+  const read = apportionRecurringRows(base, { ...employee, payFrequency: input.period.frequency ?? 'monthly' }, period);
   // As a run: fringe benefits applied and employer benefits marked non-cash, then the percent-of-RFI rows costed (RF).
-  const components = [...costRfi(withFringeBenefits(withEmployerRetirement(base, input.unmodelled), input.unmodelled, input.period), input.unmodelled),
-    ...runInputUnitRows(c, employee, basic[0]?.amount ?? 0)];
+  const components = [...costRfi(withFringeBenefits(withEmployerRetirement(read, input.unmodelled), input.unmodelled, input.period), input.unmodelled),
+    ...runInputUnitRows(c, employee, basicInForce(c, basic))];
   const cadence = caseCadence(c, employee);
   const monthEarlier = caseMonthEarlier(c);
   return {
@@ -169,16 +179,6 @@ function caseMonthEarlier(c: OracleCase): MonthEarlierLines | undefined {
   };
 }
 
-/** A prior's period end: its start plus the frequency's days (a monthly prior's month end). */
-function priorEnd(p: Pick<OraclePriorPeriod, 'periodStart' | 'frequency'>): string {
-  if (p.frequency === 'monthly') {
-    const y = Number(p.periodStart.slice(0, 4));
-    const m = Number(p.periodStart.slice(5, 7));
-    return `${p.periodStart.slice(0, 8)}${String(new Date(y, m, 0).getDate()).padStart(2, '0')}`;
-  }
-  return isoOfDay(dayNumber(p.periodStart) + PERIOD_DAYS[p.frequency] - 1);
-}
-
 /**
  * A weekly or fortnightly case's cadence (FQc), as the run service builds it: the UIF remuneration of the priors paid in
  * the case's month (a prior's pay date is its period end), and the month's ETI parts when the case closes its month.
@@ -206,6 +206,18 @@ function caseCadence(c: OracleCase, employee: PayrollEmployee): LineCadence | un
 }
 
 /**
+ * The monthly basic overtime is priced on, as production's monthlyBasicOf reads it (payrollRunUnitsRead): the recurring
+ * 3601 rows in force on the period's last day, at their full amounts (review #1901 L3: not the first row, which after a
+ * W29 split is the row that ended).
+ */
+function basicInForce(c: OracleCase, basic: OracleCase['input']['components']): number {
+  const { period } = c.input;
+  const last = period.periodEnd ?? `${period.year}-${String(period.month).padStart(2, '0')}-${String(new Date(period.year, period.month, 0).getDate()).padStart(2, '0')}`;
+  return basic.filter(x => x.effectiveFrom === undefined || (x.effectiveFrom <= last && (x.effectiveTo == null || x.effectiveTo >= last)))
+    .reduce((t, x) => t + x.amount, 0);
+}
+
+/**
  * RI: overtime (`overtimeHours` at `overtimeMultiplier`) and reimbursive travel (`businessKm` at `reimbursiveRatePerKm`) as the
  * run stores them: a 3607 hours row priced on the server (payrollRunInputUnits.overtimeAmountCents) and a km row on a 3702 earning.
  */
@@ -229,50 +241,4 @@ function runInputUnitRows(c: OracleCase, employee: PayrollEmployee, monthlyBasic
   return rows;
 }
 
-const round2 = (n: number): number => Math.round(n * 100) / 100;
-const sumOf = (xs: readonly number[]): number => round2(xs.reduce((t, x) => t + x, 0));
-const RETIREMENT_CODES = ['4001', '4003', '4006'];
-
-/**
- * The earlier periods as the year to date loadPayeYearToDate would return for those stored lines (wave-6 F1), so the
- * engine sees what a real run sees. Each figure is the stored one, summed; the rest are read from the period's
- * components the way the reader reads a line's breakdown (4005 fees, 4001/4003/4006 contributions, taxable 4030
- * donations, SDL-flagged earnings).
- * NAMED LIMITS: `periods` counts a prior with periodicTaxable > 0 (the reader counts pay before deductions, so a prior
- * whose deductions take its periodic pay to nil is no period here); the SDL leviable a prior stored is its SDL pay less
- * its retirement deduction, floored at nil (no donation); no s18A receipt, no 65+ credit and no PAYE-outside-tables
- * prior. uifEmployee, uifLeviable, businessKm, etiRemuneration and etiHours have no year-to-date field yet: they are
- * validated and carried for FQc, OC and RI, not passed.
- * Weekly and fortnightly (FQc): the fold now carries the cases' PAYE (x52 over n, a starter's prior at its share), and
- * uifLeviable / etiRemuneration / etiHours reach the line through its cadence (caseCadence), not the year to date.
- */
-export function priorYearToDate(priors: readonly OraclePriorPeriod[], employee?: Pick<PayrollEmployee, 'startDate' | 'endDate'>): PayeYearToDate {
-  const amounts = (p: OraclePriorPeriod, keep: (x: OraclePriorPeriod['components'][number]) => boolean) =>
-    p.components.filter(keep).reduce((t, x) => t + x.amount, 0);
-  const deduction = (codes: string[]) => (p: OraclePriorPeriod) =>
-    amounts(p, x => x.type === 'deduction' && codes.includes(x.code));
-  const sdlPay = (p: OraclePriorPeriod) => amounts(p, x => x.type === 'earning' && x.sdl);
-  const share = (p: OraclePriorPeriod) => (employee
-    ? periodShareOf(p.frequency, { start: p.periodStart, end: priorEnd(p) }, employee.startDate, employee.endDate) : 1);
-  return {
-    // A weekly or fortnightly prior counts the share of its period worked (FQc: a starter's 3 of 7 days = 0.4285).
-    periods: priors.filter(p => p.periodicTaxable > 0).reduce((t, p) => t + share(p), 0),
-    retirementCapPeriods: priors.reduce((t, p) => t + (p.periodicTaxable > 0 ? share(p) : p.annualPayments > 0 ? 1 : 0), 0),
-    periodicTaxable: sumOf(priors.map(p => p.periodicTaxable)),
-    annualPayments: sumOf(priors.map(p => p.annualPayments)),
-    tablePaye: sumOf(priors.map(p => p.paye)),
-    medicalCredit: sumOf(priors.map(p => p.medicalCredit)),
-    additionalMedicalCredit: 0,
-    medicalSchemeFees: sumOf(priors.map(deduction(['4005']))),
-    retirementContributions: sumOf(priors.map(deduction(RETIREMENT_CODES))),
-    retirementDeduction: sumOf(priors.map(p => p.retirementDeduction)),
-    donations: sumOf(priors.map(p => amounts(p, x => x.type === 'deduction' && x.code === '4030' && x.taxable))),
-    donationReceipted: 0,
-    donationBase: 0,
-    donationDeduction: 0,
-    sdlApplicable: sumOf(priors.map(sdlPay)),
-    sdlLeviable: sumOf(priors.map(p => Math.max(0, sdlPay(p) - p.retirementDeduction))),
-    sdlRetirementDeduction: sumOf(priors.map(p => p.retirementDeduction)),
-    sdlDonationDeduction: 0,
-  };
-}
+export { priorYearToDate };
