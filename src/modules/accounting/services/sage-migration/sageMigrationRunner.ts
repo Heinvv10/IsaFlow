@@ -25,7 +25,7 @@ import { keyFor, planBatches, sendBatch, type PlannedBatches, type Send } from '
 import { ownershipProblem } from './sageOwnership';
 import { recordSent, settleCommitted, stoppedBatches, unconfirmedBatch, verified, verifiedCategories, verifiedItems, type Sent } from './sageVerify';
 import { MigrationStopped } from './sageMigrationStopped';
-import { BatchKeyHeldError, CommitUnconfirmedError, DryRollbackUnconfirmedError, LockWaitError, LostBeforeCommitError, StatementTimeoutError } from './sageToolSession';
+import { BatchKeyHeldError, CommitRefusedError, CommitUnconfirmedError, ConnectionLostError, DryRollbackUnconfirmedError, LockWaitError, LostBeforeCommitError, StatementTimeoutError } from './sageToolSession';
 import { budgetWouldHaveFailed } from './sageBudgetReport';
 import { differencesFrom } from './sageDifferences';
 import { buildLineLinks } from './sageLineLinks';
@@ -125,7 +125,8 @@ async function livePhase(pool: Pool, o: MigrationOptions, list: Send[], before: 
       if (err instanceof CommitUnconfirmedError) b = unconfirmedBatch(b, err.result as BatchReport | undefined, err.connectionLost);
       // Lost before its COMMIT was sent, its key held by another session, or a lock wait that timed out (R25-3): failed, nothing written;
       // the run still stops here (below): the connection went away, or every later batch would queue on the same holder.
-      if (err instanceof LostBeforeCommitError || err instanceof BatchKeyHeldError || err instanceof LockWaitError || err instanceof StatementTimeoutError) stopHere = true;
+      // A COMMIT the server refused (B28-2) is failed, nothing written, too; the run stops: its cause (a cancel, a constraint) would recur.
+      if (err instanceof LostBeforeCommitError || err instanceof BatchKeyHeldError || err instanceof LockWaitError || err instanceof StatementTimeoutError || err instanceof CommitRefusedError) stopHere = true;
     }
     p.batches.push(b);
     if (b.status === 'failed') p.failed++;
@@ -151,7 +152,9 @@ async function settled(committed: BatchReport[], all: PlannedBatches, read: () =
   try { snapshot = await read(); } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.warn('sage migration: the books could not be read to check the committed batches', { message }, 'sage-migration');
-    return { committed, unchecked: message };
+    // Only why the READ failed: never the read's own "nothing of it was written", which would read as said of the batches (B28-6).
+    const cause = err instanceof ConnectionLostError ? (err.cause instanceof Error ? err.cause.message : String(err.cause)) : message;
+    return { committed, unchecked: err instanceof ConnectionLostError ? `${err.how === 'no-connection' ? 'no connection could be had' : 'its connection was lost'}: ${cause}` : message };
   }
   return { committed: settleCommitted(committed, all, snapshot) };
 }

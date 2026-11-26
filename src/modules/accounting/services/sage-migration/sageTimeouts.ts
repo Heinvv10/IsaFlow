@@ -14,8 +14,10 @@ export const SAGE_LOCK_TIMEOUT_MS = 10_000;
  */
 export const SAGE_STATEMENT_TIMEOUT_MS = 60_000;
 /**
- * How long a COMMIT may take to answer (R26-8): above the statement timeout (which applies to a COMMIT too) and below the client
- * query_timeout, so on the CLI's pool THIS bound is the one that fires on a COMMIT ("COMMIT did not answer within 70000ms": unconfirmed).
+ * How long a COMMIT may take to answer (R26-8): above the statement timeout and below the client query_timeout, so on the CLI's pool THIS
+ * bound is the one that fires on a COMMIT ("COMMIT did not answer within 70000ms": unconfirmed). It is also the ONLY bound on a COMMIT's
+ * deferred work (B28-2): PostgreSQL runs deferred triggers and constraints after the statement timer is off, so statement_timeout never
+ * cancels them.
  */
 export const SAGE_COMMIT_TIMEOUT_MS = 70_000;
 export const SAGE_QUERY_TIMEOUT_MS = 75_000;

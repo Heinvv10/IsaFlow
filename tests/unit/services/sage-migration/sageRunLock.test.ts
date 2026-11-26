@@ -59,7 +59,7 @@ describe('acquireRunLock', () => {
   });
   it('a failed lock query destroys the connection and throws that error', async () => {
     const { pool, client } = fakePool({ lockThrows: true });
-    await expect(acquireRunLock(pool, A)).rejects.toThrow('lock query failed');
+    await expect(acquireRunLock(pool, A)).rejects.toThrow('the run lock could not be taken (lock query failed): nothing was written; its backend pid 5150 may hold the run lock until the server drops that connection: if a re-run is refused as running, SELECT pg_terminate_backend(5150)'); // B28-6
     expect(client.release).toHaveBeenCalledWith(expect.objectContaining({ message: 'lock query failed' }));
   });
   it('an unlock that fails destroys the connection (which drops the lock) instead of pooling it with the lock on', async () => {

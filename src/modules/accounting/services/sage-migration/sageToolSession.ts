@@ -15,14 +15,14 @@ import { isActiveUserAccount } from '@/lib/auth/userAccountStatus';
 import { mcpRegistry } from '@/lib/mcp/toolIndex';
 import { rollbackError } from '@/lib/rollbackFailed';
 import type { McpToolContext } from '@/lib/mcp/types';
-import { CommitUnconfirmedError, ConnectionLostError, DryRollbackUnconfirmedError, LockWaitError, LostBeforeCommitError, StatementTimeoutError, type LockHolder } from './sageSessionErrors';
+import { CommitRefusedError, CommitUnconfirmedError, commitRefusedByServer, ConnectionLostError, DryRollbackUnconfirmedError, LockWaitError, LostBeforeCommitError, StatementTimeoutError, type LockHolder } from './sageSessionErrors';
 import { idempotencyLockText, takeKeyLockNow } from './sageKeyLock';
 import { watchWaits } from './sageWaitWatch';
 import { SAGE_COMMIT_TIMEOUT_MS, SAGE_LOCK_TIMEOUT_MS, SAGE_STATEMENT_TIMEOUT_MS } from './sageTimeouts';
 
 export { SAGE_CONNECT_TIMEOUT_MS, SAGE_KEEPALIVE_INITIAL_DELAY_MS, SAGE_LOCK_TIMEOUT_MS, SAGE_QUERY_TIMEOUT_MS, SAGE_STATEMENT_TIMEOUT_MS, sagePoolConfig } from './sageTimeouts';
 
-export { BatchKeyHeldError, CommitUnconfirmedError, ConnectionLostError, DryRollbackUnconfirmedError, LockWaitError, LostBeforeCommitError, StatementTimeoutError } from './sageSessionErrors';
+export { BatchKeyHeldError, CommitRefusedError, CommitUnconfirmedError, ConnectionLostError, DryRollbackUnconfirmedError, LockWaitError, LostBeforeCommitError, StatementTimeoutError } from './sageSessionErrors';
 
 export const MIGRATION_SCOPES = ['read:items', 'write:items', 'read:invoices', 'write:invoices', 'read:contacts'];
 
@@ -68,7 +68,7 @@ const connectionEnded = (err: unknown): boolean => {
 };
 
 /** What a request already said of itself (a loss, an unconfirmed COMMIT or ROLLBACK, a stall): it stands, never re-worded. */
-const SAID = [ConnectionLostError, LostBeforeCommitError, CommitUnconfirmedError, LockWaitError, StatementTimeoutError, DryRollbackUnconfirmedError];
+const SAID = [ConnectionLostError, LostBeforeCommitError, CommitRefusedError, CommitUnconfirmedError, LockWaitError, StatementTimeoutError, DryRollbackUnconfirmedError];
 const said = (err: unknown): boolean => SAID.some((k) => err instanceof k);
 
 const WRITE_TOOLS = new Set(mcpRegistry.listTools().filter((t) => t.write).map((t) => t.name));
@@ -244,6 +244,8 @@ export async function withToolSession<T>(
     } catch (err) {
       // A backend killed DURING the COMMIT rejects it with a FATAL (57P01-03) before the client emits 'error' (R20-2): lost too.
       if (lost === null && connectionEnded(err)) [lost, lostBy] = [err as Error, 'ended'];
+      // The server ANSWERED it with an ERROR (57014, a deferred constraint...): rolled back, nothing written (B28-2). Not "may still land".
+      if (lost === null && commitRefusedByServer(err)) throw new CommitRefusedError(err);
       throw new CommitUnconfirmedError(err instanceof Error ? err.message : String(err), result, lost !== null);
     } finally {
       clearTimeout(commitTimer);

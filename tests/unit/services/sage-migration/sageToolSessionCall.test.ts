@@ -20,7 +20,7 @@ vi.mock('@/lib/rollbackFailed', () => {
 });
 
 import { EventEmitter } from 'node:events';
-import { CommitUnconfirmedError, ConnectionLostError, DryRollbackUnconfirmedError, LostBeforeCommitError, withToolSession } from '@/modules/accounting/services/sage-migration/sageToolSession';
+import { CommitUnconfirmedError, ConnectionLostError, DryRollbackUnconfirmedError, LostBeforeCommitError, withToolSession, CommitRefusedError } from '@/modules/accounting/services/sage-migration/sageToolSession';
 
 const sent: string[] = [];
 const pool = { connect: async () => Object.assign(new EventEmitter(), { query: async (text: string) => { sent.push(text); return { rows: [] }; }, release: () => undefined }) } as never;
@@ -173,13 +173,19 @@ const notLost = () => [
 ];
 
 describe('R21-1: the classifier\'s negative side', () => {
-  it('a COMMIT rejected for any of these is unconfirmed but NOT connectionLost', async () => {
+  it('a COMMIT rejected for any of these is never connectionLost: a server ERROR (a SQLSTATE that leaves the connection up) is a refusal, rolled back (B28-2); the rest unconfirmed', async () => {
     for (const e of notLost()) {
       const client = Object.assign(new EventEmitter(), { query: async (text: string) => { if (text === 'COMMIT') throw e; return { rows: [] }; }, release: vi.fn() });
       registry.call.mockResolvedValueOnce(ok('{"created":1}'));
       const err = await withToolSession({ connect: async () => client } as never, 'c1', 'u1', true, (x) => x.call('w', { idempotency_key: 'k' })).then(() => null, (r: unknown) => r);
-      expect(err, e.message).toBeInstanceOf(CommitUnconfirmedError);
-      expect((err as CommitUnconfirmedError).connectionLost, e.message).toBe(false);
+      const code = (e as { code?: unknown }).code;
+      if (typeof code === 'string' && code !== '08006') {
+        expect(err, e.message).toBeInstanceOf(CommitRefusedError);
+        expect((err as Error).message, e.message).toBe(`the server refused the COMMIT (${code}: ${e.message}): the transaction was rolled back, nothing of it was written`);
+      } else {
+        expect(err, e.message).toBeInstanceOf(CommitUnconfirmedError);
+        expect((err as CommitUnconfirmedError).connectionLost, e.message).toBe(false);
+      }
     }
   });
   it('a request that commits nothing failing with any of these: thrown as it is, never ConnectionLostError', async () => {

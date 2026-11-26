@@ -29,7 +29,7 @@ vi.mock('@/lib/logger', () => ({ log: { warn: vi.fn(), error: vi.fn(), info: vi.
 
 import { EventEmitter } from 'node:events';
 import { setRollbackBoundForTests } from '@/lib/rollbackFailed';
-import { LockWaitError, LostBeforeCommitError, StatementTimeoutError, withToolSession } from '@/modules/accounting/services/sage-migration/sageToolSession';
+import { CommitRefusedError, CommitUnconfirmedError, LockWaitError, LostBeforeCommitError, StatementTimeoutError, withToolSession } from '@/modules/accounting/services/sage-migration/sageToolSession';
 
 const toolQuery = (text: string) => als.ctx!.client.query(text);
 const clientOf = (answer: (text: string) => unknown) => {
@@ -118,5 +118,25 @@ describe('R27-8: a live loss by a client read timeout, before the COMMIT', () =>
     const client = clientOf((t) => (t === 'SELECT stuck' ? new Error('Query read timeout') : undefined));
     const err = await withToolSession(poolOf(client), 'c1', 'u1', true, async () => { await toolQuery('SELECT stuck'); }).then(() => null, (e: unknown) => e);
     expect((err as LostBeforeCommitError).heldBy).toEqual({ pid: 51 });
+  });
+});
+
+describe('R28-8 / B28-2: a 57014 raised BY the COMMIT of a live request', () => {
+  for (const [what, text] of [['English', 'canceling statement due to user request'], ['German', 'storniere Anfrage wegen Benutzeraufforderung']] as const) {
+    it(`(${what}) is a refusal, rolled back: CommitRefusedError, never a stall or "nothing written" before it, never unconfirmed`, async () => {
+      registry.call.mockResolvedValueOnce({ content: [{ type: 'text', text: '{"created":1}' }] });
+      const client = clientOf((t) => (t === 'COMMIT' ? pgError('57014', text) : undefined));
+      const err = await withToolSession(poolOf(client), 'c1', 'u1', true, (s) => s.call('w', { idempotency_key: 'k' })).then(() => null, (e: unknown) => e);
+      expect(err).toBeInstanceOf(CommitRefusedError);
+      expect(err).not.toBeInstanceOf(StatementTimeoutError);
+      expect(err).not.toBeInstanceOf(CommitUnconfirmedError);
+      expect((err as Error).message).toBe(`the server refused the COMMIT (57014: ${text}): the transaction was rolled back, nothing of it was written`);
+    });
+  }
+  it('a COMMIT that never answered stays unconfirmed (it may still land)', async () => {
+    registry.call.mockResolvedValueOnce({ content: [{ type: 'text', text: '{"created":1}' }] });
+    const client = clientOf((t) => (t === 'COMMIT' ? new Error('COMMIT did not answer within 70000ms') : undefined));
+    const err = await withToolSession(poolOf(client), 'c1', 'u1', true, (s) => s.call('w', { idempotency_key: 'k' })).then(() => null, (e: unknown) => e);
+    expect(err).toBeInstanceOf(CommitUnconfirmedError);
   });
 });

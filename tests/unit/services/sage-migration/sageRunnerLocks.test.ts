@@ -23,6 +23,7 @@ const h = vi.hoisted(() => ({
   sessions: [] as Array<{ commit: boolean; wrote: boolean; notice: unknown }>,
   lockNotice: undefined as unknown, // what the run lock was given to say a wait with (R27-6)
   failReadsAfterLive: false, // the books cannot be read once a live batch was sent (the stop's re-check fails)
+  commitRefusedAt: null as string | null, // "<entity> live": the server refuses that batch's COMMIT (B28-2)
 }));
 vi.mock('@/modules/accounting/services/sage-migration/localGuard', () => ({ assertLocalDatabase: () => undefined, assertLocalPool: () => undefined }));
 vi.mock('@/modules/accounting/services/sage-migration/sageRunLock', () => ({ acquireRunLock: async (_p: unknown, _c: unknown, notice?: unknown) => { h.lockNotice = notice; return { check: async () => undefined, unlock: async () => h.unlockWarning }; } }));
@@ -32,7 +33,7 @@ vi.mock('@/modules/accounting/services/sage-migration/sageToolSession', async ()
     ...real,
     withToolSession: async (_p: unknown, _c: unknown, _u: unknown, commit: boolean, fn: (s: unknown) => unknown, o?: { wrote?: boolean; onNotice?: unknown }) => {
       h.sessions.push({ commit, wrote: o?.wrote === true, notice: o?.onNotice });
-      if (!commit && o?.wrote !== true && h.failReadsAfterLive && h.sent.some((x) => x.endsWith('live'))) throw new Error('Connection terminated due to connection timeout');
+      if (!commit && o?.wrote !== true && h.failReadsAfterLive && h.sent.some((x) => x.endsWith('live'))) throw new real.ConnectionLostError(new Error('Connection terminated due to connection timeout'), 'no-connection');
       const timedOut = () => new real.StatementTimeoutError(new Error('canceling statement due to statement timeout'), commit ? 'live' : 'dry', 60_000);
       const stall = () => (h.lockWaitAt !== null && h.sent.at(-1) === h.lockWaitAt ? new real.LockWaitError(new Error('canceling statement due to lock timeout'), { pid: 606, state: 'idle in transaction' }, 'dry')
         : h.stmtAt !== null && h.sent.at(-1) === h.stmtAt && !commit ? timedOut() : null);
@@ -41,6 +42,7 @@ vi.mock('@/modules/accounting/services/sage-migration/sageToolSession', async ()
       const r = await fn({ companyId: 'c', stall, call: async () => ({ isError: false, text: '{}', body: {} }) });
       if (!commit && o?.wrote === true && h.dryHeldError === 'held-with-lockstop') throw new real.DryRollbackUnconfirmedError(new Error('ROLLBACK did not answer'), 1, r);
       if (commit && h.stmtAt !== null && h.sent.at(-1) === h.stmtAt) throw timedOut();
+      if (commit && h.commitRefusedAt !== null && h.sent.at(-1) === h.commitRefusedAt) throw new real.CommitRefusedError(Object.assign(new Error('canceling statement due to user request'), { code: '57014' }));
       if (commit && h.liveLockWaitAt !== null && h.sent.at(-1) === h.liveLockWaitAt) throw new real.LockWaitError(new Error('canceling statement due to lock timeout'), { pid: 707, state: 'active', app: 'psql' }, 'live');
       return r;
     },
@@ -80,7 +82,19 @@ const parsed = () => parseSageExport({ Items: [
 ] });
 const run = (over: Record<string, unknown> = {}) => runSageMigration({ options: { max: 4 } } as never, parsed(), { companyId: 'c', userId: 'u', live: true, expect: { items: 2, purchaseOrders: 0 }, ...over });
 const live = () => h.sent.filter((x) => x.endsWith('live'));
-beforeEach(() => { h.sent.length = 0; h.held = null; h.lockWaitAt = null; h.liveLockWaitAt = null; h.dryHeldError = null; h.unlockWarning = null; h.stmtAt = null; h.callStall = null; h.failReadsAfterLive = false; h.sessions.length = 0; });
+beforeEach(() => { h.sent.length = 0; h.held = null; h.lockWaitAt = null; h.liveLockWaitAt = null; h.dryHeldError = null; h.unlockWarning = null; h.stmtAt = null; h.callStall = null; h.failReadsAfterLive = false; h.commitRefusedAt = null; h.sessions.length = 0; });
+
+describe('B28-2: a COMMIT the server refused', () => {
+  it('is failed, nothing written, and the run stops there (exit 4); never "commit unconfirmed" or "may still land"', async () => {
+    h.commitRefusedAt = 'category live';
+    const err = await run().then(() => null, (e: unknown) => e) as InstanceType<typeof MigrationStopped>;
+    expect(err).toBeInstanceOf(MigrationStopped);
+    expect(err.batches.failed).toEqual([expect.objectContaining({ entity: 'category', n: 1, status: 'failed', error: 'the server refused the COMMIT (57014: canceling statement due to user request): the transaction was rolled back, nothing of it was written' })]);
+    expect(err.committed.filter((b) => b.commitUnconfirmed)).toEqual([]);
+    expect(err.message).not.toMatch(/may still land|did not answer/);
+    expect(live()).toEqual(['category live']);
+  });
+});
 
 describe('R27 wording: the books read after a stop fails', () => {
   it('the stop carries why, so the committed list is said not re-checked; a read that works carries nothing', async () => {
@@ -88,7 +102,8 @@ describe('R27 wording: the books read after a stop fails', () => {
     h.failReadsAfterLive = true;
     let err = await run().then(() => null, (e: unknown) => e) as InstanceType<typeof MigrationStopped>;
     expect(err).toBeInstanceOf(MigrationStopped);
-    expect(err.batches.booksNotRechecked).toBe('Connection terminated due to connection timeout');
+    // B28-6: why the READ failed, never the read's own "nothing was sent, so nothing of it was written"
+    expect(err.batches.booksNotRechecked).toBe('no connection could be had: Connection terminated due to connection timeout');
     expect(err.message).toMatch(/^category batch 1 .* failed: a lock it needs/); // the stop's own reason, not the read
     h.failReadsAfterLive = false;
     h.sent.length = 0;

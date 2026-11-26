@@ -12,6 +12,18 @@ import { log } from '@/lib/logger';
 
 export class RunInProgressError extends Error {}
 
+/**
+ * Taking the run lock failed on its own connection (B28-6): its try-lock (or the session setting after it) did not answer or failed.
+ * Nothing was written. On a half-open link the try-lock may still have been GRANTED server-side, so its backend (`pid`) may hold the run
+ * lock until the server drops that connection; a re-run is then refused as running, naming that pid.
+ */
+export class RunLockNotTakenError extends Error {
+  constructor(cause: Error, readonly pid: number | undefined) {
+    super(`the run lock could not be taken (${cause.message}): nothing was written; ${pid === undefined ? 'its backend pid is unknown' : `its backend pid ${pid} may hold the run lock until the server drops that connection: if a re-run is refused as running, SELECT pg_terminate_backend(${pid})`}`, { cause });
+    this.name = 'RunLockNotTakenError';
+  }
+}
+
 const int32 = (text: string): number => createHash('sha256').update(text).digest().readInt32BE(0);
 
 /** The two int4 keys of the company's lock (pg_try_advisory_lock(int4, int4)). */
@@ -63,6 +75,8 @@ async function takeRunLock(pool: Pool, companyId: string, watched: <T>(run: () =
   let lost: Error | undefined;
   const onError = (err: Error) => { lost = err; };
   client.on('error', onError);
+  const processID: unknown = (client as unknown as { processID?: unknown }).processID;
+  const pid = typeof processID === 'number' ? processID : undefined;
   let failure: Error | undefined;
   let gotLock = false;
   try {
@@ -89,7 +103,8 @@ async function takeRunLock(pool: Pool, companyId: string, watched: <T>(run: () =
     client.removeListener('error', onError);
     client.release(failure ?? lookupFailure);
     const who = holder === undefined ? 'its holder\'s backend pid unknown' : `held by backend pid ${holder}; if no run is running, that is a dead run's connection: SELECT pg_terminate_backend(${holder})`;
-    throw failure ?? new RunInProgressError(`another Sage migration is running for this company (${companyId}; ${who}): wait for it to finish, then run again; nothing was written`);
+    if (failure) throw new RunLockNotTakenError(failure, pid);
+    throw new RunInProgressError(`another Sage migration is running for this company (${companyId}; ${who}): wait for it to finish, then run again; nothing was written`);
   }
   // The server may end an idle session (idle_session_timeout, set per role or database): this one idles for the whole run, so for this
   // session only it is off. A failure here is a failure of the connection like any other.
@@ -99,7 +114,7 @@ async function takeRunLock(pool: Pool, companyId: string, watched: <T>(run: () =
     failure = err instanceof Error ? err : new Error(String(err));
     client.removeListener('error', onError);
     client.release(failure);
-    throw failure;
+    throw new RunLockNotTakenError(failure, pid);
   }
   /** A query on the lock connection that gives up after CHECK_TIMEOUT_MS: a half-open connection never answers and never errors. */
   const bounded = async <T,>(run: () => Promise<T>): Promise<T> => {
@@ -127,7 +142,6 @@ async function takeRunLock(pool: Pool, companyId: string, watched: <T>(run: () =
   };
   const keepalive = setInterval(() => { check().catch(() => undefined); }, KEEPALIVE_MS); // a failed ping records the loss (check() sets it)
   keepalive.unref();
-  const processID: unknown = (client as unknown as { processID?: unknown }).processID;
   const unlock = async (): Promise<string | null> => {
     clearInterval(keepalive);
     let unlockFailure: Error | undefined = lost;

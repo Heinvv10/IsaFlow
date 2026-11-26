@@ -20,6 +20,27 @@ export type { LockHolder } from './sageLockHolder';
 const text = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
 /**
+ * The server ANSWERED the COMMIT with an error (B28-2): a cancel (57014), a deferred constraint or trigger that failed (23xxx, P0001),
+ * a serialization failure... An ERROR in reply to COMMIT means the server aborted the transaction: nothing of it was written, and it
+ * cannot land later. Only an error that ends or may end the connection (class 08, 57P, 58, XX, a FATAL like 25P03) is not this: such a
+ * COMMIT stays unconfirmed. `code` is the SQLSTATE.
+ */
+export class CommitRefusedError extends Error {
+  readonly code: string;
+  constructor(cause: unknown) {
+    const code = String((cause as { code?: unknown }).code);
+    super(`the server refused the COMMIT (${code}: ${text(cause)}): the transaction was rolled back, nothing of it was written`, { cause });
+    this.code = code;
+    this.name = 'CommitRefusedError';
+  }
+}
+/** An error the server sent in reply to a COMMIT that leaves the connection up: an ERROR, so the transaction was rolled back. */
+export const commitRefusedByServer = (err: unknown): boolean => {
+  const code = typeof err === 'object' && err !== null ? (err as { code?: unknown }).code : undefined;
+  return typeof code === 'string' && /^[0-9A-Z]{5}$/.test(code) && !/^(08|57P|58|XX)/.test(code) && code !== '25P03';
+};
+
+/**
  * The connection of a committing request was lost BEFORE its COMMIT was sent (round 22, the structural rule): pg marks such a client not
  * queryable, so no COMMIT can reach the server, and the transaction is never committed. The batch FAILED and nothing of it was written,
  * whatever the tool answered (its answer is not needed to say so). `cause` is the error the loss came with. `heldBy` (R27-8): the loss was
