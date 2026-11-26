@@ -29,15 +29,17 @@ export interface PortalDetails {
 }
 
 /**
- * Degrade only when the database cannot answer (breaker #1932 round 2): no MIGRATION_ADMIN_DATABASE_URL, a connection
- * failure or timeout, or a Postgres error (a SQLSTATE: five characters, digits and capitals). Anything else is a
- * defect and is rethrown.
+ * Degrade only when the database cannot answer (breaker #1932 round 2, review of 3485068fe0): no
+ * MIGRATION_ADMIN_DATABASE_URL, a named socket failure, a pool connect timeout, a terminated connection, or a SQLSTATE in
+ * the outage classes: 08 connection exception, 28 invalid authorization, 53 insufficient resources, 57 operator
+ * intervention (57P01-57P03 shutdown / cannot connect now), 58 system error. Every other SQLSTATE (42 grant / RLS /
+ * schema drift, 22 data, 23 constraint, XX internal) and every other code is a defect and is rethrown.
  */
 const CONNECTION_CODES = new Set(['ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'ENOTFOUND', 'EHOSTUNREACH', 'EPIPE']);
 export function isBankReadUnavailable(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
   const code = (err as { code?: unknown }).code;
-  if (typeof code === 'string' && (/^[0-9A-Z]{5}$/.test(code) || CONNECTION_CODES.has(code))) return true;
+  if (typeof code === 'string' && (/^(08|28|53|57|58)[0-9A-Z]{3}$/.test(code) || CONNECTION_CODES.has(code))) return true;
   return /MIGRATION_ADMIN_DATABASE_URL required|timeout exceeded when trying to connect|Connection terminated/.test(err.message);
 }
 

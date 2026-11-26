@@ -31,7 +31,8 @@ describe('readPortalDetails', () => {
 
   it.each([
     ['the URL is unset', new Error('MIGRATION_ADMIN_DATABASE_URL required: credential, membership and portal writes (S-07b/c/d)')],
-    ['the query fails quoting a value', Object.assign(new Error('value "62000123456" violates something'), { name: 'DatabaseError', code: '23514' })],
+    ['the connection breaks mid-query (08006), its message quoting a value', Object.assign(new Error('value "62000123456" lost: connection failure'), { name: 'DatabaseError', code: '08006' })],
+    ['the server cannot accept connections now (57P03)', Object.assign(new Error('the database system is starting up'), { name: 'DatabaseError', code: '57P03' })],
     ['the connection is refused', Object.assign(new Error('connect ECONNREFUSED 127.0.0.1:5432'), { code: 'ECONNREFUSED' })],
     ['the pool times out', new Error('timeout exceeded when trying to connect')],
   ])('when %s: the address still shows, the bank is unavailable, the log holds ids only', async (_what, err) => {
@@ -43,6 +44,18 @@ describe('readPortalDetails', () => {
     const logged = JSON.stringify(m.warn.mock.calls[0]);
     expect(logged).toContain('emp-1');
     for (const leak of ['Kingfisher', '0028', '62000123456', 'required']) expect(logged).not.toContain(leak);
+  });
+
+  it.each([
+    ['42703 undefined column (schema drift)', Object.assign(new Error('column "x" does not exist'), { name: 'DatabaseError', code: '42703' })],
+    ['42P01 undefined table', Object.assign(new Error('relation "payroll_bank_details" does not exist'), { name: 'DatabaseError', code: '42P01' })],
+    ['42501 grant / RLS drift', Object.assign(new Error('permission denied for table payroll_bank_details'), { name: 'DatabaseError', code: '42501' })],
+    ['23514 a constraint', Object.assign(new Error('check violated'), { name: 'DatabaseError', code: '23514' })],
+    ['EPERM (a five-letter code, not a socket failure)', Object.assign(new Error('operation not permitted'), { code: 'EPERM' })],
+  ])('%s is a defect, not an outage: rethrown, nothing logged', async (_what, err) => {
+    m.tx.mockRejectedValue(err);
+    await expect(readPortalDetails('co-A', 'emp-1')).rejects.toBe(err);
+    expect(m.warn).not.toHaveBeenCalled();
   });
 
   it('a defect in the bank read (a TypeError) is not hidden: it is rethrown, so the request 500s', async () => {
