@@ -14,7 +14,8 @@
  * --report must name a path that does not exist: once the arguments are checked and the export is read, the run creates it and writes only
  * that file, through its held descriptor (scripts/sage-migration/runReport.ts). SIGINT / SIGTERM / SIGHUP stop the run before its next
  * batch (in the dry run exit 2, nothing written; once the live phase started exit 4, a stop report in --report); a second one, an uncaught
- * error or an unhandled rejection ends it at once with a stop report of what is known (scripts/sage-migration/runState.ts). A closed
+ * error or an unhandled rejection ends it at once with a stop report of what is known (scripts/sage-migration/runEnd.ts: no batch and no
+ * request after it). A closed
  * stdout or stderr (EPIPE) is no longer written and never ends the run. Named limits: SIGHUP is handled like SIGTERM, so `nohup` does
  * not keep a run going after a hangup (it stops before its next batch; run it under tmux / screen / systemd-run instead) (R19-2); an
  * exit-4 summary goes to stderr only, so with stderr closed and no --report the committed list reaches nobody: give --report (R19-7).
