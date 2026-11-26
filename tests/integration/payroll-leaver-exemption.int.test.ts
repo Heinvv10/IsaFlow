@@ -147,16 +147,23 @@ describe(`1-3: the leaver exemption is the band only (TZ=${process.env.TZ ?? 'un
   const flaggedEnding = (l: Awaited<ReturnType<typeof line>>, date: string) =>
     l.flags.some(f => f.code === 'RECURRING_NEEDS_PRO_RATA' && f.message.includes(`ends on ${date}`));
 
-  it('ending on the end date but followed by a live recurring row: one salary, and the skipped row is flagged', async () => {
+  // W29 review #1901 round 3 (coordinator decision, wave-7 rulings): a recurring earning starting after the employee's last day
+  // is not paid and is flagged (edge after_end), so approval is refused naming it; it double-paid a leaver (REPRO 9). Here the
+  // successor starts on the 29th, after the 28 March last day: neither row is paid, both are flagged.
+  const flaggedAfterEnd = (l: Awaited<ReturnType<typeof line>>, date: string) =>
+    l.flags.some(f => f.code === 'RECURRING_NEEDS_PRO_RATA' && f.message.includes(`starts on ${date}, after the employee's last day`));
+  it('ending on the end date but followed by a live recurring row: the skipped row and the after-the-last-day row are flagged, neither paid', async () => {
     const superseded = await line(march, 'superseded');
-    expect(superseded.paid).toEqual([['Basic Salary', 23000]]);
+    expect(superseded.paid).toEqual([]);
+    expect(flaggedAfterEnd(superseded, '2026-03-29')).toBe(true);
     expect(flaggedEnding(superseded, '2026-03-28')).toBe(true);
     // A superseded row cannot be edited (Edit dates refuses it): the flag says to use End.
     expect(superseded.flags.find(f => f.code === 'RECURRING_NEEDS_PRO_RATA')?.message).toMatch(/\bEnd\b/);
     expect(superseded.flags.find(f => f.code === 'RECURRING_NEEDS_PRO_RATA')?.message).not.toMatch(/Edit dates/);
     const successor = await line(march, 'successor');
-    expect(successor.paid).toEqual([['Basic Salary', 23000]]);
+    expect(successor.paid).toEqual([]);
     expect(flaggedEnding(successor, '2026-03-28')).toBe(true);
+    expect(flaggedAfterEnd(successor, '2026-03-29')).toBe(true);
   });
 
   it('a once-off on the 31st is not a successor: the 30 March leaver is paid in full plus the arrears, not flagged', async () => {
@@ -237,11 +244,15 @@ describe('4-6', () => {
 });
 
 describe('1: the paid-month rule uses the band too', () => {
-  it('March paid: ending the 10-March leaver\'s salary a day earlier changes nothing March read, so it is allowed', async () => {
+  it('March paid: ending the 10-March leaver\'s salary a day earlier is refused: the row would end inside employment and be paid its share', async () => {
     // As an approved March leaves it (the pro-rata flags above keep this fixture's run from approving through the gate).
     await pool.query("UPDATE payroll_run_headers SET status = 'approved' WHERE id = $1", [march]);
+    // W29 (wave 7 PRA, rulings 7, 19): ending on the 9th, before the 10 March last day, the row ends strictly inside
+    // employment, so a run of version 21+ pays it 9 days' share (payrollRecurringShare) where March paid it otherwise:
+    // the move changes what the paid month paid (payrollComponentPaidMonths.shareDateMoved), so it is refused.
     const out = await call(components as Route, 'DELETE', `/api/payroll/employees/${emp.end10}/components?aid=${row.end10Salary}`, emp.end10,
       { body: { effectiveTo: '2026-03-09' }, query: { aid: row.end10Salary! } });
-    expect(out.statusCode, JSON.stringify(out.body)).toBe(200);
+    expect(out.statusCode, JSON.stringify(out.body)).toBe(400);
+    expect(out.body.error?.message).toMatch(/2026-03 is already paid/);
   });
 });
