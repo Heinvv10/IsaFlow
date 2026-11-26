@@ -21,6 +21,9 @@ import AxeBuilder from '@axe-core/playwright';
 import { Api } from './_api';
 import { findOrCreateSandbox, switchApiCompany, switchBrowserCompany } from './_migrationSandbox';
 import { seedTheme, settle, THEMES } from '../helpers/themeSpec';
+import { guardDevTarget } from '../helpers/devTarget';
+
+guardDevTarget(test);
 
 const EVIDENCE_DIR = process.env.EVIDENCE_DIR;
 const SANDBOX = { name: '0GP Golden Employee Address Sandbox', onboardingId: 'c37a1e5d-2b84-4f19-9e6a-7d3b5c1f8a24' };
@@ -55,8 +58,6 @@ async function checkWidths(page: Page, name: string, theme: string, shots: Locat
 }
 
 test.beforeAll(async ({ baseURL }) => {
-  const u = new URL(baseURL!);
-  expect(u.hostname === 'localhost' && u.port !== '3101', `z37 writes payroll data: dev/CI localhost only, not ${u.host}`).toBe(true);
   const api = await Api.login(baseURL!);
   try {
     sandboxId = await findOrCreateSandbox(api, SANDBOX);
