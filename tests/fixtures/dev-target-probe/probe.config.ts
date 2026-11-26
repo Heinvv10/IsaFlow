@@ -6,7 +6,8 @@ import { defineConfig } from '@playwright/test';
 export default defineConfig({
   testDir: '.',
   testMatch: 'probe.pw.ts',
-  outputDir: path.join(os.tmpdir(), `dev-target-probe-${process.pid}`),
+  // The runner test gives a directory it removes afterwards.
+  outputDir: process.env.PROBE_OUTPUT_DIR ?? path.join(os.tmpdir(), 'dev-target-probe'),
   workers: 1,
   reporter: [['list']],
   use: { baseURL: process.env.PROBE_BASE_URL },

@@ -8,7 +8,7 @@
  * same as sending it once. Only a dropped connection is retried, and only until the budget is spent; any other error
  * and any HTTP status goes straight to the caller, so a real failure still fails the test.
  *
- * Dev and CI localhost only. Against any other host, or a production port on localhost (the post-deploy run), a
+ * Dev and CI localhost only. Against any other host (playwright-prod.config.ts runs tests/e2e at app.isaflow.co.za) a
  * reset is an outage signal, so the call runs once and fails as before. Every re-send is logged on stderr and added to
  * the test's annotations (test, error code, attempt), so a rising rate stays visible.
  *
@@ -18,7 +18,6 @@
  */
 
 import { test } from '@playwright/test';
-import { PRODUCTION_PORTS } from './devTarget';
 
 const MANIFEST_RACE = 'next-dev-manifest-race';
 const DROPPED = new RegExp(`\\b(ECONNRESET|ECONNREFUSED|EPIPE)\\b|socket hang up|${MANIFEST_RACE}`);
@@ -46,8 +45,7 @@ function running(): Running | null {
 function mayResend(ctx: Running | null): boolean {
   if (!ctx) return true;
   try {
-    const url = new URL(ctx.baseURL ?? '');
-    return LOCAL_HOSTS.has(url.hostname) && !PRODUCTION_PORTS.includes(Number(url.port || 80));
+    return LOCAL_HOSTS.has(new URL(ctx.baseURL ?? '').hostname);
   } catch {
     return false;
   }

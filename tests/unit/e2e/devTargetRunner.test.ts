@@ -3,10 +3,14 @@
  * file runs. A beforeAll guard would not do this: Playwright runs the other beforeAll and afterAll hooks after one throws.
  */
 import { execFile } from 'node:child_process';
+import { mkdtempSync, rmSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it } from 'vitest';
 
 const ROOT = path.resolve(__dirname, '../../..');
+const OUTPUT = mkdtempSync(path.join(os.tmpdir(), 'dev-target-probe-'));
+afterAll(() => rmSync(OUTPUT, { recursive: true, force: true }));
 const ALL = ['first-beforeAll', 'second-beforeAll', 'test', 'nested-beforeAll', 'nested-test', 'nested-afterAll', 'afterAll'];
 
 function probe(extra: Record<string, string>): Promise<{ code: number; out: string; ran: string[] }> {
@@ -14,7 +18,7 @@ function probe(extra: Record<string, string>): Promise<{ code: number; out: stri
   const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.includes('DATABASE_URL') && k !== 'GOLDEN_HOSTED_DB_URL'));
   return new Promise((resolve) => {
     execFile(path.join(ROOT, 'node_modules/.bin/playwright'), ['test', '-c', 'tests/fixtures/dev-target-probe/probe.config.ts'],
-      { cwd: ROOT, env: { ...env, ...extra } as NodeJS.ProcessEnv, timeout: 90_000 }, (err, stdout, stderr) => {
+      { cwd: ROOT, env: { ...env, PROBE_OUTPUT_DIR: OUTPUT, ...extra } as NodeJS.ProcessEnv, timeout: 90_000 }, (err, stdout, stderr) => {
         const out = `${stdout}${stderr}`;
         const ran = [...out.matchAll(/PROBE-RAN (\S+)/g)].map((m) => m[1]!);
         resolve({ code: err ? Number(err.code ?? 1) : 0, out, ran });
@@ -24,7 +28,8 @@ function probe(extra: Record<string, string>): Promise<{ code: number; out: stri
 
 describe('guardDevTarget in a Playwright run', () => {
   it('lets every hook and test run against a dev server', async () => {
-    const r = await probe({ PROBE_BASE_URL: 'http://localhost:3200' });
+    // Not the default port: the guard must hand on the URL it judged.
+    const r = await probe({ PROBE_BASE_URL: 'http://localhost:3457' });
     expect(r.code, r.out).toBe(0);
     expect(r.ran.sort()).toEqual([...ALL].sort());
   }, 120_000);
@@ -36,6 +41,25 @@ describe('guardDevTarget in a Playwright run', () => {
       expect(r.out).toContain('dev-target guard');
       expect(r.ran).toEqual([]);
     }, 120_000);
+
+  it.each([
+    ['a later test.use that names a production port', { PROBE_OVERRIDE_URL: 'http://localhost:3111' }, 'production port', 'overridden'],
+    ['a saved session holding a production cookie', { PROBE_COOKIE_DOMAIN: 'admin.isaflow.co.za' }, 'storageState holds a cookie', 'session'],
+  ])('refuses %s: neither its hooks nor its test run', async (_what, extra, why, name) => {
+    const r = await probe({ PROBE_BASE_URL: 'http://localhost:3200', ...extra });
+    expect(r.code).not.toBe(0);
+    expect(r.out).toContain(why);
+    expect(r.ran.filter((x) => x.startsWith(name))).toEqual([]);
+  }, 120_000);
+
+  it.each([
+    ['a later test.use on another dev port', { PROBE_OVERRIDE_URL: 'http://localhost:3458' }, 'overridden'],
+    ['a saved session of this machine', { PROBE_COOKIE_DOMAIN: 'localhost' }, 'session'],
+  ])('allows %s', async (_what, extra, name) => {
+    const r = await probe({ PROBE_BASE_URL: 'http://localhost:3200', ...extra });
+    expect(r.code, r.out).toBe(0);
+    expect(r.ran.filter((x) => x.startsWith(name)).sort()).toEqual([`${name}-beforeAll`, `${name}-test`]);
+  }, 120_000);
 
   it('runs nothing when the runner holds the production database, even against a dev server', async () => {
     const user = 'probe-user';

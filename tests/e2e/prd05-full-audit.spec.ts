@@ -19,7 +19,7 @@
  * wrong' / 'Minified React error') as a crash gate. We also assert key
  * data elements rendered (suppliers seen, claim visible, etc.).
  *
- * Uses the refreshed session in tests/e2e/.auth/prod-session.json.
+ * Uses the session auth.setup.ts saves (playwright-test.config.ts).
  * If any test fails, screenshots land in tests/e2e/screenshots/.
  */
 import { test, expect, type Page } from '@playwright/test';

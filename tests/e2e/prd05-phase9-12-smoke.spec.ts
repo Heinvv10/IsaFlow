@@ -65,7 +65,7 @@ async function csrfHeaders(request: import('@playwright/test').APIRequestContext
 }
 
 // Expense claim full lifecycle — the most complex of the four phases.
-// TODO: needs a fresh sb-access-token in tests/e2e/.auth/prod-session.json
+// TODO: needs a fresh sb-access-token in the saved session (tests/e2e/.auth/session.json)
 // (the current legacy ff_auth_token works for GETs but the auth middleware
 // refuses mutating POSTs without the Supabase JWT). Re-enable once the auth
 // setup script is updated to mint a GoTrue session.

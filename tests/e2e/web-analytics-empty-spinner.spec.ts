@@ -15,14 +15,18 @@
  *   BASE_URL=http://127.0.0.1:3200 bunx playwright test tests/e2e/web-analytics-empty-spinner.spec.ts --config playwright-standalone.config.ts
  */
 import { test, expect, type Page } from '@playwright/test';
-import { guardDevTarget } from './helpers/devTarget';
+import { devBaseUrl, guardDevTarget } from './helpers/devTarget';
 
 guardDevTarget(test);
+
+// Every port of the admin host name goes to the dev server under test: a bare MAP would send an https request to
+// 127.0.0.1:443, which on velo-server is production's nginx.
+const DEV_PORT = new URL(devBaseUrl()).port;
 
 test.use({
   launchOptions: {
     args: [
-      '--host-resolver-rules=MAP admin.isaflow.co.za 127.0.0.1',
+      `--host-resolver-rules=MAP admin.isaflow.co.za 127.0.0.1:${DEV_PORT}`,
       '--unsafely-treat-insecure-origin-as-secure=http://admin.isaflow.co.za:3457',
       '--disable-features=BlockInsecurePrivateNetworkRequests,PrivateNetworkAccessSendPreflights,LocalNetworkAccessChecks',
     ],

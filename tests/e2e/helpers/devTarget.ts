@@ -10,9 +10,17 @@
  * beforeAll and afterAll hooks after one of them throws, so a hook guard does not stop the writes. A failing baseURL
  * fixture stops every hook and test of the file (tests/unit/e2e/devTargetRunner.test.ts).
  *
- * Named limit: over HTTP a dev server cannot be asked which database it uses, so a server on a dev port that was started
- * with production's env is not detected. The *DATABASE_URL keys of the runner's own env are judged.
+ * A second, automatic fixture judges the FINAL values: a `test.use({ baseURL })` further down a file replaces the
+ * override above, and a saved session (`storageState`) holding another host's cookies would travel with a redirect (a dev
+ * server without NEXT_PUBLIC_ADMIN_URL sends /admin/* to the production admin host). `all-hooks-included` is Playwright's
+ * own (unlisted) mode that also sets the fixture up for beforeAll and afterAll hooks; the runner test pins it.
+ *
+ * Named limits: over HTTP a dev server cannot be asked which database it uses, so a server on a dev port that was started
+ * with production's env is not detected (the *DATABASE_URL keys of the runner's own env are judged). Other applications
+ * on velo-server listen inside the dev port range; they do not serve IsaFlow's API. A context a spec builds itself with
+ * its own storageState or address is judged only by the census.
  */
+import { readFileSync } from 'node:fs';
 
 /** Production on velo-server: nginx (80, 443, 3101) and the blue/green colours (3111, 3112). Judged before the range. */
 export const PRODUCTION_PORTS: readonly number[] = [80, 443, 3101, 3111, 3112];
@@ -80,7 +88,9 @@ export function assertDevOrCiDatabaseUrl(raw: string | undefined, env: Env, what
   }
   const port = Number(url.port);
   const isDev = url.hostname === DEV_DB_HOST && port === DEV_DB_PORT && database === DEV_DATABASE;
-  const isCi = env.GITHUB_ACTIONS === 'true' && APP_HOSTS.includes(url.hostname) && url.port !== '' && database === CI_DATABASE;
+  // Never on the shared stack's port: velo's own loopback 7772 is the server that holds production.
+  const isCi = env.GITHUB_ACTIONS === 'true' && APP_HOSTS.includes(url.hostname) && url.port !== '' && port !== DEV_DB_PORT
+    && database === CI_DATABASE;
   if (!isDev && !isCi) return refuse(`names ${url.hostname}:${url.port || '(default)'}/${database}, which is neither dev nor a CI database`);
   return raw;
 }
@@ -99,19 +109,56 @@ export function assertDevOrCiTarget(baseURL: string | undefined, env: Env = proc
   return url;
 }
 
+/** For the post-deploy verification, which names a production colour: only ever this machine's own. */
+export function assertOnThisMachine(raw: string, what = 'post-deploy base URL'): string {
+  let host: string;
+  try {
+    host = new URL(raw).hostname;
+  } catch {
+    throw new DevTargetError(what, 'is not a URL');
+  }
+  if (!APP_HOSTS.includes(host)) throw new DevTargetError(what, `names host "${host}", not localhost`);
+  return raw;
+}
+
+type StorageState = string | { cookies?: ReadonlyArray<{ domain: string }> } | undefined;
+
+/** A saved session may carry cookies for this machine only. A file that cannot be read is refused. */
+export function assertDevStorageState(state: StorageState): void {
+  if (state === undefined) return;
+  let cookies: ReadonlyArray<{ domain: string }>;
+  try {
+    const parsed = typeof state === 'string' ? (JSON.parse(readFileSync(state, 'utf8')) as Exclude<StorageState, string>) : state;
+    cookies = parsed?.cookies ?? [];
+  } catch (e) {
+    throw new DevTargetError('storageState', `cannot be read (${e instanceof Error ? e.message : String(e)})`);
+  }
+  const foreign = cookies.find((c) => !APP_HOSTS.includes(c.domain));
+  if (foreign) throw new DevTargetError('storageState', `holds a cookie for "${foreign.domain}", not localhost`);
+}
+
 /** For a spec or script that addresses the server itself instead of through Playwright's baseURL. */
 export function devBaseUrl(raw: string | undefined = process.env.BASE_URL): string {
   return assertDevOrCiTarget(raw || DEFAULT_DEV_BASE_URL);
 }
 
-interface BaseUrlFixtures {
+interface GuardFixtures {
   baseURL: (args: { baseURL: string | undefined }, use: (value: string) => Promise<void>) => Promise<void>;
+  _devTargetGuard: [
+    (args: { baseURL: string | undefined; storageState: StorageState }, use: () => Promise<void>) => Promise<void>,
+    { auto: 'all-hooks-included' },
+  ];
 }
 
 /** Call once, at the top level of a spec file, before any hook or test. */
 export function guardDevTarget(test: { use(fixtures: never): void }): void {
-  const fixtures: BaseUrlFixtures = {
+  const fixtures: GuardFixtures = {
     baseURL: async ({ baseURL }, use) => { await use(assertDevOrCiTarget(baseURL)); },
+    _devTargetGuard: [async ({ baseURL, storageState }, use) => {
+      assertDevOrCiTarget(baseURL);
+      assertDevStorageState(storageState);
+      await use();
+    }, { auto: 'all-hooks-included' }],
   };
   test.use(fixtures as never);
 }

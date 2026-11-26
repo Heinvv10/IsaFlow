@@ -40,9 +40,22 @@ describe('golden global setup', () => {
   it.each(['http://localhost:3101', 'http://localhost:3111', 'http://localhost:3112', 'https://app.isaflow.co.za'])(
     'outside the post-deploy run it refuses %s before any request', async (baseURL) => {
       vi.stubEnv('GOLDEN_SKIP_A11Y', '');
-      await expect(globalSetup(config(baseURL))).rejects.toThrow(/dev-target guard/);
+      vi.stubEnv('DATABASE_URL', ''); // the refusal must be the address, not the unit run's dummy database
+      await expect(globalSetup(config(baseURL))).rejects.toThrow(/base URL (names|has protocol)/);
       expect(script.asked).toEqual([]);
     });
+
+  it('outside the post-deploy run it refuses a dev server while the env holds the production database', async () => {
+    vi.stubEnv('GOLDEN_SKIP_A11Y', '');
+    vi.stubEnv('DATABASE_URL', 'postgresql://probe@100.96.203.105:7772/isaflow');
+    await expect(globalSetup(config('http://localhost:3200'))).rejects.toThrow(/neither dev nor a CI database/);
+    expect(script.asked).toEqual([]);
+  });
+
+  it.each(['https://app.isaflow.co.za', 'http://100.96.203.105:3101'])('the post-deploy run refuses %s, another host, before any request', async (baseURL) => {
+    await expect(globalSetup(config(baseURL))).rejects.toThrow(/not localhost/);
+    expect(script.asked).toEqual([]);
+  });
 
   it('THE INCIDENT: login 200, then every GET 401 at http://127.0.0.1:3101 fails as a refused session pointing at localhost, not as missing accounts', async () => {
     script.answer = (): Answer => ({ status: 401, body: { success: false, error: { code: 'UNAUTHORIZED' } } });
