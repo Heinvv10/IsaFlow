@@ -17,7 +17,7 @@ export function AdminNav() {
 
   // Inactive items take the theme's ink tokens (audit 4.4: raw grey-300/400 was pale grey on the white light-theme sidebar).
   return (
-    <aside className="w-56 flex-shrink-0 bg-white dark:bg-gray-900 border-r border-gray-300 dark:border-gray-700 flex flex-col min-h-full">
+    <aside className="max-lg:hidden w-56 flex-shrink-0 bg-white dark:bg-gray-900 border-r border-gray-300 dark:border-gray-700 flex flex-col min-h-full">
       <div className="px-4 py-4 border-b border-gray-300 dark:border-gray-700">
         <p className="text-xs font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wider">Admin Console</p>
       </div>
