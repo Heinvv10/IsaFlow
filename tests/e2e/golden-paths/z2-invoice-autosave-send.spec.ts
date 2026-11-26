@@ -19,6 +19,9 @@ import { countPuts, CUSTOMER, draft, openEdit, sandbox } from './_invoiceAutosav
 import { expectNoSeriousA11yViolations } from './helpers/axe';
 import { INVOICE_FORM_ROUTES, warmDevRoutes } from './helpers/warmDevRoutes';
 import { seedTheme, settle, THEMES } from '../helpers/themeSpec';
+import { guardDevTarget } from '../helpers/devTarget';
+
+guardDevTarget(test);
 
 const NEW = '/accounting/customer-invoices/new';
 const EDIT_KEY = '/accounting/customer-invoices/edit/[invoiceId]';

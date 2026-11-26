@@ -19,6 +19,9 @@ import AxeBuilder from '@axe-core/playwright';
 import { Api } from './_api';
 import { findOrCreateSandbox, switchBrowserCompany } from './_migrationSandbox';
 import { seedTheme, settle, THEMES } from '../helpers/themeSpec';
+import { guardDevTarget } from '../helpers/devTarget';
+
+guardDevTarget(test);
 
 const SANDBOX = { name: '0GP Golden Employee Bank Sandbox', onboardingId: '5d1b7c0e-8a2f-4e63-9b14-3c7a6f2d9e58' };
 const EVIDENCE_DIR = process.env.EVIDENCE_DIR;
@@ -53,8 +56,6 @@ async function fillEmployeeAndBank(page: Page, number: string, account: string):
 }
 
 test.beforeAll(async ({ baseURL }) => {
-  const u = new URL(baseURL!);
-  expect(u.hostname === 'localhost' && u.port !== '3101', `z5 runs only on a dev/CI localhost port, not ${u.host}`).toBe(true);
   const api = await Api.login(baseURL!);
   try {
     sandboxId = await findOrCreateSandbox(api, SANDBOX);

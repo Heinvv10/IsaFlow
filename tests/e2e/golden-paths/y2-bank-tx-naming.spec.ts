@@ -19,6 +19,9 @@ import { join } from 'path';
 import { expectNoSeriousA11yViolations, openScreen } from './helpers/axe';
 import { A11Y_SCREENS } from './helpers/a11yScreens';
 import { THEMES, seedTheme } from '../helpers/themeSpec';
+import { guardDevTarget } from '../helpers/devTarget';
+
+guardDevTarget(test);
 
 const BANK_TX = A11Y_SCREENS.find((s) => s.path === '/accounting/bank-transactions')!;
 const BANK_REC = { name: 'bank reconciliation list', path: '/accounting/bank-reconciliation', heading: 'Bank Reconciliation' };

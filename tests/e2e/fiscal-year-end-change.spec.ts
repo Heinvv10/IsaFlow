@@ -5,6 +5,9 @@
  */
 import { test, expect, type Page } from '@playwright/test';
 import { accountRow, cellCents, pickYearAndVersion, rowCell, waitForGrid } from './helpers/budgetWorkspace';
+import { guardDevTarget } from './helpers/devTarget';
+
+guardDevTarget(test);
 
 const SHOTS = process.env.FY_E2E_SHOTS
   || 'test-results/fiscal-year-end-change';

@@ -8,8 +8,8 @@
  * same as sending it once. Only a dropped connection is retried, and only until the budget is spent; any other error
  * and any HTTP status goes straight to the caller, so a real failure still fails the test.
  *
- * Dev and CI localhost only. Against any other host (playwright-prod.config.ts runs tests/e2e at app.isaflow.co.za) a
- * reset is an outage signal, so the call runs once and fails as before. Every re-send is logged on stderr and added to
+ * Localhost only, whatever the port: dev, CI, and the post-deploy run against a production colour. Against any other
+ * host a reset is an outage signal, so the call runs once and fails as before. Every re-send is logged on stderr and added to
  * the test's annotations (test, error code, attempt), so a rising rate stays visible.
  *
  * `failOnManifestRace` adds one HTTP case: `next dev` answers 500 from its own error page when it reads a build manifest

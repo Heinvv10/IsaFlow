@@ -16,6 +16,9 @@ import { switchApiCompany, switchBrowserCompany } from './_migrationSandbox';
 import { expectNoSeriousA11yViolations } from './helpers/axe';
 import { settleAnimations } from './helpers/settleAnimations';
 import { THEMES, settle } from '../helpers/themeSpec';
+import { guardDevTarget } from '../helpers/devTarget';
+
+guardDevTarget(test);
 
 const evidenceDir = process.env.RETURN_EVIDENCE_DIR;
 test.setTimeout(300_000);

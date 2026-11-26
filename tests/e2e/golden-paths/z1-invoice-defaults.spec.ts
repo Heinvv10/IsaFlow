@@ -21,6 +21,9 @@ import { addDaysISO } from '../../../src/lib/dateUtils';
 import { expectNoSeriousA11yViolations } from './helpers/axe';
 import { seedTheme, settle, THEMES } from '../helpers/themeSpec';
 import { warmInvoiceRoutes } from './helpers/warmInvoiceRoutes';
+import { guardDevTarget } from '../helpers/devTarget';
+
+guardDevTarget(test);
 
 // Fresh `next dev` compiles the saved invoice's page on Create and reloads /new under the push: see helpers/warmInvoiceRoutes.ts.
 test.beforeAll(warmInvoiceRoutes);

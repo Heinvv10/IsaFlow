@@ -1,4 +1,7 @@
 import { test, expect } from '@playwright/test';
+import { guardDevTarget } from './helpers/devTarget';
+
+guardDevTarget(test);
 
 test.describe('SARS e-Filing API routes', () => {
   for (const route of ['/api/accounting/sars/compliance-calendar', '/api/accounting/sars/irp6', '/api/accounting/sars/emp501']) {
