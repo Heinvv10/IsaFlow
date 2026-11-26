@@ -2,7 +2,10 @@
  * W29 review #1901 round 3 on real rows: the two leaver readers (the last-day reader in the band, the ended-rows reader
  * on any day) decide a leaver's own row by ONE successor predicate (payrollLeaverSuccessor), and the pro-rata guard agrees
  * with the pay. Each successor shape is set up twice, the leaver leaving on the 28th (band: the last-day reader) and on
- * the 15th (the ended-rows reader); the pay and the guard's flags are the same for both:
+ * the 15th. Option B (coordinator ruling on #1901, 2026-11-26; ruling 19; Hein 2026-11-02) reverted R2-M1: on a monthly
+ * run a leaver's own row ending before the 27th is not read, as on master, so the 15th differs from the band where the
+ * band pays the own row (GAP) or flags it as ending (NEXT): before the band it is not paid and is flagged only when another
+ * row of its component is paid that month (WANT_MID). The band shapes:
  *  - NEXT: a recurring row of the same component from the next day: the leaver row is replaced (not paid); the successor
  *    starts after the last day, so it is not paid either (coordinator decision): both flagged, approval refused;
  *  - PKG: a package cut the row (superseded_at) and wrote a once-off from the next day: the once-off is paid; the cut row
@@ -54,6 +57,13 @@ const WANT: Record<string, { gross: number; flags: string[] }> = {
   PRE953: { gross: 3000, flags: ['ends'] },
   GAP: { gross: 10000, flags: ['after_end'] },
 };
+/** Leaving on the 15th (option B): the own row is never paid; flagged as ending only beside a paid row of its component. */
+const WANT_MID: Record<string, { gross: number; flags: string[] }> = {
+  NEXT: { gross: 0, flags: ['after_end'] },
+  PKG: { gross: 3000, flags: ['ends'] },
+  PRE953: { gross: 3000, flags: ['ends'] },
+  GAP: { gross: 0, flags: ['after_end'] },
+};
 const ENDS = { band: '2026-07-28', mid: '2026-07-15' } as const;
 
 async function lineOf(run: string, num: string) {
@@ -88,11 +98,11 @@ beforeAll(async () => {
 afterAll(async () => { vi.useRealTimers(); try { await cleanPayrollCompanies(pool, [co]); } finally { await pool.end(); } });
 
 describe('one successor predicate: pay and guard agree, whichever reader meets the leaver row', () => {
-  it.each(Object.keys(SHAPES))('%s: leaving on the 28th (band) and on the 15th pay the same and flag the same', async (shape) => {
+  it.each(Object.keys(SHAPES))('%s: leaving on the 28th (band) and on the 15th (option B: master\'s band rule)', async (shape) => {
     const band = await lineOf(jul, `${shape}-band`);
     const mid = await lineOf(jul, `${shape}-mid`);
     expect(band, 'band').toEqual({ gross: WANT[shape]!.gross, flags: WANT[shape]!.flags });
-    expect(mid, 'mid').toEqual(band);
+    expect(mid, 'mid').toEqual(WANT_MID[shape]);
   });
 
   it('approval is refused naming the flagged leavers, and not the GAP leavers for their own rows', async () => {

@@ -1,7 +1,9 @@
 /**
  * W29 review #1901 round 2 on real rows (breaker round-2 repros ported, plus the fixes' DB cases):
  *  - H1 re-checked: a starter-and-leaver in one month re-dated at one amount, and three rows at one amount, pay R10 000;
- *  - R2-M1: a leaver whose own row ends ON their end date (the 15th) is paid in full, as one whose row is open;
+ *  - R2-M1 REVERTED (option B, coordinator ruling on #1901, 2026-11-26; ruling 19; Hein 2026-11-02): a monthly leaver whose own
+ *    row ends ON their end date (the 15th, before the 27th) is not paid that row and not flagged, as on master (the part
+ *    month is entered by hand); one whose row is open is paid in full;
  *  - R2-M2: a package-cut row is paid its share, and the package once-off beside it is a pair approval refuses until acked;
  *  - REPRO 5: a share beside a hand once-off of another component is refused, an acknowledgement clears it, and a changed
  *    amount refuses again (the stale-run gap, a once-off added after acknowledgement without recalculating, is logged for
@@ -59,7 +61,9 @@ beforeAll(async () => {
   vi.setSystemTime(new Date('2026-08-31T12:00:00+02:00'));
   await pool.query('INSERT INTO companies(id,name) VALUES($1,$2)', [co, 'W29 review round 2']);
   await pool.query("INSERT INTO users(id,email,role,is_active) VALUES($1,$2,'admin',true)", [user, `${user}@test.local`]);
-  await seedPayrollCompany(pool, co, 20000);
+  // R30 000 (was R20 000): with L-ON-END unpaid under option B the month must stay SDL-liable once June's weekly run is
+  // costed after July (the trailing estimate averages both months), so REPRO 5's first blocker is still the share's.
+  await seedPayrollCompany(pool, co, 30000);
   await pool.query(`INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, normal_balance, level) VALUES ($1,'2175','Other deductions','liability','credit',1)`, [co]);
   salary = String((await pool.query("SELECT id FROM payroll_components WHERE company_id=$1 AND name='Basic Salary'", [co])).rows[0].id);
   allow = crypto.randomUUID();
@@ -96,10 +100,10 @@ describe('the employed window and the leaver rule', () => {
   it('three rows at one amount tile July: R10 000 to the cent (R2-L1)', async () => {
     expect((await lineOf(jul, 'THREE')).g).toBe(10000);
   });
-  it("R2-M1: a leaver's own row ending ON their end date (the 15th) pays in full, as an open row does", async () => {
+  it("option B: a monthly leaver's own row ending ON their end date (the 15th) is not paid and not flagged; an open row pays in full", async () => {
     expect((await lineOf(jul, 'L-OPEN')).g).toBe(10000);
     const l = await lineOf(jul, 'L-ON-END');
-    expect(l.g).toBe(10000);
+    expect(l.g).toBe(0);
     expect(l.b.filter((i) => i.share)).toEqual([]);
     expect(codes(l)).not.toContain('RECURRING_NEEDS_PRO_RATA');
   });
