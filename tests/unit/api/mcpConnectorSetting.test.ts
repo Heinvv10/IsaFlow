@@ -85,6 +85,12 @@ describe('POST: the company is always the session company', () => {
     expect(auditMock).not.toHaveBeenCalled();
   });
 
+  it.each(['viewer', 'manager'])('a %s with a stale page is refused on the role (403) before the company check', async (role) => {
+    const res = await call('POST', role, { enabled: true, companyId: '22222222-2222-4222-8222-222222222222' });
+    expect(res.statusCode).toBe(403);
+    expect(setMock).not.toHaveBeenCalled();
+  });
+
   it('the same company in another spelling (uppercase) is the session company: 200, the service gets req.companyId', async () => {
     const res = await call('POST', 'owner', { enabled: true, companyId: C.toUpperCase() });
     expect(res.statusCode).toBe(200);

@@ -348,6 +348,8 @@ BEGIN
     END IF;
   END LOOP;
 
+  -- Five unkeyed writes in a row changed the row under this decision. Nothing is written (the raise rolls this
+  -- function back); the route has no mapping for 40001, so the owner sees the generic 500 and tries again.
   RAISE EXCEPTION 'mcp_connector_self_serve_set: the MCP connector setting kept changing; try again'
     USING ERRCODE = '40001';
 END;
