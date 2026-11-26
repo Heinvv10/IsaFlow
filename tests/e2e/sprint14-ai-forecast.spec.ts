@@ -1,4 +1,7 @@
 import { test, expect } from '@playwright/test';
+import { guardDevTarget } from './helpers/devTarget';
+
+guardDevTarget(test);
 
 test.describe('AI Forecast API', () => {
   test('POST /api/accounting/ai-forecast does not 404', async ({ request }) => {

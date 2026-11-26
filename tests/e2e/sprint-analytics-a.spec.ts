@@ -2,6 +2,9 @@
  * Sprint A: Financial Analysis E2E Tests
  */
 import { test, expect } from '@playwright/test';
+import { guardDevTarget } from './helpers/devTarget';
+
+guardDevTarget(test);
 
 test.describe('Extended Ratios API', () => {
   test('GET /api/accounting/reports-extended-ratios responds', async ({ request }) => {

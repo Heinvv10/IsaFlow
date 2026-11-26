@@ -15,6 +15,9 @@ import { mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { auditContrast } from '../helpers/themeContrast';
 import { THEMES, axeContrastFailures, rootTheme, seedTheme, settle, SETTLE_MS } from '../helpers/themeSpec';
+import { guardDevTarget } from '../helpers/devTarget';
+
+guardDevTarget(test);
 
 const SCREENS = [
   { slug: 'dashboard', path: '/accounting' },

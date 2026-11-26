@@ -14,6 +14,9 @@
 import { expect, test } from '../helpers/navSpec';
 import { auditContrast } from '../helpers/themeContrast';
 import { axeContrastFailures, rootTheme, seedTheme, settle, shellScopeProbe } from '../helpers/themeSpec';
+import { guardDevTarget } from '../helpers/devTarget';
+
+guardDevTarget(test);
 
 test.setTimeout(180_000);
 

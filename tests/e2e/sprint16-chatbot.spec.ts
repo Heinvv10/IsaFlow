@@ -1,4 +1,7 @@
 import { test, expect } from '@playwright/test';
+import { guardDevTarget } from './helpers/devTarget';
+
+guardDevTarget(test);
 
 test.describe('Portal Chatbot API', () => {
   test('POST /api/portal/chat does not 404', async ({ request }) => {

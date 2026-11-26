@@ -20,6 +20,9 @@ import { clearPayRunApproval } from './helpers/payRunApproval';
 import { findOrCreateSandbox, switchApiCompany, switchBrowserCompany } from './_migrationSandbox';
 import { seedTheme, settle, THEMES } from '../helpers/themeSpec';
 import { formatCurrency } from '../../../src/utils/formatters';
+import { guardDevTarget } from '../helpers/devTarget';
+
+guardDevTarget(test);
 
 const EVIDENCE_DIR = process.env.EVIDENCE_DIR;
 const SANDBOX_NAME = '0GP Golden Pay Run Sandbox';
@@ -117,7 +120,6 @@ async function snap(page: Page, name: string, theme: string): Promise<void> {
 }
 
 async function sandbox(context: BrowserContext, baseURL: string) {
-  expect(new URL(baseURL).hostname, 'z6 writes payroll data: dev/CI localhost only').toBe('localhost');
   const api = await Api.login(baseURL);
   const sandboxId = await findOrCreateSandbox(api, { name: SANDBOX_NAME, onboardingId: SANDBOX_ONBOARDING_ID });
   await switchApiCompany(api, sandboxId);

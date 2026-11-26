@@ -12,6 +12,9 @@ import { expect, test } from '../helpers/navSpec';
 import { mkdirSync } from 'fs';
 import { expectNoSeriousA11yViolations } from './helpers/axe';
 import { seedTheme, settle, SETTLE_MS, THEMES } from '../helpers/themeSpec';
+import { guardDevTarget } from '../helpers/devTarget';
+
+guardDevTarget(test);
 
 const SHOTS = 'docs/evidence/master-plan/wave1/report-filter-dates';
 const DATE_INPUTS = 'input[placeholder="dd MMM yyyy"]';

@@ -18,6 +18,9 @@
  *     --config playwright-test.config.ts
  */
 import { test, expect } from '@playwright/test';
+import { guardDevTarget } from './helpers/devTarget';
+
+guardDevTarget(test);
 
 const FORBIDDEN = ['Recurring Transactions', 'No recurring templates'];
 const POLL_INTERVAL_MS = 100;

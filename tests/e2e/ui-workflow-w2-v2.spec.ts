@@ -1,6 +1,9 @@
 import { test } from '@playwright/test';
+import { devBaseUrl, guardDevTarget } from './helpers/devTarget';
 
-const BASE = 'https://app.isaflow.co.za';
+guardDevTarget(test);
+
+const BASE = devBaseUrl();
 const TEST_INVOICE_ID = '2e397b8f-c0ae-4fbc-8c48-49ad47f568a3';
 
 test('W2: Invoice detail direct URL + Record Payment check', async ({ page }) => {

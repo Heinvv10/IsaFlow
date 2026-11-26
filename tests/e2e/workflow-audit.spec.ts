@@ -3,6 +3,9 @@
  * Tests the full accounting lifecycle end-to-end with correct API response shapes.
  */
 import { test, expect } from '@playwright/test';
+import { guardDevTarget } from './helpers/devTarget';
+
+guardDevTarget(test);
 
 const CID = '00000000-0000-0000-0000-000000000001';
 

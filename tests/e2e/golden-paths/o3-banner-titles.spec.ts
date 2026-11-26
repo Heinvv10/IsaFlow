@@ -18,6 +18,9 @@ import { join } from 'path';
 import { expectNoSeriousA11yViolations } from './helpers/axe';
 import { auditContrast } from '../helpers/themeContrast';
 import { THEMES, seedTheme, settle } from '../helpers/themeSpec';
+import { guardDevTarget } from '../helpers/devTarget';
+
+guardDevTarget(test);
 
 /** The 15 pages wave 3 PR V converted. The 16th, the invoice edit page, needs a draft's id: see its own test. */
 const PAGES = [

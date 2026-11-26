@@ -18,6 +18,9 @@ import { randomUUID } from 'crypto';
 import { join } from 'path';
 import { Api, gpRef, today } from './_api';
 import { findOrCreateSandbox, switchApiCompany, switchBrowserCompany } from './_migrationSandbox';
+import { guardDevTarget } from '../helpers/devTarget';
+
+guardDevTarget(test);
 
 const SANDBOX_NAME = '0GP Golden Bank Bulk Accept Sandbox';
 const SANDBOX_ONBOARDING_ID = '5d8e1a3c-7b24-4f69-9a0e-3c6b2d1f8e57';
