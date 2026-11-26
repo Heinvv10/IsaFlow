@@ -28,9 +28,16 @@ export const FILED_BANK_PIN_INVALID = 'FILED_BANK_PIN_INVALID';
 /** A pin as an audit metadata value (audit metadata holds strings). */
 export const pinText = (pin: BankPin): string => JSON.stringify(Object.fromEntries([...pin.entries()].sort()));
 
+/** A pin from its audit text; null when it is not one (absent, not JSON, not an object of employee -> row id or null). */
 function pinOf(text: unknown): BankPin | null {
   if (typeof text !== 'string') return null;
-  const parsed = JSON.parse(text) as Record<string, unknown>;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return null; // a malformed pin is no pin: the callers refuse (409), never a 500
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
   const pin: BankPin = new Map();
   for (const [employee, row] of Object.entries(parsed)) {
     if (row !== null && typeof row !== 'string') return null;

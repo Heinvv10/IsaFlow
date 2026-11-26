@@ -305,9 +305,16 @@ describe('e@syFile addresses and bank accounts (wave 7 EA2)', () => {
       const open = await a.pool.connect();
       try {
         await open.query('BEGIN');
+        const openPid = Number((await open.query('SELECT pg_backend_pid() AS pid')).rows[0]!.pid);
         await newAccount(emp.bare, '80000000008', (t, v) => open.query(t, v as unknown[]));
         const filing = fileIt();
-        await new Promise((r) => setTimeout(r, 1500));
+        // Wait (bounded) until the filing is blocked by this transaction's row lock, then commit the change.
+        let blocked = false;
+        for (let i = 0; i < 300 && !blocked; i += 1) {
+          blocked = Number((await a.pool.query('SELECT count(*)::int AS n FROM pg_stat_activity WHERE $1 = ANY(pg_blocking_pids(pid))', [openPid])).rows[0]!.n) > 0;
+          if (!blocked) await new Promise((r) => setTimeout(r, 100));
+        }
+        expect(blocked, 'filing waits on the open bank change (FOR SHARE)').toBe(true);
         await open.query('COMMIT');
         const inFlight = await filing;
         expect([inFlight.statusCode, inFlight.body.error?.details?.code]).toEqual([409, 'BANK_DETAILS_CHANGED']);
@@ -397,6 +404,25 @@ describe('e@syFile addresses and bank accounts (wave 7 EA2)', () => {
       expect(dl).toHaveLength(1);
       expect(dl[0]!.changes.metadata).toMatchObject({ liveBankFields: 'false', servedSha256: sha(body) });
       expect(dl[0]!.changes.metadata.bankRows).toBeUndefined();
+    });
+
+    it('a filed version whose one pin row is malformed is refused 409 FILED_BANK_PIN_INVALID, not a 500', async () => {
+      const figures = (await a.pool.query('SELECT figures FROM tax_return_versions WHERE id = $1', [versionId])).rows[0]!.figures;
+      const badId = String((await a.pool.query(
+        `INSERT INTO tax_return_versions (company_id, form_type, period_start, period_end, version_no, figures, posted_through,
+           finalised_by, status, filed_at, filed_by)
+         VALUES ($1, 'EMP501', '2020-03-01', '2021-02-28', 1, $2, now(), 'fixture', 'filed', clock_timestamp(), 'fixture') RETURNING id`,
+        [a.company, JSON.stringify(figures)])).rows[0]!.id);
+      await a.pool.query(`INSERT INTO audit_log (company_id, user_id, action, entity_type, entity_id, changes, created_at)
+        SELECT $1, $2, 'update', 'tax_return_version', $3, $4::jsonb, filed_at FROM tax_return_versions WHERE id = $3`,
+      [a.company, a.approver, badId, JSON.stringify({ fields: [], metadata: { bankRows: '{not json', servedSha256: 'x' } })]);
+      const req = request({ 'sb-access-token': a.tokens[a.approver]!, active_company_id: a.company }, 'POST') as unknown as { url: string; body: unknown };
+      req.url = '/api/payroll/emp501/returns/filing-file';
+      req.body = { versionId: badId, format: 'irp5' };
+      const out = response();
+      await (filingFile as unknown as (q: unknown, s: NextApiResponse) => Promise<void>)(req, out.res);
+      const st = out.state as unknown as { statusCode: number; body: { error?: { details?: { code?: string } } } };
+      expect([st.statusCode, st.body.error?.details?.code]).toEqual([409, 'FILED_BANK_PIN_INVALID']);
     });
 
     it('a filed version with a second (forged) pin row is refused 409 and logged, never served', async () => {
