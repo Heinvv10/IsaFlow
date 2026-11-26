@@ -153,7 +153,6 @@ interface GuardFixtures {
   ];
   request: Gated<'request'>;
   context: Gated<'context'>;
-  page: Gated<'page'>;
 }
 
 /** Call once, at the top level of a spec file, before any hook or test. */
@@ -166,9 +165,9 @@ export function guardDevTarget(test: { use(fixtures: never): void }): void {
       await use();
     }, { auto: 'all-hooks-included' }],
     // A failed automatic fixture does not stop a later beforeEach or afterEach; one that needs a failed fixture does not run.
+    // `page` is built from `context`, so it is covered by it.
     request: async ({ request, _devTargetGuard }, use) => { void _devTargetGuard; await use(request); },
     context: async ({ context, _devTargetGuard }, use) => { void _devTargetGuard; await use(context); },
-    page: async ({ page, _devTargetGuard }, use) => { void _devTargetGuard; await use(page); },
   };
   test.use(fixtures as never);
 }
