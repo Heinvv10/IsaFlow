@@ -140,6 +140,13 @@ describe('the bodies and the exit codes', () => {
     expect([ids('committed'), ids('nothingWritten'), ids('commitUnconfirmed'), ids('failed')]).toEqual([['item 1'], ['purchase_order 1'], ['item 2'], ['item 3']]);
     expect(stopReportBody(new Error('--run-tag must be ...'))).toMatchObject({ status: 'stopped', liveStarted: false, committed: [], failed: [] });
   });
+  it('R27 wording: books not read after the stop: the message and the report say the committed list was not re-checked', () => {
+    const err = new MigrationStopped(new Error('boom'), true, [b('category', 1)], { failed: [], booksNotRechecked: 'Connection terminated due to connection timeout' });
+    const body = stopReportBody(err);
+    expect(body.booksNotRechecked).toBe('Connection terminated due to connection timeout');
+    expect(body.message).toContain('\nthe books could not be read after the stop (Connection terminated due to connection timeout): the list below is as the run recorded it, not re-checked against the books.\ncommitted: category batch 1');
+    expect(stopReportBody(new MigrationStopped(new Error('boom'), true, [b('category', 1)]))).not.toHaveProperty('booksNotRechecked');
+  });
   it('R16-F6: a report that could not be written is exit 3 only where the run is otherwise 0', () => {
     expect([0, 1, 4].map(exitAfterReportFailure)).toEqual([3, 1, 4]);
   });
