@@ -22,7 +22,8 @@ import { assertMayActOnReturns } from './returnGuards';
 import { getVersionForUpdate } from './returnVersionWrites';
 import { logAuditOrThrow } from '@/modules/accounting/services/core/auditTrailService';
 import { withLiveBankAccounts } from '@/modules/accounting/services/payroll/easyFileBankOverlay';
-import { filedBankPin, pinText } from './emp501BankPin';
+import { FILED_BANK_PIN_INVALID, filedBankPin, pinText } from './emp501BankPin';
+import { log } from '@/lib/logger';
 import type { CertificateBankReader } from '@/modules/accounting/services/payroll/easyFileBankAccounts';
 import { ReturnRefusal, STALE_RETURN_REFUSAL, type ReturnActor, type ReturnVersion } from './returnVersionTypes';
 
@@ -80,8 +81,14 @@ export async function downloadEmp501File(
   // field) is served byte for byte as stored, served hash = stored hash (quality round 3 of #1944). A filed version is
   // served from exactly the rows its filing pinned (emp501BankPin), or as stored when it has no pin; otherwise the
   // active rows.
-  const pinned = file.filed ? await filedBankPin(companyId, { id: versionId }) : undefined;
-  const served = f.bankOverlay === 1 && pinned !== null
+  const pinned = file.filed && f.bankOverlay === 1 ? await filedBankPin(companyId, { id: versionId }) : undefined;
+  if (pinned === null) {
+    // markReturnFiled writes exactly one pin for a version with the marker: none, or more than one, is tampering.
+    log.error('EMP501 filed version has no single bank pin; not served', { companyId, versionId }, 'emp501-returns');
+    throw new ReturnRefusal(409, 'This filed return\'s record of the bank details it carried is missing or ambiguous, so its '
+      + 'filing file cannot be re-served. Contact support.', FILED_BANK_PIN_INVALID);
+  }
+  const served = f.bankOverlay === 1
     ? await withLiveBankAccounts(companyId, file.body, f.certificateEmployees, names, bankReader, pinned)
     : { body: file.body, rowIds: null };
   const body = served.body;

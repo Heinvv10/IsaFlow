@@ -201,13 +201,18 @@ export async function getEmployeeBankDetailsByRowId(
   return rows[0] ? toView(rows[0], role) : null;
 }
 
-/** Each employee's active row id (ids only, no value: nothing to audit), null for one with none. */
-export async function activeBankRowIds(companyId: string, employeeIds: string[]): Promise<Map<string, string | null>> {
+/**
+ * Each employee's active row id (ids only, no value: nothing to audit), null for one with none. `lock`: FOR SHARE on
+ * those rows until the transaction ends, so no change (the only writer deactivates the active row) can commit between
+ * this read and the caller's commit; a change already in flight is waited for and then read as it committed.
+ */
+export async function activeBankRowIds(companyId: string, employeeIds: string[], lock = false): Promise<Map<string, string | null>> {
   const out = new Map<string, string | null>(employeeIds.map((id) => [id, null]));
   if (employeeIds.length === 0) return out;
   const rows = (await sql`
     SELECT employee_id::text AS employee_id, id::text AS id FROM payroll_bank_details
     WHERE company_id = ${companyId}::uuid AND employee_id = ANY(${employeeIds}::uuid[]) AND is_active
+    ${sql.unsafe(lock ? 'FOR SHARE' : '')}
   `) as Array<{ employee_id: string; id: string }>;
   for (const r of rows) out.set(r.employee_id, r.id);
   return out;

@@ -18,7 +18,7 @@ import { createHash } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { NextApiResponse } from 'next';
 import exportRoute from '../../pages/api/payroll/irp5/easyfile-export';
-import { buildEmp501Figures } from '@/modules/accounting/services/returns/emp501Figures';
+import { buildEmp501Figures, emp501Drift } from '@/modules/accounting/services/returns/emp501Figures';
 import { emp501Period } from '@/modules/accounting/services/payroll/emp501Period';
 import { preValidateTaxYear } from '@/modules/accounting/services/payroll/preValidationService';
 import { request, response } from './mfa-impersonation-postgres.helpers';
@@ -205,6 +205,13 @@ describe('e@syFile addresses and bank accounts (wave 7 EA2)', () => {
     expect('address' in f.employees.find((e) => e.idNumber === '8001015009285')!).toBe(false);
   });
 
+  it('the EMP501 drift check ignores the bankOverlay marker: a version without it (pre-EA2 shape) shows no drift', async () => {
+    const p = emp501Period(2026, 'annual');
+    const { bankOverlay, ...pre } = await buildEmp501Figures(a.company, p, false);
+    expect(bankOverlay).toBe(1);
+    expect(await emp501Drift(a.company, p, JSON.parse(JSON.stringify(pre)) as Record<string, unknown>)).toMatchObject({ drifted: false, changed: [] });
+  });
+
   it('pre-validation names a\'s employee with no account and the one with no address, never b\'s', async () => {
     const pv = (await preValidateTaxYear(a.company, { taxYear: 2026 }))!;
     const gaps = Object.fromEntries(pv.employees.map((e) => [e.employeeId,
@@ -293,30 +300,38 @@ describe('e@syFile addresses and bank accounts (wave 7 EA2)', () => {
       // Downloaded again: these bytes are what is filed.
       const last = await download(a.approver);
       expect(String(last.body)).toContain('3241,"70000000007"');
-      // R2: a bank change open in another transaction while filing (its row would predate the filing) changes nothing.
+      // R2: a bank change in flight while filing. Filing holds the pinned rows FOR SHARE, so it waits for the change and
+      // then reads it as committed: refused, nothing filed. (Without the lock it would file a row being replaced.)
       const open = await a.pool.connect();
       try {
         await open.query('BEGIN');
         await newAccount(emp.bare, '80000000008', (t, v) => open.query(t, v as unknown[]));
-        const filed = await fileIt();
-        expect(filed.statusCode, JSON.stringify(filed.body)).toBe(200);
+        const filing = fileIt();
+        await new Promise((r) => setTimeout(r, 1500));
         await open.query('COMMIT');
+        const inFlight = await filing;
+        expect([inFlight.statusCode, inFlight.body.error?.details?.code]).toEqual([409, 'BANK_DETAILS_CHANGED']);
       } finally {
         open.release();
       }
+      expect(await status()).toBe('finalised');
+      // Downloaded again (it now carries 80000000008): that file is filed.
+      const last2 = await download(a.approver);
+      expect(String(last2.body)).toContain('3241,"80000000008"');
+      const filed = await fileIt();
+      expect(filed.statusCode, JSON.stringify(filed.body)).toBe(200);
       expect(await status()).toBe('filed');
       const again = await download(a.approver);
-      expect(String(again.body)).toBe(String(last.body));
-      expect(again.headers.get('x-filing-file-served-sha256')).toBe(sha(String(last.body)));
-      expect(String(again.body)).not.toContain('80000000008');
+      expect(String(again.body)).toBe(String(last2.body));
+      expect(again.headers.get('x-filing-file-served-sha256')).toBe(sha(String(last2.body)));
       // Another change after filing: the filed file still re-serves the pinned rows.
       await newAccount(emp.full, '90000000009');
       const later = await download(a.approver);
-      expect(String(later.body)).toBe(String(last.body));
+      expect(String(later.body)).toBe(String(last2.body));
       const pin = (await a.pool.query(`SELECT changes FROM audit_log WHERE company_id = $1 AND entity_type = 'tax_return_version'
         AND entity_id = $2 AND action = 'update' AND changes -> 'metadata' ->> 'bankRows' IS NOT NULL`, [a.company, versionId])).rows;
       expect(pin).toHaveLength(1);
-      expect(pin[0]!.changes.metadata.servedSha256).toBe(sha(String(last.body)));
+      expect(pin[0]!.changes.metadata.servedSha256).toBe(sha(String(last2.body)));
       expect(JSON.stringify(pin[0]!.changes)).not.toMatch(/70000000007|62123456789/);
     });
 
@@ -356,6 +371,19 @@ describe('e@syFile addresses and bank accounts (wave 7 EA2)', () => {
       const token = await download(await agent(a, a.approver, 'agent-download'));
       expect(token.statusCode).toBe(403);
       expect((await audits(a)).length).toBe(before);
+    });
+
+    it('a filed version with a second (forged) pin row is refused 409 and logged, never served', async () => {
+      const row = (await a.pool.query(`SELECT user_id, changes FROM audit_log WHERE company_id = $1 AND entity_type = 'tax_return_version'
+        AND entity_id = $2 AND action = 'update' AND changes -> 'metadata' ->> 'bankRows' IS NOT NULL`, [a.company, versionId])).rows[0]!;
+      await a.pool.query(`INSERT INTO audit_log (company_id, user_id, action, entity_type, entity_id, changes, created_at)
+        SELECT $1, $2, 'update', 'tax_return_version', $3, $4::jsonb, filed_at FROM tax_return_versions WHERE id = $3`,
+      [a.company, row.user_id, versionId, JSON.stringify(row.changes)]);
+      const before = (await a.pool.query(`SELECT count(*)::int AS n FROM audit_log WHERE company_id = $1 AND action = 'export'`, [a.company])).rows[0]!.n;
+      const out = await download(a.approver);
+      expect([out.statusCode, (out.body as { error?: { details?: { code?: string } } }).error?.details?.code]).toEqual([409, 'FILED_BANK_PIN_INVALID']);
+      expect(JSON.stringify(out.body)).not.toMatch(/3241|62123456789|70000000007|80000000008/);
+      expect((await a.pool.query(`SELECT count(*)::int AS n FROM audit_log WHERE company_id = $1 AND action = 'export'`, [a.company])).rows[0]!.n).toBe(before);
     });
   });
 });

@@ -23,6 +23,7 @@ import { ReturnRefusal, type ReturnVersion } from './returnVersionTypes';
 export type BankPin = Map<string, string | null>;
 
 export const BANK_DETAILS_CHANGED = 'BANK_DETAILS_CHANGED';
+export const FILED_BANK_PIN_INVALID = 'FILED_BANK_PIN_INVALID';
 
 /** A pin as an audit metadata value (audit metadata holds strings). */
 export const pinText = (pin: BankPin): string => JSON.stringify(Object.fromEntries([...pin.entries()].sort()));
@@ -60,7 +61,7 @@ export async function emp501FilingPin(companyId: string, v: ReturnVersion): Prom
     throw new ReturnRefusal(409, 'Download the filing file (as an owner or admin) and capture it on e@syFile before marking it filed.',
       BANK_DETAILS_CHANGED);
   }
-  const now = await activeBankRowIds(companyId, [...pin.keys()]);
+  const now = await activeBankRowIds(companyId, [...pin.keys()], true); // held to the filed commit (FOR SHARE)
   if ([...pin.entries()].some(([employee, row]) => now.get(employee) !== row)) {
     throw new ReturnRefusal(409, 'Bank details changed since you downloaded the filing file: download it again, capture that '
       + 'file on e@syFile, then mark it filed.', BANK_DETAILS_CHANGED);
@@ -68,7 +69,11 @@ export async function emp501FilingPin(companyId: string, v: ReturnVersion): Prom
   return { bankRows: pinText(pin), servedSha256: meta.servedSha256 };
 }
 
-/** A filed version's pinned rows, from the filed audit row bound by the version's filed_at; null when it has none. */
+/**
+ * A filed version's pinned rows, from the filed audit row bound by the version's filed_at; null unless exactly ONE such
+ * row holds a readable pin. For a version carrying bankOverlay, markReturnFiled always writes exactly one, so null there
+ * means tampering: the caller refuses and logs (emp501FilingFile).
+ */
 export async function filedBankPin(companyId: string, v: Pick<ReturnVersion, 'id'>): Promise<BankPin | null> {
   // filed_at read in SQL, to the microsecond (a JS Date keeps milliseconds only).
   const rows = (await sql`
