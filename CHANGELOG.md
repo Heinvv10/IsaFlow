@@ -30,6 +30,26 @@ Last updated: 2026-04-19 · 643 commits on `master` · 144 migrations (000 → 3
 
 ---
 
+## 2026-11-26 — Billing Mandate Ceiling Fix, Admin Mobile, Payroll Test & E2E Hardening
+
+**Billing**
+
+- Self-serve upgrade can no longer debit above the authorised mandate amount; ceiling floor uses the charge planner's eligibility; integration and unit test suites added (#1931)
+
+**Admin / Mobile**
+
+- In-flow admin sidebar hidden below `lg`; the drawer carries the nav on small screens (#1930)
+
+**Payroll**
+
+- `w6-oc-forge` test uses a fixed 2020 date range, not one relative to `now()` — eliminates time-sensitive flake (#1936)
+
+**CI / Golden Paths**
+
+- Dev-target guard on every spec refuses production ports, hosts and databases; QA scripts ask the server which database it is on; `beforeAll` refusal stops later hooks (#1938)
+
+---
+
 ## 2026-11-25 — Intercompany P4e/P5/P6f, AP Void Clamp, Payroll W31, Mobile Wave, Bank JIT
 
 **Intercompany**
