@@ -76,7 +76,7 @@ export function CancelRegularRun({ runId, run, companyRole }: Props) {
         </Modal.Body>
         <Modal.Footer>
           <Button variant="secondary" onClick={close} disabled={busy}>Keep run</Button>
-          <Button variant="danger" loading={busy} onClick={() => void cancel()}>Cancel run</Button>
+          <Button variant="danger" loading={busy} onClick={() => void cancel()}>Cancel this run</Button>
         </Modal.Footer>
       </Modal>
     </div>

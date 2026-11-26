@@ -46,7 +46,7 @@ describe('CancelRegularRun', () => {
     fetchMock.mockResolvedValue(json({ runId: 'r1', deleted: true }));
     render(<CancelRegularRun runId="r1" run={calculated} companyRole="admin" />);
     fireEvent.click(screen.getByRole('button', { name: 'Cancel run' }));
-    fireEvent.click(screen.getAllByRole('button', { name: 'Cancel run' }).at(-1)!);
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel this run' }));
     await waitFor(() => expect(router.push).toHaveBeenCalledWith('/payroll/runs'));
     const [url, init] = fetchMock.mock.calls[0]!;
     expect([String(url), init?.method]).toEqual(['/api/payroll/runs/r1/cancel', 'POST']);
@@ -57,7 +57,7 @@ describe('CancelRegularRun', () => {
     fetchMock.mockResolvedValue(json({ code: 'CONFLICT', message, details: { code: 'RUN_NOT_CANCELLABLE' } }, 409));
     render(<CancelRegularRun runId="r1" run={calculated} companyRole="owner" />);
     fireEvent.click(screen.getByRole('button', { name: 'Cancel run' }));
-    fireEvent.click(screen.getAllByRole('button', { name: 'Cancel run' }).at(-1)!);
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel this run' }));
     expect(await screen.findByText(message)).toBeTruthy();
     expect(router.push).not.toHaveBeenCalled();
   });

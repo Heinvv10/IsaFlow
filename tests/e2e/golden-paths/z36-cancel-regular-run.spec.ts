@@ -89,7 +89,7 @@ test('cancel removes the calculated run; its period takes a new run at once', as
 
     await card.getByRole('button', { name: 'Cancel run' }).click();
     await snap(page, 'cancel-dialog', 'session-theme');
-    await page.getByRole('dialog').getByRole('button', { name: 'Cancel run' }).click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Cancel this run' }).click();
     await page.waitForURL('**/payroll/runs', { timeout: 30_000 });
     expect((await api.getRaw(`/api/payroll/runs/${runId}`)).status).toBe(404);
     const again = await api.post<Run>('/api/payroll/runs', RUN);
