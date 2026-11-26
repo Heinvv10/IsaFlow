@@ -18,7 +18,8 @@
  * Named limits: over HTTP a dev server cannot be asked which database it uses, so a server on a dev port that was started
  * with production's env is not detected (the *DATABASE_URL keys of the runner's own env are judged). Other applications
  * on velo-server listen inside the dev port range; they do not serve IsaFlow's API. A context a spec builds itself with
- * its own storageState or address is judged only by the census.
+ * its own storageState or address is judged only by the census. After a refusal further down a file, an `afterEach` that
+ * asks for no fixture, or only for `browser`, still runs.
  */
 import { readFileSync } from 'node:fs';
 

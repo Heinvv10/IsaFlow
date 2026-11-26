@@ -49,6 +49,8 @@ describe('guardDevTarget in a Playwright run', () => {
     const r = await probe({ PROBE_BASE_URL: 'http://localhost:3200', PROBE_BROWSER_HOOKS: '1', ...extra });
     expect(r.code).not.toBe(0);
     expect(r.out).toContain(why);
+    // A hook that got as far as launching a browser was not refused, even where none is installed.
+    expect(r.out).not.toContain("Executable doesn't exist");
     expect(r.ran.filter((x) => x.startsWith(name))).toEqual([]);
   }, 120_000);
 

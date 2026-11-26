@@ -46,7 +46,8 @@ export const TARGET: Target = typeof RESOLVED === 'string' ? { origin: '', mapTo
  * Outside the post-deploy run every port of the admin host goes to the server under test: a bare mapping sends an https
  * request to 127.0.0.1:443, which on velo-server is production's nginx. The post-deploy mapping stays host only.
  */
-const mapPort = process.env.GOLDEN_SKIP_A11Y === '1' || !TARGET.direct ? '' : `:${new URL(TARGET.direct).port || '80'}`;
+const postDeploy = process.env.GOLDEN_SKIP_A11Y === '1' && process.env.GOLDEN_POST_DEPLOY === '1';
+const mapPort = postDeploy || !TARGET.direct ? '' : `:${new URL(TARGET.direct).port || '80'}`;
 
 /** Chromium flags for the mapped origin: the host mapping, and the Private Network Access checks off (see header). */
 export const LAUNCH_ARGS = TARGET.mapTo

@@ -4,7 +4,7 @@
  * unit/ci/verifyCompanySandboxCensus and unit/scripts/verifyDeployA11yGate). Files are read as text, from disk.
  * Named limits: a URL assembled from pieces, and a context a spec builds with a saved session it names indirectly, are
  * not seen here; the runtime guard still judges every test's baseURL and storageState. A worker fixture whose scope is
- * not written as a literal is not seen either.
+ * not written as a literal is not seen either, nor is a baseURL replaced through an aliased test object or `test.extend`.
  */
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';

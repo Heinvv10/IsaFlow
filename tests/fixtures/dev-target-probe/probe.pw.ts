@@ -23,7 +23,7 @@ const eachHooks = (name: string): void => {
   if (process.env.PROBE_BEFORE_ALL) test.beforeAll(() => ran(`${name}-beforeAll`));
   test.beforeEach(({ request }) => ran(request ? `${name}-beforeEach` : 'no-request'));
   test.beforeEach(({ request }) => ran(request ? `${name}-beforeEach-second` : 'no-request'));
-  // Browser fixtures only where they are expected to be refused: the unit run need not have a browser.
+  // Browser fixtures only where they are expected to be refused, so a passing guard launches nothing.
   if (process.env.PROBE_BROWSER_HOOKS) {
     test.beforeEach(({ context }) => ran(context ? `${name}-beforeEach-context` : 'no-context'));
     test.afterEach(({ page }) => ran(page ? `${name}-afterEach-page` : 'no-page'));
