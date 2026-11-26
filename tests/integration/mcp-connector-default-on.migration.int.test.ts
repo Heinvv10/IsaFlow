@@ -1,9 +1,9 @@
 // tests/integration/mcp-connector-default-on.migration.int.test.ts
 //
-// Migration 1056: the MCP connector is on by default for NEW companies (enable_mcp_connector_default, called
+// Migration 1058: the MCP connector is on by default for NEW companies (enable_mcp_connector_default, called
 // inside create_company_with_owner), and an owner or admin switches it with mcp_connector_self_serve_set. A
 // platform admin's OFF is a lock; every UPDATE of company_feature_overrides is stamped platform_admin. Runs on
-// the schema fixture with 1056 applied (the integration runner applies the branch's migrations); every case
+// the schema fixture with 1058 applied (the integration runner applies the branch's migrations); every case
 // runs in a transaction that is rolled back.
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { closeSql } from '../../scripts/_pg';
@@ -11,7 +11,7 @@ import { getAuthPool } from '@/lib/auth/authPool';
 import { fixture, migration, newIds, rolledBack, setup, teardown } from './s07b-app-pool-login-role.helpers';
 
 const ids = newIds(); // setup: ids.company has ids.me (admin) and ids.owner (owner); an enabled platform row for ids.company
-const M1056 = migration('1056_mcp_connector_default_on_self_serve.sql');
+const M1058 = migration('1058_mcp_connector_default_on_self_serve.sql');
 
 beforeAll(() => setup(ids), 60000);
 afterAll(async () => { await closeSql(); await teardown(ids, [getAuthPool()]); });
@@ -33,11 +33,11 @@ const override = (q: Q, company: string) => rows(q, `SELECT o.enabled, o.set_via
   FROM company_feature_overrides o JOIN feature_flags ff ON ff.id = o.feature_id
  WHERE o.company_id = '${company}' AND ff.code = 'mcp_connector'`);
 
-describe('1056: the migration', () => {
+describe('1058: the migration', () => {
   it('applies again as a NON-superuser postgres; no violation after', async () => {
     await rolledBack(async (q) => {
       await q('ALTER ROLE postgres NOSUPERUSER');
-      await q(M1056);
+      await q(M1058);
       expect(await rows(q, 'SELECT * FROM public.app_pool_reach_violations()')).toEqual([]);
     });
   });
@@ -53,11 +53,11 @@ describe('1056: the migration', () => {
   });
 });
 
-describe('1056: default-on', () => {
+describe('1058: default-on', () => {
   it('create_company_with_owner as app_user leaves one enabled default_new_company row, set_by the caller', async () => {
     await rolledBack(async (q) => {
       await asAppUser(q, ids.me, ids.company);
-      const created = await rows(q, `SELECT id::text AS id FROM public.create_company_with_owner('{"name": "1056 new co"}'::jsonb)`);
+      const created = await rows(q, `SELECT id::text AS id FROM public.create_company_with_owner('{"name": "1058 new co"}'::jsonb)`);
       await q('RESET ROLE');
       expect(await override(q, created[0]!.id as string)).toEqual([
         { enabled: true, set_via: 'default_new_company', set_by: ids.me, reason: 'Default on for new companies' },
@@ -78,7 +78,7 @@ describe('1056: default-on', () => {
   });
 });
 
-describe('1056: the owner/admin toggle', () => {
+describe('1058: the owner/admin toggle', () => {
   it.each([['owner', 'owner'], ['admin', 'me']] as const)('%s switches it off then on: ok, stamped company_admin', async (_, who) => {
     await rolledBack(async (q) => {
       const user = ids[who];
@@ -129,7 +129,7 @@ describe('1056: the owner/admin toggle', () => {
       await toggle(q, ids.company, false);
       await toggle(q, ids.company, true);
       await q('RESET ROLE');
-      // pre-1056 admin code: an upsert that never names set_via
+      // pre-1058 admin code: an upsert that never names set_via
       await q(`UPDATE company_feature_overrides SET enabled = false, set_via = 'company_admin' WHERE company_id = '${ids.company}'`);
       expect((await override(q, ids.company))[0]).toMatchObject({ enabled: false, set_via: 'platform_admin' });
       await asAppUser(q, ids.owner, ids.company);
@@ -151,7 +151,7 @@ describe('1056: the owner/admin toggle', () => {
       await admin.query('BEGIN');
       await admin.query("SET LOCAL lock_timeout = '250ms'");
       // The key alone, nothing else: a row lock cannot explain this wait (the admin writes themselves are
-      // proved to take this key in mcp-connector-1056-locks.int.test.ts).
+      // proved to take this key in mcp-connector-1058-locks.int.test.ts).
       await expect(admin.query(
         `SELECT pg_advisory_xact_lock(hashtextextended('mcp_connector_self_serve:' || $1::text, 0))`, [ids.company],
       )).rejects.toMatchObject({ code: '55P03' });

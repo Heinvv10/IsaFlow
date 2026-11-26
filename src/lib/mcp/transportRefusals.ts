@@ -27,7 +27,7 @@ export function refusalId(body: unknown): JsonRpcRequest['id'] {
  * mcp_connector stays a per-company switch (Hein, 2026-10-20: not global, not
  * tied to a plan), so a marketplace user can reach this after a successful
  * sign-in. Say what is missing and who can switch it on (a company owner or
- * admin, on the settings page, since migration 1056); never point at an
+ * admin, on the settings page, since migration 1058); never point at an
  * upgrade (Cursor Marketplace Publisher Terms 3.1). The prefix is kept: docs
  * and clients quote it.
  */

@@ -154,7 +154,7 @@ export async function getCompanyEffectiveFeatures(
 }
 
 /**
- * Migration 1056: when `featureId` is mcp_connector, take the advisory key mcp_connector_self_serve_set takes,
+ * Migration 1058: when `featureId` is mcp_connector, take the advisory key mcp_connector_self_serve_set takes,
  * so a platform-admin write and an owner's toggle of the same company never interleave (the toggle holds no
  * row lock). Its own statement, run first, inside the caller's transaction: it lasts until that commits.
  */

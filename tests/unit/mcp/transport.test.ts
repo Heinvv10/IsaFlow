@@ -337,7 +337,7 @@ describe('/api/mcp transport', () => {
     expect(seenContexts).toHaveLength(0);
   });
 
-  // Migration 1056, D5: switching the connector off revokes no token. A bearer that worked gets -32001 on its very next
+  // Migration 1058, D5: switching the connector off revokes no token. A bearer that worked gets -32001 on its very next
   // call once hasFeature reads false, because the transport checks the flag on every request.
   it('a token that worked gets -32001 on its next call once the connector is switched off', async () => {
     const ok = makeRes();

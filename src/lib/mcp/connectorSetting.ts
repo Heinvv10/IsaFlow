@@ -1,7 +1,7 @@
 /**
  * The MCP connector setting a company owner or admin sees and switches on /accounting/settings/integrations-mcp.
  *
- * Precedence (migration 1056, which holds the SQL side):
+ * Precedence (migration 1058, which holds the SQL side):
  *   1. hasFeature is unchanged: override row, else is_global, else plan. mcp_connector stays non-global, in no plan.
  *   2. A row with enabled = false written by a platform admin (set_via NULL or 'platform_admin') is a compliance
  *      lock: owners and admins cannot switch it on.

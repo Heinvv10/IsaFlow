@@ -27,7 +27,7 @@ describe('refusalId', () => {
   });
 });
 
-describe('CONNECTOR_NOT_ENABLED_MESSAGE (migration 1056)', () => {
+describe('CONNECTOR_NOT_ENABLED_MESSAGE (migration 1058)', () => {
   it('keeps the quoted prefix, names owner/admin and the settings path, never an upgrade or support-only', async () => {
     const { CONNECTOR_NOT_ENABLED_MESSAGE } = await import('@/lib/mcp/transportRefusals');
     expect(CONNECTOR_NOT_ENABLED_MESSAGE.startsWith('MCP connector not enabled for this company.')).toBe(true);

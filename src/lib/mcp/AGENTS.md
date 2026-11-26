@@ -140,7 +140,7 @@ hashArgs(args): string   // sha256 of key-sorted canonical JSON; bounded like ha
   `connectorNotEnabled` (`mcp_connector` stays per-company; the message says
   a company owner or admin can switch it on under Settings > Developer > MCP
   Connector (AI agents)).
-- **`mcp_connector` default-on and self-serve (migration 1056).** Every company
+- **`mcp_connector` default-on and self-serve (migration 1058).** Every company
   create path writes the default-on row through `enable_mcp_connector_default`
   (`connectorDefault.ts`; inside `create_company_with_owner` for onboarding),
   new companies only, never overwriting, no backfill. Owners and admins switch it

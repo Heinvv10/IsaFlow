@@ -1,5 +1,5 @@
 /**
- * Migration 1056 (MCP connector default-on for new companies, owner/admin self-serve toggle): the file's shape.
+ * Migration 1058 (MCP connector default-on for new companies, owner/admin self-serve toggle): the file's shape.
  *
  * Text only: the SQL itself runs first on GitHub's integration gate
  * (tests/integration/mcp-connector-default-on.migration.int.test.ts). These pins stop the shapes the review
@@ -11,7 +11,7 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const dir = path.join(process.cwd(), 'scripts/migrations/sql');
-const MIGRATION = readFileSync(path.join(dir, '1056_mcp_connector_default_on_self_serve.sql'), 'utf8');
+const MIGRATION = readFileSync(path.join(dir, '1058_mcp_connector_default_on_self_serve.sql'), 'utf8');
 const M513 = readFileSync(path.join(dir, '513_create_company_writes_vat_system_type.sql'), 'utf8');
 
 function body(src: string, fn: string): string {
@@ -33,7 +33,7 @@ function topLevel(): string {
 
 const PERFORM_LINE = 'PERFORM public.enable_mcp_connector_default(new_row.id, caller_id::uuid);';
 
-describe('1056: create_company_with_owner', () => {
+describe('1058: create_company_with_owner', () => {
   it('is the 513 body verbatim plus the one default-on PERFORM', () => {
     const now = stripComments(body(MIGRATION, 'create_company_with_owner'));
     const before = stripComments(body(M513, 'create_company_with_owner'));
@@ -57,7 +57,7 @@ describe('1056: create_company_with_owner', () => {
   });
 });
 
-describe('1056: enable_mcp_connector_default', () => {
+describe('1058: enable_mcp_connector_default', () => {
   const b = body(MIGRATION, 'enable_mcp_connector_default');
 
   it('is SECURITY INVOKER with a pinned search_path', () => {
@@ -81,7 +81,7 @@ describe('1056: enable_mcp_connector_default', () => {
   });
 });
 
-describe('1056: mcp_connector_self_serve_set', () => {
+describe('1058: mcp_connector_self_serve_set', () => {
   const b = body(MIGRATION, 'mcp_connector_self_serve_set');
 
   it('is SECURITY DEFINER, pinned, owned by migration_admin, executable by app_user, registered', () => {
@@ -120,7 +120,7 @@ describe('1056: mcp_connector_self_serve_set', () => {
   });
 });
 
-describe('1056: set_via and the stamp trigger', () => {
+describe('1058: set_via and the stamp trigger', () => {
   it('adds a nullable set_via with its CHECK', () => {
     expect(MIGRATION).toContain('ALTER TABLE public.company_feature_overrides ADD COLUMN IF NOT EXISTS set_via TEXT;');
     expect(MIGRATION).toContain("CHECK (set_via IS NULL OR set_via IN ('platform_admin', 'company_admin', 'default_new_company'))");
@@ -132,7 +132,7 @@ describe('1056: set_via and the stamp trigger', () => {
   });
 });
 
-describe('1056: no backfill, no global flag, no plan', () => {
+describe('1058: no backfill, no global flag, no plan', () => {
   const top = topLevel();
 
   it('writes no row of companies, company_feature_overrides or feature_flags outside function bodies', () => {
@@ -148,13 +148,13 @@ describe('1056: no backfill, no global flag, no plan', () => {
   });
 
   it('ends with the scoped app_pool_reach_violations halt and carries the rollback block', () => {
-    expect(MIGRATION.trimEnd()).toMatch(/FOR v IN SELECT x FROM public\.app_pool_reach_violations\(\) AS x\s+WHERE x ~ 'company_feature_overrides\|create_company_with_owner\|mcp_connector_self_serve_set\|enable_mcp_connector_default'\s+ORDER BY 1 LOOP\s+RAISE EXCEPTION '1056: %', v;\s+END LOOP;\s+END \$\$;$/);
+    expect(MIGRATION.trimEnd()).toMatch(/FOR v IN SELECT x FROM public\.app_pool_reach_violations\(\) AS x\s+WHERE x ~ 'company_feature_overrides\|create_company_with_owner\|mcp_connector_self_serve_set\|enable_mcp_connector_default'\s+ORDER BY 1 LOOP\s+RAISE EXCEPTION '1058: %', v;\s+END LOOP;\s+END \$\$;$/);
     expect(MIGRATION).toContain('-- ROLLBACK');
     expect(MIGRATION).toContain("--    WHERE ff.id = o.feature_id AND ff.code = 'mcp_connector' AND o.set_via = 'default_new_company';");
     expect(MIGRATION).not.toMatch(/DELETE FROM public\.company_feature_overrides WHERE reason/);
     expect(MIGRATION).toContain('--   DROP FUNCTION IF EXISTS public.mcp_connector_self_serve_set(uuid, boolean);');
     expect(MIGRATION).toContain('--   ALTER TABLE public.company_feature_overrides DROP COLUMN IF EXISTS set_via;');
-    expect(MIGRATION).toContain('1056: company_feature_overrides does not have row security');
-    expect(MIGRATION).toContain('1056: app_user can % company_feature_overrides');
+    expect(MIGRATION).toContain('1058: company_feature_overrides does not have row security');
+    expect(MIGRATION).toContain('1058: app_user can % company_feature_overrides');
   });
 });

@@ -1,4 +1,4 @@
-/** The MCP connector default-on helper (migration 1056): one statement, the caller's ids, the function's answer. */
+/** The MCP connector default-on helper (migration 1058): one statement, the caller's ids, the function's answer. */
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
 const { sqlMock } = vi.hoisted(() => ({ sqlMock: vi.fn() }));

@@ -1,13 +1,13 @@
--- 1056: the MCP connector is on by default for NEW companies, and a company owner or admin can switch it on or off.
+-- 1058: the MCP connector is on by default for NEW companies, and a company owner or admin can switch it on or off.
 --
 -- WHAT
---   company_feature_overrides.set_via: who wrote an override row. NULL (every row written before 1056, and every
---     row pre-1056 code writes) reads as platform_admin. Catalogue-only column, no default, no rewrite.
+--   company_feature_overrides.set_via: who wrote an override row. NULL (every row written before 1058, and every
+--     row pre-1058 code writes) reads as platform_admin. Catalogue-only column, no default, no rewrite.
 --   company_feature_overrides_stamp_update (BEFORE UPDATE trigger, SECURITY INVOKER): every UPDATE of the table
 --     is stamped platform_admin. The only UPDATE of this table is the platform-admin upsert
 --     (featureFlagService.setCompanyFeatureOverride); the two functions below never UPDATE (default-on is
 --     INSERT ... ON CONFLICT DO NOTHING, the toggle is DELETE + INSERT). So after a code-only rollback an admin
---     OFF written by pre-1056 code over a company_admin row still becomes a lock.
+--     OFF written by pre-1058 code over a company_admin row still becomes a lock.
 --   enable_mcp_connector_default(company, actor), SECURITY INVOKER: one mcp_connector row (enabled, reason
 --     'Default on for new companies', set_via default_new_company) for a company created in the last 10 minutes;
 --     never overwrites (ON CONFLICT DO NOTHING), never raises. EXECUTE: migration_admin (tenant provisioning),
@@ -37,7 +37,7 @@
 --   forged claims it could flip the connector of a company that is not platform-locked. It mints no credential:
 --   every /api/mcp call still needs a real bearer, and tokens are written on migration_admin since 930.
 --
--- DEPLOY WINDOW: migrations apply before the colour switch. Pre-1056 code never names set_via: its admin INSERT
+-- DEPLOY WINDOW: migrations apply before the colour switch. Pre-1058 code never names set_via: its admin INSERT
 --   leaves NULL (read as platform_admin) and its admin UPDATE is stamped by the trigger; it never calls the two new
 --   functions. Old code on the new schema already gets default-on through create_company_with_owner (harmless).
 --   After a code-only rollback the same holds; self-serve rows stay and hasFeature honours them.
@@ -82,7 +82,7 @@ DO $$ BEGIN
 END $$;
 
 COMMENT ON COLUMN public.company_feature_overrides.set_via IS
-  'Who wrote this override: platform_admin, company_admin (mcp_connector_self_serve_set) or default_new_company (enable_mcp_connector_default). NULL = written before 1056 or by pre-1056 code: read as platform_admin.';
+  'Who wrote this override: platform_admin, company_admin (mcp_connector_self_serve_set) or default_new_company (enable_mcp_connector_default). NULL = written before 1058 or by pre-1058 code: read as platform_admin.';
 
 -- ── the stamp trigger ───────────────────────────────────────────────────────
 
@@ -93,7 +93,7 @@ SECURITY INVOKER
 SET search_path = pg_catalog, public, pg_temp
 AS $$
 BEGIN
-  -- The only UPDATE of this table is the platform-admin upsert (1056 header).
+  -- The only UPDATE of this table is the platform-admin upsert (1058 header).
   NEW.set_via := 'platform_admin';
   RETURN NEW;
 END;
@@ -209,7 +209,7 @@ BEGIN
   INSERT INTO public.company_users (company_id, user_id, role, is_default)
   VALUES (new_row.id, caller_id, 'owner', is_first_company);
 
-  -- 1056: the MCP connector is on by default for a new company (its owner is set_by).
+  -- 1058: the MCP connector is on by default for a new company (its owner is set_by).
   PERFORM public.enable_mcp_connector_default(new_row.id, caller_id::uuid);
 
   -- New: seed the default taxonomy so every workbench/portfolio/AFS feature
@@ -232,13 +232,13 @@ DECLARE
 BEGIN
   EXECUTE pg_catalog.format('GRANT EXECUTE ON FUNCTION public.enable_mcp_connector_default(uuid, uuid) TO %I', v_owner);
   IF NOT pg_catalog.has_function_privilege(v_owner, 'public.enable_mcp_connector_default(uuid, uuid)', 'EXECUTE') THEN
-    RAISE EXCEPTION '1056: % (owner of create_company_with_owner) cannot EXECUTE enable_mcp_connector_default', v_owner;
+    RAISE EXCEPTION '1058: % (owner of create_company_with_owner) cannot EXECUTE enable_mcp_connector_default', v_owner;
   END IF;
   IF NOT pg_catalog.has_table_privilege(v_owner, 'public.company_feature_overrides', 'INSERT') THEN
-    RAISE EXCEPTION '1056: % (owner of create_company_with_owner) cannot INSERT company_feature_overrides', v_owner;
+    RAISE EXCEPTION '1058: % (owner of create_company_with_owner) cannot INSERT company_feature_overrides', v_owner;
   END IF;
   IF NOT pg_catalog.has_table_privilege(v_owner, 'public.feature_flags', 'SELECT') THEN
-    RAISE EXCEPTION '1056: % (owner of create_company_with_owner) cannot SELECT feature_flags', v_owner;
+    RAISE EXCEPTION '1058: % (owner of create_company_with_owner) cannot SELECT feature_flags', v_owner;
   END IF;
 END $$;
 
@@ -262,7 +262,7 @@ BEGIN
   LOOP
     CONTINUE WHEN pg_catalog.to_regrole(r.role) IS NULL;
     IF NOT pg_catalog.has_table_privilege(r.role, r.tbl, r.priv) THEN
-      RAISE EXCEPTION '1056: % cannot % %, which the MCP connector default-on or toggle writes on it', r.role, r.priv, r.tbl;
+      RAISE EXCEPTION '1058: % cannot % %, which the MCP connector default-on or toggle writes on it', r.role, r.priv, r.tbl;
     END IF;
   END LOOP;
 END $$;
@@ -310,7 +310,7 @@ BEGIN
   -- function, and both platform-admin writes in featureFlagService), so no other write can land between this
   -- read and the DELETE + INSERT below, and this read (a fresh READ COMMITTED snapshot) sees every write committed
   -- before it. Not serialised, and harmless: enable_mcp_connector_default (a company no other session can see
-  -- yet), pre-1056 code during the deploy window, and the dev-only scripts/sandbox reviewer script.
+  -- yet), pre-1058 code during the deploy window, and the dev-only scripts/sandbox reviewer script.
   SELECT o.enabled, COALESCE(o.set_via, 'platform_admin') INTO v_was, v_was_via
     FROM public.company_feature_overrides o
    WHERE o.company_id = p_company AND o.feature_id = v_feature;
@@ -346,7 +346,7 @@ INSERT INTO public.app_definer_reviews (signature, writes, body_md5)
 SELECT v.signature, v.writes, public.app_definer_hash(v.fn::regprocedure)
   FROM (VALUES
     ('create_company_with_owner(jsonb)', 'public.create_company_with_owner(jsonb)',
-     'a NEW company, with its caller as owner (company_users); since 1056 also that new company''s mcp_connector override (enabled, default_new_company) through enable_mcp_connector_default; grants nothing over an existing one'),
+     'a NEW company, with its caller as owner (company_users); since 1058 also that new company''s mcp_connector override (enabled, default_new_company) through enable_mcp_connector_default; grants nothing over an existing one'),
     ('mcp_connector_self_serve_set(uuid,boolean)', 'public.mcp_connector_self_serve_set(uuid, boolean)',
      'company_feature_overrides: the one row (session company, mcp_connector) for a signed-in owner or admin of the session company, by DELETE + INSERT stamped company_admin; cannot turn on a row a platform admin switched off; a read of company_users and feature_flags; one advisory key per company; mints no credential (tokens are written on migration_admin since 930); nothing for another company')
   ) AS v(signature, fn, writes)
@@ -364,17 +364,17 @@ BEGIN
       ('public.mcp_connector_self_serve_set(uuid, boolean)', 'mcp_connector_self_serve_set(uuid,boolean)', true),
       ('public.enable_mcp_connector_default(uuid, uuid)', NULL, false)) AS x(fn, sig, app) LOOP
     IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_proc p WHERE p.oid = d.fn::regprocedure AND p.proconfig @> ARRAY['search_path=pg_catalog, public, pg_temp']) THEN
-      RAISE EXCEPTION '1056: % does not pin its search_path', d.fn;
+      RAISE EXCEPTION '1058: % does not pin its search_path', d.fn;
     END IF;
     IF d.sig IS NOT NULL AND ((SELECT pg_catalog.pg_get_userbyid(p.proowner) FROM pg_catalog.pg_proc p WHERE p.oid = d.fn::regprocedure) <> 'migration_admin'
        OR NOT EXISTS (SELECT 1 FROM public.app_definer_reviews r WHERE r.signature = d.sig AND r.body_md5 = public.app_definer_hash(d.fn::regprocedure))) THEN
-      RAISE EXCEPTION '1056: % is not owned by migration_admin, or its registry row does not hold its hash', d.fn;
+      RAISE EXCEPTION '1058: % is not owned by migration_admin, or its registry row does not hold its hash', d.fn;
     END IF;
     IF pg_catalog.has_function_privilege('public', d.fn, 'EXECUTE') THEN
-      RAISE EXCEPTION '1056: PUBLIC can execute %', d.fn;
+      RAISE EXCEPTION '1058: PUBLIC can execute %', d.fn;
     END IF;
     IF pg_catalog.has_function_privilege('app_user', d.fn, 'EXECUTE') IS DISTINCT FROM d.app THEN
-      RAISE EXCEPTION '1056: app_user % execute %', CASE WHEN d.app THEN 'cannot' ELSE 'can' END, d.fn;
+      RAISE EXCEPTION '1058: app_user % execute %', CASE WHEN d.app THEN 'cannot' ELSE 'can' END, d.fn;
     END IF;
   END LOOP;
 END $$;
@@ -386,17 +386,17 @@ DECLARE p text;
 BEGIN
   IF NOT COALESCE((SELECT c.relrowsecurity FROM pg_catalog.pg_class c
                     WHERE c.oid = 'public.company_feature_overrides'::pg_catalog.regclass), false) THEN
-    RAISE EXCEPTION '1056: company_feature_overrides does not have row security';
+    RAISE EXCEPTION '1058: company_feature_overrides does not have row security';
   END IF;
   FOREACH p IN ARRAY ARRAY['INSERT', 'UPDATE', 'DELETE'] LOOP
     IF pg_catalog.to_regrole('app_user') IS NOT NULL
        AND pg_catalog.has_table_privilege('app_user', 'public.company_feature_overrides', p) THEN
-      RAISE EXCEPTION '1056: app_user can % company_feature_overrides', p;
+      RAISE EXCEPTION '1058: app_user can % company_feature_overrides', p;
     END IF;
   END LOOP;
 END $$;
 
--- 930's rules still hold for the objects 1056 touches (scoped like 1010d so the advisory run on
+-- 930's rules still hold for the objects 1058 touches (scoped like 1010d so the advisory run on
 -- production's older schema does not trip on unrelated functions such as 997b; the integration gate checks all).
 DO $$
 DECLARE v text;
@@ -404,6 +404,6 @@ BEGIN
   FOR v IN SELECT x FROM public.app_pool_reach_violations() AS x
     WHERE x ~ 'company_feature_overrides|create_company_with_owner|mcp_connector_self_serve_set|enable_mcp_connector_default'
     ORDER BY 1 LOOP
-    RAISE EXCEPTION '1056: %', v;
+    RAISE EXCEPTION '1058: %', v;
   END LOOP;
 END $$;

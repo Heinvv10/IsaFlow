@@ -1,4 +1,4 @@
-/** The MCP connector setting (migration 1056): the platform-lock truth table and the two SQL calls. */
+/** The MCP connector setting (migration 1058): the platform-lock truth table and the two SQL calls. */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { sqlMock, hasFeatureMock } = vi.hoisted(() => ({ sqlMock: vi.fn(), hasFeatureMock: vi.fn() }));

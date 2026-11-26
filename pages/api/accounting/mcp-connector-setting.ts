@@ -3,7 +3,7 @@
  *
  * GET (any member): { enabled, lockedByPlatform, canToggle }.
  * POST { enabled: boolean } (owner or admin of the session company; CSRF): switches it through
- * mcp_connector_self_serve_set (migration 1056), which checks the session company and the role again in SQL. The
+ * mcp_connector_self_serve_set (migration 1058), which checks the session company and the role again in SQL. The
  * company is always req.companyId: a body naming any other field (companyId included) is 400. Answers: 200 the
  * GET payload; 400 bad body; 403 role (or the SQL function refused); 409 switched off by IsaFlow (a platform
  * admin's OFF is a lock owners cannot lift). A real change writes one audit_log row in the request transaction.

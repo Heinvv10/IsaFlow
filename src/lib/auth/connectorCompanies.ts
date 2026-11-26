@@ -14,7 +14,7 @@ import { companiesWithFeature, hasFeature } from '@/modules/admin/services/featu
 
 export const MCP_CONNECTOR_FEATURE = 'mcp_connector';
 
-/** Where a company owner or admin switches the connector on (migration 1056); the nav path below names it. */
+/** Where a company owner or admin switches the connector on (migration 1058); the nav path below names it. */
 export const MCP_SETTINGS_PATH = '/accounting/settings/integrations-mcp';
 
 /** Also the error_description of the access_denied redirect, so RFC 6749 ASCII: no double quote, no backslash. */

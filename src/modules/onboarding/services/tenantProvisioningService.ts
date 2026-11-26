@@ -150,7 +150,7 @@ export async function provisionTenant(
     [companyId, input.ownerUserId],
   );
 
-  // The MCP connector is on by default for a new company (migration 1056), in this transaction, before an
+  // The MCP connector is on by default for a new company (migration 1058), in this transaction, before an
   // accountant sign-up's bureau setup runs (its SAVEPOINT cannot roll this back).
   await enableMcpConnectorDefault(client, companyId, input.ownerUserId);
 

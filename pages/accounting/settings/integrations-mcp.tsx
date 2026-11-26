@@ -2,7 +2,7 @@
  * /accounting/settings/integrations-mcp — MCP Connector (AI agents) panel.
  *
  * Shows the session company's `mcp_connector` state with the owner/admin switch
- * (McpConnectorSwitch; on by default for companies created since migration 1056).
+ * (McpConnectorSwitch; on by default for companies created since migration 1058).
  * When on: the endpoint URL and per-client connect instructions, links to the PAT
  * mint page (no-OAuth fallback) and the connected-apps revoke page.
  */

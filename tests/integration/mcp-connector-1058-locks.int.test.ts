@@ -1,8 +1,8 @@
-// tests/integration/mcp-connector-1056-locks.int.test.ts
+// tests/integration/mcp-connector-1058-locks.int.test.ts
 //
-// Migration 1056, the three findings of the independent review of PR #1927:
+// Migration 1058, the three findings of the independent review of PR #1927:
 //   1. The owner/admin toggle (SECURITY DEFINER, owned by migration_admin) must run with only the privileges
-//      1056 asserts for migration_admin (SELECT, INSERT, DELETE): no row lock, which would need UPDATE.
+//      1058 asserts for migration_admin (SELECT, INSERT, DELETE): no row lock, which would need UPDATE.
 //   2. Both platform-admin writes (featureFlagService) must really take the toggle's advisory key, so they wait
 //      for an in-flight toggle even when nothing else (no row lock, no existing row) would make them wait.
 //   3. The rollback's default-on DELETE (read from the migration header itself) touches mcp_connector
@@ -16,7 +16,7 @@ import { removeCompanyFeatureOverride, setCompanyFeatureOverride } from '@/modul
 import { fixture, migration, newIds, rolledBack, setup, teardown } from './s07b-app-pool-login-role.helpers';
 
 const ids = newIds(); // setup: ids.company has ids.me (admin) and ids.owner (owner); an enabled platform row for ids.company
-const M1056 = migration('1056_mcp_connector_default_on_self_serve.sql');
+const M1058 = migration('1058_mcp_connector_default_on_self_serve.sql');
 const KEY = `hashtextextended('mcp_connector_self_serve:' || '${ids.company}', 0)`;
 
 beforeAll(() => setup(ids), 60000);
@@ -36,10 +36,10 @@ const toggle = (q: Q, on: boolean) => rows(q, `SELECT * FROM public.mcp_connecto
 const override = (q: Q, company: string) => rows(q, `SELECT o.enabled, o.set_via FROM company_feature_overrides o
   JOIN feature_flags ff ON ff.id = o.feature_id WHERE o.company_id = '${company}' AND ff.code = 'mcp_connector'`);
 
-describe('1056: the toggle runs on migration_admin without UPDATE', () => {
+describe('1058: the toggle runs on migration_admin without UPDATE', () => {
   it('owner OFF, ON, unchanged and locked all answer with only SELECT, INSERT, DELETE on the table', async () => {
     await rolledBack(async (q) => {
-      // Exactly the privileges 1056 asserts for migration_admin on this table (production's model).
+      // Exactly the privileges 1058 asserts for migration_admin on this table (production's model).
       await q('REVOKE ALL ON public.company_feature_overrides FROM migration_admin');
       await q('GRANT SELECT, INSERT, DELETE ON public.company_feature_overrides TO migration_admin');
       expect(await rows(q, `SELECT has_table_privilege('migration_admin', 'public.company_feature_overrides', 'UPDATE') AS u,
@@ -102,7 +102,7 @@ async function waitsForKey(prepare: (admin: PoolClient) => Promise<void>, write:
   }
 }
 
-describe('1056: both platform-admin writes take the toggle advisory key', () => {
+describe('1058: both platform-admin writes take the toggle advisory key', () => {
   let feature = '';
   beforeAll(async () => {
     feature = (await fixture.query(`SELECT id::text AS id FROM feature_flags WHERE code = 'mcp_connector'`)).rows[0].id as string;
@@ -127,9 +127,9 @@ describe('1056: both platform-admin writes take the toggle advisory key', () => 
   });
 });
 
-/** A ROLLBACK step of the 1056 header, as an operator would paste it: from `marker` to the first `;`. */
+/** A ROLLBACK step of the 1058 header, as an operator would paste it: from `marker` to the first `;`. */
 function rollbackStep(marker: string): string {
-  const lines = M1056.slice(M1056.indexOf(marker)).split('\n').slice(1);
+  const lines = M1058.slice(M1058.indexOf(marker)).split('\n').slice(1);
   const out: string[] = [];
   for (const line of lines) {
     const text = line.replace(/^(--\s*)+/, '');
@@ -140,14 +140,14 @@ function rollbackStep(marker: string): string {
   return out.join('\n');
 }
 
-describe('1056: the rollback', () => {
+describe('1058: the rollback', () => {
   it('step 2 deletes mcp_connector default_new_company rows only, whatever the reason on other rows', async () => {
     const step2 = rollbackStep('-- 2. Default-on rows only');
     expect(step2).toMatch(/^DELETE FROM public\.company_feature_overrides/);
     await rolledBack(async (q) => {
       // A platform-admin mcp_connector lock that happens to carry the same reason: kept.
       await q(`UPDATE company_feature_overrides SET enabled = false, reason = 'Default on for new companies' WHERE company_id = '${ids.company}'`);
-      const other = (await rows(q, `INSERT INTO feature_flags (code, name) VALUES ('zz_1056_rb_${ids.company.slice(0, 8)}', 'x') RETURNING id::text AS id`))[0]!.id;
+      const other = (await rows(q, `INSERT INTO feature_flags (code, name) VALUES ('zz_1058_rb_${ids.company.slice(0, 8)}', 'x') RETURNING id::text AS id`))[0]!.id;
       // Another feature's row with the default-on reason AND set_via: kept.
       await q(`INSERT INTO company_feature_overrides (company_id, feature_id, enabled, reason, set_by, set_via)
         VALUES ('${ids.company}', '${other}', true, 'Default on for new companies', '${ids.admin}', 'default_new_company')`);
@@ -167,7 +167,7 @@ describe('1056: the rollback', () => {
     const step3 = rollbackStep('-- 3. Optional: company_admin rows');
     expect(step3).toMatch(/^DELETE FROM public\.company_feature_overrides/);
     await rolledBack(async (q) => {
-      const other = (await rows(q, `INSERT INTO feature_flags (code, name) VALUES ('zz_1056_rb3_${ids.company.slice(0, 8)}', 'x') RETURNING id::text AS id`))[0]!.id;
+      const other = (await rows(q, `INSERT INTO feature_flags (code, name) VALUES ('zz_1058_rb3_${ids.company.slice(0, 8)}', 'x') RETURNING id::text AS id`))[0]!.id;
       await q(`INSERT INTO company_feature_overrides (company_id, feature_id, enabled, reason, set_by, set_via)
         VALUES ('${ids.company}', '${other}', true, 'x', '${ids.admin}', 'company_admin')`);
       await asAppUser(q, ids.owner, ids.company);

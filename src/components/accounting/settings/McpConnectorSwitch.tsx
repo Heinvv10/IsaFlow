@@ -1,5 +1,5 @@
 /**
- * The MCP connector switch on /accounting/settings/integrations-mcp (migration 1056).
+ * The MCP connector switch on /accounting/settings/integrations-mcp (migration 1058).
  *
  * A company owner or admin switches the connector on or off for the session company
  * (POST /api/accounting/mcp-connector-setting). Other roles see the state and why they cannot change it. A

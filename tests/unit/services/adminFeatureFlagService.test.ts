@@ -91,7 +91,7 @@ describe('getCompanyEffectiveFeatures', () => {
   });
 });
 
-/** Migration 1056: a platform-admin write is stamped platform_admin, so its OFF is a lock owners cannot lift. */
+/** Migration 1058: a platform-admin write is stamped platform_admin, so its OFF is a lock owners cannot lift. */
 describe('setCompanyFeatureOverride', () => {
   beforeEach(() => { vi.mocked(sql).mockReset(); });
 

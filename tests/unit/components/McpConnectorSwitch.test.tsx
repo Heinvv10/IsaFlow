@@ -1,4 +1,4 @@
-// The MCP connector switch (migration 1056): owner/admin can switch it, other roles see why not, a platform OFF is a
+// The MCP connector switch (migration 1058): owner/admin can switch it, other roles see why not, a platform OFF is a
 // lock, the consent note always shows, and a failed POST says so in a plain sentence.
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';

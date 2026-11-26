@@ -244,7 +244,7 @@ describe('provisionTenant — first financial year', () => {
   });
 });
 
-/** Migration 1056: the MCP connector is on by default for every new tenant, plain and accountant sign-ups alike. */
+/** Migration 1058: the MCP connector is on by default for every new tenant, plain and accountant sign-ups alike. */
 describe('provisionTenant: MCP connector default-on', () => {
   const now = new Date('2026-08-19T10:00:00.000Z');
 

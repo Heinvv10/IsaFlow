@@ -1,5 +1,5 @@
 /**
- * /api/accounting/mcp-connector-setting (migration 1056): the owner/admin self-serve MCP connector switch.
+ * /api/accounting/mcp-connector-setting (migration 1058): the owner/admin self-serve MCP connector switch.
  * The real withWriteAccess and withCsrf run; the SQL function and the audit writer are mocked.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';

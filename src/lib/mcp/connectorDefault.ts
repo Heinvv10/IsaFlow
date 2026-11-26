@@ -1,6 +1,6 @@
 /**
  * Default-on for the MCP connector: every path that creates a company calls this once, in the transaction that
- * created it. The SQL function (migration 1056, `enable_mcp_connector_default`) writes one `mcp_connector`
+ * created it. The SQL function (migration 1058, `enable_mcp_connector_default`) writes one `mcp_connector`
  * override row (enabled, reason MCP_DEFAULT_ON_REASON, set_via default_new_company) for a company created in the
  * last 10 minutes, never overwrites an existing row and never raises: an older company or a missing flag row
  * answers false. It is not callable by app_user; the onboarding wizard path gets it inside

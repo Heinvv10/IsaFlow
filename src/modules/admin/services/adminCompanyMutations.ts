@@ -127,7 +127,7 @@ export async function createCompany(input: {
   `;
   const created = rows[0] as { id: string; name: string };
 
-  // The MCP connector is on by default for a new company (migration 1056).
+  // The MCP connector is on by default for a new company (migration 1058).
   await enableMcpConnectorDefaultViaSql(created.id, input.actorUserId);
 
   // Plan gating counts a trial only while its end is in the future, so both

@@ -1,5 +1,5 @@
 /**
- * Admin-created companies get the MCP connector on by default (migration 1056), with the creating platform admin
+ * Admin-created companies get the MCP connector on by default (migration 1058), with the creating platform admin
  * as the actor (the company has no owner yet): POST /api/admin/companies passes req.user.id, and
  * adminCompanyMutations.createCompany calls enable_mcp_connector_default for the new company.
  */
