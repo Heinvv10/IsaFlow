@@ -91,7 +91,18 @@ async function openRun(page: Page, runId: string): Promise<void> {
   await settle(page);
 }
 
+/**
+ * The dialog fades in (Modal: animate-in fade-in-0 zoom-in-95, 200 ms). axe run inside that window reads the dialog's
+ * text blended with the page (GT #1939 chunk 6: #728185 on #d9e7e3 = text-primary at ~50% opacity, contrast 3.17), so
+ * wait for every finite animation to end first. An infinite one (a spinner) is settle()'s business, not this wait's.
+ */
+async function animationsDone(page: Page): Promise<void> {
+  await page.waitForFunction(() => document.getAnimations()
+    .every((a) => a.playState !== 'running' || a.effect?.getTiming().iterations === Infinity), undefined, { timeout: 10_000 });
+}
+
 async function seriousAxe(page: Page): Promise<string[]> {
+  await animationsDone(page);
   return (await new AxeBuilder({ page }).analyze()).violations
     .filter((v) => v.impact === 'serious' || v.impact === 'critical')
     .flatMap((v) => v.nodes.map((n) => `${v.id} (${v.impact}): ${n.target.join(' ')}`));
