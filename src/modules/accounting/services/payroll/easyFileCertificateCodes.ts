@@ -92,16 +92,22 @@ export function fieldLabel(name: CertificateFieldName, words: string): string {
 export const UNWRITTEN_MANDATORY_CODES = [3026, 3136, 3147, 3148, 3149, 3150, 3151, 3195, 3220, 3246, 3263] as const;
 
 const NEVER_HELD = 'the account holder relationship (3246), business phone, work address, SIC7, and the 3026 / 3195 / 3220 indicators';
+const NOTICE_END = 'capture them in e@syFile before you submit.';
 
 /**
  * Said on every e@syFile file (Hein 2026-11-20: warn, never refuse): what e@syFile will ask for because this file cannot
- * carry it. This one when the bank account fields were not written (the EMP501 version files, a manager's export).
+ * carry it. This one when the addresses were written and the bank accounts were not (the EMP501 version files, a
+ * manager's export).
  */
 export const UNWRITTEN_FIELDS_WARNING = 'e@syFile will ask for fields this file does not carry: employee bank details '
   + '(3240-3246: written only in an owner\'s or admin\'s e@syFile export), any employee address not captured in IsaFlow '
-  + `(IRP5 pre-validation names them), ${NEVER_HELD}: capture them in e@syFile before you submit.`;
+  + `(IRP5 pre-validation names them), ${NEVER_HELD}: ${NOTICE_END}`;
 
-/** The same notice for a file that carries every captured bank account (an owner's or admin's export). */
+/** The same notice for a file that carries every captured address and bank account (an owner's or admin's export). */
 export const UNWRITTEN_FIELDS_WARNING_BANK_WRITTEN = 'e@syFile will ask for fields this file does not carry: any employee '
-  + `address or bank account not captured in IsaFlow (IRP5 pre-validation names them), ${NEVER_HELD}: capture them in `
-  + 'e@syFile before you submit.';
+  + `address or bank account not captured in IsaFlow (IRP5 pre-validation names them), ${NEVER_HELD}: ${NOTICE_END}`;
+
+/** The same notice for an export by Login-as, a token or a job: no address and no bank account is written. */
+export const UNWRITTEN_FIELDS_WARNING_NO_CONTACTS = 'e@syFile will ask for fields this file does not carry: employee '
+  + 'addresses and bank details (3211-3294, 3240-3246: written only when a person exports in their own session), '
+  + `${NEVER_HELD}: ${NOTICE_END}`;

@@ -34,17 +34,20 @@ import { listPspFilingTotals, pspFilingWarning } from '@/modules/accounting/serv
 import { employerInputOf } from '@/modules/accounting/services/payroll/easyFileEmployerInput';
 import { loadPspCertificates } from '@/modules/accounting/services/payroll/easyFilePspCertificate';
 import { EasyFileInputRefusal, type EasyFileInput } from '@/modules/accounting/services/payroll/easyFileInputTypes';
-import { UNWRITTEN_FIELDS_WARNING, UNWRITTEN_FIELDS_WARNING_BANK_WRITTEN } from '@/modules/accounting/services/payroll/easyFileCertificateCodes';
+import {
+  UNWRITTEN_FIELDS_WARNING, UNWRITTEN_FIELDS_WARNING_BANK_WRITTEN, UNWRITTEN_FIELDS_WARNING_NO_CONTACTS,
+} from '@/modules/accounting/services/payroll/easyFileCertificateCodes';
 import { addressFromRow } from '@/modules/accounting/services/payroll/payrollEmployeeAddress';
-import { loadCertificateBankAccounts, type CertificateBankReader } from '@/modules/accounting/services/payroll/easyFileBankAccounts';
+import { contactPolicyOf, loadCertificateBankAccounts, type CertificateBankReader } from '@/modules/accounting/services/payroll/easyFileBankAccounts';
 import { filingDateWarning } from '@/modules/accounting/services/payroll/easyFileEmployeeChecks';
 
 export { EasyFileInputRefusal, type EasyFileInput } from '@/modules/accounting/services/payroll/easyFileInputTypes';
 
 /**
  * `kind` 'interim' (wave 6 EFb): March to August only, period code 08; 'annual' is the whole tax year, 02.
- * `bankReader` (wave 7 EA2): the caller of the ad-hoc export; with an owner or admin the certificates carry each bank
- * account (3240-3245), read and audited per employee (easyFileBankAccounts). Without one (EMP501), none is read.
+ * `bankReader` (wave 7 EA2): the caller of the ad-hoc export. A person in their own session gets the addresses, an
+ * owner or admin the bank accounts too (3240-3245, read and audited per employee); Login-as, a token or a job neither
+ * (contactPolicyOf). Without one (the EMP501 lifecycle's stored figures): the addresses, never an account.
  */
 export async function assembleEasyFileInput(
   companyId: string, taxYear: number, kind: Emp501Kind = 'annual', bankReader?: CertificateBankReader,
@@ -137,6 +140,7 @@ export async function assembleEasyFileInput(
   const aggMap = new Map<string, DbRow>();
   aggRows.forEach((r) => aggMap.set(String(r.employee_id), r));
 
+  const contacts = await contactPolicyOf(bankReader);
   const yoaStart = bounds.start.replaceAll('-', '');
   // Annual: the last day of February, 29th in a leap year. Interim: 31 August.
   const yoaEndInclusive = bounds.end.replaceAll('-', '');
@@ -212,7 +216,7 @@ export async function assembleEasyFileInput(
     const { start: periodStart, end: periodEnd } = taxPeriod;
 
     const certificateNumber = buildCertificateNumber(payeRef, taxYear, period.mm, seq);
-    const address = addressFromRow(row);
+    const address = contacts.address ? addressFromRow(row) : null;
     certificateEmployees.push({ certificateNumber, employeeId: String(row.id) });
     employees.push({
       certificateNumber,
@@ -257,7 +261,7 @@ export async function assembleEasyFileInput(
 
   // Wave 7 EA2: each certificate's bank account, only for an owner's or admin's own export (audited per employee).
   const names = new Map(empRows.map((r) => [String(r.id), `${String(r.first_name ?? '')} ${String(r.last_name ?? '')}`.trim()]));
-  const bank = await loadCertificateBankAccounts(companyId, certificateEmployees.map((c) => ({ id: c.employeeId, name: names.get(c.employeeId) ?? '' })), bankReader);
+  const bank = await loadCertificateBankAccounts(companyId, certificateEmployees.map((c) => ({ id: c.employeeId, name: names.get(c.employeeId) ?? '' })), contacts.bank ? bankReader : undefined);
   certificateEmployees.forEach((c, i) => { const account = bank.byEmployee.get(c.employeeId); if (account) employees[i]!.bankAccount = account; });
   warnings.push(...bank.warnings);
 
@@ -281,7 +285,7 @@ export async function assembleEasyFileInput(
   // The file-wide notices (wave 6 EZF) come after the capped list, outside the cap: two fixed, short lines (too early to
   // file, BRS p. 32; the fields IsaFlow does not hold), so the per-employee warnings keep the whole header budget.
   const early = filingDateWarning([...employees, ...pspCertificates.map((c) => ({ taxPeriodEnd: c.periodEnd }))], new Date());
-  const notices = [...(early ? [early] : []), bank.written ? UNWRITTEN_FIELDS_WARNING_BANK_WRITTEN : UNWRITTEN_FIELDS_WARNING];
+  const notices = [...(early ? [early] : []), !contacts.address ? UNWRITTEN_FIELDS_WARNING_NO_CONTACTS : bank.written ? UNWRITTEN_FIELDS_WARNING_BANK_WRITTEN : UNWRITTEN_FIELDS_WARNING];
   const warningsTotal = warnings.length + notices.length;
   warnings.splice(0, warnings.length, ...capWarningsForHeader(warnings), ...notices);
 

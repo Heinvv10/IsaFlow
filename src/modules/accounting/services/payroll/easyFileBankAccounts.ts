@@ -19,6 +19,19 @@ import { bankAccountForCertificate, type CertificateBankAccount } from './easyFi
 /** Who is building the file: the session's company role and the actor its audit rows name. */
 export interface CertificateBankReader { role: string | undefined; actor: RevealActor }
 
+/**
+ * What a file built for `reader` may carry (coordinator's security review of EA2: the same rule as the address and
+ * bank-details routes, which refuse Login-as and tokens). A person in their own session: the addresses, and for an
+ * owner or admin the bank accounts too. Login-as, a token or a job: neither. No reader at all is the EMP501
+ * lifecycle's build, which is stored and compared, never served to the builder: the addresses are kept (the filed file
+ * must carry them) and the only route that serves them, the EMP501 filing file, is owner / admin in their own session.
+ */
+export async function contactPolicyOf(reader: CertificateBankReader | undefined): Promise<{ address: boolean; bank: boolean }> {
+  if (!reader) return { address: true, bank: false };
+  const human = await isHumanSession();
+  return { address: human, bank: human && isHistoryAdmin(reader.role) };
+}
+
 export interface CertificateBankAccounts {
   /** False when no account was read (no reader, or not owner / admin). */
   written: boolean;

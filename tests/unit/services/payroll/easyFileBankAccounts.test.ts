@@ -23,7 +23,7 @@ vi.mock('@/modules/accounting/services/payroll/payrollBankReadAudit', () => ({
   auditBankDetailsRead: async (companyId: string, _a: unknown, d: { id: string }) => { st.audits.push({ companyId, detailsId: d.id }); },
 }));
 
-import { loadCertificateBankAccounts } from '@/modules/accounting/services/payroll/easyFileBankAccounts';
+import { contactPolicyOf, loadCertificateBankAccounts } from '@/modules/accounting/services/payroll/easyFileBankAccounts';
 
 const actor = { userId: 'u1', userEmail: 'u1@example.invalid', ip: '198.18.0.1', userAgent: 'vitest' };
 const full = (id: string, o: Record<string, unknown> = {}) => ({
@@ -79,5 +79,20 @@ describe('loadCertificateBankAccounts', () => {
   it('refuses a masked view rather than write it to the file', async () => {
     st.details.set('e1', full('e1', { masked: true, accountNumber: '…0001' }));
     await expect(loadCertificateBankAccounts('c1', emps, { role: 'owner', actor })).rejects.toThrow(/masked/);
+  });
+});
+
+describe('contactPolicyOf (the address and bank-details routes\' rule: a person in their own session)', () => {
+  it.each([
+    ['owner', true, { address: true, bank: true }], ['admin', true, { address: true, bank: true }],
+    ['manager', true, { address: true, bank: false }],
+    ['owner', false, { address: false, bank: false }], ['manager', false, { address: false, bank: false }],
+  ] as const)('%s, human session %s: %j', async (role, human, want) => {
+    st.human = human;
+    expect(await contactPolicyOf({ role, actor })).toEqual(want);
+  });
+  it('no reader (the EMP501 figures, stored and never served to the builder): the address, never an account', async () => {
+    st.human = false;
+    expect(await contactPolicyOf(undefined)).toEqual({ address: true, bank: false });
   });
 });

@@ -10,7 +10,8 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { z } from 'zod';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
-import { apiResponse } from '@/lib/apiResponse';
+import { apiResponse, ErrorCode } from '@/lib/apiResponse';
+import { currentSessionActor } from '@/lib/auth/impersonationSessions';
 import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
@@ -34,6 +35,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const userId = (req as AuthenticatedNextApiRequest).user.id;
   if (!(await checkReportRateLimit(companyId, `emp501-filing-file:u:${userId}`, INTERACTIVE_REPORT_LIMIT))) {
     return apiResponse.tooManyRequests(res, 'Too many requests. Please try again shortly.');
+  }
+  // Wave 7 EA2: the file carries employees' addresses too. A token or a job (no session id) gets none of it; Login-as
+  // is refused in downloadEmp501File. The same rule as the address and bank-details routes (assertHumanSession).
+  if ((await currentSessionActor()) === 'unknown') {
+    return apiResponse.error(res, ErrorCode.FORBIDDEN, 'Only a person signed in as themselves can download the EMP501 filing file; an agent or a job cannot.', { reason: 'AGENT_FORBIDDEN' });
   }
   try {
     const file = await downloadEmp501File(companyId, parsed.data.versionId, { userId, role: companyRole });

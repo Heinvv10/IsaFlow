@@ -4,8 +4,9 @@
  * through the audited reader (one audit_log `export` row per account). Pre-validation names each employee missing
  * one. Real routes (withAuth, app_user, RLS) on two tenants, from real approved runs. Claims:
  *  - an owner's file carries company a's addresses and accounts, byte for byte, and only a's (b's are 10x and absent);
- *  - each full account read is one audit row naming the employee, never the number; a Login-as export (the same
- *    owner's account, impersonated) carries no account and writes no audit row;
+ *  - each full account read is one audit row naming the employee, never the number;
+ *  - a Login-as export (the same owner, impersonated) and a token export (no session id) carry no address and no
+ *    account, say so, and write no audit row; the EMP501 filing file refuses a token (Login-as: downloadEmp501File);
  *  - the EMP501 figures (stored, compared) carry the address and never an account;
  *  - pre-validation names a's employee with no account and the one with no address; never b's.
  *
@@ -18,7 +19,9 @@ import { buildEmp501Figures } from '@/modules/accounting/services/returns/emp501
 import { emp501Period } from '@/modules/accounting/services/payroll/emp501Period';
 import { preValidateTaxYear } from '@/modules/accounting/services/payroll/preValidationService';
 import { request, response } from './mfa-impersonation-postgres.helpers';
-import { approvedRun, loginAs, type R } from './pe-payslip-email.helpers';
+import { agent, approvedRun, loginAs, type R } from './pe-payslip-email.helpers';
+import filingFile from '../../pages/api/payroll/emp501/returns/filing-file';
+import { UNWRITTEN_FIELDS_WARNING_NO_CONTACTS } from '@/modules/accounting/services/payroll/easyFileCertificateCodes';
 import { rig } from './brkr.helpers';
 
 let a: R;
@@ -27,7 +30,7 @@ const emp = { full: '', box: '', bare: '', bee: '' };
 const bankIds: Record<string, string> = {};
 
 /** The route's file body (it answers with res.end(body)) and status, as `user` in `r`'s company. */
-async function exportFile(r: R, user: string): Promise<{ status: number; body: string; json: unknown }> {
+async function exportFile(r: R, user: string): Promise<{ status: number; body: string; json: unknown; warnings: string[] }> {
   const req = request({ 'sb-access-token': r.tokens[user]!, active_company_id: r.company }, 'GET') as unknown as {
     url: string; query: Record<string, unknown>;
   };
@@ -38,7 +41,8 @@ async function exportFile(r: R, user: string): Promise<{ status: number; body: s
   const state = out.state as unknown as { end: (b?: unknown) => unknown; body: unknown; statusCode: number };
   state.end = function end(this: unknown, chunk?: unknown) { if (chunk !== undefined) body = String(chunk); return this; };
   await (exportRoute as unknown as (q: unknown, s: NextApiResponse) => Promise<void>)(req, out.res);
-  return { status: state.statusCode, body, json: state.body };
+  const raw = out.headers.get('x-isaflow-warnings');
+  return { status: state.statusCode, body, json: state.body, warnings: raw ? JSON.parse(decodeURIComponent(String(raw))) as string[] : [] };
 }
 
 async function profile(r: R): Promise<void> {
@@ -136,14 +140,29 @@ describe('e@syFile addresses and bank accounts (wave 7 EA2)', () => {
     expect(await audits(b)).toEqual([]);
   });
 
-  it('Login-as (the owner impersonated): no account in the file and no audit row written', async () => {
+  it.each(['Login-as', 'token'])('%s (the owner, not in their own session): no address, no account, said so, no audit row', async (how) => {
     const before = (await audits(a)).length;
-    const as = await loginAs(a, a.approver);
+    const as = how === 'Login-as' ? await loginAs(a, a.approver) : await agent(a, a.approver);
     const out = await exportFile(a, as);
     expect(out.status).toBe(200);
-    expect(contact(certificate(out.body, '8001015009087')).filter((l) => l.startsWith('324'))).toEqual([]);
-    expect(certificate(out.body, '8001015009087')).toContain('3214,"Main Road"');
+    for (const id of ['8001015009087', '8001015009186', '8001015009285']) expect(contact(certificate(out.body, id))).toEqual([]);
+    expect(out.body).not.toMatch(/Main Road|Rietfontein|62123456789/);
+    expect(out.warnings).toContain(UNWRITTEN_FIELDS_WARNING_NO_CONTACTS);
     expect((await audits(a)).length).toBe(before);
+  });
+
+  it('the EMP501 filing file (it carries the addresses): a token is refused before anything is read; a person is not', async () => {
+    const call = async (user: string) => {
+      const req = request({ 'sb-access-token': a.tokens[user]!, active_company_id: a.company }, 'POST') as unknown as { url: string; body: unknown };
+      req.url = '/api/payroll/emp501/returns/filing-file';
+      req.body = { versionId: crypto.randomUUID(), format: 'irp5' };
+      const out = response();
+      await (filingFile as unknown as (q: unknown, s: NextApiResponse) => Promise<void>)(req, out.res);
+      return out.state as unknown as { statusCode: number; body: { error?: { details?: { reason?: string } } } };
+    };
+    const token = await call(await agent(a, a.approver, 'agent-filing'));
+    expect([token.statusCode, token.body.error?.details?.reason]).toEqual([403, 'AGENT_FORBIDDEN']);
+    expect((await call(a.approver)).statusCode).toBe(404); // the owner's own session passes the gate; no such version
   });
 
   it('b\'s owner gets b\'s own (10x) certificate with its address and account', async () => {
