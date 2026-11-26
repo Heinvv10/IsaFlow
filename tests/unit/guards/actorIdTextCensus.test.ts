@@ -255,6 +255,8 @@ describe('payroll_employees.tax_directive_number is dead (HYa marked it deprecat
       .flatMap((f) => lines(f).flatMap((l, i) => (/\btax_directive_number\b/.test(l) ? [`${f}:${i + 1}`] : [])));
     expect(named).toEqual([
       `${S}core/entityChanges/entityChangeMasking.ts:18`,
+      'tests/integration/hya-sars-one-open-draft.int.test.ts:21', // the 999b replay re-adds it in a rolled-back tx
+      'tests/integration/hya-sars-one-open-draft.int.test.ts:23',
       'tests/unit/services/core/entityChangeTypes.test.ts:117',
     ]);
   });
