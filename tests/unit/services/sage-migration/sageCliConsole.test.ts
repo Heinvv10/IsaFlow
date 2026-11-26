@@ -124,6 +124,11 @@ describe('B29-2: fd 1 / fd 2 are left as they were found', () => {
     const { text } = await shell(`{ ${probe}; ${CHILD} > /dev/null; ${probe}; } 2>&1 | cat`, { NATURAL: '1' });
     expect(text.trim().split('\n').filter((l) => l.startsWith('['))).toEqual(['[False, False]', '[False, False]']);
   }, 30_000);
+  it('a natural end with 300 KB to say ends once the reader (1 s late) has it all: the console\'s ceiling never holds the ended process', async () => {
+    const { text, ms } = await shell(`${CHILD} 2>&1 >/dev/null | { sleep 1; cat; } | tail -c 17`, { NATURAL: '2' });
+    expect(text).toBe('the run finished\n');
+    expect(ms).toBeLessThan(15_000); // not CONSOLE_EXIT_CEILING_MS (120 s): its timer is unref'd
+  }, 60_000);
   it('the real CLI too (a refused start): it saves the flags before anything of it touches the streams', async () => {
     const probe = `python3 -I -c "import fcntl,os,sys; print([bool(fcntl.fcntl(f, fcntl.F_GETFL) & os.O_NONBLOCK) for f in (1, 2)], file=sys.stderr)"`;
     const { text } = await shell(`{ ${probe}; ${CLI.replace('"$BIG"', 'x')} > /dev/null; ${probe}; } 2>&1 | cat`);
@@ -143,6 +148,15 @@ describe('B30-1: another program puts the shared pipe back to blocking', () => {
       await shell(`${CHILD} 3>${d}/t 2>&1 >/dev/null | { sleep 3; cat > /dev/null; }`, { CLEARNB: '3' });
       const ms = Number(/say took (\d+) ms/.exec(readFileSync(join(d, 't'), 'utf8'))?.[1]);
       expect(ms).toBeLessThan(1_000);
+    } finally { rmSync(d, { recursive: true, force: true }); }
+  }, 30_000);
+  it('B31-1: the exit\'s one try (a cut or ceiling notice) sets it again too: on a full pipe it fails at once, never waits for the reader', async () => {
+    const d = mkdtempSync(join(tmpdir(), 'sage-console-wn-'));
+    try {
+      await shell(`${CHILD} 3>${d}/t 2>&1 >/dev/null | { sleep 3; cat > /dev/null; }`, { WRITENOW: '3' });
+      const m = /writeNow (true|false) took (\d+) ms/.exec(readFileSync(join(d, 't'), 'utf8'));
+      expect(m?.[1]).toBe('false'); // EAGAIN: not taken (the pipe was full)
+      expect(Number(m?.[2])).toBeLessThan(1_000); // and not held in write(2) until the reader woke (3 s)
     } finally { rmSync(d, { recursive: true, force: true }); }
   }, 30_000);
 });

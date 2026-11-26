@@ -3,8 +3,8 @@
  *   - whether fd 1 and fd 2 are one open file (2>&1), and which of them is a pipe or socket still in blocking mode;
  *   - their O_NONBLOCK flags as found at start, put back when the CLI exits or ends by itself (B29-2): the flag belongs to the open file
  *     description, so a wrapper's later writers on the same pipe would otherwise meet EAGAIN. Through fcntl (bun:ffi, Linux libc);
- *     elsewhere, or when it cannot be loaded, nothing is changed and nothing is claimed. O_NONBLOCK is set again before each write to a
- *     pipe (B30-1), and only a flag still as the CLI set it is put back;
+ *     elsewhere, or when it cannot be loaded, nothing is changed and nothing is claimed. O_NONBLOCK is set again before every write to a
+ *     pipe, the console's (B30-1) and the exit's one tries (writeNow, B31-1), and only a flag still as the CLI set it is put back;
  *   - routing the process's other writers (the logger: process.stdout.write / process.stderr.write) through the console (R28-7, R29-3,
  *     R29-8): node's write contract kept (encoding, Buffers as they are, a null chunk refused as node does, the callback only once that
  *     chunk is written or its stream given up, `false` and then 'drain' while it waits), and restored at exit.
@@ -109,9 +109,14 @@ export function keepNonBlocking(fd: number): void {
   if (now >= 0 && (now & O_NONBLOCK) === 0) f(fd, 4 /* F_SETFL */, now | O_NONBLOCK);
 }
 
-/** One try, no wait: false when the line was not taken (the other stream is gone too: nowhere to say it). Only on the way out (B29-4). */
+/**
+ * One try, no wait: false when the line was not taken (the other stream is gone too: nowhere to say it). Only on the way out (B29-4): a
+ * second signal's cut notice, the ceiling's, a restore that failed. O_NONBLOCK is set again first (B31-1), as before every write: on a
+ * pipe another program put back to blocking, the try would otherwise wait in write(2) for the reader, deaf to the next signal.
+ */
 export function writeNow(fd: number, text: string): boolean {
   try {
+    keepNonBlocking(fd);
     return writeSync(fd, text) === Buffer.byteLength(text);
   } catch {
     return false;

@@ -2,7 +2,8 @@
  * The console's exit (runConsole.ts consoleApi) with fake system calls and a fake clock (R29-2, R29-4, B29-4, B29-2, R30-2, R30-3, R30-5):
  *   - the exit is asked once: a second ask keeps the first code and waits; exitNow (a second signal) says the cut and exits at once;
  *   - a total ceiling: a reader that trickles cannot hold the exit; past it only the stalled streams are given up, and that is said on
- *     the other stream (one try) before the exit; both stalled: the last one, best effort; a natural end gets the same ceiling;
+ *     the other stream (one try) before the exit; both stalled: one notice for both, best effort; a natural end gets the same ceiling,
+ *     armed once (a later exit waits only what is left of it);
  *   - the exit always happens with its code, whatever a restore does. (Split from sageCliConsoleWriter.test.ts.)
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -104,7 +105,7 @@ describe('R30-2 / R30-3 / R30-5: the ceiling says what it cut; a natural end get
     expect(nowWrites).toEqual([[1, `stderr: the exit waited ${CONSOLE_EXIT_CEILING_MS / 1000} s for its reader: the rest of what it was given (the stop message or the summary among it) was dropped; --report /tmp/r.json holds the run's report\n`]]);
     expect(exits).toEqual([4]);
   });
-  it('both stalled: the last one given up gets the notice, best effort', async () => {
+  it('both stalled: ONE notice for both, on stderr, best effort (L2: never one per stream into a stalled, half-written queue)', async () => {
     vi.useFakeTimers();
     const r = rig(() => 'EAGAIN');
     const api = consoleApi(r.c, sys());
@@ -114,8 +115,37 @@ describe('R30-2 / R30-3 / R30-5: the ceiling says what it cut; a natural end get
     const done = api.exitAfterConsole(4);
     await vi.advanceTimersByTimeAsync(CONSOLE_EXIT_CEILING_MS);
     await done;
-    expect(nowWrites.at(-1)?.[0]).toBe(2);
-    expect(nowWrites.at(-1)?.[1]).toMatch(/^\nstderr: the exit waited \d+ s for its reader: the rest of what it was given was dropped/);
+    expect(nowWrites).toEqual([[2, `\nstdout and stderr: the exit waited ${CONSOLE_EXIT_CEILING_MS / 1000} s for its reader: the rest of what they were given was dropped; give --report <path>: a pipe holds only a few KiB, and a large run says more\n`]]);
+    expect(exits).toEqual([4]);
+  });
+  it('armed once: an exit asked after a natural end waits only what is left of the ceiling (an uncaught error at +100 s exits at +120 s)', async () => {
+    vi.useFakeTimers();
+    const r = rig((fd) => (fd === 2 ? 'EAGAIN' : 1000));
+    const api = consoleApi(r.c, sys());
+    api.prepareConsole(() => null);
+    api.say('the closing line');
+    api.endConsole();
+    await vi.advanceTimersByTimeAsync(100_000);
+    api.say('an uncaught error: the run had finished; its report and exit code stand');
+    const done = api.exitAfterConsole(4);
+    await vi.advanceTimersByTimeAsync(20_000);
+    await done;
+    expect(exits).toEqual([4]);
+  });
+  it('armed once: once it has passed, a later exit waits for no stalled stream at all', async () => {
+    vi.useFakeTimers();
+    let outStalled = false;
+    const r = rig((fd) => (fd === 2 || outStalled ? 'EAGAIN' : 1000));
+    const api = consoleApi(r.c, sys());
+    api.prepareConsole(() => null);
+    api.say('the closing line');
+    api.endConsole();
+    await vi.advanceTimersByTimeAsync(CONSOLE_EXIT_CEILING_MS);
+    expect(r.c.gone).toEqual({ stdout: false, stderr: true });
+    outStalled = true;
+    api.out('a late line');
+    await api.exitAfterConsole(4); // at once: no timer is advanced
+    expect(r.c.gone.stdout).toBe(true);
     expect(exits).toEqual([4]);
   });
   it('R30-3: a run that ends by itself (endConsole) gets the same ceiling, and no exit is forced', async () => {

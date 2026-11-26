@@ -10,7 +10,7 @@
  *   - a stream with no progress for that long, or that fails (EPIPE, ENOSPC), is given up: the rest of its output is dropped, and that is
  *     said on the other stream when it is a different, writable file (`onGiveUp`); the exit code is never changed by it;
  *   - the CLI exits only once both streams are drained or given up (`exitAfterConsole`, asked once: a later ask keeps the first code and
- *     waits the same wait), and at most CONSOLE_EXIT_CEILING_MS after it was asked, whatever the progress (R29-4);
+ *     waits the same wait), and at most CONSOLE_EXIT_CEILING_MS after the first ask (a natural end's included), whatever the progress;
  *   - only a second SIGNAL ends it at once (`exitNow`): what is cut is said on the other stream when it can be (B29-4).
  * fd 1 / fd 2's O_NONBLOCK flags are put back as found, and process.*.write restored, when the CLI exits or ends by itself (runConsoleSys.ts,
  * B29-2, R29-8; its named limits: pipes shared with other programs, SIGKILL and unhandled signals, B30-1/3/4).
@@ -176,6 +176,8 @@ export function consoleApi(c: Console, sys: ConsoleSys = realSys) {
   let report: () => string | null = () => null;
   let restore: Array<() => void> = [];
   let ceiling: ReturnType<typeof setTimeout> | undefined;
+  let ceilingPassed = false;
+  let oneNotice = false; // both streams given up at the ceiling: one notice for both, not one per stream (L2)
   const hint = (pipe: boolean): string => {
     const where = report();
     if (where !== null) return `--report ${where} holds the run's report`;
@@ -193,20 +195,26 @@ export function consoleApi(c: Console, sys: ConsoleSys = realSys) {
     }
   };
   const CEILING = `the exit waited ${CONSOLE_EXIT_CEILING_MS / 1000} s for its reader`;
+  /** Past the ceiling: the streams that still have bytes queued are given up; both: one notice, on stderr, best effort (L2). */
+  const giveUpStalled = (): void => {
+    const stalled = (['stdout', 'stderr'] as const).filter((st) => c.queuedBytes(st) > 0);
+    oneNotice = stalled.length === 2;
+    try { for (const st of stalled) c.markGone(st, CEILING); } finally { oneNotice = false; }
+    if (stalled.length === 2) sys.writeNow(FD.stderr, `\nstdout and stderr: ${CEILING}: the rest of what they were given was dropped; ${hint(true)}\n`);
+  };
   /**
-   * The total ceiling (R29-4, R30-2, R30-3): past it, only the streams that still have bytes queued are given up, one at a time, so the
-   * "cut" notice is said on the other stream (one try, no wait) while that is still alive; when both were stalled, the last one given up
-   * gets it, best effort. Cleared once the console drains. `then` follows (the exit), or nothing (a natural end).
+   * The total ceiling (R29-4, R30-2, R30-3): past it, only the streams that still have bytes queued are given up, so the "cut" notice is
+   * said on the other stream (one try, no wait) while that is still alive. Armed ONCE, at the first ask (a natural end's or an exit's): a
+   * later ask (an error after a natural end) waits only what is left of it, none once it has passed. Unref'd: it never keeps a process
+   * that has nothing left to write alive. `then` follows the drain (the exit), or nothing (a natural end).
    */
   const armCeiling = (then?: () => void): void => {
-    clearTimeout(ceiling);
-    ceiling = setTimeout(() => {
-      const stalled = (['stdout', 'stderr'] as const).filter((st) => c.queuedBytes(st) > 0);
-      for (const st of stalled) c.markGone(st, CEILING);
-      const last = stalled.at(-1);
-      if (stalled.length === 2 && last !== undefined) sys.writeNow(FD[last], `\n${last}: ${CEILING}: the rest of what it was given was dropped; ${hint(true)}\n`);
-    }, CONSOLE_EXIT_CEILING_MS);
-    void c.drained().then(() => { clearTimeout(ceiling); then?.(); });
+    if (ceilingPassed) giveUpStalled();
+    else if (ceiling === undefined) {
+      ceiling = setTimeout(() => { ceilingPassed = true; giveUpStalled(); }, CONSOLE_EXIT_CEILING_MS);
+      ceiling.unref?.();
+    }
+    void c.drained().then(() => { then?.(); });
   };
   return {
     cliConsole: c,
@@ -230,6 +238,7 @@ export function consoleApi(c: Console, sys: ConsoleSys = realSys) {
         const dropped = 'the rest of what it was given (the stop message or the summary among it) was dropped';
         const what = ceilingHit ? `: ${why}: ${dropped}` : stalled ? ` had ${why}: ${dropped}` : ` is closed (${why}): what it was given is not printed there`;
         const line = `${stream}${what}; ${hint(stalled)}\n`;
+        if (ceilingHit && oneNotice) return; // the other is given up too: said once for both (giveUpStalled)
         if (ceilingHit) sys.writeNow(FD[other], line); // the exit is due: one try, before the other is looked at
         else c.write(other, line);
       };
@@ -254,7 +263,7 @@ export function consoleApi(c: Console, sys: ConsoleSys = realSys) {
       exiting = { code, done };
       return done;
     },
-    /** A run that ends by itself (exit 0 / 1 / 3, R30-3): the same total ceiling on what it still has to say; no exit is forced. */
+    /** A run that ends by itself (exit 0 / 1 / 3, R30-3): the same total ceiling, from now, on what it still has to say; no exit is forced. */
     endConsole(): void { if (exiting === null && !c.idle()) armCeiling(); },
     /**
      * A second signal (only): exits at once with the code already decided (`code` when none is yet). What is still queued is cut, and that
