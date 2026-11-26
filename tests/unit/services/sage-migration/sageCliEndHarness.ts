@@ -24,6 +24,8 @@ const fresh = () => ({
   poolGate: Promise.resolve() as Promise<void>, endedSeen: null as string | null, inFlightGate: Promise.resolve() as Promise<void>,
   /** The nth report body written (1 = the "running" placeholder, 2 = the first stop report, 3 = its rewrite, ...): its fault. */
   reportFault: (() => null) as (nth: number) => ReportFault, reportWrites: 0, halfDone: false,
+  /** The ftruncate after the nth report body's bytes: refused (EIO) when true. */
+  truncFault: (() => false) as (nth: number) => boolean,
   dir: '', err: [] as string[], exit: null as unknown as ReturnType<typeof vi.spyOn>, before: {} as Record<string, Function[]>,
 });
 export type H = ReturnType<typeof fresh>;

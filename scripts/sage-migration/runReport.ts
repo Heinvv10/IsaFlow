@@ -76,7 +76,8 @@ const message = (err: unknown) => (err instanceof Error ? err.message : String(e
 /**
  * The report file this run created, written ONLY through the file descriptor of its exclusive create, held open for the whole run
  * (team-lead decision, round 17): write at offset 0, then ftruncate to the new length, then fsync (B31-2: never emptied first, so a write
- * refused before its first byte leaves the last report as it was; `intact` says so). No temp file, no rename, no path lookup after the
+ * refused before its first byte leaves the last report as it was; `intact` says so, `holds` names the body it holds, B32-1; a truncate
+ * that fails after the file grew to just this body leaves it whole, so it counts as written). No temp file, no rename, no path lookup after the
  * create: the run can only ever write the inode it created. If the path is swapped meanwhile, the run writes its own moved or unlinked
  * file, never another one. A kill, or a disk that fails, in the middle of a write can leave a mix of the two bodies in the run's OWN inode
  * (named limit; the caller writes the earlier body back when it can).
@@ -85,6 +86,8 @@ export class OwnedReport {
   private open = true;
   /** The file holds the last body written whole: false once a write failed after it changed the file (B31-2). */
   intact = true;
+  /** The `status` of that last body written whole ("running" from the create): what the file holds while `intact` (B32-1). */
+  holds = 'running';
   private constructor(readonly path: string, private readonly fd: number) {}
 
   /**
@@ -121,9 +124,15 @@ export class OwnedReport {
       const bytes = Buffer.from(json(body));
       let at = 0;
       while (at < bytes.length) { const n = writeSync(this.fd, bytes, at, bytes.length - at, at); changed ||= n > 0; at += n; }
-      ftruncateSync(this.fd, bytes.length); // only now: a write refused before here never left the file empty (B31-2)
+      try {
+        ftruncateSync(this.fd, bytes.length); // only now: a write refused before here never left the file empty (B31-2)
+      } catch (err) {
+        // The file grew to just this body (it was no longer before): it IS this body, whole; a failed truncate left nothing of the old one.
+        if (fstatSync(this.fd).size !== bytes.length) throw err;
+      }
       fsyncSync(this.fd);
       this.intact = true;
+      this.holds = typeof body === 'object' && body !== null && typeof (body as { status?: unknown }).status === 'string' ? (body as { status: string }).status : 'unknown';
       return null;
     } catch (err) {
       if (changed) this.intact = false;

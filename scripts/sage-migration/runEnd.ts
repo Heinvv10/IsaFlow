@@ -68,25 +68,36 @@ const settledWording = (b: BatchReport): string => {
   return `failed, nothing written (${b.error ?? 'no reason given'})`;
 };
 
+/** What the file holds, said from what was written whole (B32-1), never from what was tried. */
+const holding = (owned: OwnedReport): string => {
+  if (!owned.intact) return 'may hold neither stop report now (a failing disk)';
+  if (owned.holds === 'running') return 'still holds only the "running" placeholder';
+  if (owned.holds === 'stop_report_not_written') return 'holds only a "stop_report_not_written" note';
+  return `holds a "${owned.holds}" body`;
+};
+
 /**
- * A rewrite of the stop report (the batch in flight settled, R30-4, B31-2), then the file closed; returns whether it was written, and the
- * lines that say what became of the report otherwise. OwnedReport.write never empties the file first: a write refused before it changed
- * the file leaves the first stop report as it was; one refused part-way is followed by the first written back, failing that by the small
- * "not written" body. Each line says what was done, never what is about to be tried.
+ * A rewrite of the stop report (the batch in flight settled, R30-4, B31-2, B32-1), then the file closed; returns whether it was written,
+ * and the lines that say what became of the report otherwise. OwnedReport.write never empties the file first, and `holds` says which body
+ * it holds whole: the first stop report is kept only when the file holds it; otherwise (torn, or still the placeholder or the note, the
+ * first stop report itself not written) the stop report as known at the end is written, failing that the small "not written" body. Each
+ * line says what was done and what the file holds, never what is about to be tried.
  */
 function rewriteStopReport(err: unknown, first: unknown, exitCode: number): { written: boolean; lines: string[] } {
   const owned = cli.owned;
   if (!owned) return { written: false, lines: [] };
   try {
+    const hadFirst = owned.intact && owned.holds === 'stopped';
     const why = owned.write(stopReportBody(err));
     if (why === null) return { written: true, lines: [] };
     const listed = '(it lists that batch commit unconfirmed)';
-    if (owned.intact) return { written: false, lines: [`${why}: the stop report written before is kept ${listed}`] };
+    if (owned.intact && owned.holds === 'stopped') return { written: false, lines: [`${why}: the stop report written before is kept ${listed}`] };
     const back = owned.write(stopReportBody(first));
-    if (back === null) return { written: false, lines: [`${why}: the stop report written before was written back ${listed}`] };
+    if (back === null) {
+      return { written: false, lines: [`${why}: the stop report ${hadFirst ? 'written before was written back' : 'as known when the run ended was written in its place'} ${listed}`] };
+    }
     const small = owned.write({ status: 'stop_report_not_written', exitCode, why: back });
-    const left = small === null ? 'holds only a "stop_report_not_written" note' : 'may hold neither stop report now (a failing disk)';
-    return { written: false, lines: [why, back, ...(small === null ? [] : [small]), `--report ${owned.path} ${left}: the lines above are the run's report`] };
+    return { written: false, lines: [why, back, ...(small === null ? [] : [small]), `--report ${owned.path} ${holding(owned)}: the lines above are the run's report`] };
   } finally {
     owned.close();
   }
@@ -137,18 +148,27 @@ export function terminate(why: string, signal: boolean): void {
   /** The wait is over: the one that came first is the only one heard (L4: a late settle is neither said nor written). */
   const over = (): void => { clearTimeout(timer); s.onSettledAfterEnd = null; cli.inFlightUntil = null; };
   cli.ending = new Promise<void>((resolve) => {
+    // L1: whatever saying or writing it does, the wait ends (resolve), so the exit always follows.
     s.onSettledAfterEnd = (b) => {
-      over();
-      const rewrite = rewriteStopReport(s.stoppedAtOnce(reason), err, code); // now with that batch as it settled, then closed
-      say(`the batch in flight when the run ended, ${b.entity} batch ${b.n} (${b.key}), then ${settledWording(b)}; no batch followed it${rewrite.written ? ': the report says so' : ''}`);
-      for (const line of rewrite.lines) say(line);
-      resolve();
+      try {
+        over();
+        const rewrite = rewriteStopReport(s.stoppedAtOnce(reason), err, code); // now with that batch as it settled, then closed
+        say(`the batch in flight when the run ended, ${b.entity} batch ${b.n} (${b.key}), then ${settledWording(b)}; no batch followed it${rewrite.written ? ': the report says so' : ''}`);
+        for (const line of rewrite.lines) say(line);
+      } catch (e) {
+        log.error('sage migration: the batch in flight settled, but saying or writing it failed', { error: e instanceof Error ? e.message : String(e) }, 'sage-migration');
+      } finally {
+        resolve();
+      }
     };
     timer = setTimeout(() => {
-      over();
-      say(`the batch in flight when the run ended, ${flying.entity} batch ${flying.n} (${flying.key}), did not settle within ${IN_FLIGHT_WAIT_MS / 1000} s: it stays commit unconfirmed: check the books`);
-      cli.owned?.close();
-      resolve();
+      try {
+        over();
+        say(`the batch in flight when the run ended, ${flying.entity} batch ${flying.n} (${flying.key}), did not settle within ${IN_FLIGHT_WAIT_MS / 1000} s: it stays commit unconfirmed: check the books`);
+        cli.owned?.close();
+      } finally {
+        resolve();
+      }
     }, IN_FLIGHT_WAIT_MS);
   }).then(() => exitAfterConsole(code));
 }

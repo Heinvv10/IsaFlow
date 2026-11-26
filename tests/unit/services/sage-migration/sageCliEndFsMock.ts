@@ -1,5 +1,5 @@
 /**
- * node:fs for the CLI end tests (sageCliEndHarness.ts), the --report writes faulted as `h.reportFault` says (B31-2: a failing disk). Its
+ * node:fs for the CLI end tests (sageCliEndHarness.ts), the --report writes faulted as `h.reportFault` / `h.truncFault` say (a failing disk). Its
  * own module, importing no fs itself: the harness imports node:fs, so a factory that imported the harness would wait on itself.
  */
 import type { H } from './sageCliEndHarness';
@@ -17,5 +17,10 @@ export function fsMock(real: typeof import('node:fs')) {
     if (fault === 'half') { h.halfDone = true; const half = Math.floor(buf.length / 2); return write(fd, buf, 0, half, 0); }
     return write(fd, buf, ...rest);
   }) as typeof real.writeSync;
-  return { ...real, default: { ...real, writeSync }, writeSync };
+  const ftruncateSync = ((fd: number, len?: number) => {
+    const h = (globalThis as { __sageCliEnd?: H }).__sageCliEnd;
+    if (h?.truncFault(h.reportWrites)) throw Object.assign(new Error('EIO: injected ftruncate'), { code: 'EIO' }); // only the report truncates
+    return real.ftruncateSync(fd, len);
+  }) as typeof real.ftruncateSync;
+  return { ...real, default: { ...real, writeSync, ftruncateSync }, writeSync, ftruncateSync };
 }

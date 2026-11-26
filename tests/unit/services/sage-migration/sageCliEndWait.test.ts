@@ -2,7 +2,8 @@
  * The waits after an end, on run.ts / runEnd.ts through sageCliEndHarness.ts (a mocked runner; split from sageCliEnd.test.ts):
  *   - R30-1: a crash waits, bounded, for the batch in flight, whatever the console does; B31-3: a first signal then says what it waits
  *     for, a second ends the wait; L4: once the wait timed out, a late settle is neither said nor written;
- *   - B31-2 / R30-4: the rewrite of the stop report never leaves the file empty, and each line says what became of the report;
+ *   - B31-2 / R30-4 / B32-1: the rewrite of the stop report never leaves the file empty, and each line says what the file holds (the
+ *     first stop report, one written in its place, the placeholder, the note); L1: a rewrite that throws still ends the wait;
  *   - M2: a run that ends by itself gets the console's total ceiling (runMain's endConsole), armed once: a crash after it waits only what
  *     is left of it.
  */
@@ -157,6 +158,80 @@ describe('B31-2 / R30-4: the rewrite of the stop report, on a failing disk', () 
     await run((n) => (n === 3 ? 'half' : n > 3 ? 'EIO' : null));
     expect(said()).not.toMatch(/is kept|written back|the report says so/);
     expect(said()).toMatch(/r\.json may hold neither stop report now \(a failing disk\): the lines above are the run's report/);
+  });
+});
+
+describe('B32-1 / L1: what the file holds when the first stop report was itself not written', () => {
+  // With the first stop report refused, the bodies are: 1 placeholder, 2 first stop report, 3 the note, 4 the rewrite, 5 and 6 what follows.
+  const run = async (fault: (nth: number) => null | 'EIO' | 'half') => {
+    stall(false);
+    h.reportFault = fault;
+    crashInFlight().open();
+    const { done } = await start();
+    await settle();
+    await done;
+    expect(h.exit.mock.calls).toEqual([[4]]);
+  };
+  const atEnd = () => {
+    const r = report();
+    expect(r.status).toBe('stopped');
+    expect(r.committed.map((b: BatchReport) => b.n)).toEqual([1, 2]); // the stop report as known at the end
+    expect(r.commitUnconfirmed.map((b: BatchReport) => b.n)).toEqual([3]);
+  };
+  const IN_PLACE = 'the stop report as known when the run ended was written in its place (it lists that batch commit unconfirmed)';
+  it('the file still said "running" (stop report and note refused), the rewrite refused: never "kept"; the stop report is written in its place', async () => {
+    await run((n) => (n >= 2 && n <= 4 ? 'EIO' : null));
+    atEnd();
+    expect(said()).toContain(IN_PLACE);
+    expect(said()).not.toMatch(/is kept|written back/);
+  });
+  it('the file held the note (stop report torn), the rewrite refused: never "kept"; the stop report is written in its place', async () => {
+    await run((n) => (n === 2 ? 'half' : n === 4 ? 'EIO' : null));
+    atEnd();
+    expect(said()).toContain(IN_PLACE);
+    expect(said()).not.toMatch(/is kept|written back/);
+  });
+  it('every write from the stop report on refused: the line names the placeholder the file still holds', async () => {
+    await run((n) => (n >= 2 ? 'EIO' : null));
+    expect(report().status).toBe('running');
+    expect(said()).toMatch(/r\.json still holds only the "running" placeholder: the lines above are the run's report/);
+    expect(said()).not.toMatch(/is kept|written back|in its place|the report says so/);
+  });
+  it('L1: a rewrite that throws still ends the wait: the exit follows', async () => {
+    stall(false);
+    const { open } = crashInFlight();
+    const { done } = await start();
+    await settle();
+    const { cli } = await import('../../../../scripts/sage-migration/runEnd');
+    cli.owned!.write = () => { throw new Error('a write that throws'); };
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    open();
+    await done;
+    expect(h.exit.mock.calls).toEqual([[4]]);
+    expect([...h.err, ...logged.mock.calls.map(String)].join('')).toContain('the batch in flight settled, but saying or writing it failed'); // logged, never lost
+  }, 10_000);
+});
+
+describe('B32 side note: a body written whole whose ftruncate failed', () => {
+  it('while the file grew: the file is that body, whole: it counts as written (no note over a good stop report)', async () => {
+    stall(false);
+    h.throwAtEnd = 'the books refused it'; // a plain stop: 1 placeholder, 2 the stop report (longer than the placeholder)
+    h.truncFault = (n) => n === 2;
+    const { done } = await start();
+    await settle();
+    await done;
+    expect(report().status).toBe('stopped');
+    expect(said()).not.toContain('could not be written');
+  });
+  it('while the file shrank: the old tail is left, so it is a failed write; the first stop report is written back', async () => {
+    stall(false);
+    h.truncFault = (n) => n === 3; // the rewrite (batch 3 committed) is shorter than the first stop report
+    crashInFlight().open();
+    const { done } = await start();
+    await settle();
+    await done;
+    expect(report().commitUnconfirmed.map((b: BatchReport) => b.n)).toEqual([3]);
+    expect(said()).toContain('EIO: injected ftruncate: the stop report written before was written back');
   });
 });
 
