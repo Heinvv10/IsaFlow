@@ -3,9 +3,8 @@
  *
  * AP_AR_SITES: file -> line -> exact trimmed text of every line that names an actor column (created_by, approved_by,
  * cancelled_by, processed_by, confirmed_by) in a tracked src/ or pages/ file whose code names one of the 10 AP/AR tables.
- * AP_AR_UUID_AUTHOR_EXEMPT: the lines that still cast an actor-shaped value to uuid, with the reason: they feed a
- * uuid[] document-author array (content_authors, bank_details_setters; approval_add_author), a column the AAb
- * migration does not turn to TEXT, or a regex-guarded cast of created_by that is already NULL for a non-UUID id.
+ * AP_AR_UUID_AUTHOR_EXEMPT: every other uuid cast in those files, pinned: the uuid[] document-author arrays (content_authors;
+ * approval_add_author), a column AAb does not turn to TEXT, and a regex-guarded cast of created_by.
  */
 export const AP_AR_SITES: Readonly<Record<string, Readonly<Record<number, string>>>> = {
   "pages/api/accounting/ai-invoice-pipeline.ts": {
@@ -190,67 +189,164 @@ export const AP_AR_SITES: Readonly<Record<string, Readonly<Record<number, string
 };
 
 export const AP_AR_UUID_AUTHOR_EXEMPT: Readonly<Record<string, Readonly<Record<number, string>>>> = {
-  "pages/api/accounting/recurring-invoices.ts": {
-    99: "THEN approval_add_author(content_authors, ${req.user.id}::UUID) ELSE content_authors END,",
-  },
-  "pages/api/accounting/supplier-merge.ts": {
-    81: "content_authors = approval_add_author(content_authors, ${user.id}::UUID), content_edited_at = NOW()",
-    95: "content_authors = approval_add_author(content_authors, ${user.id}::UUID), content_edited_at = NOW()",
-    115: "content_authors = approval_add_author(content_authors, ${user.id}::UUID), content_edited_at = NOW()",
-  },
-  "src/modules/accounting/services/ap/payingAccountAuthors.ts": {
-    80: "SET bank_details_setters = CASE WHEN ${repointed} THEN ARRAY[${userId}::UUID]",
-    81: "ELSE approval_add_author(bank_details_setters, ${userId}::UUID) END",
-    87: "SET content_authors = approval_add_author(content_authors, ${userId}::UUID), content_edited_at = NOW()",
-    94: "SET content_authors = approval_add_author(content_authors, ${userId}::UUID), content_edited_at = NOW()",
-  },
-  "src/modules/accounting/services/ap/supplierInvoiceContentEditor.ts": {
-    36: "SET content_authors = approval_add_author(content_authors, ${editedBy}::UUID), content_edited_at = NOW()",
-  },
-  "src/modules/accounting/services/ap/supplierPaymentAuthors.ts": {
-    135: "SET bank_details_setters = CASE WHEN ${change === 'repointed'} THEN ARRAY[${userId}::UUID]",
-    136: "ELSE approval_add_author(bank_details_setters, ${userId}::UUID) END",
-    143: "SET content_authors = approval_add_author(content_authors, ${userId}::UUID), content_edited_at = NOW()",
-    160: "SET content_authors = approval_add_author(content_authors, ${userId}::UUID), content_edited_at = NOW()",
-    177: "SET content_authors = approval_add_author(content_authors, ${userId}::UUID), content_edited_at = NOW()",
-  },
-  "src/modules/accounting/services/ar/customerInvoiceUpstreamAuthors.ts": {
+"src/modules/accounting/services/ar/customerInvoiceUpstreamAuthors.ts": {
     47: "~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN t.created_by::UUID END]) a",
-  },
-  "src/modules/accounting/services/ar/customerMergeRecurring.ts": {
-    19: "await tx`UPDATE recurring_invoices SET client_id = ${t}::UUID, content_authors = approval_add_author(content_authors, ${by}::UUID)",
-    30: "content_authors = approval_add_author(content_authors, ${by}::UUID)",
-  },
-  "src/modules/accounting/services/ar/customerMergeService.ts": {
-    127: "content_authors = approval_add_author(content_authors, ${by}::UUID), content_edited_at = NOW()",
-    132: "content_authors = approval_add_author(content_authors, ${by}::UUID), content_edited_at = NOW()",
-    137: "content_authors = approval_add_author(content_authors, ${by}::UUID), content_edited_at = NOW()",
-    141: "const quotes = await tx`UPDATE customer_quotes SET client_id = ${t}::UUID, content_authors = approval_add_author(content_authors, ${by}::UUID)",
-    143: "const orders = await tx`UPDATE customer_sales_orders SET customer_id = ${t}::UUID, content_authors = approval_add_author(content_authors, ${by}::UUID)",
+    62: "SELECT DISTINCT a FROM unnest(${authors}::UUID[]) a WHERE a <> ALL(content_authors) ORDER BY a)",
   },
   "src/modules/accounting/services/ar/recurringInvoiceService.ts": {
     109: "ARRAY[${userId}::UUID]",
-  },
-  "src/modules/accounting/services/core/duplicateMergeService.ts": {
-    137: "content_authors = approval_add_author(content_authors, ${userId}::UUID), content_edited_at = NOW()",
-    147: "content_authors = approval_add_author(content_authors, ${userId}::UUID), content_edited_at = NOW()",
-    165: "content_authors = approval_add_author(content_authors, ${userId}::UUID), content_edited_at = NOW()",
   },
   "src/modules/accounting/services/gl/manualJournalAuthors.ts": {
     50: "~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN t.created_by::UUID END]) a",
     70: "SET content_authors = approval_add_author(je.content_authors, ${editedBy}::UUID)",
   },
-  "src/modules/accounting/services/gl/recurringJournalEdits.ts": {
-    91: "THEN approval_add_author(content_authors, ${userId}::UUID) ELSE content_authors END,",
+};
+
+/** The VALUES lines that bind an actor on a line that does not name the column (multi-line INSERTs), pinned as in the HYa half. */
+export const AP_AR_VALUE_BINDS: Readonly<Record<string, Readonly<Record<number, string>>>> = {
+"pages/api/accounting/ai-invoice-pipeline.ts": {
+    213: "${userId}, ${invoiceInput.notes ?? null},",
   },
-  "src/modules/accounting/services/intercompany/acceptDocuments.ts": {
-    101: "'Copied from the sending company (intercompany)', ${userId}::UUID, ${hash}, ${bytes.length}, ${billId}::UUID",
+  "pages/api/accounting/capture/[id]/post.ts": {
+    243: "${approval.status}, ${userId}, ${invoiceInput.notes ?? null},",
+  },
+  "pages/api/accounting/supplier-returns.ts": {
+    101: "'draft', NOW(), ${userId}, NOW()",
+  },
+  "src/modules/accounting/services/ap/batchPaymentService.ts": {
+    90: "${input.notes || null}, ${input.payments.length}, 0, ${userId}",
+    107: "${payTotal}, ${paymentMethod}, 'draft', ${id}::UUID, ${userId}",
+  },
+  "src/modules/accounting/services/ap/billPurchaseOrderLinks.ts": {
+    130: "VALUES (${companyId}::UUID, ${p.poId}::UUID, ${billId}::UUID, ${(p.amountCents / 100).toFixed(2)}::NUMERIC, 'app', ${userId})",
+  },
+  "src/modules/accounting/services/ap/migrationApService.ts": {
+    215: "${inv.reference ?? null}, ${userId},",
+  },
+  "src/modules/accounting/services/ap/provisionalInvoiceSettlement.ts": {
+    115: "${claim.journalEntryId}::UUID, ${createdBy}, ${createdBy}, NOW(), NOW()",
+  },
+  "src/modules/accounting/services/ap/purchaseOrderBillLink.ts": {
+    76: "${p.ref?.system ?? null}, ${p.ref?.ref ?? null}, ${opts.userId}",
+    118: "updated_at = NOW(), updated_by = ${opts.userId}",
+  },
+  "src/modules/accounting/services/ap/supplierAutoAllocate.ts": {
+    152: "${createdBy}, ${createdBy}, NOW(), NOW()",
+  },
+  "src/modules/accounting/services/ap/supplierBankPaymentService.ts": {
+    256: "${createdBy}, ${createdBy}, NOW(), NOW()",
+  },
+  "src/modules/accounting/services/ap/supplierInvoiceService.ts": {
+    174: "${input.notes || null}, ${userId},",
+  },
+  "src/modules/accounting/services/ap/supplierPaymentService.ts": {
+    222: "${input.reference || null}, ${input.description || null}, ${userId}",
+  },
+  "src/modules/accounting/services/ap/supplierRefundDocument.ts": {
+    237: "${createdBy}, ${createdBy}, NOW(), NOW()",
+  },
+  "src/modules/accounting/services/ar/creditNoteService.ts": {
+    172: "${projectId}, ${userId},",
+  },
+  "src/modules/accounting/services/ar/customerBankReceipt.ts": {
+    25: "${r.journalEntryId}::UUID, ${r.createdBy}, ${r.createdBy}, NOW()",
+  },
+  "src/modules/accounting/services/ar/customerPaymentService.ts": {
+    165: "${input.projectId || null}, ${userId}",
+  },
+  "src/modules/accounting/services/ar/customerRefundDocument.ts": {
+    164: "${journalEntryId}::UUID, ${createdBy}, ${createdBy}, NOW()",
+  },
+  "src/modules/accounting/services/ar/gatewayInvoiceReceiptService.ts": {
+    197: "${description}, ${actorId}",
+  },
+  "src/modules/accounting/services/ar/recurringInvoiceRun.ts": {
+    148: "'draft', ${ri.description || ri.template_name}, ${userId}",
+  },
+  "src/modules/accounting/services/ar/recurringInvoiceService.ts": {
+    108: "${taxAmount}, ${totalAmount}, ${input.paymentTerms || null}, ${userId},",
+    109: "ARRAY[${userId}::UUID]",
+  },
+  "src/modules/accounting/services/ar/writeOffService.ts": {
+    108: "${userId}",
+  },
+  "src/modules/accounting/services/core/recurringTransactionInvoices.ts": {
+    95: "${userId}",
+    233: "${userId},",
+  },
+  "src/modules/accounting/services/core/sageSupplierInvoiceImportService.ts": {
+    160: "${rowVatNotStated ? SAGE_VAT_NOT_STATED_NOTE : null}, ${userId},",
+  },
+  "src/modules/accounting/services/core/softDeleteJournalService.ts": {
+    195: "${reversalJournalEntryId}::UUID, ${userId})",
+  },
+  "src/modules/accounting/services/gl/manualJournalAuthors.ts": {
+    70: "SET content_authors = approval_add_author(je.content_authors, ${editedBy}::UUID)",
+  },
+  "src/modules/accounting/services/gl/recurringJournalService.ts": {
+    93: "${JSON.stringify(input.lines)}::JSONB, ${totalDebit}, ${userId}, ${recurringJournalAutoPosts(input.autoPost)}",
+  },
+  "src/modules/accounting/services/items/adjustmentService.ts": {
+    91: "${userId}",
+  },
+  "src/modules/accounting/services/reports/vatAdjustmentService.ts": {
+    63: "${input.adjustmentType}, ${input.amount}, ${input.reason}, ${userId}",
+  },
+  "src/modules/admin/services/sageMigrationCommitService.ts": {
+    194: "${amountPaid}, 'approved', ${inv.reference ?? null}, ${userId}, 'ZAR', 1.0, ${inv.totalAmount}",
   },
 };
 
 export const AP_AR_TABLE = /\b(supplier_invoices|supplier_payments|customer_payments|credit_notes|recurring_invoices|customer_write_offs|accounting_adjustments|supplier_payment_batches|recurring_journals|vat_adjustments)\b/;
 export const AP_AR_COLUMN = /\b(created_by|approved_by|cancelled_by|processed_by|confirmed_by)\b/;
-export const AP_AR_ACTOR_BIND = /\$\{\s*(userId|createdBy|r\.createdBy|actorId|approverUserId|editedBy|by|user\.id|req\.user\.id|actor\.userId|approvedBy|processedBy)\s*\}\s*::\s*uuid\b/i;
-export const AP_AR_COLUMN_CAST = /\b(created_by|approved_by|cancelled_by|processed_by|confirmed_by)\s*(::\s*uuid\b|=\s*\$\{[^}]*\}\s*::\s*uuid\b)/i;
-export const apArCasts = (line: string) => AP_AR_ACTOR_BIND.test(line) || AP_AR_COLUMN_CAST.test(line);
+/** `${expr}` followed by any `::type` chain ending in uuid (pg_catalog., quoted, uuid[]), or `CAST(${expr} AS uuid)`. */
+const UUID_T = '"?(?:pg_catalog\\.)?"?uuid"?(?:\\[\\])?';
+const BIND_CAST = new RegExp(`\\$\\{([^}]*)\\}\\s*(?:::\\s*[\\w."]+(?:\\[\\])?\\s*)*::\\s*${UUID_T}|CAST\\s*\\(\\s*\\$\\{([^}]*)\\}\\s+AS\\s+${UUID_T}`, 'gi');
+/** An actor column cast to uuid on the column side: `col::uuid`, `CAST(col AS uuid)`. */
+const COLUMN_CAST = new RegExp(`\\b(?:created_by|approved_by|cancelled_by|processed_by|confirmed_by)\\s*(?:::\\s*[\\w."]+\\s*)*::\\s*${UUID_T}|CAST\\s*\\(\\s*(?:\\w+\\.)?(?:created_by|approved_by|cancelled_by|processed_by|confirmed_by)\\s+AS\\s+${UUID_T}`, 'i');
+const ACT_COL = '(?:created_by|approved_by|cancelled_by|processed_by|confirmed_by)';
+/** `col <op> [ANY(]${x}::uuid`, and the reversed `${x}::uuid <op> col`, whatever x is. */
+const COMPARE_CAST = new RegExp(`\\b${ACT_COL}\\s*(?:=|<>|!=|IS\\s+(?:NOT\\s+)?DISTINCT\\s+FROM|IN)\\s*(?:ANY\\s*\\(\\s*)?\\(?\\s*(?:\\$\\{[^}]*\\}|\\$\\d+)\\s*(?:::\\s*[\\w."]+(?:\\[\\])?\\s*)*::\\s*${UUID_T}|::\\s*${UUID_T}\\s*(?:=|<>|!=|IS\\s+(?:NOT\\s+)?DISTINCT\\s+FROM)\\s*(?:\\w+\\.)?${ACT_COL}\\b`, 'i');
+/** A bare bind of an actor-shaped expression on a line that does not name the column (a VALUES line). */
+export const AP_AR_ACTOR_BIND_LINE = /\$\{[^}]*\b(userId|createdBy|actorId|approverUserId|processedBy|approvedBy|editedBy|by|user\.id|actor\.userId)\b[^}]*\}/;
+export const isValuesBindLine = (l: string) => AP_AR_ACTOR_BIND_LINE.test(l) && !AP_AR_COLUMN.test(l) && /^\s*(\$\{|['"\w.[]|\))/.test(l);
+/**
+ * Fail closed: in an AP/AR file that writes an actor column, every uuid-cast bind is refused unless its expression is
+ * listed here, verbatim, as a non-actor id (company, invoice, supplier, journal, bank account, dimension row ids).
+ */
+export const AP_AR_NON_ACTOR_BINDS: ReadonlySet<string> = new Set([
+  'String(bankAccount.id)', 'String(bill.id)', 'String(bill.supplier_id)', '[...billIds]', '[...movedLineIds]',
+  'alloc.invoiceId', 'bankAccountId', 'bankTxId', 'batchIds', 'batches', 'billId', 'cEntry', 'cLine',
+  'claim.bankAccountId', 'claim.journalEntryId', 'companyId', 'created.id', 'creditNoteId', 'customerId',
+  'dims.cc1Id ?? null', 'dims?.buId || null', 'dims?.cc1Id || null', 'dims?.cc2Id || null', 'documentId',
+  'dupHit.supplierInvoiceId', 'entityId', 'entry.id', 'eventId', 'f.poId', 'f.supplierId', 'filters.clientId',
+  'glAccountId', 'grnId', 'id', 'input.clientId', 'input.entityId', 'input.invoiceId', 'input.supplierId',
+  'invoice.client_id', 'invoice.id', 'invoice.supplierId', 'invoiceId', 'invoiceIds', 'invoiceTable',
+  'item.buId || null', 'item.cc1Id || null', 'item.cc2Id || null', 'item.itemId || null', 'je.id', 'journal.id',
+  'journalEntry.id', 'journalEntryId', 'journalId', 'line.buId ?? null', 'line.cc1Id ?? null', 'line.cc2Id ?? null',
+  'linkId', 'named', 'p.billId', 'p.invoice_id', 'p.lineWrites.map((l) => l.billLineId)',
+  'p.lineWrites.map((l) => l.poItemId)', 'p.poId', 'p.supplierId', 'paymentId', 'plan.clientId', 'poId',
+  'r.bankAccountId', 'r.companyId', 'r.customerId', 'r.journalEntryId', 'reversalJournalEntryId', 'ri.client_id',
+  'source.id', 'stale.map((l) => String(l.id))', 'supplierId', 'supplierMatch.supplierId', 'template.id',
+  'validation.supplierId', 'wo.invoice_id',
+]);
+/** Every uuid cast on a line that is not a listed non-actor bind (an actor suspect), or a column-side actor cast. */
+export function apArCasts(line: string): string[] {
+  const hits = [...line.matchAll(BIND_CAST)].map((m) => (m[1] ?? m[2] ?? '').trim()).filter((e) => !AP_AR_NON_ACTOR_BINDS.has(e));
+  if (COLUMN_CAST.test(line) || COMPARE_CAST.test(line)) hits.push('<column>');
+  return hits;
+}
 
+/** Spellings of an actor cast that apArCasts must see (each mutation-proved red on the real code), and clean lines it must pass. */
+export const AP_AR_CAST_SPELLINGS: readonly string[] = [
+  'approved_by = ${userId}::UUID', 'created_by = ${String(userId)}::UUID', '${createdBy}::uuid, NOW()', 'x = CAST(${userId} AS uuid)',
+  'x = CAST(${userId} AS pg_catalog.uuid)', 'x = CAST(${userId} AS "uuid")', '${userId}::pg_catalog.uuid', '${userId}::"uuid"',
+  '${userId}::text::uuid', 'created_by <> ${userId}::UUID', 'created_by != ${userId}::uuid', 'created_by IS DISTINCT FROM ${userId}::uuid',
+  '${userId}::uuid = approved_by', 'approved_by = ANY(${invoiceIds}::uuid[])', 'WHERE created_by::uuid = $1',
+  'WHERE CAST(si.created_by AS uuid) = $1', 'WHERE approved_by::pg_catalog.uuid = $1', 'created_by IN (${companyId}::uuid)',
+  'WHERE sp.created_by = $1::uuid', '${companyId}::uuid <> sp.created_by',
+];
+export const AP_AR_CAST_CLEAN: readonly string[] = [
+  'WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID', 'SET approved_by = ${userId}, approved_at = NOW()',
+  'WHERE created_by::text = ${userId}', 'WHERE lower(created_by::text) = lower(${userId})',
+];

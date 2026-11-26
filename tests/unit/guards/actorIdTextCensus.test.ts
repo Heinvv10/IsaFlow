@@ -15,7 +15,10 @@ import { describe, expect, it } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { AP_AR_COLUMN, AP_AR_SITES, AP_AR_TABLE, AP_AR_UUID_AUTHOR_EXEMPT, apArCasts } from './apArActorSites';
+import {
+  AP_AR_CAST_CLEAN, AP_AR_CAST_SPELLINGS, AP_AR_COLUMN, AP_AR_SITES, AP_AR_TABLE, AP_AR_UUID_AUTHOR_EXEMPT, AP_AR_VALUE_BINDS, apArCasts, isValuesBindLine,
+} from './apArActorSites';
+type Rec = Record<string, Record<number, string>>;
 
 const ROOT = resolve(__dirname, '../../..');
 const S = 'src/modules/accounting/services/';
@@ -263,36 +266,34 @@ describe('payroll_employees.tax_directive_number is dead (HYa marked it deprecat
 
 /** Wave 7 AAa (W20 part 1): the ten AP/AR tables' actor columns are uuid until AAb; the code binds the actor untyped, so AAb needs no code change. */
 describe('actor ids on the AP/AR tables are bound as text (AAa census)', () => {
-  const found: Record<string, Record<number, string>> = {};
-  const casts: Record<string, Record<number, string>> = {};
+  const found: Rec = {}, casts: Rec = {}, values: Rec = {};
   for (const f of trackedFiles()) {
     const stripped = code(readFileSync(resolve(ROOT, f), 'utf8'));
-    if (!AP_AR_TABLE.test(stripped)) continue;
+    if (!AP_AR_TABLE.test(stripped) || !AP_AR_COLUMN.test(stripped)) continue; // files that write an actor column
     stripped.split('\n').forEach((l, i) => {
       if (AP_AR_COLUMN.test(l)) (found[f] ??= {})[i + 1] = l.trim();
-      if (apArCasts(l)) (casts[f] ??= {})[i + 1] = l.trim();
+      if (apArCasts(l).length > 0) (casts[f] ??= {})[i + 1] = l.trim();
+      if (isValuesBindLine(l)) (values[f] ??= {})[i + 1] = l.trim();
     });
   }
 
-  it('every actor-column line in a file that names one of the ten tables is pinned, with its exact text', () => {
+  it('every actor-column line in those files is pinned, with its exact text', () => {
     expect(found).toEqual(AP_AR_SITES);
   });
 
-  it('no actor value is cast to uuid there, apart from the pinned document-author arrays', () => {
+  it('every VALUES line that binds an actor on a line not naming the column is pinned', () => {
+    expect(values).toEqual(AP_AR_VALUE_BINDS);
+  });
+
+  it('every uuid cast in those files is a listed non-actor id or a pinned author array', () => {
     expect(casts).toEqual(AP_AR_UUID_AUTHOR_EXEMPT);
   });
 
-  it('every pinned exemption is an author array, a documents uploader, or a regex-guarded cast', () => {
-    const lines = Object.values(AP_AR_UUID_AUTHOR_EXEMPT).flatMap((p) => Object.values(p));
-    expect(lines.filter((l) => !/approval_add_author|ARRAY\[|THEN t\.created_by::UUID END|Copied from the sending company/.test(l))).toEqual([]);
+  it.each(AP_AR_CAST_SPELLINGS)('the cast patterns see %s', (line) => {
+    expect(apArCasts(line).length).toBeGreaterThan(0);
   });
 
-  it('the cast patterns see what they are for (not dead)', () => {
-    expect(apArCasts('SET status = \'approved\', approved_by = ${userId}::UUID, approved_at = NOW()')).toBe(true);
-    expect(apArCasts("'draft', ${id}::UUID, ${createdBy}::UUID, NOW()")).toBe(true);
-    expect(apArCasts('SELECT 1 FROM supplier_invoices WHERE created_by::uuid = ${x}')).toBe(true);
-    expect(apArCasts('WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID')).toBe(false);
-    expect(apArCasts('SET approved_by = ${userId}, approved_at = NOW()')).toBe(false);
-    expect(apArCasts('WHERE created_by::text = ${userId}')).toBe(false);
+  it.each(AP_AR_CAST_CLEAN)('the cast patterns pass %s', (line) => {
+    expect(apArCasts(line)).toEqual([]);
   });
 });
