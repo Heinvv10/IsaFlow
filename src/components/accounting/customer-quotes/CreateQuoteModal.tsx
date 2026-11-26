@@ -25,6 +25,8 @@ import { quoteBody, type QuoteFormHeader, type QuoteFormLine } from './quoteForm
 export interface CustomerOption { id: string; name: string; default_vat_type?: string | null }
 interface Props { customers: CustomerOption[]; onClose: () => void; onCreated: () => void }
 
+/** Said before Create: a sales order holds prices before VAT, so the server refuses an Including VAT quote's conversion to one. */
+const INCLUSIVE_NOTICE = 'A quote with prices including VAT converts to an invoice, not a sales order. To make a sales order, quote with amounts excluding VAT.';
 const inp = 'w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 transition-colors';
 const lbl = 'block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5';
 const th = 'px-3 py-2 text-xs font-semibold text-ink-muted';
@@ -100,6 +102,7 @@ export function CreateQuoteModal({ customers, onClose, onCreated }: Props) {
             taxMode={mode} taxModes={modeSwitch.modes} taxModeProblem={modeSwitch.problem} onTaxModeChange={modeSwitch.pick} />
           {showVat && (
             <div role="status" className="px-3 empty:hidden">
+              {mode === 'inclusive' && <p className="pt-2 text-xs text-amber-700 dark:text-amber-300">{INCLUSIVE_NOTICE}</p>}
               {lineVatWarning(customerVat, types) && <p className="pt-2 text-xs text-amber-700 dark:text-amber-300">{lineVatWarning(customerVat, types)}</p>}
             </div>
           )}

@@ -120,6 +120,18 @@ it('Including VAT sends the price as entered with amountsAre inclusive; the tota
   expect([body.amountsAre, body.lines[0]!.unitPrice, body.lines[0]!.vatType]).toEqual(['inclusive', 230, 'standard']);
 });
 
+it('Including VAT warns BEFORE Create that the quote converts to an invoice, not a sales order; Excluding does not', async () => {
+  renderPage('bi-monthly');
+  await openAndFill('100');
+  const notice = /converts to an invoice, not a sales order/;
+  expect(within(dialog()).queryByText(notice)).toBeNull();
+  await pickOption('Amounts are', /Including VAT/);
+  expect(within(dialog()).getByText(notice)).toBeTruthy();
+  expect(posts()).toHaveLength(0); // said before anything is sent
+  await pickOption('Amounts are', /Excluding VAT/);
+  expect(within(dialog()).queryByText(notice)).toBeNull();
+});
+
 it('a company not registered for VAT: no VAT column or "Amounts are", untyped lines, exclusive', async () => {
   renderPage('none');
   await openAndFill('100');
