@@ -104,11 +104,10 @@ export async function withToolSession<T>(
   // server) makes the connection unusable, as a loss does; a lock timeout (55P03) is kept, with the holder the watch saw. No wait is silent.
   const watch = watchWaits(pool, pid, o.onNotice);
   let lockTimedOut: unknown = null;
-  const target = client as unknown as Record<string, unknown>;
-  const ownQuery = Object.prototype.hasOwnProperty.call(target, 'query');
-  const query = target.query as (...a: unknown[]) => unknown;
-  target.query = (...a: unknown[]): unknown => {
-    const r = query.apply(client, a);
+  // The request's queries go through a watching view of the client (never a patch of it: a pool may hand out wrapped clients of its own).
+  const base = client as unknown as { query: (...a: unknown[]) => unknown };
+  const watchedQuery = (...a: unknown[]): unknown => {
+    const r = base.query(...a);
     if (r instanceof Promise) {
       r.then(() => watch.touch(), (err: unknown) => {
         watch.touch();
@@ -118,6 +117,13 @@ export async function withToolSession<T>(
     }
     return r;
   };
+  const db = new Proxy(client, {
+    get(t, prop) {
+      if (prop === 'query') return watchedQuery;
+      const v = Reflect.get(t, prop, t) as unknown;
+      return typeof v === 'function' ? (v as (...a: unknown[]) => unknown).bind(t) : v;
+    },
+  });
   const lockWait = (): LockWaitError | null => (lockTimedOut === null ? null : new LockWaitError(lockTimedOut, watch.blocker(), commit ? 'live' : 'dry'));
   let fnStarted = false; // R25-6: only a request whose work ran can have writes still held
   let committed = false;
@@ -125,14 +131,14 @@ export async function withToolSession<T>(
   let unusable = false; // set when a ROLLBACK fails: the connection may still be inside its transaction
   let rolledBack = false; // the dry request's own ROLLBACK ran: the catch does not run another
   try {
-    await client.query('BEGIN');
-    await client.query('SET LOCAL ROLE app_user');
-    await client.query(`SET LOCAL lock_timeout = '${SAGE_LOCK_TIMEOUT_MS}ms'`); // B24-2: no lock wait of a migration request is unbounded
-    await client.query(`SET LOCAL statement_timeout = '${SAGE_STATEMENT_TIMEOUT_MS}ms'`); // round 25: no statement of it either
+    await db.query('BEGIN');
+    await db.query('SET LOCAL ROLE app_user');
+    await db.query(`SET LOCAL lock_timeout = '${SAGE_LOCK_TIMEOUT_MS}ms'`); // B24-2: no lock wait of a migration request is unbounded
+    await db.query(`SET LOCAL statement_timeout = '${SAGE_STATEMENT_TIMEOUT_MS}ms'`); // round 25: no statement of it either
     const claims = { sub: userId, role: 'authenticated', company_id: companyId };
-    await client.query(`SELECT set_config('request.jwt.claims', $1, true)`, [JSON.stringify(claims)]);
-    await client.query(`SELECT set_config('app.current_company_id', $1, true)`, [companyId]);
-    const membership = await getCompanyMembership(client, userId, companyId);
+    await db.query(`SELECT set_config('request.jwt.claims', $1, true)`, [JSON.stringify(claims)]);
+    await db.query(`SELECT set_config('app.current_company_id', $1, true)`, [companyId]);
+    const membership = await getCompanyMembership(db, userId, companyId);
     const row = membership.rows[0];
     if (!row || row.account_user_id === null || !isActiveUserAccount(row)) {
       throw new NotAMemberError(`user ${userId} is not an active member of company ${companyId}`);
@@ -141,7 +147,7 @@ export async function withToolSession<T>(
       userId, companyId, scopes: MIGRATION_SCOPES, tokenJti: 'sage-migration', oauthAppId: null,
       companyRole: normalizeCompanyRole(row.role), authMethod: 'pat',
     };
-    const txCtx: RequestContext = { client, userId, companyId, claims, afterCommit: [], afterRollback: [] };
+    const txCtx: RequestContext = { client: db, userId, companyId, claims, afterCommit: [], afterRollback: [] };
     owned = txCtx;
     const session: ToolSession = {
       companyId,
@@ -151,7 +157,7 @@ export async function withToolSession<T>(
         // membership check above, app_user under RLS and the tools' own ownership checks.
         const sent = WRITE_TOOLS.has(name) ? { ...args, company_id: companyId } : args;
         if (WRITE_TOOLS.has(name) && typeof args.idempotency_key === 'string' && args.idempotency_key.trim() !== '') {
-          await takeKeyLockNow(client as never, idempotencyLockText(companyId, name, args.idempotency_key, PER_USER_TOOLS.has(name) ? userId : undefined), commit ? 'live' : 'dry');
+          await takeKeyLockNow(db as never, idempotencyLockText(companyId, name, args.idempotency_key, PER_USER_TOOLS.has(name) ? userId : undefined), commit ? 'live' : 'dry');
         }
         let replayed = false;
         const r = await mcpRegistry.call(name, sent, { ...ctx, onIdempotentReplay: () => { replayed = true; } });
@@ -165,7 +171,7 @@ export async function withToolSession<T>(
     fnStarted = true;
     const result = await runOwnedContext(txCtx, () => fn(session));
     if (!commit) {
-      const rollback = await rollbackError(client, 'sage-migration');
+      const rollback = await rollbackError(db, 'sage-migration');
       [unusable, rolledBack] = [rollback !== null, true];
       // Checked AFTER the ROLLBACK: a loss first seen there is a loss too (R21-2). A ROLLBACK that failed or did not answer for another
       // reason costs only its connection (released as broken): what the request read stands (R22-1).
@@ -185,7 +191,7 @@ export async function withToolSession<T>(
     try {
       // Bounded like the ROLLBACK: a connection that never answers must not hang the run. A timeout is "unconfirmed", never "failed".
       await Promise.race([
-        client.query('COMMIT'),
+        db.query('COMMIT'),
         new Promise<never>((_, reject) => { commitTimer = setTimeout(() => reject(new Error(`COMMIT did not answer within ${commitBoundMs}ms`)), commitBoundMs); commitTimer.unref?.(); }),
       ]);
     } catch (err) {
@@ -200,7 +206,7 @@ export async function withToolSession<T>(
     return result;
   } catch (err) {
     if (!rolledBack) {
-      const rollback = await rollbackError(client, 'sage-migration');
+      const rollback = await rollbackError(db, 'sage-migration');
       unusable = rollback !== null;
       // R24-5: a dry run that ended on an error (a stop, a bug) and whose ROLLBACK is then not confirmed still says its writes may be held.
       if (rollback !== null && o.wrote === true && fnStarted && lost === null && !connectionEnded(rollback) && !connectionEnded(err)) throw new DryRollbackUnconfirmedError(rollback, pid, undefined, err);
@@ -210,7 +216,6 @@ export async function withToolSession<T>(
     throw err;
   } finally {
     watch.stop();
-    if (ownQuery) target.query = query; else delete target.query;
     client.off('error', onError);
     client.release(unusable || lost !== null);
     settleAfterRollback(owned, committed);

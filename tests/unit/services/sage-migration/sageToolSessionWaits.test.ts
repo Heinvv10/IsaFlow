@@ -13,7 +13,11 @@ const member = vi.hoisted(() => ({ ok: true }));
 vi.mock('@/lib/mcp/toolIndex', () => ({ mcpRegistry: { listTools: () => [{ name: 'w', write: true }, { name: 'pu', write: true, perUserIdempotency: true }], call: registry.call } }));
 vi.mock('@/lib/auth/companyMembership', () => ({ getCompanyMembership: async () => ({ rows: member.ok ? [{ account_user_id: 'u1', role: 'owner' }] : [] }) }));
 vi.mock('@/lib/auth/userAccountStatus', () => ({ isActiveUserAccount: () => true }));
-vi.mock('@/lib/afterCommit', () => ({ runOwnedContext: (_ctx: unknown, fn: () => unknown) => fn(), drainAfterCommit: () => undefined, settleAfterRollback: () => undefined }));
+const als = vi.hoisted(() => ({ ctx: null as null | { client: { query: (t: string) => Promise<unknown> } } }));
+// The request context a tool reads its client from (ALS): the session's watched view of the connection.
+vi.mock('@/lib/afterCommit', () => ({ runOwnedContext: (ctx: never, fn: () => unknown) => { als.ctx = ctx; return fn(); }, drainAfterCommit: () => undefined, settleAfterRollback: () => undefined }));
+/** A query as a tool issues it: through the request context's client. */
+const toolQuery = (text: string) => als.ctx!.client.query(text);
 vi.mock('@/lib/rollbackFailed', () => {
   const rollbackError = async (c: { query: (t: string) => Promise<unknown> }) => c.query('ROLLBACK').then(() => null, (e: unknown) => e as Error);
   return { rollbackError, rollbackFailed: async (c: { query: (t: string) => Promise<unknown> }) => (await rollbackError(c)) !== null };
@@ -96,7 +100,7 @@ describe('round 25: no statement waits forever', () => {
   const readTimeout = () => new Error('Query read timeout');
   it('a client query_timeout in a committing request: a loss seen before the COMMIT (nothing written; no COMMIT sent; released broken)', async () => {
     const client = clientOf((t) => (t === 'SELECT stuck' ? readTimeout() : undefined));
-    const err = await withToolSession(poolOf(client), 'c1', 'u1', true, async () => { await client.query('SELECT stuck').catch(() => undefined); return 'r'; }).then(() => null, (e: unknown) => e);
+    const err = await withToolSession(poolOf(client), 'c1', 'u1', true, async () => { await toolQuery('SELECT stuck').catch(() => undefined); return 'r'; }).then(() => null, (e: unknown) => e);
     expect(err).toBeInstanceOf(LostBeforeCommitError);
     expect((err as Error).message).toMatch(/before its COMMIT was sent \(Query read timeout\); nothing of it was written/);
     expect(client.texts).not.toContain('COMMIT');
@@ -109,13 +113,13 @@ describe('round 25: no statement waits forever', () => {
   });
   it('a client query_timeout in a request that commits nothing: ConnectionLostError', async () => {
     const client = clientOf((t) => (t === 'SELECT stuck' ? readTimeout() : undefined));
-    const err = await withToolSession(poolOf(client), 'c1', 'u1', false, async () => { await client.query('SELECT stuck').catch(() => undefined); return 'r'; }).then(() => null, (e: unknown) => e);
+    const err = await withToolSession(poolOf(client), 'c1', 'u1', false, async () => { await toolQuery('SELECT stuck').catch(() => undefined); return 'r'; }).then(() => null, (e: unknown) => e);
     expect(err).toBeInstanceOf(ConnectionLostError);
   });
   const lockTimeout = () => Object.assign(new Error('canceling statement due to lock timeout'), { code: '55P03' });
   it('R25-3: a lock timeout inside a committing request (its tool answered a failure): LockWaitError, worded live, no COMMIT sent', async () => {
     const client = clientOf((t) => (t === 'SELECT take_number_lock' ? lockTimeout() : undefined));
-    registry.call.mockImplementationOnce(async () => { await client.query('SELECT take_number_lock').catch(() => undefined); return { content: [{ type: 'text', text: 'retry in a moment' }], isError: true }; });
+    registry.call.mockImplementationOnce(async () => { await toolQuery('SELECT take_number_lock').catch(() => undefined); return { content: [{ type: 'text', text: 'retry in a moment' }], isError: true }; });
     const err = await withToolSession(poolOf(client), 'c1', 'u1', true, (s) => s.call('w', { idempotency_key: 'k' })).then(() => null, (e: unknown) => e);
     expect(err).toBeInstanceOf(LockWaitError);
     expect((err as LockWaitError).phase).toBe('live');
@@ -125,19 +129,34 @@ describe('round 25: no statement waits forever', () => {
   });
   it('a lock timeout in the dry run: the request ends normally, and session.lockWait() says it (worded dry), for the runner to stop', async () => {
     const client = clientOf((t) => (t === 'SELECT take_number_lock' ? lockTimeout() : undefined));
-    registry.call.mockImplementationOnce(async () => { await client.query('SELECT take_number_lock').catch(() => undefined); return { content: [{ type: 'text', text: 'retry' }], isError: true }; });
+    registry.call.mockImplementationOnce(async () => { await toolQuery('SELECT take_number_lock').catch(() => undefined); return { content: [{ type: 'text', text: 'retry' }], isError: true }; });
     let seen: LockWaitError | null = null;
     await withToolSession(poolOf(client), 'c1', 'u1', false, async (s) => { await s.call('w', { idempotency_key: 'k' }); seen = s.lockWait!(); });
     expect(seen).toBeInstanceOf(LockWaitError);
     expect(seen!.message).toMatch(/likely a previous run's dry transaction, backend pid unknown\); wait or terminate it, then re-run$/);
   });
-  it('a request with no lock timeout: lockWait() is null; the client\'s own query is put back after the request', async () => {
+  it('a request with no lock timeout: lockWait() is null; the client itself is never patched (a pool may hand out wrapped clients)', async () => {
     const client = clientOf(() => undefined);
     const own = client.query;
     let seen: unknown = 'unset';
     await withToolSession(poolOf(client), 'c1', 'u1', false, async (s) => { seen = s.lockWait!(); });
     expect(seen).toBeNull();
     expect(client.query).toBe(own);
+  });
+});
+
+describe('a pool that hands out wrapped clients (as the integration fixtures do)', () => {
+  it('works through the session\'s view, with no recursion, and the wrapper sees every query', async () => {
+    const inner = clientOf(() => undefined);
+    const seenByWrapper: string[] = [];
+    const wrapped = new Proxy(inner, { get(t, prop) {
+      if (prop === 'query') return (text: string) => { seenByWrapper.push(text); return (t.query as (x: string) => Promise<unknown>)(text); };
+      const v = Reflect.get(t, prop, t) as unknown;
+      return typeof v === 'function' ? (v as (...a: unknown[]) => unknown).bind(t) : v;
+    } });
+    registry.call.mockResolvedValueOnce(ok('{"created":1}'));
+    expect(await withToolSession(poolOf(wrapped), 'c1', 'u1', true, (s) => s.call('w', { idempotency_key: 'k' }))).toMatchObject({ isError: false });
+    expect(seenByWrapper).toContain('COMMIT');
   });
 });
 
