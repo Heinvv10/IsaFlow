@@ -106,4 +106,19 @@ describe('watchWaits', () => {
     settle();
     w.stop();
   });
+  it('R28-4: the evidence adds up across two waits of one request on the same idle holder (a number lock wait, then a row wait)', async () => {
+    vi.useFakeTimers();
+    const pool = { query: vi.fn(async () => ({ rows: [{ pid: 777, state: 'idle in transaction', app: 'isaflow-sage-migration', stateChangeMs: 100, xactStartMs: 50 }] })) } as never;
+    const w = watchWaits(pool, undefined, 1_000);
+    w.setPid(42);
+    let settle = w.begin();
+    await vi.advanceTimersByTimeAsync(1_100); // first sample, then the wait ends
+    settle();
+    expect(w.blocker()).toBeUndefined(); // R26-5: a finished wait's blocker is not kept
+    settle = w.begin();
+    await vi.advanceTimersByTimeAsync(HOLDER_CONFIRM_MS);
+    expect(w.blocker()).toMatchObject({ pid: 777, confirmedIdle: true });
+    settle();
+    w.stop();
+  });
 });

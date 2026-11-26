@@ -46,7 +46,9 @@ export function watchWaits(pool: Pool, onNotice?: (line: string) => void, runLoc
   let noticed = 0;
   let pid: number | undefined;
   let blocker: LockHolder | undefined;
-  let firstSeen: { holder: LockHolder; at: number } | undefined; // the holder's first sample in this wait (R28-4: two samples apart)
+  // The holder's first sample in this REQUEST (R28-4: two samples apart). Kept across the request's waits: it is matched by pid and
+  // state_change, so a later wait on the same idle holder adds to the evidence; any other holder, or a state that moved, starts it over.
+  let firstSeen: { holder: LockHolder; at: number } | undefined;
   let sampling = false;
   let epoch = 0; // bumped when a wait starts (R27-5): a sample that answers after its wait ended is not kept for the next one
   const canSample = typeof (pool as { query?: unknown }).query === 'function';
@@ -77,7 +79,7 @@ export function watchWaits(pool: Pool, onNotice?: (line: string) => void, runLoc
   timer.unref?.();
   return {
     begin: () => {
-      if (inFlight++ === 0) { since = Date.now(); epoch++; firstSeen = undefined; }
+      if (inFlight++ === 0) { since = Date.now(); epoch++; }
       let done = false;
       return () => {
         if (done) return;
