@@ -16,7 +16,7 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
-  AP_AR_CAST_CLEAN, AP_AR_CAST_SPELLINGS, AP_AR_COLUMN, AP_AR_SITES, AP_AR_TABLE, AP_AR_UUID_AUTHOR_EXEMPT, AP_AR_VALUE_BINDS, apArCasts, isValuesBindLine,
+  AP_AR_CAST_CLEAN, AP_AR_CAST_SPELLINGS, AP_AR_COLUMN, AP_AR_SITES, AP_AR_TABLE, AP_AR_UUID_AUTHOR_EXEMPT, AP_AR_VALUE_BINDS, apArCastHits, apArCasts, isValuesBindLine,
 } from './apArCensusData';
 type Rec = Record<string, Record<number, string>>;
 
@@ -270,9 +270,9 @@ describe('actor ids on the AP/AR tables are bound as text (AAa census)', () => {
   for (const f of trackedFiles()) {
     const stripped = code(readFileSync(resolve(ROOT, f), 'utf8'));
     if (!AP_AR_TABLE.test(stripped) || !AP_AR_COLUMN.test(stripped)) continue; // files that write an actor column
+    for (const at of apArCastHits(stripped, f)) { const n = stripped.slice(0, at).split('\n').length; (casts[f] ??= {})[n] = stripped.split('\n')[n - 1]!.trim(); }
     stripped.split('\n').forEach((l, i) => {
       if (AP_AR_COLUMN.test(l)) (found[f] ??= {})[i + 1] = l.trim();
-      if (apArCasts(l).length > 0) (casts[f] ??= {})[i + 1] = l.trim();
       if (isValuesBindLine(l)) (values[f] ??= {})[i + 1] = l.trim();
     });
   }
