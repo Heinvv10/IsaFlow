@@ -174,3 +174,14 @@ describe('a confirmed file of an earlier approval, the run approved again higher
     expect(got.payroll).toMatchObject({ paidBasis: 'bank_file', totalRequired: 2000 + 500 });
   });
 });
+
+describe('one confirmed file per run (review: the bank_file_id subquery is bounded)', () => {
+  it('a second confirmed file on a run is refused by the database, so the reader never sees two', async () => {
+    await expect(twoRunsInMonth(pool, A, async (c) => {
+      const id = await seedRun(c, A, REGULAR);
+      await confirmedFile(c, A, id, '2026-05-19');
+      await c.query('SAVEPOINT second');
+      await confirmedFile(c, A, id, '2026-05-20');
+    }, at(A))).rejects.toThrow(/payroll_bank_files_one_live_per_run|duplicate key|already/i);
+  });
+});

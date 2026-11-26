@@ -68,6 +68,9 @@ async function nextPayrollSection(
   asAt: string,
 ): Promise<CashPositionPayroll | null> {
   const cur = Number(asAt.slice(0, 4)) * 12 + Number(asAt.slice(5, 7));
+  // bank_file_id: at most ONE confirmed file per run (999h payroll_bank_files_one_live_per_run), so LIMIT 1 never drops a row;
+  // it still bounds the scalar subquery so a second could never raise "more than one row" and take the company's cash
+  // position down. ORDER BY action_date, id picks the same file whose date bank_paid_on's min(action_date) reports.
   const rows = (await sql`
     SELECT id, period_month, period_year, status,
            total_net, total_paye, total_uif, total_sdl, total_eti,
@@ -78,7 +81,8 @@ async function nextPayrollSection(
            (SELECT min(f.action_date)::text FROM payroll_bank_files f
              WHERE f.company_id = payroll_run_headers.company_id AND f.run_id = payroll_run_headers.id AND f.status = 'confirmed') AS bank_paid_on,
            (SELECT f.id::text FROM payroll_bank_files f
-             WHERE f.company_id = payroll_run_headers.company_id AND f.run_id = payroll_run_headers.id AND f.status = 'confirmed') AS bank_file_id,
+             WHERE f.company_id = payroll_run_headers.company_id AND f.run_id = payroll_run_headers.id AND f.status = 'confirmed'
+             ORDER BY f.action_date, f.id LIMIT 1) AS bank_file_id,
            (SELECT COALESCE(sum(d.amount), 0) FROM payroll_garnishee_deductions d
              WHERE d.company_id = payroll_run_headers.company_id AND d.run_id = payroll_run_headers.id) AS garnishee,
            (SELECT sum(v::numeric) FROM jsonb_each_text(off_cycle_paid_gross) AS g(k, v)) AS paid_gross
