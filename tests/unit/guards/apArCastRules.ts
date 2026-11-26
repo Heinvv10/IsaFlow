@@ -10,7 +10,7 @@ const WRAPPED_CAST = new RegExp(`(?:ARRAY\\s*\\[\\s*|\\(\\s*)\\$\\{([^}]*)\\}\\s
 const COLUMN_CAST = new RegExp(`\\b(?:created_by|approved_by|cancelled_by|processed_by|confirmed_by)\\s*(?:::\\s*[\\w."]+\\s*)*::\\s*${UUID_T}|CAST\\s*\\(\\s*(?:\\w+\\.)?(?:created_by|approved_by|cancelled_by|processed_by|confirmed_by)\\s+AS\\s+${UUID_T}`, 'i');
 const ACT_COL = '(?:created_by|approved_by|cancelled_by|processed_by|confirmed_by)';
 /** `col <op> [ANY(]${x}::uuid`, and the reversed `${x}::uuid <op> col`, whatever x is. */
-const COMPARE_CAST = new RegExp(`\\b${ACT_COL}\\s*(?:=|<>|!=|IS\\s+(?:NOT\\s+)?DISTINCT\\s+FROM|IN)\\s*(?:ANY\\s*\\(\\s*)?\\(?\\s*(?:\\$\\{[^}]*\\}|\\$\\d+)\\s*(?:::\\s*[\\w."]+(?:\\[\\])?\\s*)*::\\s*${UUID_T}|\\b${ACT_COL}\\s*(?:=|<>|!=|IS\\s+(?:NOT\\s+)?DISTINCT\\s+FROM)\\s*(?:(?!\\b(?:AND|OR|WHERE|SET|FROM|JOIN|ON)\\b)[^,;])*?::\\s*${UUID_T}|::\\s*${UUID_T}\\s*(?:=|<>|!=|IS\\s+(?:NOT\\s+)?DISTINCT\\s+FROM)\\s*(?:\\w+\\.)?${ACT_COL}\\b`, 'i');
+const COMPARE_CAST = new RegExp(`\\b${ACT_COL}\\s*(?:=|<>|!=|IS\\s+(?:NOT\\s+)?DISTINCT\\s+FROM|IN)\\s*(?:ANY\\s*\\(\\s*)?\\(?\\s*(?:\\$\\{[^}]*\\}|\\$\\d+)\\s*(?:::\\s*[\\w."]+(?:\\[\\])?\\s*)*::\\s*${UUID_T}|\\b${ACT_COL}\\s*(?:=|<>|!=|IS\\s+(?:NOT\\s+)?DISTINCT\\s+FROM)\\s*(?:\\([^()]*(?:\\([^()]*\\)[^()]*)*\\)|(?!\\b(?:AND|OR|WHERE|SET|FROM|JOIN|ON)\\b)[^,;()])*?::\\s*${UUID_T}|::\\s*${UUID_T}\\s*(?:=|<>|!=|IS\\s+(?:NOT\\s+)?DISTINCT\\s+FROM)\\s*(?:\\w+\\.)?${ACT_COL}\\b`, 'i');
 /** A bare bind of an actor-shaped expression on a line that does not name the column (a VALUES line). */
 export const AP_AR_ACTOR_BIND_LINE = /\$\{[^}]*\b(userId|createdBy|actorId|approverUserId|processedBy|approvedBy|editedBy|by|user\.id|actor\.userId)\b[^}]*\}/;
 export const isValuesBindLine = (l: string) => AP_AR_ACTOR_BIND_LINE.test(l) && !AP_AR_COLUMN.test(l) && /^\s*(\$\{|['"\w.[]|\))/.test(l);
@@ -69,7 +69,7 @@ export const AP_AR_CAST_SPELLINGS: readonly string[] = [
   '${userId}::uuid = approved_by', 'approved_by = ANY(${invoiceIds}::uuid[])', 'WHERE created_by::uuid = $1',
   'WHERE CAST(si.created_by AS uuid) = $1', 'WHERE approved_by::pg_catalog.uuid = $1', 'created_by IN (${companyId}::uuid)',
   'WHERE sp.created_by = $1::uuid', '${companyId}::uuid <> sp.created_by', 'approved_by = u.id::uuid', 'ARRAY[${userId}]::uuid[]',
-  '(${userId})::uuid', '${userId}\n  ::uuid', 'x = ${id}::UUID', 'CAST(${userId}\n AS uuid)',
+  '(${userId})::uuid', 'approved_by = COALESCE(${userId}, approved_by::text)::uuid', '${userId}\n  ::uuid', 'x = ${id}::UUID', 'CAST(${userId}\n AS uuid)',
 ];
 export const AP_AR_CAST_CLEAN: readonly string[] = [
   'WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID', 'created_by = ${userId} AND id = ${invoiceId}::UUID', 'SET approved_by = ${userId}, approved_at = NOW()',

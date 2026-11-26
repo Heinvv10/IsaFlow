@@ -1,4 +1,8 @@
-/** Wave 7 AAa: the pinned VALUES bind lines of actorIdTextCensus.test.ts (split from apArActorSites.ts for the 300-line cap). */
+/**
+ * Wave 7 AAa: the pinned VALUES bind lines of actorIdTextCensus.test.ts (split from apArActorSites.ts for the 300-line cap).
+ * Stated limit: a DELETED pin (or a deleted line in the 8 files where `id` is a listed row id) is visible only in the diff
+ * of this file; reviewers check pin deletions. The pins are not append-only by construction.
+ */
 /** The VALUES lines that bind an actor on a line that does not name the column (multi-line INSERTs), pinned as in the HYa half. */
 export const AP_AR_VALUE_BINDS: Readonly<Record<string, Readonly<Record<number, string>>>> = {
 "pages/api/accounting/ai-invoice-pipeline.ts": {
