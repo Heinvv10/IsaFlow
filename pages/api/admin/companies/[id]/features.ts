@@ -55,7 +55,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         req.user.id
       );
     } catch (err) {
-      // The INSERT is the first write: the refusal aborted the transaction, so nothing lands.
+      // The INSERT is the first write (only the advisory-lock SELECT precedes it) and runs in a savepoint the
+      // refusal rolls back, so nothing lands.
       if (isPgError(err, '23503', ['company_feature_overrides_company_id_fkey', 'company_feature_overrides_feature_id_fkey'])) return apiResponse.notFound(res, 'Company or feature');
       throw err;
     }

@@ -306,9 +306,11 @@ BEGIN
   PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('mcp_connector_self_serve:' || p_company::text, 0));
 
   -- No row lock: FOR SHARE / FOR UPDATE need UPDATE privilege, which migration_admin is not given here. The
-  -- advisory lock above is the serialisation: every writer of this row takes it first (this function, and both
-  -- platform-admin writes in featureFlagService), so no other write can land between this read and the
-  -- DELETE + INSERT below, and this read (a fresh READ COMMITTED snapshot) sees every write committed before it.
+  -- advisory lock above is the serialisation: every application writer of this row takes it first (this
+  -- function, and both platform-admin writes in featureFlagService), so no other write can land between this
+  -- read and the DELETE + INSERT below, and this read (a fresh READ COMMITTED snapshot) sees every write committed
+  -- before it. Not serialised, and harmless: enable_mcp_connector_default (a company no other session can see
+  -- yet), pre-1056 code during the deploy window, and the dev-only scripts/sandbox reviewer script.
   SELECT o.enabled, COALESCE(o.set_via, 'platform_admin') INTO v_was, v_was_via
     FROM public.company_feature_overrides o
    WHERE o.company_id = p_company AND o.feature_id = v_feature;
