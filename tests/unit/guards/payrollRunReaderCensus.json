@@ -197,7 +197,11 @@
    {"line":142,"text":"FROM payroll_run_headers h","class":"S","owner":"FQb1","why":"EXISTS an approved run paying the employee"}
   ],
   "src/modules/accounting/services/payroll/payrollBankFileConfirm.ts": [
-   {"line":38,"text":"JOIN payroll_run_headers h ON h.id = f.run_id AND h.company_id = f.company_id","class":"S","owner":"FQb1","why":"bank file by id, joined to its own run by run id"}
+   {"line":45,"text":"await tx`SELECT 1 FROM payroll_run_headers WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid FOR SHARE`;","class":"S","owner":"FQb1","why":"GC2: share-lock the file's own run by id, so confirm serialises with approval / reopen"},
+   {"line":49,"text":"JOIN payroll_run_headers h ON h.id = f.run_id AND h.company_id = f.company_id","class":"S","owner":"FQb1","why":"bank file by id, joined to its own run by run id"}
+  ],
+  "src/modules/accounting/services/payroll/payrollBankFileCreditorJournal.ts": [
+   {"line":92,"text":"FROM payroll_run_headers WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid","class":"S","owner":"FQb1","why":"GC2: the file's own run by id, for its journal description"}
   ],
   "src/modules/accounting/services/payroll/payrollBankFileJudge.ts": [
    {"line":48,"text":"FROM payroll_bank_files f JOIN payroll_run_headers h ON h.id = f.run_id AND h.company_id = f.company_id","class":"S","owner":"FQb1","why":"the run's live bank files, by run id"},

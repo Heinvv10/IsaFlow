@@ -89,6 +89,10 @@ const EXEMPT: Record<string, string> = {
   // EMP201's own ETI figures after a directive payment or its reversal (DR 2140 or the ETI refund receivable / CR 5200);
   // no person composes its lines, so decision 2's manual-journal gate does not apply.
   [`${A}payroll/directiveEtiJournal.ts`]: 'payroll: the month\'s ETI journal after a directive payment or its reversal (decision 2; wave 5 ET)',
+  // Wave 7 GC2: the garnishee creditors' journal (DR garnishee payable / CR the run's net-pay account), a system posting
+  // derived from a confirmed salary bank file's own creditor lines; no person composes its lines. Its route
+  // (bank-file/[fileId]/confirm) is owner / admin with Payroll Approve (#1656), as auto_payroll's approve is.
+  [`${A}payroll/payrollBankFileCreditorJournal.ts`]: 'payroll: garnishee creditors paid by a confirmed salary bank file (decision 2; wave 7 GC2)',
   [`${A}payroll/uifPaymentService.ts`]: 'payroll UIF: payroll (decision 2)',
   [`${A}reports/drcVatService.ts`]: 'DRC VAT: decision 2 (VAT)',
   [`${A}reports/vatAdjustmentService.ts`]: 'VAT adjustment: decision 2 (VAT)',
@@ -100,7 +104,7 @@ describe('the callers of postJournalEntry', () => {
     const callers = filesMatching(/(?<!function )\bpostJournalEntry\(/);
     expect(callers).toEqual(Object.keys({ ...GATED, ...EXEMPT }).sort());
     const calls = SOURCES.reduce((n, s) => n + count(s.text, /(?<!function )\bpostJournalEntry\(/g), 0);
-    expect(calls).toBe(49); // 49 since step 6: shareUndoPost posts void_payment's undo-share journals
+    expect(calls).toBe(50); // 50 since wave 7 GC2 (payrollBankFileCreditorJournal); 49 since step 6: shareUndoPost
   });
 
   it('every gated path consults the gate before it posts', () => {

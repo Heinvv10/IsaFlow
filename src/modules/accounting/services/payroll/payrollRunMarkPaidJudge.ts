@@ -11,14 +11,18 @@
  *                        reversed, is not marked paid: the GL would show nothing owed and nothing paid.
  *   judgeBankFileEvidence the file path: no salary bank file still `generated` (it may be at the bank: confirm or void it
  *                        first; this holds for the typed path too), a `confirmed` file whose total equals the run's
- *                        net pay and whose per-employee settlement (payrollBankFileSettlement) owes and overpays
- *                        nothing, with an action date not after today. The payment date is the file's action date.
+ *                        net pay plus its applied garnishee deductions (wave 7 GC2: the file pays each creditor too),
+ *                        whose per-employee settlement (payrollBankFileSettlement) owes and overpays nothing, and that
+ *                        paid every creditor exactly the run's deduction (creditorShortfall), with an action date not
+ *                        after today. The payment date is the file's action date.
+ *   openPayableWarnings  (GC2, F13c) what the run's garnishee payable still owes after a mark-paid: on the typed path
+ *                        no file paid the creditors, so each deduction no confirmed file paid is named as still to pay.
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { formatCents } from '@/lib/money/formatMoney';
 import { listRunBankFiles } from './payrollBankFileStatus';
-import { fileSettlement } from './payrollBankFileSettlement';
+import { creditorShortfall, fileSettlement } from './payrollBankFileSettlement';
 import { runJournalDescriptionOf } from './payrollJournalDescription';
 
 export type MarkPaidRefusalReason =
@@ -123,13 +127,18 @@ export async function judgeBankFileEvidence(
       'Nothing shows this run was paid: no salary bank file of it was confirmed. Record the bank\'s acceptance of its bank file, '
       + 'or type the bank payment reference and the payment date.');
   }
-  const runCents = Math.round(Number(run.total_net) * 100);
+  const netCents = Math.round(Number(run.total_net) * 100);
   const settlement = await fileSettlement(companyId, runId, confirmed.id);
-  if (confirmed.totalCents !== runCents || settlement.owedCents !== 0 || settlement.overpaidCents !== 0) {
+  const creditors = await creditorShortfall(companyId, runId, confirmed.id);
+  const garnisheeCents = await appliedGarnisheeCents(companyId, runId);
+  const runCents = netCents + garnisheeCents;
+  if (confirmed.totalCents !== runCents || settlement.owedCents !== 0 || settlement.overpaidCents !== 0 || creditors.length > 0) {
     throw new PayrollRunMarkPaidRefusal('FILE_TOTALS_DIFFER',
-      `The confirmed bank file paid ${formatCents(confirmed.totalCents)}, but the run's net pay is ${formatCents(runCents)}`
+      `The confirmed bank file paid ${formatCents(confirmed.totalCents)}, but the run's net pay is ${formatCents(netCents)}`
+      + (garnisheeCents > 0 ? ` and its garnishee deductions ${formatCents(garnisheeCents)}` : '')
       + (settlement.owedCents > 0 ? `; ${formatCents(settlement.owedCents)} is still owed` : '')
       + (settlement.overpaidCents > 0 ? `; ${formatCents(settlement.overpaidCents)} was overpaid` : '')
+      + creditors.map((c) => `; ${c.creditorName} (employee ${c.employeeNumber}) was ${c.cents > 0 ? 'not paid' : 'overpaid'} ${formatCents(Math.abs(c.cents))}`).join('')
       + '. Settle the difference, then mark it paid with that payment\'s reference and date.');
   }
   if (confirmed.actionDate > today) {
@@ -137,4 +146,25 @@ export async function judgeBankFileEvidence(
       `The bank pays this file on ${confirmed.actionDate}: mark the run paid from that day.`);
   }
   return { fileId: confirmed.id, sha256: confirmed.sha256, paidOn: confirmed.actionDate };
+}
+
+/** The run's garnishee deductions its approval applied, in cents (what the payable was credited). */
+async function appliedGarnisheeCents(companyId: string, runId: string): Promise<number> {
+  const row = ((await sql`
+    SELECT COALESCE(sum(round(amount * 100)), 0)::text AS cents FROM payroll_garnishee_deductions
+     WHERE run_id = ${runId}::uuid AND company_id = ${companyId}::uuid AND balance_applied
+  `) as DbRow[])[0];
+  return Number(row?.cents ?? 0);
+}
+
+/**
+ * F13c: on the typed-reference path no bank file paid the garnishee creditors, so the payable the run's journal credited
+ * is still open: one warning per creditor still owed, naming the amount. Empty when nothing is owed.
+ */
+export async function openPayableWarnings(companyId: string, runId: string): Promise<string[]> {
+  // A confirmed file of the run paid its creditor lines (a typed mark-paid may follow one that paid only part).
+  const confirmed = (await listRunBankFiles(companyId, runId)).find((f) => f.status === 'confirmed');
+  const owed = (await creditorShortfall(companyId, runId, confirmed?.id ?? null)).filter((c) => c.cents > 0);
+  return owed.map((c) => `GARNISHEE_PAYABLE_OPEN: ${formatCents(c.cents)} deducted for ${c.creditorName} (employee ${c.employeeNumber}) `
+    + 'is still owed from the garnishee payable: no bank file paid it. Pay the creditor and record that payment in the ledger.');
 }

@@ -12,6 +12,9 @@
  * path's evidence (payrollRunMarkPaidJudge). The writes after that: the header UPDATE (predicated on `approved`), then
  * one audit_log row.
  *
+ * Wave 7 GC2 (F13c): the answer carries `warnings` naming each garnishee creditor the run's payable still owes (the typed
+ * path: no bank file paid them). The file path is refused unless the file paid every creditor (payrollRunMarkPaidJudge).
+ *
  * No run-kind guard: only an approved run is marked paid, and approval already passed it (payrollRunKindGuard); this
  * costs, posts and prints nothing. Nothing posts to the ledger: the payroll journal credited the bank (or net-pay
  * clearing) at approval.
@@ -24,7 +27,8 @@ import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { logAuditOrThrow } from '@/modules/accounting/services/core/auditTrailService';
 import { lockCompanyPayrollApprovals, lockPayrollRunHeader } from './payrollRunLock';
 import {
-  PayrollRunMarkPaidRefusal, judgeBankFileEvidence, judgeNoUnsettledFile, judgePaidOnWindow, judgeRunJournal, parseTypedPayment,
+  PayrollRunMarkPaidRefusal, judgeBankFileEvidence, judgeNoUnsettledFile, judgePaidOnWindow, judgeRunJournal, openPayableWarnings,
+  parseTypedPayment,
 } from './payrollRunMarkPaidJudge';
 
 export interface MarkPaidActor {
@@ -44,6 +48,8 @@ export interface MarkedPaid {
   paidBy: string | null;
   paidReference: string | null;
   paidOn: string;
+  /** GC2 (F13c): what the garnishee payable still owes (typed path: no file paid the creditors). Never blocks. */
+  warnings: string[];
 }
 
 const iso = (v: unknown): string => (v instanceof Date ? v.toISOString() : new Date(String(v)).toISOString());
@@ -83,6 +89,7 @@ export async function markPayrollRunPaid(opts: {
   if (!written) throw new Error('markPayrollRunPaid: the approved run was not updated under its lock');
 
   const path = typed ? 'reference' : 'bank_file';
+  const warnings = await openPayableWarnings(companyId, runId);
   await logAuditOrThrow({
     companyId, userId: actor.userId, userEmail: actor.userEmail, action: 'update', entityType: 'payroll_run', entityId: runId,
     changes: {
@@ -100,7 +107,7 @@ export async function markPayrollRunPaid(opts: {
   return {
     runId, status: 'paid', evidence: path, paidAt: iso(written.paid_at),
     paidBy: written.paid_by == null ? null : String(written.paid_by),
-    paidReference: written.paid_reference == null ? null : String(written.paid_reference), paidOn: String(written.paid_on),
+    paidReference: written.paid_reference == null ? null : String(written.paid_reference), paidOn: String(written.paid_on), warnings,
   };
 }
 

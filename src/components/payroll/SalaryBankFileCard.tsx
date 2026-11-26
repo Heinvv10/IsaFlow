@@ -3,6 +3,9 @@
  * date (downloaded from memory; owner / admin), then record that the bank accepted it (confirm) or void it. A confirmed
  * file shows the run as payment-confirmed; the run stays approved and can still be reopened, with a warning.
  * Shown for approved and paid runs; re-read whenever the run's status changes (a reopen makes a file stale).
+ * Wave 7 GC2: a file also pays the run's garnishee creditors (counted in its payments and total); confirming it posts
+ * the journal that clears their payable. When a creditor's bank details changed since the file was made, the confirm is
+ * refused (CREDITOR_DETAILS_CHANGED) and the dialog asks the person to attest the bank paid the file as it was made.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AlertTriangle, Banknote, Loader2 } from 'lucide-react';
@@ -58,9 +61,13 @@ export function SalaryBankFileCard({ runId, runStatus, canManage }: { runId: str
   const [warnings, setWarnings] = useState<string[]>([]);
   const [pending, setPending] = useState<{ file: PayrollBankFile; action: 'confirm' | 'void' } | null>(null);
   const [notSent, setNotSent] = useState(false);
+  const [changed, setChanged] = useState<string | null>(null);
+  const [paidAsMade, setPaidAsMade] = useState(false);
   const [notice, setNotice] = useState('');
   const firstButton = useRef<HTMLButtonElement>(null);
-  const ask = (file: PayrollBankFile, action: 'confirm' | 'void') => { setNotSent(false); setPending({ file, action }); };
+  const ask = (file: PayrollBankFile, action: 'confirm' | 'void') => {
+    setNotSent(false); setChanged(null); setPaidAsMade(false); setPending({ file, action });
+  };
 
   const load = useCallback(async () => {
     try {
@@ -93,9 +100,19 @@ export function SalaryBankFileCard({ runId, runStatus, canManage }: { runId: str
   const settle = async () => {
     if (!pending) return;
     setBusy(true); setError('');
+    let keepOpen = false;
     try {
+      const body = pending.action === 'void' ? { notSentToBank: notSent } : changed ? { paidAsGenerated: paidAsMade } : {};
       const res = await apiFetch(`/api/payroll/runs/${runId}/bank-file/${pending.file.id}/${pending.action}`,
-        { method: 'POST', body: JSON.stringify(pending.action === 'void' ? { notSentToBank: notSent } : {}) });
+        { method: 'POST', body: JSON.stringify(body) });
+      if (res.status === 409 && pending.action === 'confirm' && !changed) {
+        const refused = await res.clone().json().catch(() => null) as { error?: { message?: string; details?: { reason?: string } } } | null;
+        if (refused?.error?.details?.reason === 'CREDITOR_DETAILS_CHANGED') {
+          setChanged(refused.error.message ?? 'The creditor bank details changed after this file was made.');
+          keepOpen = true;
+          return;
+        }
+      }
       await assertOk(res, `Could not ${pending.action} the bank file - try again`);
       setWarnings([]);
       setNotice(pending.action === 'void'
@@ -104,8 +121,8 @@ export function SalaryBankFileCard({ runId, runStatus, canManage }: { runId: str
     } catch (err) {
       setError(apiErrorMessage(err, `Could not ${pending.action} the bank file - try again`));
     } finally {
-      setPending(null); setBusy(false);
-      void load();
+      if (!keepOpen) { setPending(null); void load(); }
+      setBusy(false);
     }
   };
 
@@ -147,7 +164,8 @@ export function SalaryBankFileCard({ runId, runStatus, canManage }: { runId: str
           {state.files.map((f) => (
             <li key={f.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
               <span className="text-[var(--ff-text-primary)]">Action date {formatDisplayDate(f.actionDate)}</span>
-              <span className="tabular-nums text-[var(--ff-text-primary)]">{formatCurrency(f.totalCents / 100)} · {f.lineCount} {f.lineCount === 1 ? 'payment' : 'payments'}</span>
+              <span className="tabular-nums text-[var(--ff-text-primary)]">{formatCurrency(f.totalCents / 100)} · {f.lineCount} {f.lineCount === 1 ? 'payment' : 'payments'}
+                {f.creditorLineCount > 0 && <> (incl. {f.creditorLineCount} garnishee {f.creditorLineCount === 1 ? 'creditor' : 'creditors'}, {formatCurrency(f.creditorCents / 100)})</>}</span>
               <span className="font-id text-xs text-[var(--ff-text-secondary)]" title={f.sha256}>sha256 {f.sha256.slice(0, 12)}…</span>
               <span className="text-xs text-[var(--ff-text-secondary)]">{statusLabel(f)}</span>
               {canManage && f.status === 'generated' && (
@@ -188,8 +206,18 @@ export function SalaryBankFileCard({ runId, runStatus, canManage }: { runId: str
         title={pending?.action === 'confirm' ? 'Record that the bank accepted this file?' : 'Void this bank file?'}>
         <Modal.Body className="text-sm text-[var(--ff-text-secondary)]">
           {pending?.action === 'confirm'
-            ? 'Only do this once the bank shows the salaries as accepted. The run is then shown as paid by the bank, and no second file can be made for it.'
+            ? <>Only do this once the bank shows the salaries as accepted. The run is then shown as paid by the bank, and no second file can be made for it.
+              {pending.file.creditorLineCount > 0 && ' The payment to the garnishee creditors is posted to the ledger, clearing what the run owes them.'}</>
             : 'Void it only if it was never uploaded to the bank. A voided file is dead and must never be uploaded; a new file can then be generated.'}
+          {pending?.action === 'confirm' && changed && (
+            <div className="mt-3 space-y-2">
+              <p role="alert" className="text-amber-800 dark:text-amber-300">{changed}</p>
+              <label className="flex items-start gap-2 text-[var(--ff-text-primary)]">
+                <input type="checkbox" checked={paidAsMade} onChange={(e) => setPaidAsMade(e.target.checked)} className="mt-0.5" />
+                The bank paid this file as it was made.
+              </label>
+            </div>
+          )}
           {pending?.action === 'void' && (
             <label className="mt-3 flex items-start gap-2 text-[var(--ff-text-primary)]">
               <input type="checkbox" checked={notSent} onChange={(e) => setNotSent(e.target.checked)} className="mt-0.5" />
@@ -200,7 +228,7 @@ export function SalaryBankFileCard({ runId, runStatus, canManage }: { runId: str
         <Modal.Footer>
           <button ref={firstButton} type="button" disabled={busy} onClick={() => setPending(null)}
             className={`${BTN} border border-[var(--ff-border-primary)] text-[var(--ff-text-secondary)] hover:bg-[var(--ff-bg-tertiary)]`}>Cancel</button>
-          <button type="button" disabled={busy || (pending?.action === 'void' && !notSent)} onClick={() => void settle()}
+          <button type="button" disabled={busy || (pending?.action === 'void' && !notSent) || (!!changed && !paidAsMade)} onClick={() => void settle()}
             className={`${BTN} text-white ${pending?.action === 'void' ? 'bg-red-700 hover:bg-red-800' : 'bg-success-700 hover:bg-success-800'}`}>
             {pending?.action === 'confirm' ? 'Bank accepted it' : 'Void file'}
           </button>

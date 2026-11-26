@@ -115,6 +115,10 @@ const READ_BY_HAND = new Set([
   // "journal" is the header's journal_entry_id read through gl_journal_in_force (1018) and comments. Its ALTERs are on
   // payroll_run_headers only: no DDL on gl_journal_entries / gl_journal_lines, no dynamic SQL.
   '1053_payroll_run_mark_paid.sql',
+  // 1057 (2026-11-25, wave 7 GC2 creditor lines): EXECUTE only as GRANT EXECUTE ON FUNCTION payroll_garnishee_order_counted;
+  // "journal" is payroll_bank_files.creditor_journal_id (a new column on payroll_bank_files with an FK to gl_journal_entries)
+  // and the guard reading that journal's posted lines. No DDL on gl_journal_entries / gl_journal_lines, no dynamic SQL.
+  '1057_payroll_bank_file_creditor_lines.sql',
   // 999r (2026-11-17, company-group row security): EXECUTE only as EXECUTE FUNCTION in CREATE TRIGGER; "journal" is the
   // read-only definer rls_intercompany_parties_ok's check that a journal entry id belongs to its company. No DDL on
   // gl_journal_entries / gl_journal_lines, no dynamic SQL.
