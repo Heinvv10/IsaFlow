@@ -8,12 +8,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { formatMoney } from '@/lib/money/formatMoney';
-import {
-  buildCertificateNumber,
-  splitCertificateIncome,
-  type EmployerInput,
-  type EmployeeInput,
-} from '@/modules/accounting/services/payroll/easyFileExportService';
+import { buildCertificateNumber, splitCertificateIncome, type EmployeeInput } from '@/modules/accounting/services/payroll/easyFileExportService';
 import { emp501Period, type Emp501Kind } from '@/modules/accounting/services/payroll/emp501Period';
 import { issuedDateWarning, listRunAnnualPayments } from '@/modules/accounting/services/payroll/payrollLumpSumFiling';
 import { listCertificateLumpSums } from '@/modules/accounting/services/payroll/directivePaymentFiling';
@@ -37,32 +32,12 @@ import { assertCertificateYearMonthlyOnly } from '@/modules/accounting/services/
 import { payRunFinalSql } from '@/modules/accounting/services/payroll/payRunFinalSql';
 import { listPspFilingTotals, pspFilingWarning } from '@/modules/accounting/services/payroll/pspFiling';
 import { employerInputOf } from '@/modules/accounting/services/payroll/easyFileEmployerInput';
-import { loadPspCertificates, type PspCertificateInput } from '@/modules/accounting/services/payroll/easyFilePspCertificate';
+import { loadPspCertificates } from '@/modules/accounting/services/payroll/easyFilePspCertificate';
+import { EasyFileInputRefusal, type EasyFileInput } from '@/modules/accounting/services/payroll/easyFileInputTypes';
 import { UNWRITTEN_FIELDS_WARNING } from '@/modules/accounting/services/payroll/easyFileCertificateCodes';
 import { filingDateWarning } from '@/modules/accounting/services/payroll/easyFileEmployeeChecks';
 
-/** A refusal the route answers as-is: 404 (no company), 422 VALIDATION_ERROR, or 400. */
-export class EasyFileInputRefusal extends Error {
-  constructor(readonly kind: 'not_found' | 'validation' | 'bad_request', message: string,
-    readonly details: Record<string, unknown> | undefined = undefined) {
-    super(message);
-    this.name = 'EasyFileInputRefusal';
-  }
-}
-
-export interface EasyFileInput {
-  employer: EmployerInput;
-  employees: EmployeeInput[];
-  payeRef: string;
-  /** Capped for the header (capWarningsForHeader). */
-  warnings: string[];
-  warningsTotal: number;
-  unlinkedPaymentIds: string[];
-  /** The payroll employee each certificate is for, by certificate number (wave 6 SS-c: the employee portal's IRP5). */
-  certificateEmployees: Array<{ certificateNumber: string; employeeId: string }>;
-  /** Wave 6 PSP-H: each PSP's own H certificate, numbered after the natural persons'. */
-  pspCertificates: PspCertificateInput[];
-}
+export { EasyFileInputRefusal, type EasyFileInput } from '@/modules/accounting/services/payroll/easyFileInputTypes';
 
 /** `kind` 'interim' (wave 6 EFb): March to August only, period code 08; 'annual' is the whole tax year, 02. */
 export async function assembleEasyFileInput(companyId: string, taxYear: number, kind: Emp501Kind = 'annual'): Promise<EasyFileInput> {
