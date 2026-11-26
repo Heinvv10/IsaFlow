@@ -6,7 +6,7 @@
 --
 -- OLD-COLOUR TEST. The previous release never selects it by name (it does SELECT * and maps known keys; the mapper
 -- ignores a missing one) and never inserts into it, so it runs unchanged against the schema without it. The one place
--- that still listed it, entityChangeMasking, only masks keys an entity_changes snapshot contains: an absent key is
+-- that still listed it, entityChangeMasking, only masks keys a change-history snapshot contains: an absent key is
 -- skipped.
 --
 -- pg_depend census: run before this, on the target database, expect no rows (a view, index or constraint on the column

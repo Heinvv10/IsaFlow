@@ -18,7 +18,10 @@ import { saveDraftSubmission, SubmissionNotOpenError } from '@/modules/accountin
 import { vatFilingFootprint } from '@/modules/accounting/services/core/companyVatProfileService';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 
-const MIGRATION = readFileSync(resolve(__dirname, '../../scripts/migrations/sql/999b_sars_submissions_one_open_draft.sql'), 'utf8');
+// 999b's last statement comments payroll_employees.tax_directive_number, which 1055 drops: the column is put back
+// first, inside the rolled-back transaction, so the file runs as it did when it was applied.
+const MIGRATION = `ALTER TABLE public.payroll_employees ADD COLUMN IF NOT EXISTS tax_directive_number VARCHAR(30);\n${
+  readFileSync(resolve(__dirname, '../../scripts/migrations/sql/999b_sars_submissions_one_open_draft.sql'), 'utf8')}`;
 let pool: Pool;
 const a = randomUUID();
 const b = randomUUID();

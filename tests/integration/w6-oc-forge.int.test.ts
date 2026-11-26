@@ -135,7 +135,10 @@ describe('the approval history is never removed or invented below the service', 
       .rejects.toThrow(/approval history is only added to, never rewritten or cleared/);
     await expect(asApp(`UPDATE payroll_run_headers SET approval_history = tstzmultirange(tstzrange(now() - interval '9 days', now() - interval '8 days')) WHERE id = $1`, [id]))
       .rejects.toThrow(/approval history is only added to, never rewritten or cleared/);
-    await expect(asApp(`UPDATE payroll_run_headers SET approval_history = approval_history + tstzmultirange(tstzrange(now() - interval '9 days', now() - interval '8 days')) WHERE id = $1`, [id]))
+    // A fixed range before the run: the history spans the approval (app clock, 16 Nov) to the reopen (the database's
+    // real now()), so a range relative to now() falls inside it once the real date passes 25 Nov, adds nothing and
+    // never reaches the guard.
+    await expect(asApp(`UPDATE payroll_run_headers SET approval_history = approval_history + tstzmultirange(tstzrange('2020-01-01', '2020-01-02')) WHERE id = $1`, [id]))
       .rejects.toThrow(/approval history grows only when the run is reopened/);
     await expect(asApp('DELETE FROM payroll_run_headers WHERE id = $1', [id])).rejects.toThrow(/cancel it instead/);
 
