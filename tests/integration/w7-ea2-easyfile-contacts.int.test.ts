@@ -121,6 +121,7 @@ afterAll(async () => {
   } finally {
     c.release();
   }
+  await a.pool.query('DELETE FROM sars_submissions WHERE company_id = ANY($1)', [[a.company, b.company]]); // after the versions naming them
   for (const r of [a, b]) {
     await r.pool.query('DELETE FROM audit_log WHERE company_id = $1', [r.company]);
     await r.pool.query('DELETE FROM impersonation_sessions WHERE actor_user_id = $1', [r.approver]);
@@ -319,15 +320,17 @@ describe('e@syFile addresses and bank accounts (wave 7 EA2)', () => {
       expect(JSON.stringify(pin[0]!.changes)).not.toMatch(/70000000007|62123456789/);
     });
 
-    it('a version finalised before EA2 (no bankOverlay marker) is served byte for byte as stored: no 324x line, served = stored', async () => {
+    it.each(['filed', 'finalised'])('a %s version finalised before EA2 (no bankOverlay marker) is served byte for byte as stored: no 324x line, served = stored', async (status) => {
       const sha = (t: string) => createHash('sha256').update(t, 'utf8').digest('hex');
       const { bankOverlay, ...pre } = (await a.pool.query('SELECT figures FROM tax_return_versions WHERE id = $1', [versionId])).rows[0]!.figures;
       expect(bankOverlay).toBe(1); // premise: EA2's finalise writes the marker
+      const [start, end] = status === 'filed' ? ['2023-03-01', '2024-02-29'] : ['2022-03-01', '2023-02-28'];
       const preId = String((await a.pool.query(
         `INSERT INTO tax_return_versions (company_id, form_type, period_start, period_end, version_no, figures, posted_through,
            finalised_by, status, filed_at, filed_by)
-         VALUES ($1, 'EMP501', '2023-03-01', '2024-02-29', 1, $2, now(), 'fixture', 'filed', clock_timestamp(), 'fixture') RETURNING id`,
-        [a.company, JSON.stringify(pre)])).rows[0]!.id);
+         VALUES ($1, 'EMP501', $3, $4, 1, $2, now(), 'fixture', $5, CASE WHEN $5 = 'filed' THEN clock_timestamp() END,
+           CASE WHEN $5 = 'filed' THEN 'fixture' END) RETURNING id`,
+        [a.company, JSON.stringify(pre), start, end, status])).rows[0]!.id);
       const req = request({ 'sb-access-token': a.tokens[a.approver]!, active_company_id: a.company }, 'POST') as unknown as { url: string; body: unknown };
       req.url = '/api/payroll/emp501/returns/filing-file';
       req.body = { versionId: preId, format: 'irp5' };
