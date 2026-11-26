@@ -97,6 +97,16 @@ describe('R29-6: a books read that fails for any typed reason is worded from its
       expect(err.batches.booksNotRechecked).toBe(want);
     }
   });
+  it('R29-1: a read the ended run refused (RunEndedError) is said as such, and not logged as a failure', async () => {
+    const { RunEndedError } = await import('@/modules/accounting/services/sage-migration/sageSessionErrors');
+    const { log } = await import('@/lib/logger');
+    const warn = vi.spyOn(log, 'warn');
+    Object.assign(h, { sent: [], liveLockWaitAt: 'category live', failReadsAfterLive: true, readFails: new RunEndedError('an uncaught error ended the run') });
+    const err = await run().then(() => null, (e: unknown) => e) as InstanceType<typeof MigrationStopped>;
+    expect(err.batches.booksNotRechecked).toBe('the run had ended (an uncaught error ended the run)');
+    expect(warn.mock.calls.filter((c) => String(c[0]).includes('could not be read to check'))).toEqual([]);
+    warn.mockRestore();
+  });
 });
 
 describe('B28-2: a COMMIT the server refused', () => {

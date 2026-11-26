@@ -155,7 +155,8 @@ async function settled(committed: BatchReport[], all: PlannedBatches, read: () =
   let snapshot: Snapshot;
   try { snapshot = await read(); } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    log.warn('sage migration: the books could not be read to check the committed batches', { message }, 'sage-migration');
+    // The caller ended the run (R29-1): nothing is read, and nothing is said of it here (the caller's own stop report stands).
+    if (!(err instanceof RunEndedError)) log.warn('sage migration: the books could not be read to check the committed batches', { message }, 'sage-migration');
     // Only why the READ failed: never the read's own "nothing of it was written", which would read as said of the batches (B28-6, R29-6).
     return { committed, unchecked: causeWording(err) };
   }

@@ -160,8 +160,13 @@ interface ConsoleSys {
   /** One try, no wait (the cut marker). */
   writeNow: (fd: number, text: string) => boolean;
   exit: (code?: number) => void;
+  /** Runs `fn` when the process ends by itself too (no process.exit): the run's own natural end must put the process back as well. */
+  onExit: (fn: () => void) => void;
 }
-const realSys: ConsoleSys = { sameFile, blockingFds, capture: captureProcessStreams, saveFlags, writeNow, exit: (code) => (code === undefined ? process.exit() : process.exit(code)) };
+const realSys: ConsoleSys = {
+  sameFile, blockingFds, capture: captureProcessStreams, saveFlags, writeNow, exit: (code) => (code === undefined ? process.exit() : process.exit(code)),
+  onExit: (fn) => { process.once('exit', fn); },
+};
 
 /** The console's CLI side, for one Console (the process's own; a test's). `sys` is replaced in tests only. */
 export function consoleApi(c: Console, sys: ConsoleSys = realSys) {
@@ -206,6 +211,7 @@ export function consoleApi(c: Console, sys: ConsoleSys = realSys) {
       void process.stdout; // bun makes fd 1 / 2 O_NONBLOCK when the stream is first touched
       void process.stderr;
       restore.push(sys.capture(c)); // the logger's lines join the same queues
+      sys.onExit(() => { for (const r of restore.splice(0)) r(); }); // a run that ends by itself (exit 0 / 1 / 3) puts them back too (B29-2)
       const blocking = sys.blockingFds();
       if (blocking.length > 0) say(`the console (fd ${blocking.join(', ')}) is in blocking mode: a reader that stops reading holds the run up until it reads again`);
       return { blocking };

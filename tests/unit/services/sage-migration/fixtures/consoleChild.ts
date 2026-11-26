@@ -3,7 +3,8 @@
  * through the CLI's console, then the exit the CLI makes (exit 4 once the console is drained). With FLAGS=1 it prints, on stderr, what
  * prepareConsole found blocking and fd 1 / 2's flags afterwards; with FLAGS=2, what blockingFds finds before anything touched them;
  * with SPLICE=n, n logger lines and n console lines interleaved, then a closing line; WRITECB=1: 300 KB through process.stdout.write and
- * exit in its callback; ENC=1: encodings, a split character and a null chunk through process.stdout.write.
+ * exit in its callback; ENC=1: encodings, a split character and a null chunk through process.stdout.write; NATURAL=1: one line, then the
+ * process ends by itself (no process.exit).
  */
 import { readFileSync, writeSync } from 'node:fs';
 import * as consoleModule from '../../../../../scripts/sage-migration/runConsole';
@@ -53,7 +54,9 @@ if (process.env.FLAGS === '1') {
   writeSync(2, `${JSON.stringify({ blocking: prepared?.blocking ?? null, fd1: flags(1), fd2: flags(2) })}\n`);
   process.exit(0);
 }
-if (process.env.WRITECB !== '1') { // the WRITECB child ends in its own callback
+if (process.env.NATURAL === '1') { // the CLI's success path: no process.exit, the process just ends (B29-2)
+  api.say('the run finished');
+} else if (process.env.WRITECB !== '1') { // the WRITECB child ends in its own callback
   const line = (ch: string, n: number) => ch.repeat(n);
   if (api.out) api.out(line('o', Number(process.env.OUT ?? 0)));
   else api.cliConsole.write('stdout', `${line('o', Number(process.env.OUT ?? 0))}\n`);

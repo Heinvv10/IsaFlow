@@ -28,7 +28,7 @@ export function spied(real: ConsoleModule): ConsoleModule {
     // the spies stay on the streams; fd 1 / 2 are vitest's, so their flags are left alone; the exit is process.exit (which tests mock)
     return real.consoleApi(c, { sameFile: () => false, blockingFds: () => [], capture: () => () => undefined, saveFlags: () => () => undefined,
       writeNow: (fd, text) => { (fd === 1 ? process.stdout : process.stderr).write(text); return true; },
-      exit: (code) => (code === undefined ? process.exit() : process.exit(code)) });
+      exit: (code) => (code === undefined ? process.exit() : process.exit(code)), onExit: () => undefined });
   };
   // vitest keeps a mocked module across vi.resetModules: each run (runCli calls prepareConsole first) gets a fresh console and exit state.
   let api = make();

@@ -119,6 +119,11 @@ describe('R29-3 / R29-8: the captured process.stdout.write keeps node\'s contrac
 });
 
 describe('B29-2: fd 1 / fd 2 are left as they were found', () => {
+  it('a run that ends by itself (no process.exit: the success path) puts them back too', async () => {
+    const probe = `python3 -I -c "import fcntl,os,sys; print([bool(fcntl.fcntl(f, fcntl.F_GETFL) & os.O_NONBLOCK) for f in (1, 2)], file=sys.stderr)"`;
+    const { text } = await shell(`{ ${probe}; ${CHILD} > /dev/null; ${probe}; } 2>&1 | cat`, { NATURAL: '1' });
+    expect(text.trim().split('\n').filter((l) => l.startsWith('['))).toEqual(['[False, False]', '[False, False]']);
+  }, 30_000);
   it('the real CLI too (a refused start): it saves the flags before anything of it touches the streams', async () => {
     const probe = `python3 -I -c "import fcntl,os,sys; print([bool(fcntl.fcntl(f, fcntl.F_GETFL) & os.O_NONBLOCK) for f in (1, 2)], file=sys.stderr)"`;
     const { text } = await shell(`{ ${probe}; ${CLI.replace('"$BIG"', 'x')} > /dev/null; ${probe}; } 2>&1 | cat`);
