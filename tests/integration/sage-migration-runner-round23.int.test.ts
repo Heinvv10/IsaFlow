@@ -131,7 +131,7 @@ describe('R23-5 / B23-1: the dry run\'s ROLLBACK never answers (blackholed: the 
     const report = join(d, 'report.json');
     const r = await startCli(args(report), url(proxy.port)).done;
     expect(r.code, r.err).toBe(2);
-    expect(r.err).toMatch(/the dry run's ROLLBACK was not confirmed \(ROLLBACK did not answer within \d+ms\); its writes may still be held \(backend pid \d+: wait for the server to end it, or SELECT pg_terminate_backend\(\d+\)\), so the live run was not started/);
+    expect(r.err).toMatch(/the dry run's ROLLBACK was not confirmed \(ROLLBACK did not answer within \d+ms\); its writes may still be held \(backend pid \d+, this run's own: SELECT pg_terminate_backend\(\d+\) ends it\), so the live run was not started/);
     expect(JSON.parse(readFileSync(report, 'utf8'))).toMatchObject({ status: 'stopped', liveStarted: false, committed: [] });
     await proxy.close(); // the server side ends: the dry transaction rolls back
     proxy = null;
@@ -146,12 +146,13 @@ describe('R23-5 / B23-1: the dry run\'s ROLLBACK never answers (blackholed: the 
     const zombie = (await pool.query(`SELECT pid FROM pg_stat_activity WHERE datname = current_database() AND state LIKE 'idle in transaction%'
       AND backend_type = 'client backend' AND pid <> pg_backend_pid()`)).rows.map((r) => r.pid);
     expect(zombie, 'run 1\'s dry transaction, still open').toHaveLength(1);
-    expect(run1.err).toContain(`its writes may still be held (backend pid ${zombie[0]}:`); // the pid it names is that backend's
+    expect(run1.err).toContain(`its writes may still be held (backend pid ${zombie[0]}, this run's own:`); // the pid it names is that backend's
     const t0 = Date.now();
     const r = await startCli(args(join(d, 'run2.json')), process.env.DATABASE_URL!, 60_000).done; // a plain re-run, no proxy
     expect(r.code, r.err).toBe(2);
     expect(Date.now() - t0).toBeLessThan(45_000);
-    expect(r.err).toContain(`another session holds this batch's lock: likely a previous run's dry transaction (backend pid ${zombie[0]}, idle in transaction: a transaction left open; wait for the server to end it, or SELECT pg_terminate_backend(${zombie[0]})); then re-run`);
+    // R27-3: the zombie is the migration's own session (its application_name), so ending it is offered; the server never ends it here.
+    expect(r.err).toMatch(new RegExp(`another session holds this batch's lock: likely a previous run's dry transaction \\(backend pid ${zombie[0]}, idle in transaction, application isaflow-sage-migration, in a transaction for \\d+ s: a migration transaction left open \\(its client is gone\\); SELECT pg_terminate_backend\\(${zombie[0]}\\) ends it\\); then re-run`));
     await proxy.close();
     proxy = null;
     expect(await noneIdleInTransaction()).toBe(0);
@@ -168,7 +169,7 @@ describe('R23-5 / B23-1: the dry run\'s ROLLBACK never answers (blackholed: the 
     const took = Date.now() - t0;
     expect(r.code, r.err).toBe(2);
     expect(took).toBeLessThan(15_000); // one wait (the zombie's number lock, 5 s; the lock_timeout bound is 10 s), not one per category
-    expect(r.err).toMatch(new RegExp(`the dry run stopped at category batch 1 \\(.*\\): a lock it needs is held by another session and the wait timed out .*held by backend pid ${zombie[0]}, idle in transaction: a transaction left open; wait for the server to end it, or SELECT pg_terminate_backend\\(${zombie[0]}\\)`));
+    expect(r.err).toMatch(new RegExp(`the dry run stopped at category batch 1 \\(.*\\): a lock it needs is held by another session and the wait timed out .*held by backend pid ${zombie[0]}, idle in transaction, application isaflow-sage-migration, in a transaction for \\d+ s: a migration transaction left open \\(its client is gone\\); SELECT pg_terminate_backend\\(${zombie[0]}\\) ends it`));
     expect(r.err).not.toMatch(/retry in a moment/);
     await proxy.close();
     proxy = null;
