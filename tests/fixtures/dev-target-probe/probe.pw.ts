@@ -16,20 +16,31 @@ test.describe('nested', () => {
   test('inside', () => ran('nested-test'));
 });
 
-// A later override, and a saved session for another host: both are judged by the automatic fixture.
+// A later override, and a saved session for another host. After the refusal no hook that holds a request, a context or a
+// page may run, whatever its kind or position.
+const eachHooks = (name: string): void => {
+  test.beforeAll(() => ran(`${name}-beforeAll`));
+  test.beforeEach(({ request }) => ran(request ? `${name}-beforeEach` : 'no-request'));
+  test.beforeEach(({ request }) => ran(request ? `${name}-beforeEach-second` : 'no-request'));
+  // Browser fixtures only where they are expected to be refused: the unit run need not have a browser.
+  if (process.env.PROBE_BROWSER_HOOKS) {
+    test.beforeEach(({ context }) => ran(context ? `${name}-beforeEach-context` : 'no-context'));
+    test.afterEach(({ page }) => ran(page ? `${name}-afterEach-page` : 'no-page'));
+  }
+  test.afterEach(({ request }) => ran(request ? `${name}-afterEach` : 'no-request'));
+  test(name, () => ran(`${name}-test`));
+};
 const override = process.env.PROBE_OVERRIDE_URL;
 if (override) {
   test.describe('overridden', () => {
     test.use({ baseURL: override });
-    test.beforeAll(() => ran('overridden-beforeAll'));
-    test('overridden', () => ran('overridden-test'));
+    eachHooks('overridden');
   });
 }
 const cookieDomain = process.env.PROBE_COOKIE_DOMAIN;
 if (cookieDomain) {
   test.describe('session', () => {
     test.use({ storageState: { cookies: [{ name: 'sb-access-token', value: 'probe', domain: cookieDomain, path: '/', expires: -1, httpOnly: false, secure: false, sameSite: 'Lax' }], origins: [] } });
-    test.beforeAll(() => ran('session-beforeAll'));
-    test('session', () => ran('session-test'));
+    eachHooks('session');
   });
 }

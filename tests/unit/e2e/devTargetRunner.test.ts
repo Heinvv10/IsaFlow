@@ -45,8 +45,8 @@ describe('guardDevTarget in a Playwright run', () => {
   it.each([
     ['a later test.use that names a production port', { PROBE_OVERRIDE_URL: 'http://localhost:3111' }, 'production port', 'overridden'],
     ['a saved session holding a production cookie', { PROBE_COOKIE_DOMAIN: 'admin.isaflow.co.za' }, 'storageState holds a cookie', 'session'],
-  ])('refuses %s: neither its hooks nor its test run', async (_what, extra, why, name) => {
-    const r = await probe({ PROBE_BASE_URL: 'http://localhost:3200', ...extra });
+  ])('refuses %s: none of its hooks, nor its test, runs', async (_what, extra, why, name) => {
+    const r = await probe({ PROBE_BASE_URL: 'http://localhost:3200', PROBE_BROWSER_HOOKS: '1', ...extra });
     expect(r.code).not.toBe(0);
     expect(r.out).toContain(why);
     expect(r.ran.filter((x) => x.startsWith(name))).toEqual([]);
@@ -58,7 +58,8 @@ describe('guardDevTarget in a Playwright run', () => {
   ])('allows %s', async (_what, extra, name) => {
     const r = await probe({ PROBE_BASE_URL: 'http://localhost:3200', ...extra });
     expect(r.code, r.out).toBe(0);
-    expect(r.ran.filter((x) => x.startsWith(name)).sort()).toEqual([`${name}-beforeAll`, `${name}-test`]);
+    expect(r.ran.filter((x) => x.startsWith(name))).toEqual(
+      ['beforeAll', 'beforeEach', 'beforeEach-second', 'test', 'afterEach'].map((k) => `${name}-${k}`));
   }, 120_000);
 
   it('runs nothing when the runner holds the production database, even against a dev server', async () => {

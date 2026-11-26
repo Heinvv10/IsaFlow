@@ -50,6 +50,28 @@ export function isGuarded(src: string): boolean {
   return (arg === 'test' || arg === 'setup') && imported.has(arg);
 }
 
+/**
+ * The lines of every `test.use(...)` / `setup.use(...)` that could replace the guarded baseURL: one naming it, or one
+ * whose keys cannot be read (not an object literal, a spread, a computed key). The runtime guard refuses a bad value too.
+ */
+export function baseUrlOverrides(src: string): number[] {
+  const file = ts.createSourceFile('spec.ts', src, ts.ScriptTarget.Latest, true);
+  const hits: number[] = [];
+  const readable = (p: ts.ObjectLiteralElementLike): boolean => !ts.isSpreadAssignment(p) && !!p.name
+    && !ts.isComputedPropertyName(p.name) && p.name.getText().replace(/['"]/g, '') !== 'baseURL';
+  const visit = (node: ts.Node): void => {
+    if (ts.isCallExpression(node) && /^(?:test|setup)\.use$/.test(node.expression.getText())) {
+      const arg = node.arguments[0];
+      if (!arg || !ts.isObjectLiteralExpression(arg) || !arg.properties.every(readable)) {
+        hits.push(file.getLineAndCharacterOfPosition(node.getStart()).line + 1);
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(file);
+  return hits;
+}
+
 /** What a file may not say for itself: a production address, or its own idea of which hosts and ports are safe. */
 export const OWN_TARGET: ReadonlyArray<readonly [string, RegExp]> = [
   ['a production URL', /(?:https?:)?\/\/(?:[\w-]+\.)*isaflow\.co\.za|\/\/[^/\s'"`]+:(?:80|443|3101|3111|3112)\b/i],
@@ -59,6 +81,8 @@ export const OWN_TARGET: ReadonlyArray<readonly [string, RegExp]> = [
   // Database URLs are judged by the guard itself; every other *URL from the env goes through devBaseUrl.
   ['an unjudged URL from the env', /(?<!devBaseUrl\()process\.env(?:\.|\[\s*['"`])(?!\w*(?:DATABASE|DB)_URL)\w*URL\b|\{[^}]*\b(?!\w*(?:DATABASE|DB)_URL)\w*URL\b[^}]*\}\s*=\s*process\.env/],
   ['an unjudged database connection', /\bnew (?:pg\.)?(?:Pool|Client)\((?!\{ connectionString: assertDevOrCiDatabaseUrl\()/],
+  // A bare mapping sends https to 127.0.0.1:443, production's nginx on velo-server.
+  ['a host mapped to loopback without a port', /host-resolver-rules=MAP \S+ (?:127\.0\.0\.1|localhost|\[::1\])(?!:)/],
   // It runs before the test-scoped guard can.
   ['a worker-scoped fixture', /\bscope:\s*['"`]worker['"`]/],
 ];
@@ -88,6 +112,18 @@ describe('e2e dev-target census', () => {
 
   it.each([...prodVerify])('%s runs in the post-deploy verification, so it carries no dev guard', (f) => {
     expect(read(f)).not.toMatch(/guardDevTarget/);
+  });
+
+  it.each(files.filter((f) => f !== 'helpers/devTarget.ts'))('%s replaces no baseURL', (f) => {
+    expect(baseUrlOverrides(read(f))).toEqual([]);
+  });
+
+  it('the override rule reads the keys', () => {
+    expect(baseUrlOverrides("test.use({ viewport: { width: 1 }, storageState: 'x' });")).toEqual([]);
+    for (const src of [
+      "test.use({ baseURL: 'x' });", "test.use({ extraHTTPHeaders: { a: 'b' }, baseURL: B });", "test.use({ 'baseURL': B });",
+      'test.use(opts);', 'setup.use({ ...x });', 'test.use({ [key]: B });',
+    ]) expect(baseUrlOverrides(src), src).toEqual([1]);
   });
 
   it('every spec is a .ts file, the only kind the rules below are written for', () => {
@@ -149,6 +185,8 @@ describe('e2e dev-target census', () => {
     expect(hit('const p = new Pool({ connectionString: process.env.DATABASE_URL });')).toEqual(['an unjudged database connection']);
     expect(hit('const c = new pg.Client();')).toEqual(['an unjudged database connection']);
     expect(hit("{ scope: 'worker', auto: true }")).toEqual(['a worker-scoped fixture']);
+    expect(hit("'--host-resolver-rules=MAP admin.example 127.0.0.1',")).toEqual(['a host mapped to loopback without a port']);
+    expect(hit('`--host-resolver-rules=MAP admin.example 127.0.0.1:${PORT}`,')).toEqual([]);
   });
 
   it('a guard call counts only as the first top-level call, on the imported test', () => {

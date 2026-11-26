@@ -142,12 +142,18 @@ export function devBaseUrl(raw: string | undefined = process.env.BASE_URL): stri
   return assertDevOrCiTarget(raw || DEFAULT_DEV_BASE_URL);
 }
 
+/** The built-in fixture, unchanged, but only after the guard passed. */
+type Gated<K extends string> = (args: Record<K | '_devTargetGuard', unknown>, use: (value: unknown) => Promise<void>) => Promise<void>;
+
 interface GuardFixtures {
   baseURL: (args: { baseURL: string | undefined }, use: (value: string) => Promise<void>) => Promise<void>;
   _devTargetGuard: [
     (args: { baseURL: string | undefined; storageState: StorageState }, use: () => Promise<void>) => Promise<void>,
     { auto: 'all-hooks-included' },
   ];
+  request: Gated<'request'>;
+  context: Gated<'context'>;
+  page: Gated<'page'>;
 }
 
 /** Call once, at the top level of a spec file, before any hook or test. */
@@ -159,6 +165,10 @@ export function guardDevTarget(test: { use(fixtures: never): void }): void {
       assertDevStorageState(storageState);
       await use();
     }, { auto: 'all-hooks-included' }],
+    // A failed automatic fixture does not stop a later beforeEach or afterEach; one that needs a failed fixture does not run.
+    request: async ({ request, _devTargetGuard }, use) => { void _devTargetGuard; await use(request); },
+    context: async ({ context, _devTargetGuard }, use) => { void _devTargetGuard; await use(context); },
+    page: async ({ page, _devTargetGuard }, use) => { void _devTargetGuard; await use(page); },
   };
   test.use(fixtures as never);
 }
