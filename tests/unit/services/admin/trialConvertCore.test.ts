@@ -21,6 +21,8 @@ interface World {
   paused: boolean;
   chargeableMandate: boolean;
   anyActiveMandate: boolean;
+  /** Active Paystack mandates' max_amount_cents (the self-serve start sets it to the authorised plan's price). */
+  ceilings: number[];
 }
 let world: World;
 const seen: Array<{ text: string; values: unknown[] }> = [];
@@ -32,6 +34,11 @@ const tx = (async (strings: TemplateStringsArray, ...values: unknown[]) => {
   if (/FROM plans WHERE id/.test(text)) return world.plan ? [world.plan] : [];
   if (/FROM subscriptions s JOIN plans p/.test(text)) return world.current ? [world.current] : [];
   if (/status = 'paused' LIMIT 1/.test(text)) return world.paused ? [{ '?column?': 1 }] : [];
+  if (/AS chargeable FROM subscription_mandates/.test(text)) {
+    return world.anyActiveMandate
+      ? world.ceilings.map((c, i) => ({ max_amount_cents: String(c), chargeable: i === 0 && world.chargeableMandate }))
+      : [];
+  }
   if (/paystack_authorization_code IS NOT NULL/.test(text)) return world.chargeableMandate ? [{ '?column?': 1 }] : [];
   if (/FROM subscription_mandates/.test(text)) return world.anyActiveMandate ? [{ '?column?': 1 }] : [];
   if (/^UPDATE subscriptions SET plan_id/.test(text) || /^INSERT INTO subscriptions/.test(text)) {
@@ -46,11 +53,12 @@ beforeEach(() => {
   seen.length = 0;
   world = {
     company: { status: 'trial', had_trial: true },
-    plan: { code: 'starter', is_active: true },
+    plan: { code: 'starter', is_active: true, monthly_price_cents: 59900 },
     current: { id: 'sub-1', status: 'trial', plan_id: 'trial-plan', current_period_end: new Date('2026-12-01T00:00:00Z'), is_paid: false },
     paused: false,
     chargeableMandate: true,
     anyActiveMandate: true,
+    ceilings: [59900],
   };
 });
 
@@ -79,6 +87,33 @@ describe('convertTrialInTx', () => {
   it('requireActiveMandate: converts once a chargeable mandate is on file', async () => {
     const r = await convertTrialInTx(tx, COMPANY, PLAN, { requireActiveMandate: true });
     expect(r.hasActiveMandate).toBe(true);
+    expect(writes().length).toBeGreaterThan(0);
+  });
+
+  it('requireActiveMandate: authorise cheap, convert dear is refused before any write', async () => {
+    world.ceilings = [19900];
+    await expect(convertTrialInTx(tx, COMPANY, PLAN, { requireActiveMandate: true }))
+      .rejects.toMatchObject({ name: 'TrialConvertError', code: 'mandate_plan_mismatch' });
+    expect(writes()).toHaveLength(0);
+  });
+
+  it('requireActiveMandate: any plan change needs a new authorisation (a cheaper plan is refused too)', async () => {
+    world.ceilings = [99900];
+    await expect(convertTrialInTx(tx, COMPANY, PLAN, { requireActiveMandate: true }))
+      .rejects.toMatchObject({ code: 'mandate_plan_mismatch' });
+    expect(writes()).toHaveLength(0);
+  });
+
+  it('requireActiveMandate: a second active mandate with another ceiling is refused', async () => {
+    world.ceilings = [59900, 99900];
+    await expect(convertTrialInTx(tx, COMPANY, PLAN, { requireActiveMandate: true }))
+      .rejects.toMatchObject({ code: 'mandate_plan_mismatch' });
+    expect(writes()).toHaveLength(0);
+  });
+
+  it('admin path (no requireActiveMandate) does not read the ceiling', async () => {
+    world.ceilings = [100];
+    await convertTrialInTx(tx, COMPANY, PLAN);
     expect(writes().length).toBeGreaterThan(0);
   });
 
