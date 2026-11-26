@@ -11,6 +11,7 @@ import type { MigrationReport } from '../../src/modules/accounting/services/sage
 import { MigrationStopped } from '../../src/modules/accounting/services/sage-migration/sageMigrationStopped';
 import { exitCodeFor, summaryLines } from '../../src/modules/accounting/services/sage-migration/sageReportSummary';
 import { stopMessage, stopReportBatches } from '../../src/modules/accounting/services/sage-migration/sageStopMessage';
+import { say } from './runConsole';
 
 /**
  * Every --report and --file value in the arguments, up to a bare `--`. A value that starts with `--` is an option, never a path
@@ -103,7 +104,7 @@ export class OwnedReport {
     try {
       const [mine, now] = [fstatSync(fd), lstatSync(path, { throwIfNoEntry: false })];
       if (now && now.dev === mine.dev && now.ino === mine.ino) { unlinkSync(path); removed = true; }
-    } catch (err) { process.stderr.write(`--report ${path}: the file this run created could not be removed: ${message(err)}\n`); }
+    } catch (err) { say(`--report ${path}: the file this run created could not be removed: ${message(err)}`); }
     owned.close();
     return removed ? { why } : { why, left: true };
   }
@@ -127,7 +128,7 @@ export class OwnedReport {
   close(): void {
     if (!this.open) return;
     this.open = false;
-    try { closeSync(this.fd); } catch (err) { process.stderr.write(`--report ${this.path}: closing it failed: ${message(err)}\n`); }
+    try { closeSync(this.fd); } catch (err) { say(`--report ${this.path}: closing it failed: ${message(err)}`); }
   }
 }
 

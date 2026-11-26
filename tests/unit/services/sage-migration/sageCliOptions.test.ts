@@ -5,6 +5,7 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { MigrationOptions } from '@/modules/accounting/services/sage-migration/sageMigrationTypes';
+vi.mock('../../../../scripts/sage-migration/runConsole', async (orig) => (await import('./sageCliConsoleSpy')).spied(await orig()));
 
 const seen = vi.hoisted(() => ({ opts: [] as unknown[] }));
 vi.mock('@/modules/accounting/services/sage-migration/sageMigrationRunner', () => ({

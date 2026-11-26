@@ -33,14 +33,15 @@ import type { ParsedExport } from '../../src/modules/accounting/services/sage-mi
 import { exitCodeForError, stopMessage } from '../../src/modules/accounting/services/sage-migration/sageStopMessage';
 import { checkReportArgs, exitAfterReportFailure, OwnedReport, stopReportBody, summarize } from './runReport';
 import { RunState } from './runState';
+import { cliConsole, say } from './runConsole';
 
 /**
- * The console. A stream whose reader went away (`| head`, a dead `tee` or log shipper: EPIPE) is no longer written, and never kills the
- * run (round 18, B18-2): the run goes on to its own end, its report in --report.
+ * The console (runConsole.ts): every line written synchronously, so a process.exit after it cannot drop it (R27-2). A stream whose reader
+ * went away (`| head`, a dead `tee` or log shipper: EPIPE) is no longer written, and never kills the run (round 18, B18-2): the run goes
+ * on to its own end, its report in --report.
  */
-const gone = { stdout: false, stderr: false };
-const out = (s: string) => { if (!gone.stdout) process.stdout.write(`${s}\n`); };
-const say = (s: string) => { if (!gone.stderr) process.stderr.write(`${s}\n`); };
+const stdoutClosed = (why: string) => say(`stdout is closed (${why}): the summary is not printed there; --report holds the run's report`);
+const out = (s: string) => { const r = cliConsole.write('stdout', `${s}\n`); if (typeof r === 'object') stdoutClosed(r.gone); };
 /**
  * The --report file this run created (runReport.ts: a path that did not exist, created exclusively once every argument is checked and the
  * export is read, before the first database step). Every exit after that leaves a report in it, written through its held descriptor: the
@@ -122,9 +123,10 @@ function installHandlers(): () => void {
   };
   const crash = (kind: string) => (e: unknown) => terminate(`${kind}: ${e instanceof Error ? e.message : String(e)}`);
   const stream = (name: 'stdout' | 'stderr') => (e: NodeJS.ErrnoException) => {
-    if (gone[name]) return; // said once (B19-3)
-    gone[name] = true; // EPIPE or another write error: the stream is not written again; the run goes on
-    if (name === 'stdout') say(`stdout is closed (${e.code ?? e.message}): the summary is not printed there; --report holds the run's report`);
+    // A write through the stream itself (the logger's) failed: said once (B19-3), the stream not written again; the run goes on.
+    if (cliConsole.gone[name]) return;
+    cliConsole.markGone(name);
+    if (name === 'stdout') stdoutClosed(e.code ?? e.message);
   };
   type Listener = (...a: unknown[]) => void;
   const on: Array<[NodeJS.EventEmitter, string, Listener]> = [

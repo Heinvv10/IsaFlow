@@ -13,6 +13,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { BatchReport, MigrationOptions } from '@/modules/accounting/services/sage-migration/sageMigrationTypes';
+vi.mock('../../../../scripts/sage-migration/runConsole', async (orig) => (await import('./sageCliConsoleSpy')).spied(await orig()));
 
 const h = vi.hoisted(() => {
   let open: () => void = () => undefined;
