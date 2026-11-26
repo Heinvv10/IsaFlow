@@ -95,18 +95,19 @@ async function goldenStep(): Promise<{ code: number | null; args: string[]; skip
   const dir = mkdtempSync(path.join(tmpdir(), 'verify-deploy-'));
   const seen = path.join(dir, 'step.txt');
   const bun = path.join(dir, 'bun');
-  writeFileSync(bun, `#!/bin/bash\nif [[ "$*" == *test:e2e:golden* ]]; then { printf 'GOLDEN_SKIP_A11Y=%s\\n' "\${GOLDEN_SKIP_A11Y-<unset>}"; printf '%s\\n' "$@"; } > "${seen}"; fi\nexit 0\n`);
+  writeFileSync(bun, `#!/bin/bash\nif [[ "$*" == *test:e2e:golden* ]]; then { printf 'GOLDEN_SKIP_A11Y=%s\\n' "\${GOLDEN_SKIP_A11Y-<unset>}"; printf '%s\\n' "$@"; printf 'POST_DEPLOY=%s\\n' "\${GOLDEN_POST_DEPLOY-<unset>}"; } > "${seen}"; fi\nexit 0\n`);
   chmodSync(bun, 0o755);
 
   const env = { ...process.env, BUN: bun, VERIFY_SKIP_INTEGRITY: '1', E2E_ADMIN_EMAIL: 'e@x', E2E_ADMIN_PASSWORD: 'p' } as Record<string, string | undefined>;
   delete env.GOLDEN_SKIP_A11Y;
+  delete env.GOLDEN_POST_DEPLOY;
   const child = spawn('bash', ['scripts/verify-deploy.sh', `http://127.0.0.1:${port}`], { env });
   let out = '';
   child.stdout.on('data', (d) => { out += d; });
   child.stderr.on('data', (d) => { out += d; });
   const code = await new Promise<number | null>((r) => child.on('close', r));
   const lines = readFileSync(seen, 'utf8').split('\n').filter(Boolean);
-  return { code, skipA11y: lines[0]!.replace('GOLDEN_SKIP_A11Y=', ''), args: lines.slice(lines.indexOf('test:e2e:golden') + 1), out };
+  return { code, skipA11y: lines[0]!.replace('GOLDEN_SKIP_A11Y=', ''), args: lines.slice(lines.indexOf('test:e2e:golden') + 1, -1), postDeploy: lines.at(-1), out };
 }
 
 /** A --require module that makes `@axe-core/playwright` fail to resolve, exactly as a missing package would. */
@@ -130,6 +131,7 @@ describe('verify-deploy.sh and the a11y gate', () => {
     expect(r.out).toContain('OK: golden paths green');
     expect(r.code).toBe(0);
     expect(r.skipA11y).toBe('1');
+    expect(r.postDeploy).toBe('POST_DEPLOY=1'); // without it the global setup refuses the production colour
     const tests = listTests({ GOLDEN_SKIP_A11Y: r.skipA11y }, r.args); // throws if the spec were loaded
     // Three independent views must agree: this list (edited on purpose), a grep of the marker, and devOnlySpecFiles. A spec
     // that loses its marker, or one that gains it, fails until the list is edited: a floor or a count nets out.

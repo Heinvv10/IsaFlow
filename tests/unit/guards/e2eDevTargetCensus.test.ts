@@ -3,7 +3,8 @@
  * the golden specs the post-deploy verification runs (no `// golden:dev-only`; the list is pinned by
  * unit/ci/verifyCompanySandboxCensus and unit/scripts/verifyDeployA11yGate). Files are read as text, from disk.
  * Named limits: a URL assembled from pieces, and a context a spec builds with a saved session it names indirectly, are
- * not seen here; the runtime guard still judges every test's baseURL and storageState.
+ * not seen here; the runtime guard still judges every test's baseURL and storageState. A worker fixture whose scope is
+ * not written as a literal is not seen either.
  */
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -74,7 +75,9 @@ export function baseUrlOverrides(src: string): number[] {
 
 /** What a file may not say for itself: a production address, or its own idea of which hosts and ports are safe. */
 export const OWN_TARGET: ReadonlyArray<readonly [string, RegExp]> = [
-  ['a production URL', /(?:https?:)?\/\/(?:[\w-]+\.)*isaflow\.co\.za|\/\/[^/\s'"`]+:(?:80|443|3101|3111|3112)\b/i],
+  // A loopback address with no port is port 80, and https is 443: production's nginx on velo-server.
+  ['a production URL', /(?:https?:)?\/\/(?:[\w-]+\.)*isaflow\.co\.za|\/\/[^/\s'"`]+:(?:80|443|3101|3111|3112)\b|\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])(?![:\w.$-])|https:\/\/(?:localhost|127\.0\.0\.1)\b/i],
+  ['a replaced guard fixture', /\b_devTargetGuard\b/],
   ['a production session', /(?:prod|admin-qa)[\w-]*session\.json/i],
   ['its own port check', /\.port\s*(?:!==|===|!=|==)|\bDEV_PORTS\b|\bdevPorts\b/],
   ['its own host check', /hostname[^\n]*(?:toBe\(|===|!==)\s*'localhost'|hostname,[^\n]*toBe\('localhost'\)/],
@@ -88,7 +91,7 @@ export const OWN_TARGET: ReadonlyArray<readonly [string, RegExp]> = [
 ];
 /** Files whose job is to judge or map hosts. Each entry names the rules it is excused from, and why. */
 const EXCUSED: Record<string, readonly string[]> = {
-  'helpers/devTarget.ts': ['its own port check', 'an unjudged URL from the env'], // the guard
+  'helpers/devTarget.ts': ['its own port check', 'an unjudged URL from the env', 'a replaced guard fixture'], // the guard
   'rubric/_rubricGuard.ts': ['its own host check', 'its own port check'], // stricter: localhost:3271-3280 only
   'rubric/_rubricDatabaseGuard.ts': ['its own port check'], // stricter: pins the dev database's port
   'rubric/_rubricDb.ts': ['an unjudged database connection'], // the URL _rubricDatabaseGuard.ts proved
@@ -172,7 +175,8 @@ describe('e2e dev-target census', () => {
     expect(hit("expect(u.hostname === 'localhost' && u.port !== '3101', 'z').toBe(true);")).toContain('its own port check');
     expect(hit("expect(new URL(baseURL).hostname, 'z writes').toBe('localhost');")).toContain('its own host check');
     for (const url of ['https://app.isaflow.co.za', 'HTTPS://APP.ISAFLOW.CO.ZA', '//admin.isaflow.co.za/x', 'http://localhost:3111',
-      'http://100.96.203.105:3101', 'http://[::1]:3111', 'http://0.0.0.0:3112']) {
+      'http://100.96.203.105:3101', 'http://[::1]:3111', 'http://0.0.0.0:3112', 'http://localhost/accounting', 'http://127.0.0.1',
+      'https://localhost:3200']) {
       expect(hit(`const BASE = '${url}';`), url).toEqual(['a production URL']);
     }
     for (const src of ['process.env.E2E_BASE_URL', "process.env['BASE_URL']", 'process.env.QA_BASE_URL', 'process.env.PROD_URL']) {
@@ -180,6 +184,8 @@ describe('e2e dev-target census', () => {
     }
     expect(hit('const { BASE_URL } = process.env;')).toEqual(['an unjudged URL from the env']);
     expect(hit('const A = devBaseUrl(process.env.E2E_BASE_URL);')).toEqual([]);
+    expect(hit("const A = 'http://localhost:3200/x'; const B = `http://localhost${path}`;")).toEqual([]);
+    expect(hit('test.use({ _devTargetGuard: x });')).toEqual(['a replaced guard fixture']);
     expect(hit('const A = process.env.DATABASE_URL ?? process.env.GOLDEN_HOSTED_DB_URL;')).toEqual([]);
     expect(hit("storageState: 'tests/e2e/.auth/prod-session.json'")).toEqual(['a production session']);
     expect(hit('const p = new Pool({ connectionString: process.env.DATABASE_URL });')).toEqual(['an unjudged database connection']);

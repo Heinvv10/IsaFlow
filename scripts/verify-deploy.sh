@@ -196,10 +196,11 @@ cd "$REPO_DIR"
 # (code only; migrations stay). GOLDEN_SKIP_A11Y=1 makes playwright-golden.config.ts ignore the file, so it is not
 # even loaded (a missing @axe-core/playwright cannot break this run). tests/unit/scripts/verifyDeployA11yGate.test.ts
 # lists this run's tests with the axe package made unresolvable, and fails if the spec is loaded.
+# GOLDEN_POST_DEPLOY=1 (with it) is what lets the global setup accept a production colour (tests/e2e/helpers/devTarget.ts).
 GOLDEN_LOG="$(mktemp)"
 trap 'rm -f "$GOLDEN_LOG"' EXIT
 set +e
-GOLDEN_SKIP_A11Y=1 BASE_URL="$BASE_URL" "$BUN" run test:e2e:golden 2>&1 | tee "$GOLDEN_LOG"
+GOLDEN_SKIP_A11Y=1 GOLDEN_POST_DEPLOY=1 BASE_URL="$BASE_URL" "$BUN" run test:e2e:golden 2>&1 | tee "$GOLDEN_LOG"
 GOLDEN_RC=${PIPESTATUS[0]}
 set -e
 if [ "$GOLDEN_RC" != "0" ]; then

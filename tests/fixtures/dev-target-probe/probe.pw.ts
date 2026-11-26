@@ -19,7 +19,8 @@ test.describe('nested', () => {
 // A later override, and a saved session for another host. After the refusal no hook that holds a request, a context or a
 // page may run, whatever its kind or position.
 const eachHooks = (name: string): void => {
-  test.beforeAll(() => ran(`${name}-beforeAll`));
+  // Optional: a refused beforeAll skips everything after it, which would hide a leak through the each hooks.
+  if (process.env.PROBE_BEFORE_ALL) test.beforeAll(() => ran(`${name}-beforeAll`));
   test.beforeEach(({ request }) => ran(request ? `${name}-beforeEach` : 'no-request'));
   test.beforeEach(({ request }) => ran(request ? `${name}-beforeEach-second` : 'no-request'));
   // Browser fixtures only where they are expected to be refused: the unit run need not have a browser.

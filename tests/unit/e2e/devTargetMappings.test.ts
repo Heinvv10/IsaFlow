@@ -27,4 +27,12 @@ describe('entity-onboarding acceptance', () => {
       vi.stubEnv('BASE', base);
       await expect(import('../../../scripts/acceptance/entity-onboarding-support')).rejects.toThrow(/dev-target guard/);
     });
+
+  it("refuses the shared stack's Postgres port as it loads", async () => {
+    vi.stubEnv('BASE', 'http://localhost:3200');
+    vi.stubEnv('PORT', '7772');
+    vi.stubEnv('PGPASSWORD', 'x');
+    vi.stubEnv('JWT', 'x');
+    await expect(import('../../../scripts/acceptance/entity-onboarding-support')).rejects.toThrow(/holds production/);
+  });
 });

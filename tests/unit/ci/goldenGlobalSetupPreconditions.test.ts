@@ -30,7 +30,8 @@ const saved: Record<string, string | undefined> = {};
 beforeEach(() => {
   for (const k of KEYS) { saved[k] = process.env[k]; delete process.env[k]; }
   process.env.E2E_ADMIN_EMAIL = 'deploy-verify@isaflow.co.za';
-  vi.stubEnv('GOLDEN_SKIP_A11Y', '1'); // the post-deploy run, the only one that may name :3101
+  vi.stubEnv('GOLDEN_SKIP_A11Y', '1'); // the post-deploy run (both switches), the only one that may name :3101
+  vi.stubEnv('GOLDEN_POST_DEPLOY', '1');
   process.env[KEYS[1]!] = 'x'.repeat(12); // E2E_ADMIN_PASSWORD: the scripted app never reads it
   script.asked = [];
 });
@@ -44,6 +45,13 @@ describe('golden global setup', () => {
       await expect(globalSetup(config(baseURL))).rejects.toThrow(/base URL (names|has protocol)/);
       expect(script.asked).toEqual([]);
     });
+
+  it.each(['GOLDEN_SKIP_A11Y', 'GOLDEN_POST_DEPLOY'])('%s missing is not the post-deploy run: a production colour is refused', async (missing) => {
+    vi.stubEnv(missing, '');
+    vi.stubEnv('DATABASE_URL', '');
+    await expect(globalSetup(config('http://localhost:3111'))).rejects.toThrow(/production port/);
+    expect(script.asked).toEqual([]);
+  });
 
   it('outside the post-deploy run it refuses a dev server while the env holds the production database', async () => {
     vi.stubEnv('GOLDEN_SKIP_A11Y', '');

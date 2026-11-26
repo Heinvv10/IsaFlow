@@ -65,10 +65,10 @@ async function warnBudgetYear(ctx: APIRequestContext): Promise<void> {
 export default async function globalSetup(config: FullConfig): Promise<void> {
   const baseURL = config.projects[0]?.use?.baseURL;
   if (!baseURL) throw new Error('golden config must define use.baseURL');
-  // GOLDEN_SKIP_A11Y=1 is the post-deploy verification (scripts/verify-deploy.sh): it loads no dev-only spec and may
-  // name a production colour, on this machine only. Every other run loads them all, so it is refused anything but dev and CI.
-  if (process.env.GOLDEN_SKIP_A11Y !== '1') assertDevOrCiTarget(baseURL);
-  else assertOnThisMachine(baseURL);
+  // The post-deploy verification (scripts/verify-deploy.sh sets both) loads no dev-only spec and may name a production
+  // colour, on this machine only. Every other run, GOLDEN_SKIP_A11Y alone included, is refused anything but dev and CI.
+  if (process.env.GOLDEN_SKIP_A11Y === '1' && process.env.GOLDEN_POST_DEPLOY === '1') assertOnThisMachine(baseURL);
+  else assertDevOrCiTarget(baseURL);
 
   const ctx = await pwRequest.newContext({ baseURL });
   await loginGolden(ctx, readGoldenSlot(process.env));

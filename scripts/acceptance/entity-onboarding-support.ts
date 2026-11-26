@@ -4,7 +4,7 @@
 import { chromium, type Page, type BrowserContext, type Browser } from 'playwright';
 import { execFileSync } from 'node:child_process';
 import { appendFileSync, mkdirSync, readFileSync } from 'node:fs';
-import { assertDevOrCiBaseUrl } from '../../tests/e2e/helpers/devTarget';
+import { assertDevOrCiBaseUrl, DEV_DB_PORT } from '../../tests/e2e/helpers/devTarget';
 
 export const WIZ = process.cwd();
 // The run reads and writes relative to the repo root (evidence dir, signer): refuse to start anywhere else.
@@ -20,6 +20,7 @@ export const BASE = assertDevOrCiBaseUrl(process.env.BASE ?? 'http://localhost:3
 export const BASE_URL = new URL(BASE);
 const { PORT, PGPASSWORD, JWT } = process.env as Record<string, string>;
 if (!PORT || !PGPASSWORD || !JWT) throw new Error('PORT (postgres), PGPASSWORD and JWT (the JWT_SECRET) must be set');
+if (Number(PORT) === DEV_DB_PORT) throw new Error(`PORT ${PORT} is the shared Supabase stack, which holds production: use the throwaway Postgres`);
 // Hard-coded on purpose: nothing in the environment can point this run at another host or database (seed.ts re-checks the contents).
 const PGHOST = '127.0.0.1';
 export const THROWAWAY_DB = 'isaflow_e2e';
