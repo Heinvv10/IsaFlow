@@ -13,6 +13,8 @@ export const PAYROLL_REFUSAL = {
   EMP201_FILED: 'EMP201_FILED',
   /** Wave 7 MP: a reopen of a run marked paid (payments were issued; corrections go through an off-cycle run). */
   RUN_PAID: 'RUN_PAID',
+  /** Wave 7 CX: a cancel of a regular run that is not a calculated, never-approved run (the message names why). */
+  RUN_NOT_CANCELLABLE: 'RUN_NOT_CANCELLABLE',
 } as const;
 
 export type PayrollRefusalCode = typeof PAYROLL_REFUSAL[keyof typeof PAYROLL_REFUSAL];

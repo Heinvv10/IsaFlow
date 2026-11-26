@@ -98,7 +98,7 @@ const SITES: Readonly<Record<string, Readonly<Record<number, string>>>> = {
     171: "ELSE public.approval_company_member_name(h.company_id, to_jsonb(h) ->> 'paid_by') END AS paid_by_name",
   },
   // Wave 6 OC: Cancel run stamps who cancelled it, an untyped bind (TEXT column).
-  [`${S}payroll/payrollRunCancel.ts`]: { 88: 'cancelled_by = ${userId}, cancelled_at = now()' },
+  [`${S}payroll/payrollRunCancel.ts`]: { 68: 'cancelled_by = ${userId}, cancelled_at = now()' },
   // Wave 6 OC: an off-cycle run's header and its employees (payroll_off_cycle_employees.created_by is TEXT, 999x).
   [`${S}payroll/payrollOffCycleRun.ts`]: {
     198: 'company_id, period_month, period_year, created_by, pay_frequency, run_kind, off_cycle_reason, period_start, period_end, run_date',

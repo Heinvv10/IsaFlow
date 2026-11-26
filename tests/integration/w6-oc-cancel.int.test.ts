@@ -220,10 +220,10 @@ describe('Cancel run', () => {
     expect((await a.header(id)).status).toBe('cancelled');
   });
 
-  it('a regular run is never cancelled here: 409, nothing changed', async () => {
+  it('an approved regular run is never cancelled: 409, nothing changed (wave 7 CX cancels only a calculated, never-approved one)', async () => {
     const refused = await cancelRun(a, regular);
     expect(refused.statusCode).toBe(409);
-    expect(a.msg(refused)).toMatch(/Only an off-cycle run can be cancelled/);
+    expect(a.msg(refused)).toMatch(/This pay run cannot be cancelled: it is approved/);
     expect((await a.header(regular)).status).toBe('approved');
   });
 });

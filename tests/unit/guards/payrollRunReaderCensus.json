@@ -675,6 +675,16 @@
    {"line":37,"text":"FROM payroll_run_headers h","class":"S","owner":"OC","why":"the run being cancelled, by id, FOR UPDATE"},
    {"line":51,"text":"UPDATE payroll_run_headers","class":"S","owner":"OC","why":"writes the run being cancelled, by id"}
   ],
+  "src/modules/accounting/services/payroll/payrollRunCancelEvidence.ts": [
+   {"line":56,"text":"(EXISTS (SELECT 1 FROM payroll_run_directive_uses d WHERE d.run_id = h.id AND d.company_id = h.company_id)","class":"S","owner":"CX","why":"wave 7 CX: EXISTS by run id: the run being cancelled carries a directive use (approval evidence)"},
+   {"line":66,"text":"EXISTS (SELECT 1 FROM payroll_run_headers o","class":"S","owner":"CX","why":"wave 7 CX: an EXISTS over every later regular run of the same frequency that is calculated or beyond: correct with several runs a month"},
+   {"line":70,"text":"FROM payroll_run_headers h","class":"S","owner":"CX","why":"wave 7 CX: the run being cancelled, by id (its approval evidence)"}
+  ],
+  "src/modules/accounting/services/payroll/payrollRunCancelRegular.ts": [
+   {"line":79,"text":"AND EXISTS (SELECT 1 FROM payroll_loan_payments p WHERE p.loan_id = l.id AND p.run_id = ${runId}::uuid)","class":"S","owner":"CX","why":"wave 7 CX: the loans this run's own instalments touched, by run id, locked before their reversal"},
+   {"line":148,"text":"DELETE FROM payroll_run_headers","class":"S","owner":"CX","why":"wave 7 CX: deletes the run being cancelled, by id and company, predicated on calculated and never approved"},
+   {"line":172,"text":"SELECT run_kind FROM payroll_run_headers WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid","class":"S","owner":"CX","why":"wave 7 CX: the run's kind, by id, to pick the off-cycle or the regular cancel"}
+  ],
   "src/modules/accounting/services/payroll/payrollOffCycleOrder.ts": [
    {"line":33,"text":"FROM payroll_run_headers o","class":"S","owner":"OC","why":"the month's latest non-cancelled off-cycle run paid on or after a pay date (breaker H2): ORDER BY pay date DESC LIMIT 1 names the latest of several"},
    {"line":52,"text":"FROM payroll_run_headers h","class":"S","owner":"OC","why":"the earliest FINAL run of a later month of the tax year: ORDER BY period_start LIMIT 1 names one of several, any is a refusal"}
