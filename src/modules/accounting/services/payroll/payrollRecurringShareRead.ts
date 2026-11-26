@@ -3,15 +3,16 @@
  * inside employment at its share of the period (payrollRecurringShare). The last-day reader (getEmployeeComponents) does
  * not read a recurring row that ended before the period's last day, so the earnings that ended inside employment in the
  * period are read here as well: recurring, an earning with a plain amount, ending from the period's first day to the day
- * before its last, before the employee's end date (a leaver's own row ending on their end date is the last-day reader's,
- * paid in full: ruling 19), not voided (payrollComponentService.recurringEarningsEndedInPeriod). The two reads are
+ * before its last, before the employee's end date, not voided (payrollComponentService.recurringEarningsEndedInPeriod). A
+ * monthly leaver's own row ending on their end date is the last-day reader's in the band and not read before it (option B,
+ * #1901); a weekly or fortnightly one is read whole (R3-L3). The two reads are
  * disjoint: the last-day reader takes a recurring row ending before the last day only when it ends on the employee's end date.
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { getEmployeeComponents, recurringEarningsEndedInPeriod } from './payrollComponentService';
-import { apportionRecurringRows, periodBoundsOf, type ShareEmployee } from './payrollRecurringShare';
+import { apportionRecurringRows, isMonthlyPeriod, periodBoundsOf, type ShareEmployee } from './payrollRecurringShare';
 import { payFrequencyOf } from './payrollFrequency';
 import type { EmployeeComponent, PayFrequency, PayrollPeriod, UnsupportedValue } from './payrollTypes';
 
@@ -22,8 +23,8 @@ export async function readRunComponents(
   employee: ShareReadEmployee, companyId: string, period: PayrollPeriod, readDate: string,
 ): Promise<EmployeeComponent[]> {
   const read = await getEmployeeComponents(employee.id, companyId, readDate, period.start);
-  const ended = await recurringEarningsEndedInPeriod(employee.id, companyId, periodBoundsOf(period).start, readDate);
-  // One reading of each row: a leaver row in the band is the last-day reader's and the ended-rows reader's (R2-M1).
+  const ended = await recurringEarningsEndedInPeriod(employee.id, companyId, periodBoundsOf(period).start, readDate, !isMonthlyPeriod(period));
+  // One reading of each row (a weekly leaver row can be both readers').
   const seen = new Set(read.map((c) => c.assignmentId));
   return apportionRecurringRows([...read, ...ended.filter((c) => !seen.has(c.assignmentId))], employee, period);
 }
