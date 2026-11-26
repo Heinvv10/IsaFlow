@@ -84,7 +84,10 @@ describe('watchWaits', () => {
     expect(w.blocker()?.pid).toBe(777);
     await vi.advanceTimersByTimeAsync(1_000);
     expect(w.blocker()).toBeUndefined();
+    // ...but the lock timeout that ends this wait still names who was last seen holding it (the empty sample can be the wait's end)
+    expect(w.lastBlocker()?.pid).toBe(777);
     settle();
+    expect(w.lastBlocker()).toBeUndefined(); // and never for the next wait
     w.stop();
   });
   it('R28-4: an own-app holder idle in two samples HOLDER_CONFIRM_MS apart, its state unchanged and older than the run lock, is confirmed; one whose state moved is not', async () => {

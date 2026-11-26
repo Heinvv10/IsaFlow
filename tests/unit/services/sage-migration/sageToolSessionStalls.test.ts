@@ -98,6 +98,20 @@ describe('R26-3: a query that waits is said; settling it starts over; no timer o
   });
 });
 
+describe('R28 (round23 B25-1 under load): a sample that answers after the server cancelled the wait finds nothing', () => {
+  it('the lock timeout still names the holder last seen in this wait', async () => {
+    const client = clientOf((t) => (t === 'SELECT take_number_lock'
+      ? new Promise((_, reject) => setTimeout(() => reject(Object.assign(new Error('canceling statement due to lock timeout'), { code: '55P03' })), 2_700))
+      : undefined), { processID: 41 });
+    const rows = [[{ pid: 888, state: 'idle in transaction', app: 'x' }], []];
+    const pool = { connect: async () => client, query: vi.fn(async () => ({ rows: rows.length > 1 ? rows.shift()! : rows[0]! })) } as never;
+    let seen: Error | null = null;
+    await withToolSession(pool, 'c1', 'u1', false, async (s) => { await toolQuery('SELECT take_number_lock').catch(() => undefined); seen = s.stall!(); });
+    expect(seen).toBeInstanceOf(LockWaitError);
+    expect((seen as unknown as LockWaitError).holder?.pid).toBe(888);
+  });
+});
+
 describe('B26-2: once the connection is lost, every later query fails at once with that loss', () => {
   it('after a read timeout nothing more is sent to the stuck connection', async () => {
     const client = clientOf((t) => (t === 'SELECT stuck' ? new Error('Query read timeout') : undefined));

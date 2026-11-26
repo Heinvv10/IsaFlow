@@ -36,6 +36,12 @@ export interface WaitWatch {
   setPid(pid: number | undefined): void;
   /** The backend the current wait was last seen blocked by. */
   blocker(): LockHolder | undefined;
+  /**
+   * The backend the current wait was last seen blocked by, even if a later sample found none: the one a lock timeout is said to have
+   * met. A sample that answers after the server already cancelled the statement (the end of the wait) finds nothing; that is not who
+   * held it.
+   */
+  lastBlocker(): LockHolder | undefined;
   stop(): void;
 }
 
@@ -46,6 +52,7 @@ export function watchWaits(pool: Pool, onNotice?: (line: string) => void, runLoc
   let noticed = 0;
   let pid: number | undefined;
   let blocker: LockHolder | undefined;
+  let lastBlocker: LockHolder | undefined; // the last non-empty sample of this wait
   // The holder's first sample in this REQUEST (R28-4: two samples apart). Kept across the request's waits: it is matched by pid and
   // state_change, so a later wait on the same idle holder adds to the evidence; any other holder, or a state that moved, starts it over.
   let firstSeen: { holder: LockHolder; at: number } | undefined;
@@ -66,6 +73,7 @@ export function watchWaits(pool: Pool, onNotice?: (line: string) => void, runLoc
           const seen = holderFrom(r.rows[0], runLockAt);
           if (seen === undefined || firstSeen === undefined || firstSeen.holder.pid !== seen.pid || firstSeen.holder.stateChangeMs !== seen.stateChangeMs) firstSeen = seen && { holder: seen, at: Date.now() };
           blocker = seen && firstSeen ? confirmIdle(firstSeen, seen, Date.now()) : seen;
+          if (blocker !== undefined) lastBlocker = blocker;
         })
         .catch((err: unknown) => log.warn('sage migration: who blocks the request could not be read', { message: err instanceof Error ? err.message : String(err) }, 'sage-migration'))
         .finally(() => { sampling = false; });
@@ -84,11 +92,12 @@ export function watchWaits(pool: Pool, onNotice?: (line: string) => void, runLoc
       return () => {
         if (done) return;
         done = true;
-        if (--inFlight === 0) { noticed = 0; blocker = undefined; }
+        if (--inFlight === 0) { noticed = 0; blocker = undefined; lastBlocker = undefined; }
       };
     },
     setPid: (p) => { pid = p; },
     blocker: () => blocker,
+    lastBlocker: () => lastBlocker,
     stop: () => clearInterval(timer),
   };
 }

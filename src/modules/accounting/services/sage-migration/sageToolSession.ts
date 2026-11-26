@@ -139,7 +139,7 @@ export async function withToolSession<T>(
     if (!(r instanceof Promise)) { settled(); return r; }
     r.then(settled, (err: unknown) => {
       const code = (err as { code?: unknown } | null)?.code;
-      if (code === '55P03' && lockTimedOut === null) [lockTimedOut, lockHolder] = [err, watch.blocker()]; // read before the wait ends
+      if (code === '55P03' && lockTimedOut === null) [lockTimedOut, lockHolder] = [err, watch.lastBlocker()]; // read before the wait ends
       else if (code === '57014' && !ending && statementTimedOut === null) [statementTimedOut, statementMs] = [err, Date.now() - sentAt];
       else if (err instanceof Error && err.message === 'Query read timeout' && lost === null) [lost, lostBy] = [err, 'timeout'];
       settled();
