@@ -5,7 +5,8 @@
  * the 15th. Option B (coordinator ruling on #1901, 2026-11-26; ruling 19; Hein 2026-11-02) reverted R2-M1: on a monthly
  * run a leaver's own row ending before the 27th is not read, as on master, so the 15th differs from the band where the
  * band pays the own row (GAP) or flags it as ending (NEXT): before the band it is not paid and is flagged only when another
- * row of its component is paid that month (WANT_MID). The band shapes:
+ * RECURRING row of its component is paid that month (WANT_MID; a once-off beside it is the hand part month, review M on
+ * 6a5f990df1). The band shapes:
  *  - NEXT: a recurring row of the same component from the next day: the leaver row is replaced (not paid); the successor
  *    starts after the last day, so it is not paid either (coordinator decision): both flagged, approval refused;
  *  - PKG: a package cut the row (superseded_at) and wrote a once-off from the next day: the once-off is paid; the cut row
@@ -57,11 +58,11 @@ const WANT: Record<string, { gross: number; flags: string[] }> = {
   PRE953: { gross: 3000, flags: ['ends'] },
   GAP: { gross: 10000, flags: ['after_end'] },
 };
-/** Leaving on the 15th (option B): the own row is never paid; flagged as ending only beside a paid row of its component. */
+/** Leaving on the 15th (option B): the own row is never paid; flagged as ending only beside a paid recurring row of its component. */
 const WANT_MID: Record<string, { gross: number; flags: string[] }> = {
   NEXT: { gross: 0, flags: ['after_end'] },
-  PKG: { gross: 3000, flags: ['ends'] },
-  PRE953: { gross: 3000, flags: ['ends'] },
+  PKG: { gross: 3000, flags: [] },
+  PRE953: { gross: 3000, flags: [] },
   GAP: { gross: 0, flags: ['after_end'] },
 };
 const ENDS = { band: '2026-07-28', mid: '2026-07-15' } as const;
@@ -108,7 +109,9 @@ describe('one successor predicate: pay and guard agree, whichever reader meets t
   it('approval is refused naming the flagged leavers, and not the GAP leavers for their own rows', async () => {
     const b = (await judgePayrollApproval(co, jul))?.blocker;
     expect(b?.code).toBe('recurring_needs_pro_rata');
-    for (const n of ['NEXT-band', 'NEXT-mid', 'PKG-band', 'PKG-mid', 'PRE953-band', 'PRE953-mid']) expect(b!.detail).toContain(`${n} Basic Salary`);
+    for (const n of ['NEXT-band', 'NEXT-mid', 'PKG-band', 'PRE953-band']) expect(b!.detail).toContain(`${n} Basic Salary`);
+    // Option B: a before-band leaver paid by a once-off of the component is not named (master's hand part month).
+    for (const n of ['PKG-mid', 'PRE953-mid']) expect(b!.detail).not.toContain(`${n} Basic Salary`);
     expect(b!.detail).toContain("GAP-mid Basic Salary starts on 2026-07-17, after the employee's last day");
   });
 });

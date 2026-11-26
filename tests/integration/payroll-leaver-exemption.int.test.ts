@@ -74,6 +74,11 @@ beforeAll(async () => {
   await employee('raise10', '2020-01-01', '2026-03-20');
   await add('r10a', 'raise10', salary, 21670, '2020-01-01', '2026-03-09', true);
   await add('r10b', 'raise10', salary, 23000, '2026-03-10', '2026-03-20', true);
+  // Review M on 6a5f990df1: leaving on the 12th with the part month entered as a once-off of the SAME component (master's
+  // workflow): the once-off is paid once, the own row not, and nothing is flagged.
+  await employee('sameOnceOff', '2020-01-01', '2026-03-12');
+  await add('so1', 'sameOnceOff', salary, 21670, '2020-01-01', '2026-03-12', true);
+  await add('so2', 'sameOnceOff', salary, 8000, '2026-03-01', '2026-03-12', false);
   await employee('end28', '2020-01-01', '2026-03-28');
   await add('end28Salary', 'end28', salary, 21670, '2020-01-01', '2026-03-28', true);
   await employee('superseded', '2020-01-01', '2026-03-28');
@@ -149,6 +154,12 @@ describe(`1-3: the leaver exemption is the band only (TZ=${process.env.TZ ?? 'un
     expect(l.flags.some(f => f.code === 'RECURRING_NEEDS_PRO_RATA' && f.message.includes('ends on 2026-03-20'))).toBe(true);
     // The 10-March leaver alone (one salary row, a hand pro-rata of another component) is not flagged: master's rule.
     expect((await line(march, 'end10')).flags.map(f => f.code)).not.toContain('RECURRING_NEEDS_PRO_RATA');
+  });
+
+  it('option B: a before-band leaver whose part month is a once-off of the same component: paid once, not flagged', async () => {
+    const l = await line(march, 'sameOnceOff');
+    expect(l.paid).toEqual([['Basic Salary', 8000]]);
+    expect(l.flags.map(f => f.code)).not.toContain('RECURRING_NEEDS_PRO_RATA');
   });
 
   it('end 28 March: paid in full, not flagged', async () => {
