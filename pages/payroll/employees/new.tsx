@@ -43,7 +43,7 @@ export default function NewEmployeePage() {
   const [addressErrors, setAddressErrors] = useState<AddressErrors>({});
   const addressFields = useRef<Partial<Record<AddressFieldKey, HTMLInputElement | null>>>({});
   /** The employee exists but the address or bank call failed: the form stays, as a notice with the way on, and cannot create twice. */
-  const [bankFailure, setBankFailure] = useState<{ id: string; what: string; message: string } | null>(null);
+  const [bankFailure, setBankFailure] = useState<{ id: string; saved: string[]; failed: Array<{ what: string; message: string }> } | null>(null);
   const bankFields = useRef<Partial<Record<BankKey, HTMLElement | null>>>({});
   const fields = useRef<Partial<Record<FieldKey, HTMLElement | null>>>({});
   // State only reaches the disabled button on the next render; a second submit can arrive before that.
@@ -109,23 +109,18 @@ export default function NewEmployeePage() {
       const json = await res.json();
       const created = json.data ?? json;
       target = `/payroll/employees/${created.id}`;
-      if (!addressIsBlank(address)) {
-        try {
-          await saveEmployeeAddress(created.id, address);
-        } catch (addressErr) {
-          setBankFailure({ id: created.id, what: 'address', message: apiErrorMessage(addressErr, 'Could not save the address') });
-          setSubmitting(false); // inFlight stays set: the employee exists, and this form does not create a second
-          return;
-        }
-      }
-      if (!bankIsBlank(bank)) {
-        try {
-          await saveBankDetails(created.id, bank);
-        } catch (bankErr) {
-          setBankFailure({ id: created.id, what: 'bank details', message: apiErrorMessage(bankErr, 'Could not save the bank details') });
-          setSubmitting(false); // inFlight stays set: the employee exists, and this form does not create a second
-          return;
-        }
+      // Each follow-up is tried whatever the other did (review #1932 M): a failed address must not drop typed bank details.
+      const saved: string[] = [];
+      const failed: Array<{ what: string; message: string }> = [];
+      const followUp = async (what: string, run: () => Promise<void>, fallback: string) => {
+        try { await run(); saved.push(what); } catch (err) { failed.push({ what, message: apiErrorMessage(err, fallback) }); }
+      };
+      if (!addressIsBlank(address)) await followUp('address', () => saveEmployeeAddress(created.id, address), 'Could not save the address');
+      if (!bankIsBlank(bank)) await followUp('bank details', () => saveBankDetails(created.id, bank), 'Could not save the bank details');
+      if (failed.length > 0) {
+        setBankFailure({ id: created.id, saved, failed });
+        setSubmitting(false); // inFlight stays set: the employee exists, and this form does not create a second
+        return;
       }
     } catch (err) {
       setError(apiErrorMessage(err, 'Could not create the employee - try again'));
@@ -150,7 +145,9 @@ export default function NewEmployeePage() {
         <form onSubmit={handleSubmit} noValidate className="p-6 max-w-3xl space-y-2">
           {bankFailure && (
             <div role="alert" className="px-4 py-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-800 dark:text-amber-300 text-sm">
-              Employee saved; {bankFailure.what} not saved: {bankFailure.message.replace(/[.\s]+$/, '')}. Add {bankFailure.what === 'address' ? 'it' : 'them'} on the profile.
+              Employee saved{bankFailure.saved.length > 0 ? `, with its ${bankFailure.saved.join(' and ')}` : ''};{' '}
+              {bankFailure.failed.map((f) => `${f.what} not saved: ${f.message.replace(/[.\s]+$/, '')}`).join('; ')}.
+              {' '}Add {bankFailure.failed.length === 1 && bankFailure.failed[0]!.what === 'address' ? 'it' : 'them'} on the profile.
             </div>
           )}
           {error && (

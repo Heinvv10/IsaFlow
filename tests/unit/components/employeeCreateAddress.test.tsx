@@ -19,10 +19,11 @@ const ok = (data: unknown) => new Response(JSON.stringify({ success: true, data 
 const fetchMock = vi.fn();
 const sent = (method: string, part: string) =>
   fetchMock.mock.calls.filter(([u, i]) => String(u).includes(part) && (i as RequestInit | undefined)?.method === method);
-function serve(address: Response = ok(null)) {
+function serve(address: Response = ok(null), bank: Response = ok({ id: 'b1' })) {
   fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
     const u = String(url);
     if (u.endsWith('/address')) return address;
+    if (u.endsWith('/bank-details')) return bank;
     if (u.endsWith('/api/payroll/employees') && init?.method === 'POST') return ok({ id: EMP });
     return ok([]);
   });
@@ -92,4 +93,36 @@ describe('address on create', () => {
     expect(push).not.toHaveBeenCalled();
     expect(sent('POST', '/api/payroll/employees')).toHaveLength(1);
   });
+
+  // Review #1932 M: a failed address save must not drop typed bank details; the notice names both outcomes.
+  const refused = (message: string) => new Response(JSON.stringify({ success: false, error: { code: 'FORBIDDEN', message } }), { status: 403 });
+  const fillBoth = () => {
+    fillEmployee();
+    fill('Street or farm name', 'Main Road'); fill('City or town', 'Pretoria'); fill('Postal code', '0028');
+    fill('Bank name', 'FNB'); fill('Branch code *', '250655'); fill('Account number *', '62000123456');
+  };
+
+  it('the address fails, the bank details typed too: the bank PUT is still sent and the notice says it was saved', async () => {
+    serve(refused('Address refused.'));
+    render(<NewEmployeePage />);
+    fillBoth();
+    submit();
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toContain('Employee saved, with its bank details; address not saved: Address refused. Add it on the profile.');
+    expect(sent('PUT', '/bank-details')).toHaveLength(1);
+    expect(sent('POST', '/api/payroll/employees')).toHaveLength(1);
+    expect(push).not.toHaveBeenCalled();
+  });
+
+  it('both fail: the notice names both', async () => {
+    serve(refused('Address refused.'), refused('Only an owner or admin can enter bank details.'));
+    render(<NewEmployeePage />);
+    fillBoth();
+    submit();
+    expect((await screen.findByRole('alert')).textContent).toContain(
+      'Employee saved; address not saved: Address refused; bank details not saved: Only an owner or admin can enter bank details. Add them on the profile.');
+    expect(sent('PUT', '/address')).toHaveLength(1);
+    expect(sent('PUT', '/bank-details')).toHaveLength(1);
+  });
 });
+
