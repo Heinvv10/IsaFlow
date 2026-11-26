@@ -15,6 +15,9 @@ import { Api } from './_api';
 import { switchApiCompany, switchBrowserCompany } from './_migrationSandbox';
 import { expectNoSeriousA11yViolations } from './helpers/axe';
 import { THEMES, settle } from '../helpers/themeSpec';
+import { guardDevTarget } from '../helpers/devTarget';
+
+guardDevTarget(test);
 
 const evidenceDir = process.env.LATE_CLAIMS_EVIDENCE_DIR;
 test.setTimeout(300_000);

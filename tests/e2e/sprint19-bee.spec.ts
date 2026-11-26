@@ -1,3 +1,6 @@
 import { test, expect } from '@playwright/test';
+import { guardDevTarget } from './helpers/devTarget';
+
+guardDevTarget(test);
 // BEE and SA features are service-only (no API endpoint needed yet) — verify they don't break build
 test('BEE compliance service importable', () => { expect(true).toBe(true); });

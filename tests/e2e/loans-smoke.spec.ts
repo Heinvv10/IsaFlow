@@ -14,6 +14,9 @@
  *   bunx playwright test tests/e2e/loans-smoke.spec.ts --config playwright-test.config.ts
  */
 import { test, expect } from '@playwright/test';
+import { guardDevTarget } from './helpers/devTarget';
+
+guardDevTarget(test);
 
 const SUFFIX = String(Date.now()).slice(-6);
 const LOAN_REF = `BND-${SUFFIX}`;

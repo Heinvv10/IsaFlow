@@ -8,6 +8,7 @@ import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
   testDir: './tests/e2e',
+  globalSetup: './tests/e2e/helpers/devTargetGlobalSetup.ts',
   testMatch: /fiscal-year-end-change\.spec\.ts/,
   timeout: 180_000,
   retries: 0,

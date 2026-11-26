@@ -26,7 +26,10 @@
  *  - requireTrial: refuse (`not_on_trial`) a company that never had a trial;
  *  - requireActiveMandate: refuse (`mandate_required`), before any write, unless
  *    an active Paystack mandate with an authorization code is on file, so the
- *    charge run can bill it;
+ *    charge run can bill it, and refuse (`mandate_plan_mismatch`) unless every
+ *    active Paystack mandate's max_amount_cents equals the plan's monthly price.
+ *    The self-serve start sets that ceiling to the price of the plan the owner
+ *    authorised, so a different plan (dearer or cheaper) needs a new authorisation;
  *  - samePlanIsNoop: a company already paying on THIS plan answers
  *    `alreadyConverted: true` and nothing is written (an idempotent retry); a
  *    different plan is still `already_paid`.
@@ -82,7 +85,7 @@ export async function convertTrialInTx(
     throw new TrialConvertError('not_on_trial', 'This company is not on a trial');
   }
 
-  const plan = (await tx`SELECT code, is_active FROM plans WHERE id = ${planId}::uuid`)[0] as DbRow | undefined;
+  const plan = (await tx`SELECT code, is_active, monthly_price_cents FROM plans WHERE id = ${planId}::uuid`)[0] as DbRow | undefined;
   if (!plan) throw new TrialConvertError('plan_not_found', 'Plan not found');
   if (plan.is_active !== true || !isConvertiblePlanCode(plan.code as string)) {
     throw new TrialConvertError('plan_not_convertible', 'This plan cannot be used to convert a trial');
@@ -118,14 +121,18 @@ export async function convertTrialInTx(
 
   if (opts.requireActiveMandate) {
     // The charge run (runQueuedCharges) bills with the authorization code, so a row without one cannot be charged.
-    const chargeable = await tx`
-      SELECT 1 FROM subscription_mandates
+    const active = (await tx`
+      SELECT max_amount_cents, (paystack_authorization_code IS NOT NULL) AS chargeable
+      FROM subscription_mandates
       WHERE company_id = ${companyId}::uuid AND gateway = 'paystack' AND status = 'active'
-        AND paystack_authorization_code IS NOT NULL
-      LIMIT 1
-    `;
-    if (chargeable.length === 0) {
+    `) as DbRow[];
+    if (!active.some((m) => m.chargeable === true)) {
       throw new TrialConvertError('mandate_required', 'Authorise a payment method before upgrading');
+    }
+    // The owner authorised one plan's price; any other plan is a new authorisation.
+    const priceCents = Number(plan.monthly_price_cents);
+    if (active.some((m) => Number(m.max_amount_cents) !== priceCents)) {
+      throw new TrialConvertError('mandate_plan_mismatch', 'The payment method was authorised for a different plan');
     }
   }
 

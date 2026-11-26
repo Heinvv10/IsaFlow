@@ -16,6 +16,9 @@ import AxeBuilder from '@axe-core/playwright';
 import { Api } from './_api';
 import { findOrCreateSandbox, switchApiCompany, switchBrowserCompany } from './_migrationSandbox';
 import { seedTheme, settle, THEMES } from '../helpers/themeSpec';
+import { guardDevTarget } from '../helpers/devTarget';
+
+guardDevTarget(test);
 
 const EVIDENCE_DIR = process.env.EVIDENCE_DIR;
 const SANDBOX = { name: '0GP Golden Off-cycle Sandbox', onboardingId: '8c4f2e6a-1d3b-4a7c-9e5f-2b6d8a0c4e13' };
@@ -34,8 +37,6 @@ async function openPage(page: Page): Promise<void> {
 
 for (const theme of THEMES) {
   test(`the off-cycle run page asks for an approved regular run first; no serious axe violation at 1280 and 390 (${theme})`, async ({ page, context, baseURL }) => {
-    const u = new URL(baseURL!);
-    expect(u.hostname === 'localhost' && u.port !== '3101', `z33 creates a sandbox company: dev/CI localhost only, not ${u.host}`).toBe(true);
     const api = await Api.login(baseURL!);
     try {
       const sandboxId = await findOrCreateSandbox(api, SANDBOX);
