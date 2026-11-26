@@ -5,7 +5,7 @@
  *   - hd1: the holder is named with its pid, application, state and transaction age, and left to whoever owns it: no pg_terminate_backend,
  *     no "the server ends it" (idle_in_transaction_session_timeout is 0 here, the PostgreSQL default);
  *   - hd3: a second user session waits on the same row ahead of the run: the run names the ROOT holder, never the waiter;
- *   - the CLI's own sessions carry application_name isaflow-sage-migration (what tells its own sessions apart).
+ *   - the CLI's own sessions carry application_name isaflow-sage-migration:<company> (what tells this company's own sessions apart).
  * Fixture route: isaflow_schema_fixture (assertDisposable). Never skips.
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -67,7 +67,7 @@ const priceChanged = (): string => {
 async function migrationWaiting(ms = 15_000): Promise<string | null> {
   for (const t0 = Date.now(); Date.now() - t0 < ms; await new Promise((r) => setTimeout(r, 200))) {
     const r = await pool.query(`SELECT application_name FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'
-      AND application_name = 'isaflow-sage-migration'`);
+      AND application_name = $1`, [`isaflow-sage-migration:${s.companyId}`]);
     if (r.rows.length > 0) return r.rows[0].application_name as string;
   }
   return null;
@@ -81,7 +81,7 @@ describe('B27-3 / R27-3: who holds the row, and what the person is told', () => 
     await holder.query('BEGIN');
     const pid = (await holder.query(LOCK, [s.companyId])).rows[0].pid as number;
     const run = cli(file);
-    expect(await migrationWaiting(), "the CLI's own session, by its application_name").toBe('isaflow-sage-migration');
+    expect(await migrationWaiting(), "the CLI's own session, by its application_name").toBe(`isaflow-sage-migration:${s.companyId}`);
     const r = await run;
     expect(r.code, r.err).toBe(2);
     expect(r.err).toMatch(new RegExp(`the dry run stopped at item batch 1 \\(.*\\): a lock it needs is held by another session and the wait timed out .*held by backend pid ${pid}, idle in transaction, application IsaFlow web: invoice edit \\(qa@client\\), in a transaction for \\d+ s, idle for \\d+ s: another session's open transaction; check with whoever owns it before ending it\\); then re-run; the live run was not started`));

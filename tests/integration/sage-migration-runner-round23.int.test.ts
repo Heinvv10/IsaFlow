@@ -152,7 +152,7 @@ describe('R23-5 / B23-1: the dry run\'s ROLLBACK never answers (blackholed: the 
     expect(r.code, r.err).toBe(2);
     expect(Date.now() - t0).toBeLessThan(45_000);
     // R27-3: the zombie is the migration's own session (its application_name), so ending it is offered; the server never ends it here.
-    expect(r.err).toMatch(new RegExp(`another session holds this batch's lock: likely a previous run's dry transaction \\(backend pid ${zombie[0]}, idle in transaction, application isaflow-sage-migration, in a transaction for \\d+ s, idle for \\d+ s: a migration transaction left open, from before this run \\(its client may be gone\\); SELECT pg_terminate_backend\\(${zombie[0]}\\) ends it\\); then re-run`)); // R28-4: two samples, older than the run
+    expect(r.err).toMatch(new RegExp(`another session holds this batch's lock: likely a previous run's dry transaction, or a different key with the same 32-bit hash \\(backend pid ${zombie[0]}, idle in transaction, application isaflow-sage-migration:${s.companyId}, in a transaction for \\d+ s, idle for \\d+ s: a migration transaction left open, from before this run \\(its client may be gone\\); SELECT pg_terminate_backend\\(${zombie[0]}\\) ends it\\); then re-run`)); // R28-4: two samples, older than the run
     await proxy.close();
     proxy = null;
     expect(await noneIdleInTransaction()).toBe(0);
@@ -169,7 +169,7 @@ describe('R23-5 / B23-1: the dry run\'s ROLLBACK never answers (blackholed: the 
     const took = Date.now() - t0;
     expect(r.code, r.err).toBe(2);
     expect(took).toBeLessThan(15_000); // one wait (the zombie's number lock, 5 s; the lock_timeout bound is 10 s), not one per category
-    expect(r.err).toMatch(new RegExp(`the dry run stopped at category batch 1 \\(.*\\): a lock it needs is held by another session and the wait timed out .*held by backend pid ${zombie[0]}, idle in transaction, application isaflow-sage-migration, in a transaction for \\d+ s, idle for \\d+ s: a migration transaction left open, from before this run \\(its client may be gone\\); SELECT pg_terminate_backend\\(${zombie[0]}\\) ends it`));
+    expect(r.err).toMatch(new RegExp(`the dry run stopped at category batch 1 \\(.*\\): a lock it needs is held by another session and the wait timed out .*held by backend pid ${zombie[0]}, idle in transaction, application isaflow-sage-migration:${s.companyId}, in a transaction for \\d+ s, idle for \\d+ s: a migration transaction left open, from before this run \\(its client may be gone\\); SELECT pg_terminate_backend\\(${zombie[0]}\\) ends it`));
     expect(r.err).not.toMatch(/retry in a moment/);
     await proxy.close();
     proxy = null;
