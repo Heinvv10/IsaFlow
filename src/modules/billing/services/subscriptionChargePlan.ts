@@ -174,6 +174,10 @@ export interface ChargeableCharge {
   status: 'queued' | 'failed';
   paystack_authorization_code: string | null;
   mandate_status: string;
+  /** The mandate's ceiling: no single debit may exceed it. */
+  mandate_max_amount_cents: string | null;
+  /** amount_cents > the ceiling, compared in Postgres (exact bigint); NULL when either is unknown. runQueuedCharges sends only false. */
+  above_mandate_ceiling: boolean | null;
   user_email: string | null;
   period_start: Date | string;
   period_end: Date | string;
@@ -188,9 +192,12 @@ export async function selectChargeableCharges(now = new Date()): Promise<Chargea
            c.period_start, c.period_end,
            m.paystack_authorization_code,
            m.status AS mandate_status,
+           m.max_amount_cents AS mandate_max_amount_cents,
+           (c.amount_cents > m.max_amount_cents) AS above_mandate_ceiling,
            u.email AS user_email
     FROM subscription_charges c
-    JOIN subscription_mandates m ON m.id = c.mandate_id
+    -- The mandate must be the charge's own company's: never another tenant's card.
+    JOIN subscription_mandates m ON m.id = c.mandate_id AND m.company_id = c.company_id
     JOIN companies co ON co.id = c.company_id AND co.status IS DISTINCT FROM 'deleted'
     -- Never debit a period the subscription is not owed (cancelled, paused); a
     -- debt for a period already granted stays collectible.
@@ -205,6 +212,9 @@ export async function selectChargeableCharges(now = new Date()): Promise<Chargea
       AND (c.status = 'queued'
            OR (c.status = 'failed' AND c.last_attempt_at < ${cutoff.toISOString()}))
       AND c.attempt_count < ${MAX_ATTEMPTS}
+    -- A charge above its mandate's ceiling is never sent (runQueuedCharges) and stays
+    -- queued: order those last so they cannot fill the batch and starve chargeable ones.
+    ORDER BY (c.amount_cents > m.max_amount_cents) IS NOT FALSE, c.created_at
     LIMIT 100
   `)) as ChargeableCharge[];
 }
