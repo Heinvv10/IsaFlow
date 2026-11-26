@@ -113,8 +113,8 @@ describe('quoteInvoiceVat, a legacy quote', () => {
 });
 
 describe('assertOrderableVat (until sales orders carry per-line VAT)', () => {
-  it('refuses a typed quote with an exempt line; an inclusive one, standard / zero-rated and legacy pass', () => {
-    expect(() => assertOrderableVat(quote([line({ vatType: 'standard', taxAmount: 15 })], { amountsAre: 'inclusive' }))).not.toThrow();
+  it('refuses an inclusive quote and a typed quote with an exempt line; standard / zero-rated and legacy pass', () => {
+    expect(() => assertOrderableVat(quote([line({ vatType: 'standard', taxAmount: 15 })], { amountsAre: 'inclusive' }))).toThrow(LineValidationError);
     expect(() => assertOrderableVat(quote([line({ vatType: 'standard', taxAmount: 15 }), line({ vatType: 'exempt', taxAmount: 0, taxRate: 0 })])))
       .toThrow(/line 2 is exempt from VAT/);
     expect(() => assertOrderableVat(quote([line({ vatType: 'standard', taxAmount: 15 }), line({ vatType: 'zero_rated', taxAmount: 0, taxRate: 0 })]))).not.toThrow();

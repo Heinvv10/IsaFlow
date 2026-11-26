@@ -81,7 +81,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         // order id is handed back so the client can open it instead of being
         // told its quote does not exist. Nothing is written before the guard
         // refuses, so answering 4xx here commits no partial work.
-        // A typed quote with an exempt line (migration 1024) is refused before the claim: a sales order carries no VAT type yet.
+        // An inclusive quote (migration 1024) is refused before the claim: a sales order holds ex-VAT prices only.
         if (err instanceof LineValidationError) return apiResponse.badRequest(res, err.message);
         if (err instanceof QuoteNotConvertibleError) {
           return apiResponse.conflict(res, err.message, {

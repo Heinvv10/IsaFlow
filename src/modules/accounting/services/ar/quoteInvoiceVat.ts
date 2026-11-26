@@ -14,8 +14,7 @@
  * When the invoice's figures are not the quote's (the rate moved, or the stored figures do not foot), the conversion says so: `warnings` (QUOTE_TOTAL_CHANGED,
  * both totals and both standard rates), which the convert response carries to the caller.
  *
- * assertOrderableVat: what a sales order (no amounts_are, no line VAT type yet) cannot carry, refused before its claim;
- * orderUnitPrice: the ex-VAT price an inclusive quote's order line is written with.
+ * assertOrderableVat: what a sales order (no amounts_are, no line VAT type yet) cannot carry, refused before its claim.
  */
 import { isRatedDate, SA_STANDARD_VAT_RATE_PCT, standardVatRatePctOn } from '@/lib/vat/standardRate';
 import { log } from '@/lib/logger';
@@ -52,30 +51,21 @@ export interface QuoteInvoiceVat {
 }
 
 /**
- * Refuses (LineValidationError, a 400) a quote a sales order cannot carry as priced: a typed one with an EXEMPT line (an
- * order line has a rate only, so exempt would come back zero-rated: another VAT201 field). Until sales orders carry
- * per-line VAT types. An INCLUSIVE quote is carried: the order takes each line's unit price EX VAT (orderUnitPrice) and
- * the quote's own net, VAT and total, so its figures are the quote's.
+ * Refuses (LineValidationError, a 400) a quote a sales order cannot carry as priced: an inclusive one (an order holds
+ * ex-VAT unit prices; copied, the VAT would be billed twice once the order is invoiced), and a typed one with an EXEMPT
+ * line (an order line has a rate only, so exempt would come back zero-rated: another VAT201 field). Until sales orders
+ * carry per-line VAT types.
  */
 export function assertOrderableVat(quote: Quote): void {
+  if (quote.amountsAre === 'inclusive') {
+    throw new LineValidationError(`Quote ${quote.quoteNumber}'s prices include VAT, and a sales order holds prices before VAT: `
+      + 'convert it to an invoice instead, or quote it again with amounts excluding VAT.');
+  }
   const exempt = (quote.lines ?? []).findIndex((l) => l.vatType === 'exempt');
   if (exempt >= 0) {
     throw new LineValidationError(`Quote ${quote.quoteNumber}: line ${exempt + 1} is exempt from VAT, and a sales order cannot `
       + 'carry a VAT type yet (it would be invoiced as zero-rated): convert the quote to an invoice instead.');
   }
-}
-
-/**
- * The unit price a sales order line is written with. An order holds prices BEFORE VAT (its invoice copies them, and the
- * invoice's VAT is added on top), so an inclusive quote's gross price (stored as entered) would be taxed twice: its line's
- * stored NET over its quantity is used instead, to the cent. The order's line total and header are the quote's stored
- * figures, so the totals are the quote's whatever a unit price rounds to (1 000 x R0.03 incl: R0.03 a unit, R26.09 net).
- */
-export function orderUnitPrice(quote: Quote, line: { quantity: number; unitPrice: number; lineTotal: number }): number {
-  if (quote.amountsAre !== 'inclusive' || line.quantity === 0) return line.unitPrice;
-  const cents = Math.abs(line.lineTotal / line.quantity) * 100;
-  const rounded = Math.round(cents + 1e-9) / 100;
-  return line.lineTotal / line.quantity < 0 ? -rounded : rounded;
 }
 
 const rateOn = (d: string): number | null => (isRatedDate(d) ? standardVatRatePctOn(d) : null);

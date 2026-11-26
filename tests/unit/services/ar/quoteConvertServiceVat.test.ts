@@ -1,8 +1,8 @@
 /**
  * quoteConvertService and per-line VAT (migration 1024; split from quoteConvertService.test.ts at the 300-line cap): a
  * typed quote's invoice carries each line's type, net and VAT; a VAT refusal lands before the claim; a quote its status
- * or either conversion link refuses answers the 409 first, naming both links; a sales order carries an inclusive quote (its ex-VAT
- * unit price, the quote's own totals) and refuses a typed quote with an exempt line.
+ * or either conversion link refuses answers the 409 first, naming both links; a sales order refuses an inclusive quote
+ * and a typed quote with an exempt line.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
@@ -33,7 +33,7 @@ vi.mock('@/modules/accounting/services/ar/quoteService', () => ({
 }));
 
 import { convertToInvoice, convertToSalesOrder, QuoteNotConvertibleError, QuoteNotInvoiceableError } from '@/modules/accounting/services/ar/quoteConvertService';
-import { orderUnitPrice } from '@/modules/accounting/services/ar/quoteInvoiceVat';
+import { LineValidationError } from '@/modules/accounting/services/ar/quoteLineChecks';
 import { InvoiceVatNotRegisteredRefusal } from '@/modules/accounting/services/ar/invoiceLineVatTypes';
 import { COMPANY_ID, QUOTE_ID, acceptedQuote, inRequestTx, mockGetQuote, mockSql, sqlTextOf } from './helpers/quoteConvertWorld';
 
@@ -162,65 +162,11 @@ describe('convertToSalesOrder: a typed quote with an exempt line', () => {
   });
 });
 
-describe('convertToSalesOrder: an inclusive quote converts, with the quote\'s figures', () => {
-  /** Runs the conversion; returns the order's header values and each line's [unit_price, tax_rate, line_total]. */
-  const convert = async (quote: Record<string, unknown>) => {
+describe('convertToSalesOrder: an inclusive quote', () => {
+  it('is refused before the claim: a sales order holds ex-VAT prices only', async () => {
     mockSql.mockReset();
-    mockGetQuote.mockResolvedValueOnce(quote as never);
-    mockGetQuote.mockResolvedValueOnce({ ...quote, status: 'converted_to_order' } as never);
-    mockSql.mockImplementation((async (...call: unknown[]) => {
-      const t = sqlTextOf(call);
-      if (t.includes('UPDATE customer_quotes') && t.includes('RETURNING')) return [{ id: QUOTE_ID }];
-      if (t.includes('company_document_numbers')) return [{ current_number: 1, prefix: 'SO-' }];
-      if (t.includes('INSERT INTO customer_sales_orders ')) return [{ id: 'so-1' }];
-      return [];
-    }) as never);
-    await inRequestTx(() => convertToSalesOrder(COMPANY_ID, QUOTE_ID));
-    const calls = mockSql.mock.calls;
-    const header = calls.find((c) => sqlTextOf(c).includes('INSERT INTO customer_sales_orders '))!.slice(1);
-    const items = calls.filter((c) => sqlTextOf(c).includes('INSERT INTO customer_sales_order_items')).map((c) => c.slice(1));
-    return { header, items };
-  };
-  const line = (o: Record<string, unknown>) => ({ ...acceptedQuote().lines[0]!, vatType: 'standard', ...o });
-
-  it('3 x R10 incl: the order holds R8.70 a unit and the quote\'s R26.09 / R3.91 / R30.00', async () => {
-    const q = { ...acceptedQuote(), amountsAre: 'inclusive', subtotal: 26.09, taxAmount: 3.91, total: 30,
-      lines: [line({ quantity: 3, unitPrice: 10, taxRate: 15, lineTotal: 26.09, taxAmount: 3.91 })] };
-    const { header, items } = await convert(q);
-    expect(header).toEqual(expect.arrayContaining([26.09, 3.91, 30]));
-    expect(items).toHaveLength(1);
-    expect(items[0]).toEqual(expect.arrayContaining([3, 8.7, 15, 26.09]));
-    expect(items[0]).not.toContain(10);
-  });
-
-  it('1 000 x R0.03 incl: the order total is still the quote\'s R30.00 (the unit price rounds, the line total does not)', async () => {
-    const q = { ...acceptedQuote(), amountsAre: 'inclusive', subtotal: 26.09, taxAmount: 3.91, total: 30,
-      lines: [line({ quantity: 1000, unitPrice: 0.03, taxRate: 15, lineTotal: 26.09, taxAmount: 3.91 })] };
-    const { header, items } = await convert(q);
-    expect(header).toEqual(expect.arrayContaining([26.09, 3.91, 30]));
-    expect(items[0]).toEqual(expect.arrayContaining([0.03, 26.09]));
-  });
-
-  it('a zero-rated line on an inclusive quote keeps its price and rate 0', async () => {
-    const q = { ...acceptedQuote(), amountsAre: 'inclusive', subtotal: 100, taxAmount: 0, total: 100,
-      lines: [line({ quantity: 2, unitPrice: 50, taxRate: 0, vatType: 'zero_rated', lineTotal: 100, taxAmount: 0 })] };
-    const { items } = await convert(q);
-    expect(items[0]).toEqual(expect.arrayContaining([2, 50, 0, 100]));
-  });
-
-  it('an EXCLUSIVE quote\'s unit price is copied as stored', async () => {
-    const q = { ...acceptedQuote(), amountsAre: 'exclusive', lines: [line({ quantity: 3, unitPrice: 8.7, taxRate: 15, lineTotal: 26.1, taxAmount: 3.92 })] };
-    const { items } = await convert(q);
-    expect(items[0]).toEqual(expect.arrayContaining([3, 8.7, 15, 26.1]));
-  });
-});
-
-describe('orderUnitPrice', () => {
-  const q = (amountsAre: 'inclusive' | 'exclusive') => ({ amountsAre }) as never;
-  it('is the stored net over the quantity to the cent for an inclusive quote, the stored price otherwise', () => {
-    expect(orderUnitPrice(q('inclusive'), { quantity: 3, unitPrice: 10, lineTotal: 26.09 })).toBe(8.7);
-    expect(orderUnitPrice(q('inclusive'), { quantity: 1, unitPrice: 115, lineTotal: 100 })).toBe(100);
-    expect(orderUnitPrice(q('exclusive'), { quantity: 3, unitPrice: 10, lineTotal: 26.09 })).toBe(10);
-    expect(orderUnitPrice(q('inclusive'), { quantity: 0, unitPrice: 10, lineTotal: 0 })).toBe(10);
+    mockGetQuote.mockResolvedValueOnce({ ...acceptedQuote(), amountsAre: 'inclusive' } as never);
+    await expect(inRequestTx(() => convertToSalesOrder(COMPANY_ID, QUOTE_ID))).rejects.toThrow(LineValidationError);
+    expect(mockSql).not.toHaveBeenCalled();
   });
 });
