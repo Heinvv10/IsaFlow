@@ -14,8 +14,11 @@
  */
 import { SAGE_APP_NAME } from './sageTimeouts';
 
-/** Two samples of an idle holder this far apart, its state unchanged, make it "left open" rather than between two statements. */
-export const HOLDER_CONFIRM_MS = 5_000;
+/**
+ * Two samples of an idle holder this far apart, its state unchanged, make it "left open" rather than between two statements. Short
+ * enough to fit inside the shortest lock wait the run meets (the number lock's 5 s): the watcher samples every second from 1 s on.
+ */
+export const HOLDER_CONFIRM_MS = 3_000;
 
 export interface LockHolder {
   pid: number;
