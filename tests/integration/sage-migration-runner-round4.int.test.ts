@@ -104,7 +104,7 @@ describe('L3: what an error says about the commit', () => {
     const failDry = { options: pool.options, connect: async () => { throw new Error('injected: no database'); } } as unknown as Pool;
     const e = await run({}, failDry).then(() => null, (x: unknown) => x);
     expect(e).not.toBeInstanceOf(MigrationStopped);
-    expect(stopMessage(e)).toBe('sage migration stopped: injected: no database');
+    expect(stopMessage(e)).toBe('sage migration stopped: no connection to the database could be had (injected: no database): nothing was sent, so nothing of it was written'); // B26-1
   });
 });
 

@@ -1,5 +1,5 @@
 /** sageKeyLock (B24-2, R25-5, R25-8): the lock text the registry uses, and the query that names who holds it. */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { HOLDER_SQL, idempotencyLockText, takeKeyLockNow } from '@/modules/accounting/services/sage-migration/sageKeyLock';
 import { BatchKeyHeldError } from '@/modules/accounting/services/sage-migration/sageSessionErrors';
 
@@ -13,7 +13,7 @@ describe('the holder query (R25-5)', () => {
   it('a held key: the holder query is asked with the same text, and its pid named', async () => {
     const asked: Array<[string, unknown[] | undefined]> = [];
     const client = { query: async (t: string, v?: unknown[]) => { asked.push([t, v]); return t.startsWith('SELECT pg_try') ? { rows: [{ ok: false }] } : { rows: [{ pid: 9, state: 'active', app: 'psql' }] }; } };
-    const err = await takeKeyLockNow(client, 'mcp:c:w:k', 'dry').then(() => null, (e: unknown) => e);
+    const err = await takeKeyLockNow(client, client, 'mcp:c:w:k', 'dry').then(() => null, (e: unknown) => e);
     expect(err).toBeInstanceOf(BatchKeyHeldError);
     expect((err as BatchKeyHeldError).holder).toEqual({ pid: 9, state: 'active', app: 'psql' });
     expect(asked).toEqual([['SELECT pg_try_advisory_xact_lock(hashtext($1)::bigint) AS ok', ['mcp:c:w:k']], [HOLDER_SQL, ['mcp:c:w:k']]]);
@@ -26,3 +26,17 @@ describe('idempotencyLockText (R25-8)', () => {
     expect(idempotencyLockText('c', 'w', 'k', 'u1')).toBe('mcp:c:w:u:u1:k');
   });
 });
+
+describe('the holder is read through the lookup (the pool), not the request\'s app_user connection', () => {
+  it('asked there; a lookup that fails names the pid unknown, the held key said all the same', async () => {
+    const client = { query: async () => ({ rows: [{ ok: false }] }) };
+    const lookup = { query: vi.fn(async () => ({ rows: [{ pid: 12, state: 'idle in transaction', app: null }] })) };
+    const err = await takeKeyLockNow(client, lookup, 'mcp:c:w:k', 'dry').then(() => null, (e: unknown) => e);
+    expect(lookup.query).toHaveBeenCalledWith(HOLDER_SQL, ['mcp:c:w:k']);
+    expect((err as BatchKeyHeldError).holder).toEqual({ pid: 12, state: 'idle in transaction', app: null });
+    const failing = { query: async () => { throw new Error('no connection'); } };
+    const err2 = await takeKeyLockNow(client, failing, 'mcp:c:w:k', 'dry').then(() => null, (e: unknown) => e);
+    expect((err2 as Error).message).toMatch(/backend pid unknown/);
+  });
+});
+

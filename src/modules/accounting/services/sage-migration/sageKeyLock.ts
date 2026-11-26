@@ -25,10 +25,14 @@ export const HOLDER_SQL = `SELECT l.pid, a.state, a.application_name AS app FROM
 
 type Queryable = { query: (text: string, values?: unknown[]) => Promise<{ rows: Array<Record<string, unknown>> }> };
 
-export async function takeKeyLockNow(client: Queryable, lockText: string, phase: LockPhase): Promise<void> {
+/**
+ * `lookup` reads who holds it: the pool, not the request's own connection, which runs as app_user and so may not see another session's
+ * state in pg_stat_activity. A lookup that fails names the pid unknown; the held key is said all the same.
+ */
+export async function takeKeyLockNow(client: Queryable, lookup: Queryable, lockText: string, phase: LockPhase): Promise<void> {
   const got = await client.query('SELECT pg_try_advisory_xact_lock(hashtext($1)::bigint) AS ok', [lockText]);
   if (got.rows[0]?.ok !== false) return;
-  const holder = await client.query(HOLDER_SQL, [lockText]);
+  const holder = await lookup.query(HOLDER_SQL, [lockText]).catch(() => ({ rows: [] as Array<Record<string, unknown>> }));
   const row = holder.rows[0];
   const pid = row?.pid;
   throw new BatchKeyHeldError(typeof pid === 'number' ? { pid, state: row?.state as string | null, app: row?.app as string | null } : undefined, phase);

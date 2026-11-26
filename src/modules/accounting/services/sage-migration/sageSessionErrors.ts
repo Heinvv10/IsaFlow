@@ -72,7 +72,8 @@ export interface LockHolder { pid: number; state?: string | null; app?: string |
 const who = (h: LockHolder | undefined): string => {
   if (h === undefined) return 'backend pid unknown: wait for it to end';
   if (h.state === 'idle in transaction') return `backend pid ${h.pid}, idle in transaction: a transaction left open; wait for the server to end it, or SELECT pg_terminate_backend(${h.pid})`;
-  return `backend pid ${h.pid}, ${h.state ?? 'state unknown'}${h.app ? `, application ${h.app}` : ''}: it is at work; wait for it to finish`;
+  if (h.state === undefined || h.state === null) return `backend pid ${h.pid} (its state could not be read): check what it is in pg_stat_activity before ending it`;
+  return `backend pid ${h.pid}, ${h.state}${h.app ? `, application ${h.app}` : ''}: it is at work; wait for it to finish`;
 };
 
 /**
