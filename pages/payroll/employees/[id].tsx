@@ -172,7 +172,7 @@ export default function EmployeeDetailPage() {
             {employeeId && <EmployeeFringeBenefitsCard employeeId={employeeId} />}
             {employeeId && <GarnisheeOrdersCard employeeId={employeeId} />}
 
-            {employeeId && <EmployeeAddressCard employeeId={employeeId} />}
+            {employeeId && <div id="employee-address" className={ANCHOR}><EmployeeAddressCard employeeId={employeeId} /></div>}
 
             {employeeId && <div id="employee-bank" className={ANCHOR}><EmployeeBankCard employeeId={employeeId} onChanged={() => setBankVersion(v => v + 1)} /></div>}
 

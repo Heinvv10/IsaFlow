@@ -1,0 +1,179 @@
+/**
+ * Wave 7 EA2 (W5 part 2; Hein's ruling 10): the e@syFile IRP5 file carries each employee's captured addresses
+ * (3211-3217, 3285, 3279, 3288-3294) and, in an owner's or admin's own export, their bank account (3240-3245), read
+ * through the audited reader (one audit_log `export` row per account). Pre-validation names each employee missing
+ * one. Real routes (withAuth, app_user, RLS) on two tenants, from real approved runs. Claims:
+ *  - an owner's file carries company a's addresses and accounts, byte for byte, and only a's (b's are 10x and absent);
+ *  - each full account read is one audit row naming the employee, never the number; a Login-as export (the same
+ *    owner's account, impersonated) carries no account and writes no audit row;
+ *  - the EMP501 figures (stored, compared) carry the address and never an account;
+ *  - pre-validation names a's employee with no account and the one with no address; never b's.
+ *
+ * Disposable DB only (rig -> assertDisposable). Every address and number is made up.
+ */
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import type { NextApiResponse } from 'next';
+import exportRoute from '../../pages/api/payroll/irp5/easyfile-export';
+import { buildEmp501Figures } from '@/modules/accounting/services/returns/emp501Figures';
+import { emp501Period } from '@/modules/accounting/services/payroll/emp501Period';
+import { preValidateTaxYear } from '@/modules/accounting/services/payroll/preValidationService';
+import { request, response } from './mfa-impersonation-postgres.helpers';
+import { approvedRun, loginAs, type R } from './pe-payslip-email.helpers';
+import { rig } from './brkr.helpers';
+
+let a: R;
+let b: R;
+const emp = { full: '', box: '', bare: '', bee: '' };
+const bankIds: Record<string, string> = {};
+
+/** The route's file body (it answers with res.end(body)) and status, as `user` in `r`'s company. */
+async function exportFile(r: R, user: string): Promise<{ status: number; body: string; json: unknown }> {
+  const req = request({ 'sb-access-token': r.tokens[user]!, active_company_id: r.company }, 'GET') as unknown as {
+    url: string; query: Record<string, unknown>;
+  };
+  req.url = '/api/payroll/irp5/easyfile-export?taxYear=2026';
+  req.query = { taxYear: '2026' };
+  const out = response();
+  let body = '';
+  const state = out.state as unknown as { end: (b?: unknown) => unknown; body: unknown; statusCode: number };
+  state.end = function end(this: unknown, chunk?: unknown) { if (chunk !== undefined) body = String(chunk); return this; };
+  await (exportRoute as unknown as (q: unknown, s: NextApiResponse) => Promise<void>)(req, out.res);
+  return { status: state.statusCode, body, json: state.body };
+}
+
+async function profile(r: R): Promise<void> {
+  await r.pool.query(`UPDATE companies SET paye_reference_number = '7000000000', sars_contact_first_name = 'Payroll',
+    sars_contact_last_name = 'Officer', sars_contact_telephone = '0110000000', physical_address_line1 = '1 Test Street',
+    physical_postal_code = '0001', physical_city = 'Pretoria' WHERE id = $1`, [r.company]);
+}
+async function person(r: R, salary: number, idNumber: string): Promise<string> {
+  const { employee } = await r.employee(salary);
+  await r.pool.query('UPDATE payroll_employees SET id_number = $2 WHERE id = $1', [employee, idNumber]);
+  return employee;
+}
+const setAddress = (r: R, id: string, sql: string, values: unknown[]) =>
+  r.pool.query(`UPDATE payroll_employees SET ${sql} WHERE id = $1 AND company_id = $2`, [id, r.company, ...values]);
+async function bank(r: R, id: string, o: { number: string; branch: string; type: string; holder: string | null; name: string }) {
+  bankIds[id] = String((await r.pool.query(
+    `INSERT INTO payroll_bank_details (company_id, employee_id, bank_name, account_number, account_type, branch_code, account_holder, is_active)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, true) RETURNING id`, [r.company, id, o.name, o.number, o.type, o.branch, o.holder])).rows[0]!.id);
+}
+/** One certificate's lines, by its ID number (3060). */
+const certificate = (file: string, idNumber: string): string[] => {
+  const lines = file.split(/\r?\n/);
+  const at = lines.indexOf(`3060,${idNumber}`);
+  const start = lines.slice(0, at).map((l) => l.startsWith('3010,')).lastIndexOf(true);
+  const end = lines.indexOf('9999,9999', at);
+  return lines.slice(start, end + 1);
+};
+const contact = (lines: string[]) => lines.filter((l) => /^(32(1[1-7]|4[0-6]|79|8[5-9]|9[0-4])),/.test(l));
+const audits = async (r: R) => (await r.pool.query(
+  `SELECT entity_id::text AS entity_id, user_id::text AS user_id, changes::text AS changes FROM audit_log
+    WHERE company_id = $1 AND entity_type = 'payroll_bank_detail' AND action = 'export' ORDER BY entity_id`, [r.company])).rows;
+
+beforeAll(async () => {
+  a = await rig('w7-ea2-a');
+  b = await rig('w7-ea2-b');
+  await a.setup();
+  await b.setup();
+  for (const r of [a, b]) await profile(r);
+  // Valid ID numbers for 1980-01-01 (the rig's date of birth), one per employee.
+  emp.full = await person(a, 30_000, '8001015009087');
+  emp.box = await person(a, 25_000, '8001015009186');
+  emp.bare = await person(a, 20_000, '8001015009285');
+  emp.bee = await person(b, 300_000, '8001015009384');
+  await setAddress(a, emp.full, `residential_unit_number = '4', residential_complex = 'Oak Court', residential_street_number = '12',
+    residential_street = 'Main Road', residential_suburb = 'Hatfield', residential_city = 'Pretoria', residential_postal_code = '0028',
+    residential_country_code = 'ZA', postal_same_as_residential = true`, []);
+  await setAddress(a, emp.box, `residential_street = 'Farm Rietfontein', residential_city = 'Brits', residential_postal_code = '0250',
+    residential_country_code = 'ZA', postal_same_as_residential = false, postal_address_line1 = 'PO Box 77',
+    postal_address_line2 = 'Brits', postal_address_code = '0250', postal_address_country_code = 'ZA'`, []);
+  await setAddress(b, emp.bee, `residential_street = 'Bee Street', residential_city = 'Durban', residential_postal_code = '4001',
+    residential_country_code = 'ZA', postal_same_as_residential = true`, []);
+  await bank(a, emp.full, { number: '62123456789', branch: '051001', type: 'savings', holder: 'T Molefe', name: 'Standard Bank' });
+  await bank(a, emp.bare, { number: '1234567890', branch: '250655', type: 'cheque', holder: null, name: 'FNB' });
+  await bank(b, emp.bee, { number: '99999999999', branch: '632005', type: 'cheque', holder: 'Bee', name: 'ABSA' });
+  for (const r of [a, b]) { await approvedRun(r, 1); await approvedRun(r, 2); }
+}, 240_000);
+
+afterAll(async () => {
+  for (const r of [a, b]) {
+    await r.pool.query('DELETE FROM audit_log WHERE company_id = $1', [r.company]);
+    await r.pool.query('DELETE FROM impersonation_sessions WHERE actor_user_id = $1', [r.approver]);
+    await r.teardown();
+  }
+});
+
+describe('e@syFile addresses and bank accounts (wave 7 EA2)', () => {
+  let file = '';
+  it('an owner\'s file carries each captured address and account, byte for byte', async () => {
+    const out = await exportFile(a, a.approver); // the rig's owner
+    expect(out.status).toBe(200);
+    file = out.body;
+    expect(contact(certificate(file, '8001015009087'))).toEqual([
+      '3211,"4"', '3212,"Oak Court"', '3213,"12"', '3214,"Main Road"', '3215,"Hatfield"', '3216,"Pretoria"', '3217,"0028"',
+      '3285,"ZA"', '3279,"N"', '3288,1', '3240,2', '3241,"62123456789"', '3242,051001', '3243,"Standard Bank"', '3245,"T Molefe"',
+    ]);
+    expect(contact(certificate(file, '8001015009186'))).toEqual([
+      '3214,"Farm Rietfontein"', '3216,"Brits"', '3217,"0250"', '3285,"ZA"', '3279,"N"', '3288,4',
+      '3289,"PO Box 77"', '3290,"Brits"', '3293,"0250"', '3294,"ZA"',
+    ]);
+    // No address captured: none of its codes; the account without a holder: no 3245.
+    expect(contact(certificate(file, '8001015009285'))).toEqual(['3240,1', '3241,"1234567890"', '3242,250655', '3243,"FNB"']);
+  });
+
+  it('only company a\'s employees: b\'s address and account are nowhere in a\'s file', () => {
+    expect(file).not.toContain('8001015009384');
+    expect(file).not.toContain('Bee Street');
+    expect(file).not.toContain('99999999999');
+  });
+
+  it('each full read is one audit row naming who and whose, never the number; none for the employee with no account', async () => {
+    const rows = await audits(a);
+    expect(rows.map((r) => r.entity_id).sort()).toEqual([bankIds[emp.full], bankIds[emp.bare]].sort());
+    expect(rows.every((r) => r.user_id === a.approver)).toBe(true);
+    expect(rows.map((r) => r.changes).join(' ')).not.toMatch(/62123456789|1234567890/);
+    expect(await audits(b)).toEqual([]);
+  });
+
+  it('Login-as (the owner impersonated): no account in the file and no audit row written', async () => {
+    const before = (await audits(a)).length;
+    const as = await loginAs(a, a.approver);
+    const out = await exportFile(a, as);
+    expect(out.status).toBe(200);
+    expect(contact(certificate(out.body, '8001015009087')).filter((l) => l.startsWith('324'))).toEqual([]);
+    expect(certificate(out.body, '8001015009087')).toContain('3214,"Main Road"');
+    expect((await audits(a)).length).toBe(before);
+  });
+
+  it('b\'s owner gets b\'s own (10x) certificate with its address and account', async () => {
+    const out = await exportFile(b, b.approver);
+    expect(contact(certificate(out.body, '8001015009384'))).toEqual([
+      '3214,"Bee Street"', '3216,"Durban"', '3217,"4001"', '3285,"ZA"', '3279,"N"', '3288,1',
+      '3240,1', '3241,"99999999999"', '3242,632005', '3243,"ABSA"', '3245,"Bee"',
+    ]);
+    expect(out.body).not.toContain('Main Road');
+  });
+
+  it('the EMP501 figures carry the address and never an account', async () => {
+    const f = await buildEmp501Figures(a.company, emp501Period(2026, 'annual'), false);
+    const full = f.employees.find((e) => e.idNumber === '8001015009087')!;
+    expect(full.address?.residential.street).toBe('Main Road');
+    expect(f.employees.every((e) => e.bankAccount === undefined)).toBe(true);
+    expect(JSON.stringify(f)).not.toContain('62123456789');
+    // An employee with no address has no key at all (a stored version compares key by key).
+    expect('address' in f.employees.find((e) => e.idNumber === '8001015009285')!).toBe(false);
+  });
+
+  it('pre-validation names a\'s employee with no account and the one with no address, never b\'s', async () => {
+    const pv = (await preValidateTaxYear(a.company, { taxYear: 2026 }))!;
+    const gaps = Object.fromEntries(pv.employees.map((e) => [e.employeeId,
+      e.issues.filter((i) => i.code === 'IRP5_ADDRESS_MISSING' || i.code === 'IRP5_BANK_MISSING').map((i) => i.code)]));
+    expect(gaps[emp.full] ?? []).toEqual([]);
+    expect(gaps[emp.box]).toEqual(['IRP5_BANK_MISSING']);
+    expect(gaps[emp.bare]).toEqual(['IRP5_ADDRESS_MISSING']);
+    expect(pv.employees.some((e) => e.employeeId === emp.bee)).toBe(false);
+    const pvB = (await preValidateTaxYear(b.company, { taxYear: 2026 }))!;
+    expect(pvB.employees.find((e) => e.employeeId === emp.bee)?.issues.filter((i) => i.code.startsWith('IRP5_ADDRESS') || i.code.startsWith('IRP5_BANK')) ?? []).toEqual([]);
+  });
+});

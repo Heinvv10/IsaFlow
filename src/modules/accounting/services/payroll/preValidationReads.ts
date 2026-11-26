@@ -18,6 +18,8 @@ export type PreValidationRow = {
   tax_number: string | null; id_number: string | null;
   gross: string; paye: string; uif: string; sdl: string; non_cash: string; unflagged_3801: string;
   codes: string[];
+  /** Wave 7 EA2: a residential address captured (3214, the mandatory street), and an active bank account; presence only. */
+  has_address: boolean; has_bank: boolean;
 };
 
 /** `throughMonth` (YYYYMM, wave 6 EFb): lines of runs up to that month only (an interim EMP501 judges March to August). */
@@ -62,7 +64,11 @@ export async function loadFinalLineTotals(
            COALESCE((SELECT SUM(n.amount) FROM non_cash_by_code n WHERE n.employee_id = t.employee_id AND n.amount > 0), 0) AS non_cash,
            COALESCE((SELECT SUM(i.amount) FROM items i
                       WHERE i.employee_id = t.employee_id AND i.code = '3801' AND NOT i.non_cash), 0) AS unflagged_3801,
-           COALESCE((SELECT array_agg(c.code ORDER BY c.code) FROM code_net c WHERE c.employee_id = t.employee_id), '{}') AS codes
+           COALESCE((SELECT array_agg(c.code ORDER BY c.code) FROM code_net c WHERE c.employee_id = t.employee_id), '{}') AS codes,
+           (pe.residential_street IS NOT NULL) AS has_address,
+           -- Whether one is on file, never the account: no number leaves the database here, so no read is audited.
+           EXISTS (SELECT 1 FROM payroll_bank_details bd
+                    WHERE bd.company_id = ${companyId}::uuid AND bd.employee_id = pe.id AND bd.is_active) AS has_bank
       FROM totals t
       JOIN payroll_employees pe ON pe.id = t.employee_id AND pe.company_id = ${companyId}::uuid
      ORDER BY pe.last_name, pe.first_name, pe.employee_number

@@ -47,6 +47,7 @@
 import { UsageError, formatField, isValidPayeRef, isValidSdlRef, isValidUifRef, isValidTaxNumber } from './easyFileFields';
 import { assertIncomeTaxReference, filingDateMessage, validateEmployee } from './easyFileEmployeeChecks';
 import { certificateField } from './easyFileCertificateCodes';
+import { certificateContactLines } from './easyFileContactFields';
 import { lumpSumPayeCode } from './payrollLumpSumFiling';
 import { regularDirectiveFieldLines } from './easyFileRegularDirectives';
 import { validateCertificateTaxFields } from './irp5ValidationEngine';
@@ -227,6 +228,7 @@ function employeeRecord(emp: EmployeeInput): string[] {
     certificateField('taxPeriodEnd', emp.taxPeriodEnd),
     certificateField('payPeriodsInYear', lumpSumOnly ? 1 : emp.payPeriodsInYear),
     certificateField('payPeriodsWorked', lumpSumOnly ? 1 : emp.payPeriodsWorked),
+    ...certificateContactLines(emp), // 3211-3294 addresses, 3240-3245 bank (wave 7 EA2; BRS V25.3.0 pp. 35-46)
     ...directiveFields,
     ...regularDirectiveFieldLines(emp.regularDirectiveNumbers, lumpSums.length, `${emp.firstNames} ${emp.surname}`.trim()),
     ...income,

@@ -34,13 +34,21 @@ import { listPspFilingTotals, pspFilingWarning } from '@/modules/accounting/serv
 import { employerInputOf } from '@/modules/accounting/services/payroll/easyFileEmployerInput';
 import { loadPspCertificates } from '@/modules/accounting/services/payroll/easyFilePspCertificate';
 import { EasyFileInputRefusal, type EasyFileInput } from '@/modules/accounting/services/payroll/easyFileInputTypes';
-import { UNWRITTEN_FIELDS_WARNING } from '@/modules/accounting/services/payroll/easyFileCertificateCodes';
+import { UNWRITTEN_FIELDS_WARNING, UNWRITTEN_FIELDS_WARNING_BANK_WRITTEN } from '@/modules/accounting/services/payroll/easyFileCertificateCodes';
+import { addressFromRow } from '@/modules/accounting/services/payroll/payrollEmployeeAddress';
+import { loadCertificateBankAccounts, type CertificateBankReader } from '@/modules/accounting/services/payroll/easyFileBankAccounts';
 import { filingDateWarning } from '@/modules/accounting/services/payroll/easyFileEmployeeChecks';
 
 export { EasyFileInputRefusal, type EasyFileInput } from '@/modules/accounting/services/payroll/easyFileInputTypes';
 
-/** `kind` 'interim' (wave 6 EFb): March to August only, period code 08; 'annual' is the whole tax year, 02. */
-export async function assembleEasyFileInput(companyId: string, taxYear: number, kind: Emp501Kind = 'annual'): Promise<EasyFileInput> {
+/**
+ * `kind` 'interim' (wave 6 EFb): March to August only, period code 08; 'annual' is the whole tax year, 02.
+ * `bankReader` (wave 7 EA2): the caller of the ad-hoc export; with an owner or admin the certificates carry each bank
+ * account (3240-3245), read and audited per employee (easyFileBankAccounts). Without one (EMP501), none is read.
+ */
+export async function assembleEasyFileInput(
+  companyId: string, taxYear: number, kind: Emp501Kind = 'annual', bankReader?: CertificateBankReader,
+): Promise<EasyFileInput> {
   const period = emp501Period(taxYear, kind);
   const { startMonth, startYear, endMonth, endYear } = period;
   // Monthly-only certificates this wave (#1622 x EFb #1568): a tax year with an approved weekly or fortnightly run is
@@ -76,7 +84,12 @@ export async function assembleEasyFileInput(companyId: string, taxYear: number, 
       WHERE id = ${companyId}::uuid
     ` as Promise<DbRow[]>,
     sql`
-      SELECT id, first_name, last_name, id_number, tax_number, start_date, end_date, date_of_birth
+      SELECT id, first_name, last_name, id_number, tax_number, start_date, end_date, date_of_birth,
+             -- Wave 7 EA2: the address (EA1, migration 1056), written as 3211-3217, 3285, 3279, 3288-3294.
+             residential_unit_number, residential_complex, residential_street_number, residential_street,
+             residential_suburb, residential_city, residential_postal_code, residential_country_code,
+             postal_same_as_residential, postal_address_line1, postal_address_line2, postal_address_line3,
+             postal_address_line4, postal_address_code, postal_address_country_code
       FROM   payroll_employees
       WHERE  company_id = ${companyId}::uuid
       ORDER  BY last_name, first_name
@@ -199,6 +212,7 @@ export async function assembleEasyFileInput(companyId: string, taxYear: number, 
     const { start: periodStart, end: periodEnd } = taxPeriod;
 
     const certificateNumber = buildCertificateNumber(payeRef, taxYear, period.mm, seq);
+    const address = addressFromRow(row);
     certificateEmployees.push({ certificateNumber, employeeId: String(row.id) });
     employees.push({
       certificateNumber,
@@ -237,8 +251,15 @@ export async function assembleEasyFileInput(companyId: string, taxYear: number, 
       uifEmployee: Number(agg.total_uif_emp ?? 0),
       uifEmployer: Number(agg.total_uif_empr ?? 0),
       sdl4142: Number(agg.total_sdl ?? 0),
+      ...(address ? { address } : {}), // absent, never null: see EmployeeInput.address
     });
   }
+
+  // Wave 7 EA2: each certificate's bank account, only for an owner's or admin's own export (audited per employee).
+  const names = new Map(empRows.map((r) => [String(r.id), `${String(r.first_name ?? '')} ${String(r.last_name ?? '')}`.trim()]));
+  const bank = await loadCertificateBankAccounts(companyId, certificateEmployees.map((c) => ({ id: c.employeeId, name: names.get(c.employeeId) ?? '' })), bankReader);
+  certificateEmployees.forEach((c, i) => { const account = bank.byEmployee.get(c.employeeId); if (account) employees[i]!.bankAccount = account; });
+  warnings.push(...bank.warnings);
 
   // Wave 6 PSP-H: each PSP with its particulars gets its own H certificate, numbered after these; one without stays off, named.
   // Never in certificateEmployees: an H certificate is the entity's, so the employee portal never shows it to the person.
@@ -260,7 +281,7 @@ export async function assembleEasyFileInput(companyId: string, taxYear: number, 
   // The file-wide notices (wave 6 EZF) come after the capped list, outside the cap: two fixed, short lines (too early to
   // file, BRS p. 32; the fields IsaFlow does not hold), so the per-employee warnings keep the whole header budget.
   const early = filingDateWarning([...employees, ...pspCertificates.map((c) => ({ taxPeriodEnd: c.periodEnd }))], new Date());
-  const notices = [...(early ? [early] : []), UNWRITTEN_FIELDS_WARNING];
+  const notices = [...(early ? [early] : []), bank.written ? UNWRITTEN_FIELDS_WARNING_BANK_WRITTEN : UNWRITTEN_FIELDS_WARNING];
   const warningsTotal = warnings.length + notices.length;
   warnings.splice(0, warnings.length, ...capWarningsForHeader(warnings), ...notices);
 

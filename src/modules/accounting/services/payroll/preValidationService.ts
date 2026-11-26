@@ -17,7 +17,7 @@ import { sql } from '@/lib/neon';
 import { currentPayeTaxYear } from '@/modules/accounting/utils/payeTaxYearToday';
 import { payeTaxYearOf } from '@/modules/accounting/utils/payeTaxYear';
 import { unflaggedFringeWarning } from '@/modules/accounting/services/payroll/payrollNonCashFiling';
-import { loadFinalLineTotals, loadSeveranceDirectives } from '@/modules/accounting/services/payroll/preValidationReads';
+import { loadFinalLineTotals, loadSeveranceDirectives, type PreValidationRow } from '@/modules/accounting/services/payroll/preValidationReads';
 import { listSarsCodes } from '@/modules/accounting/services/payroll/sarsCodesService';
 import {
   highestSeverity, validateEmployeeIrp5, type ValidationMessage, type ValidationSeverity,
@@ -64,7 +64,24 @@ export function fixFor(employeeId: string, m: ValidationMessage): { fixHref: str
   if (m.field === 'tax_number') return { fixHref: `${profile}#employee-tax-number`, fixLabel: 'Tax number' };
   if (m.field === 'id_number') return { fixHref: `${profile}#employee-id-number`, fixLabel: 'ID number' };
   if (m.code === 'IRP5_SEVERANCE_WITHOUT_DIRECTIVE') return { fixHref: '/payroll/tax-directives', fixLabel: 'Tax directives' };
+  if (m.code === 'IRP5_ADDRESS_MISSING') return { fixHref: `${profile}#employee-address`, fixLabel: 'Address' };
+  if (m.code === 'IRP5_BANK_MISSING') return { fixHref: `${profile}#employee-bank`, fixLabel: 'Bank details' };
   return { fixHref: `${profile}#employee-pay`, fixLabel: 'Pay components' };
+}
+
+/**
+ * Wave 7 EA2 (Hein's ruling 10: pre-validation names missing ones; warn, never refuse): the certificate's address and
+ * bank fields come from the employee record. SARS BRS PAYE Employer Reconciliation V25.3.0: 3214 street and 3285
+ * country "Mandatory" (pp. 35-36), 3279 / 3288 "Mandatory" (p. 37); 3240 account type "Mandatory" (p. 45), 0 = "Not
+ * paid by electronic bank transfer".
+ */
+export function contactGaps(row: Pick<PreValidationRow, 'has_address' | 'has_bank'>): ValidationMessage[] {
+  return [
+    ...(row.has_address ? [] : [{ severity: 'warning' as const, code: 'IRP5_ADDRESS_MISSING', field: 'address',
+      message: 'No residential address captured: e@syFile needs it on the IRP5 (codes 3214-3217, 3285, 3279, 3288)' }]),
+    ...(row.has_bank ? [] : [{ severity: 'warning' as const, code: 'IRP5_BANK_MISSING', field: 'bank',
+      message: 'No bank account captured: e@syFile needs it on the IRP5 (codes 3240-3246), or 3240 = 0 if paid in cash' }]),
+  ];
 }
 
 const RANK: Record<ValidationSeverity, number> = { error: 0, warning: 1, info: 2 };
@@ -119,6 +136,7 @@ export async function preValidateTaxYear(companyId: string, scope: PreValidation
     if (unflagged !== 0) {
       engine.push({ severity: 'warning', code: 'IRP5_3801_PAID_IN_CASH', field: 'gross', message: unflaggedFringeWarning(name, unflagged) });
     }
+    engine.push(...contactGaps(row));
     // Info lines (e.g. "no payroll") are not issues: an employee with only those is not listed or counted.
     const messages = engine.filter((m) => m.severity !== 'info');
     if (messages.length === 0) continue;
