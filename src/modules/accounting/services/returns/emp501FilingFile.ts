@@ -82,13 +82,17 @@ export async function downloadEmp501File(
   // served from exactly the rows its filing pinned (emp501BankPin), or as stored when it has no pin; otherwise the
   // active rows.
   const pinned = file.filed && f.bankOverlay === 1 ? await filedBankPin(companyId, { id: versionId }) : undefined;
-  if (pinned === null) {
-    // markReturnFiled writes exactly one pin for a version with the marker: none, or more than one, is tampering.
-    log.error('EMP501 filed version has no single bank pin; not served', { companyId, versionId }, 'emp501-returns');
+  if (pinned === 'tampered') {
+    // markReturnFiled writes exactly one pin for a version with the marker: more than one (or an unreadable one) is tampering.
+    log.error('EMP501 filed version has more than one bank pin; not served', { companyId, versionId }, 'emp501-returns');
     throw new ReturnRefusal(409, 'This filed return\'s record of the bank details it carried is missing or ambiguous, so its '
       + 'filing file cannot be re-served. Contact support.', FILED_BANK_PIN_INVALID);
   }
-  const served = f.bankOverlay === 1
+  if (pinned === 'none') {
+    // Filed through the previous colour's markReturnFiled (no pin): what it filed carried no bank field.
+    log.warn('EMP501 filed version has no bank pin; served as stored', { companyId, versionId }, 'emp501-returns');
+  }
+  const served = f.bankOverlay === 1 && pinned !== 'none'
     ? await withLiveBankAccounts(companyId, file.body, f.certificateEmployees, names, bankReader, pinned)
     : { body: file.body, rowIds: null };
   const body = served.body;

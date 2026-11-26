@@ -70,11 +70,12 @@ export async function emp501FilingPin(companyId: string, v: ReturnVersion): Prom
 }
 
 /**
- * A filed version's pinned rows, from the filed audit row bound by the version's filed_at; null unless exactly ONE such
- * row holds a readable pin. For a version carrying bankOverlay, markReturnFiled always writes exactly one, so null there
- * means tampering: the caller refuses and logs (emp501FilingFile).
+ * A filed version's pinned rows, from the filed audit row bound by the version's filed_at. `none`: no such row (a
+ * version finalised by this release but filed through the previous colour's markReturnFiled, which wrote no pin): the
+ * caller serves the stored bytes. `tampered`: more than one, or one whose pin cannot be read: markReturnFiled writes
+ * exactly one, so the caller refuses and logs (emp501FilingFile).
  */
-export async function filedBankPin(companyId: string, v: Pick<ReturnVersion, 'id'>): Promise<BankPin | null> {
+export async function filedBankPin(companyId: string, v: Pick<ReturnVersion, 'id'>): Promise<BankPin | 'none' | 'tampered'> {
   // filed_at read in SQL, to the microsecond (a JS Date keeps milliseconds only).
   const rows = (await sql`
     SELECT a.changes FROM audit_log a
@@ -83,6 +84,7 @@ export async function filedBankPin(companyId: string, v: Pick<ReturnVersion, 'id
       AND t.status = 'filed' AND a.action = 'update' AND a.created_at = t.filed_at
       AND (a.changes -> 'metadata' ->> 'bankRows') IS NOT NULL
   `) as DbRow[];
-  if (rows.length !== 1) return null;
-  return pinOf((rows[0]!.changes as { metadata?: Record<string, unknown> }).metadata?.bankRows);
+  if (rows.length === 0) return 'none';
+  if (rows.length > 1) return 'tampered';
+  return pinOf((rows[0]!.changes as { metadata?: Record<string, unknown> }).metadata?.bankRows) ?? 'tampered';
 }

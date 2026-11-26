@@ -373,6 +373,32 @@ describe('e@syFile addresses and bank accounts (wave 7 EA2)', () => {
       expect((await audits(a)).length).toBe(before);
     });
 
+    it('a marked version filed with NO pin (the previous colour filed it) is served as stored: no 324x line, served = stored', async () => {
+      const sha = (t: string) => createHash('sha256').update(t, 'utf8').digest('hex');
+      const figures = (await a.pool.query('SELECT figures FROM tax_return_versions WHERE id = $1', [versionId])).rows[0]!.figures;
+      expect(figures.bankOverlay).toBe(1);
+      const oldColourId = String((await a.pool.query(
+        `INSERT INTO tax_return_versions (company_id, form_type, period_start, period_end, version_no, figures, posted_through,
+           finalised_by, status, filed_at, filed_by)
+         VALUES ($1, 'EMP501', '2021-03-01', '2022-02-28', 1, $2, now(), 'fixture', 'filed', clock_timestamp(), 'fixture') RETURNING id`,
+        [a.company, JSON.stringify(figures)])).rows[0]!.id);
+      const req = request({ 'sb-access-token': a.tokens[a.approver]!, active_company_id: a.company }, 'POST') as unknown as { url: string; body: unknown };
+      req.url = '/api/payroll/emp501/returns/filing-file';
+      req.body = { versionId: oldColourId, format: 'irp5' };
+      const out = response();
+      await (filingFile as unknown as (q: unknown, s: NextApiResponse) => Promise<void>)(req, out.res);
+      expect((out.state as unknown as { statusCode: number }).statusCode).toBe(200);
+      const body = String((out.state as unknown as { body: unknown }).body);
+      expect(body).not.toMatch(/^324[0-6],/m);
+      expect(out.headers.get('x-filing-file-served-sha256')).toBe(sha(body));
+      expect(out.headers.get('x-filing-file-stored-sha256')).toBe(sha(body));
+      const dl = (await a.pool.query(`SELECT changes FROM audit_log WHERE company_id = $1 AND entity_type = 'tax_return_version'
+        AND action = 'export' AND entity_id = $2`, [a.company, oldColourId])).rows;
+      expect(dl).toHaveLength(1);
+      expect(dl[0]!.changes.metadata).toMatchObject({ liveBankFields: 'false', servedSha256: sha(body) });
+      expect(dl[0]!.changes.metadata.bankRows).toBeUndefined();
+    });
+
     it('a filed version with a second (forged) pin row is refused 409 and logged, never served', async () => {
       const row = (await a.pool.query(`SELECT user_id, changes FROM audit_log WHERE company_id = $1 AND entity_type = 'tax_return_version'
         AND entity_id = $2 AND action = 'update' AND changes -> 'metadata' ->> 'bankRows' IS NOT NULL`, [a.company, versionId])).rows[0]!;
