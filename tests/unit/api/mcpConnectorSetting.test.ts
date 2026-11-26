@@ -20,9 +20,9 @@ vi.mock('@/lib/neon', () => ({ sql: vi.fn(async () => []) }));
 vi.mock('@/lib/mcp/connectorSetting', () => ({ getConnectorSetting: getMock, setConnectorSelfServe: setMock }));
 vi.mock('@/modules/accounting/services/core/auditTrailService', () => ({ logAuditOrThrow: auditMock }));
 
-import handler, { LOCKED_BY_PLATFORM_MESSAGE } from '../../../pages/api/accounting/mcp-connector-setting';
+import handler, { COMPANY_CHANGED_MESSAGE, LOCKED_BY_PLATFORM_MESSAGE } from '../../../pages/api/accounting/mcp-connector-setting';
 
-const C = '11111111-1111-4111-8111-111111111111';
+const C = 'abcdef12-1111-4111-8111-111111111111'; // letters, so an uppercase spelling differs
 
 async function call(method: string, role: string | undefined, body: unknown = undefined) {
   const req = {
@@ -47,7 +47,7 @@ beforeEach(() => {
 
 describe('POST: who may switch it', () => {
   it.each(['owner', 'admin'])('%s: 200, the service gets req.companyId, one audit row with old/new and the actor', async (role) => {
-    const res = await call('POST', role, { enabled: true });
+    const res = await call('POST', role, { enabled: true, companyId: C });
     expect(res.statusCode).toBe(200);
     expect(setMock).toHaveBeenCalledWith(C, true);
     expect(auditMock).toHaveBeenCalledTimes(1);
@@ -58,11 +58,11 @@ describe('POST: who may switch it', () => {
     });
     expect(a.changes.fields).toEqual([{ field: 'enabled', old: 'false', new: 'true', label: 'MCP connector' }]);
     expect(a.changes.metadata).toEqual({ event: 'company_feature.override_set', set_via: 'company_admin', previous_set_via: 'company_admin' });
-    expect(res.sent.data).toEqual({ enabled: true, lockedByPlatform: false, canToggle: true });
+    expect(res.sent.data).toEqual({ companyId: C, enabled: true, lockedByPlatform: false, canToggle: true });
   });
 
   it.each(['manager', 'viewer', 'member', undefined])('%s: 403 and the service is never called', async (role) => {
-    const res = await call('POST', role, { enabled: true });
+    const res = await call('POST', role, { enabled: true, companyId: C });
     expect(res.statusCode).toBe(403);
     expect(setMock).not.toHaveBeenCalled();
     expect(auditMock).not.toHaveBeenCalled();
@@ -70,20 +70,29 @@ describe('POST: who may switch it', () => {
 
   it('missing CSRF: 403, the service is never called', async () => {
     csrfMock.mockReturnValue(false);
-    const res = await call('POST', 'owner', { enabled: true });
+    const res = await call('POST', 'owner', { enabled: true, companyId: C });
     expect(res.statusCode).toBe(403);
     expect(setMock).not.toHaveBeenCalled();
   });
 });
 
 describe('POST: the company is always the session company', () => {
-  it('a body naming companyId is 400 and never reaches the service', async () => {
+  it('a page still showing another company (active company switched in another tab): 409, never reaches the service', async () => {
     const res = await call('POST', 'owner', { enabled: true, companyId: '22222222-2222-4222-8222-222222222222' });
-    expect(res.statusCode).toBe(400);
+    expect(res.statusCode).toBe(409);
+    expect(JSON.stringify(res.sent)).toContain(COMPANY_CHANGED_MESSAGE);
     expect(setMock).not.toHaveBeenCalled();
+    expect(auditMock).not.toHaveBeenCalled();
   });
 
-  it.each([[{}], [{ enabled: 'true' }], [undefined]])('body %j is 400', async (body) => {
+  it('the same company in another spelling (uppercase) is the session company: 200, the service gets req.companyId', async () => {
+    const res = await call('POST', 'owner', { enabled: true, companyId: C.toUpperCase() });
+    expect(res.statusCode).toBe(200);
+    expect(setMock).toHaveBeenCalledWith(C, true);
+  });
+
+  it.each([[{}], [{ enabled: 'true', companyId: C }], [{ enabled: true }], [{ enabled: true, companyId: 'nope' }],
+    [{ enabled: true, companyId: C, other: 1 }], [undefined]])('body %j is 400', async (body) => {
     expect((await call('POST', 'owner', body)).statusCode).toBe(400);
     expect(setMock).not.toHaveBeenCalled();
   });
@@ -92,7 +101,7 @@ describe('POST: the company is always the session company', () => {
 describe('POST: what the SQL function answers', () => {
   it('locked (a platform admin switched it off): 409 with the exact sentence, no audit', async () => {
     setMock.mockResolvedValue({ result: 'locked', wasEnabled: false, wasSetVia: 'platform_admin' });
-    const res = await call('POST', 'owner', { enabled: true });
+    const res = await call('POST', 'owner', { enabled: true, companyId: C });
     expect(res.statusCode).toBe(409);
     expect(JSON.stringify(res.sent)).toContain('Switched off by IsaFlow. Contact IsaFlow support.');
     expect(LOCKED_BY_PLATFORM_MESSAGE).toBe('Switched off by IsaFlow. Contact IsaFlow support.');
@@ -101,14 +110,14 @@ describe('POST: what the SQL function answers', () => {
 
   it('unchanged: 200, no audit', async () => {
     setMock.mockResolvedValue({ result: 'unchanged', wasEnabled: true, wasSetVia: 'default_new_company' });
-    const res = await call('POST', 'admin', { enabled: true });
+    const res = await call('POST', 'admin', { enabled: true, companyId: C });
     expect(res.statusCode).toBe(200);
     expect(auditMock).not.toHaveBeenCalled();
   });
 
   it('forbidden from SQL (claims disagree with the wrapper): 403, no audit', async () => {
     setMock.mockResolvedValue({ result: 'forbidden', wasEnabled: null, wasSetVia: null });
-    const res = await call('POST', 'owner', { enabled: false });
+    const res = await call('POST', 'owner', { enabled: false, companyId: C });
     expect(res.statusCode).toBe(403);
     expect(auditMock).not.toHaveBeenCalled();
   });
@@ -116,7 +125,7 @@ describe('POST: what the SQL function answers', () => {
   it('switching OFF a company with no row: old is null, previous_set_via none', async () => {
     setMock.mockResolvedValue({ result: 'ok', wasEnabled: null, wasSetVia: null });
     getMock.mockResolvedValue({ enabled: false, lockedByPlatform: false });
-    const res = await call('POST', 'owner', { enabled: false });
+    const res = await call('POST', 'owner', { enabled: false, companyId: C });
     expect(res.statusCode).toBe(200);
     const a = auditMock.mock.calls[0]![0];
     expect(a.changes.fields[0]).toMatchObject({ old: null, new: 'false' });
@@ -125,7 +134,7 @@ describe('POST: what the SQL function answers', () => {
 
   it('an audit write that fails fails the request (the write rolls back with it)', async () => {
     auditMock.mockRejectedValue(new Error('audit down'));
-    await expect(call('POST', 'owner', { enabled: true })).rejects.toThrow('audit down');
+    await expect(call('POST', 'owner', { enabled: true, companyId: C })).rejects.toThrow('audit down');
   });
 });
 
@@ -133,7 +142,7 @@ describe('GET', () => {
   it('a viewer reads the state with canToggle false', async () => {
     const res = await call('GET', 'viewer');
     expect(res.statusCode).toBe(200);
-    expect(res.sent.data).toEqual({ enabled: true, lockedByPlatform: false, canToggle: false });
+    expect(res.sent.data).toEqual({ companyId: C, enabled: true, lockedByPlatform: false, canToggle: false });
     expect(getMock).toHaveBeenCalledWith(C);
     expect(setMock).not.toHaveBeenCalled();
   });
@@ -141,7 +150,7 @@ describe('GET', () => {
   it('shows lockedByPlatform', async () => {
     getMock.mockResolvedValue({ enabled: false, lockedByPlatform: true });
     const res = await call('GET', 'owner');
-    expect(res.sent.data).toEqual({ enabled: false, lockedByPlatform: true, canToggle: true });
+    expect(res.sent.data).toEqual({ companyId: C, enabled: false, lockedByPlatform: true, canToggle: true });
   });
 
   it('other methods: 405', async () => {

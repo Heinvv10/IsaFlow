@@ -11,6 +11,9 @@ import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { Toggle } from '@/components/accounting/settings/settingsTypes';
 
 export interface McpConnectorState {
+  /** The company this state was loaded for. The POST names it, so a page left open after the active company was
+   * switched in another tab is refused (409) instead of changing the other company. */
+  companyId: string;
   enabled: boolean;
   lockedByPlatform: boolean;
   canToggle: boolean;
@@ -40,7 +43,7 @@ export function McpConnectorSwitch({ state, onChange }: {
       const r = await apiFetch('/api/accounting/mcp-connector-setting', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enabled: next }),
+        body: JSON.stringify({ enabled: next, companyId: state.companyId }),
       });
       await assertOk(r, MCP_SWITCH_COPY.failed);
       const body = (await r.json()) as { data?: McpConnectorState };

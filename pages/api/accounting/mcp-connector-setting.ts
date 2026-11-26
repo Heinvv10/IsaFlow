@@ -1,15 +1,18 @@
 /**
  * GET/POST /api/accounting/mcp-connector-setting: the session company's MCP connector switch.
  *
- * GET (any member): { enabled, lockedByPlatform, canToggle }.
- * POST { enabled: boolean } (owner or admin of the session company; CSRF): switches it through
+ * GET (any member): { companyId, enabled, lockedByPlatform, canToggle } for the session company.
+ * POST { enabled: boolean, companyId } (owner or admin of the session company; CSRF): switches it through
  * mcp_connector_self_serve_set (migration 1058), which checks the session company and the role again in SQL. The
- * company is always req.companyId: a body naming any other field (companyId included) is 400. Answers: 200 the
- * GET payload; 400 bad body; 403 role (or the SQL function refused); 409 switched off by IsaFlow (a platform
- * admin's OFF is a lock owners cannot lift). A real change writes one audit_log row in the request transaction.
+ * company written is always req.companyId; companyId in the body is the company the page showed, and a page left
+ * open on another company (the active company was switched in another tab) is refused with 409, not applied to
+ * the new one. Answers: 200 the GET payload; 400 bad body; 403 role (or the SQL function refused); 409 the page
+ * shows another company, or switched off by IsaFlow (a platform admin's OFF is a lock owners cannot lift). A real
+ * change writes one audit_log row in the request transaction.
  * Precedence: src/lib/mcp/connectorSetting.ts.
  */
 import { z } from 'zod';
+import { UUID } from '@/lib/schemas/common';
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
@@ -21,11 +24,13 @@ import { getConnectorSetting, setConnectorSelfServe } from '@/lib/mcp/connectorS
 import { logAuditOrThrow } from '@/modules/accounting/services/core/auditTrailService';
 
 export const LOCKED_BY_PLATFORM_MESSAGE = 'Switched off by IsaFlow. Contact IsaFlow support.';
+export const COMPANY_CHANGED_MESSAGE =
+  'You switched to another company since this page loaded, so nothing was changed. Reload the page to see that company\'s setting.';
 
-const Body = z.object({ enabled: z.boolean() }).strict();
+const Body = z.object({ enabled: z.boolean(), companyId: UUID }).strict();
 
 async function payload(companyId: string, role: string) {
-  return { ...(await getConnectorSetting(companyId)), canToggle: isFullAccessRole(role) };
+  return { companyId, ...(await getConnectorSetting(companyId)), canToggle: isFullAccessRole(role) };
 }
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
@@ -34,7 +39,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET', 'POST']);
 
   const parsed = Body.safeParse(req.body ?? {});
-  if (!parsed.success) return apiResponse.badRequest(res, 'Send { enabled: true } or { enabled: false } only.');
+  if (!parsed.success) return apiResponse.badRequest(res, 'Send { enabled, companyId } only.');
+  if (parsed.data.companyId.toLowerCase() !== companyId.toLowerCase()) return apiResponse.conflict(res, COMPANY_CHANGED_MESSAGE);
 
   const outcome = await setConnectorSelfServe(companyId, parsed.data.enabled);
   if (outcome.result === 'forbidden') return apiResponse.forbidden(res, 'Only a company owner or admin can change this.');

@@ -108,19 +108,23 @@ describe('1058: both platform-admin writes take the toggle advisory key', () => 
     feature = (await fixture.query(`SELECT id::text AS id FROM feature_flags WHERE code = 'mcp_connector'`)).rows[0].id as string;
   });
 
-  it('setCompanyFeatureOverride (OFF, no override row exists) waits for the key, then writes a platform_admin OFF', async () => {
+  // The key holder uses PostgreSQL's canonical text (as the toggle's p_company::text does); the admin id may arrive
+  // in any spelling that names the same uuid, and must name the same lock.
+  it.each([['lowercase', (id: string) => id], ['UPPERCASE', (id: string) => id.toUpperCase()],
+    ['unhyphenated', (id: string) => id.replace(/-/g, '')]] as const)(
+  'setCompanyFeatureOverride (OFF, no override row exists, %s id) waits for the key, then writes a platform_admin OFF', async (_, spell) => {
     await waitsForKey(
       async (c) => { await c.query(`DELETE FROM company_feature_overrides WHERE company_id = $1`, [ids.company]); },
-      () => setCompanyFeatureOverride(ids.company, feature, false, 'compliance', ids.admin),
+      () => setCompanyFeatureOverride(spell(ids.company), feature, false, 'compliance', ids.admin),
       async (q) => { expect(await override(q, ids.company)).toEqual([{ enabled: false, set_via: 'platform_admin' }]); },
     );
   });
 
-  it('removeCompanyFeatureOverride waits for the key, then removes the row', async () => {
+  it('removeCompanyFeatureOverride (UPPERCASE id) waits for the key, then removes the row', async () => {
     let removed: boolean | null = null;
     await waitsForKey(
       async () => undefined,
-      async () => { removed = await removeCompanyFeatureOverride(ids.company, feature); },
+      async () => { removed = await removeCompanyFeatureOverride(ids.company.toUpperCase(), feature); },
       async (q) => { expect(await override(q, ids.company)).toEqual([]); },
     );
     expect(removed).toBe(true);

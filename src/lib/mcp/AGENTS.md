@@ -146,7 +146,11 @@ hashArgs(args): string   // sha256 of key-sorted canonical JSON; bounded like ha
   new companies only, never overwriting, no backfill. Owners and admins switch it
   with `mcp_connector_self_serve_set` (`connectorSetting.ts`, route
   `pages/api/accounting/mcp-connector-setting.ts`): session company only, role
-  checked in the route and in SQL, audited. A platform admin's OFF
+  checked in the route and in SQL, audited. The POST names the company the page
+  loaded (`companyId`); a different one (active company switched in another tab)
+  is 409 and writes nothing. Every writer of the row takes the advisory key on the
+  canonical uuid text; the toggle still re-decides if an unkeyed (pre-1058) write
+  changes the row under it. A platform admin's OFF
   (`set_via` NULL or `platform_admin`) is a lock owners cannot lift; owners can
   always switch it off. Switching off revokes no token: the transport checks
   `hasFeature` on every call, so tokens stop at once and work again if it is

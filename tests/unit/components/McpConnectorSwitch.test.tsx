@@ -11,7 +11,8 @@ import { McpConnectorSwitch, MCP_SWITCH_COPY, type McpConnectorState } from '@/c
 afterEach(cleanup);
 beforeEach(() => { vi.mocked(apiFetch).mockReset(); });
 
-const OWNER_OFF: McpConnectorState = { enabled: false, lockedByPlatform: false, canToggle: true };
+const CO = '11111111-1111-4111-8111-111111111111';
+const OWNER_OFF: McpConnectorState = { companyId: CO, enabled: false, lockedByPlatform: false, canToggle: true };
 
 describe('McpConnectorSwitch', () => {
   it('owner: an enabled switch that POSTs { enabled: true } and takes the answer', async () => {
@@ -26,11 +27,12 @@ describe('McpConnectorSwitch', () => {
     const [url, init] = vi.mocked(apiFetch).mock.calls[0]!;
     expect(url).toBe('/api/accounting/mcp-connector-setting');
     expect(init?.method).toBe('POST');
-    expect(JSON.parse(String(init?.body))).toEqual({ enabled: true });
+    // The company the state was loaded for: the server refuses it if the active company has changed since.
+    expect(JSON.parse(String(init?.body))).toEqual({ enabled: true, companyId: CO });
   });
 
   it('viewer: disabled, with the reason, and never POSTs', () => {
-    render(<McpConnectorSwitch state={{ enabled: true, lockedByPlatform: false, canToggle: false }} onChange={vi.fn()} />);
+    render(<McpConnectorSwitch state={{ companyId: CO, enabled: true, lockedByPlatform: false, canToggle: false }} onChange={vi.fn()} />);
     expect(screen.getByRole('switch')).toBeDisabled();
     expect(screen.getByText(MCP_SWITCH_COPY.notOwner)).toBeTruthy();
     fireEvent.click(screen.getByRole('switch'));
@@ -38,13 +40,13 @@ describe('McpConnectorSwitch', () => {
   });
 
   it('locked by a platform admin: disabled for the owner, with the IsaFlow sentence', () => {
-    render(<McpConnectorSwitch state={{ enabled: false, lockedByPlatform: true, canToggle: true }} onChange={vi.fn()} />);
+    render(<McpConnectorSwitch state={{ companyId: CO, enabled: false, lockedByPlatform: true, canToggle: true }} onChange={vi.fn()} />);
     expect(screen.getByRole('switch')).toBeDisabled();
     expect(screen.getByText('Switched off by IsaFlow. Contact IsaFlow support.')).toBeTruthy();
   });
 
   it('shows the consent note, and the switch-off effect when on', () => {
-    render(<McpConnectorSwitch state={{ enabled: true, lockedByPlatform: false, canToggle: true }} onChange={vi.fn()} />);
+    render(<McpConnectorSwitch state={{ companyId: CO, enabled: true, lockedByPlatform: false, canToggle: true }} onChange={vi.fn()} />);
     expect(screen.getByText('Each person still approves access in the sign-in window. Write permissions start unticked.')).toBeTruthy();
     expect(screen.getByText(/Connected assistants stop working straight away/)).toBeTruthy();
   });

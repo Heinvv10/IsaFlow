@@ -157,10 +157,12 @@ export async function getCompanyEffectiveFeatures(
  * Migration 1058: when `featureId` is mcp_connector, take the advisory key mcp_connector_self_serve_set takes,
  * so a platform-admin write and an owner's toggle of the same company never interleave (the toggle holds no
  * row lock). Its own statement, run first, inside the caller's transaction: it lasts until that commits.
+ * The id goes through uuid first, so the key is PostgreSQL's canonical text (lowercase, hyphenated), as the
+ * toggle's `p_company::text` is: an uppercase or unhyphenated id names the same row and must name the same lock.
  */
 async function lockMcpConnectorRow(tx: TxSql, companyId: string, featureId: string): Promise<void> {
   await tx`
-    SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('mcp_connector_self_serve:' || ${companyId}::text, 0))
+    SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('mcp_connector_self_serve:' || ${companyId}::uuid::text, 0))
       FROM feature_flags
      WHERE id = ${featureId}::uuid AND code = 'mcp_connector'
   `;

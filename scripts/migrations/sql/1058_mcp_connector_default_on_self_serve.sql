@@ -286,6 +286,8 @@ DECLARE
   v_had boolean := false;
   v_was boolean;
   v_was_via text;
+  v_raw_via text;
+  v_try int;
 BEGIN
   IF v_uid IS NULL OR v_uid = '' OR p_company IS NULL OR p_enabled IS NULL THEN
     RETURN QUERY SELECT 'forbidden'::text, NULL::boolean, NULL::text; RETURN;
@@ -309,31 +311,45 @@ BEGIN
   -- advisory lock above is the serialisation: every application writer of this row takes it first (this
   -- function, and both platform-admin writes in featureFlagService), so no other write can land between this
   -- read and the DELETE + INSERT below, and this read (a fresh READ COMMITTED snapshot) sees every write committed
-  -- before it. Not serialised, and harmless: enable_mcp_connector_default (a company no other session can see
-  -- yet), pre-1058 code during the deploy window, and the dev-only scripts/sandbox reviewer script.
-  SELECT o.enabled, COALESCE(o.set_via, 'platform_admin') INTO v_was, v_was_via
-    FROM public.company_feature_overrides o
-   WHERE o.company_id = p_company AND o.feature_id = v_feature;
-  v_had := FOUND;
+  -- before it. Not serialised: enable_mcp_connector_default (a company no other session can see yet), the
+  -- dev-only scripts/sandbox reviewer script, and pre-1058 code (blue/green overlap, a code-only rollback), whose
+  -- platform-admin upsert takes no key. So the write never trusts the read: the DELETE matches only the row as
+  -- read (state and provenance), the INSERT never overwrites, and either one finding anything else sends the
+  -- decision back to a fresh read. A platform OFF that lands meanwhile is therefore seen, and kept.
+  FOR v_try IN 1..5 LOOP
+    SELECT o.enabled, o.set_via INTO v_was, v_raw_via
+      FROM public.company_feature_overrides o
+     WHERE o.company_id = p_company AND o.feature_id = v_feature;
+    v_had := FOUND;
+    v_was_via := CASE WHEN v_had THEN COALESCE(v_raw_via, 'platform_admin') END;
 
-  IF v_had THEN
-    -- The compliance lock: a platform admin's OFF (set_via NULL reads as platform_admin) cannot be switched on here.
-    IF p_enabled AND NOT v_was AND v_was_via = 'platform_admin' THEN
-      RETURN QUERY SELECT 'locked'::text, v_was, v_was_via; RETURN;
+    IF v_had THEN
+      -- The compliance lock: a platform admin's OFF (set_via NULL reads as platform_admin) cannot be switched on here.
+      IF p_enabled AND NOT v_was AND v_was_via = 'platform_admin' THEN
+        RETURN QUERY SELECT 'locked'::text, v_was, v_was_via; RETURN;
+      END IF;
+      IF v_was = p_enabled THEN
+        RETURN QUERY SELECT 'unchanged'::text, v_was, v_was_via; RETURN;
+      END IF;
+      -- DELETE + INSERT, never UPDATE: every UPDATE of this table is stamped platform_admin by the trigger.
+      DELETE FROM public.company_feature_overrides
+       WHERE company_id = p_company AND feature_id = v_feature
+         AND enabled = v_was AND set_via IS NOT DISTINCT FROM v_raw_via;
+      CONTINUE WHEN NOT FOUND;
     END IF;
-    IF v_was = p_enabled THEN
-      RETURN QUERY SELECT 'unchanged'::text, v_was, v_was_via; RETURN;
+
+    INSERT INTO public.company_feature_overrides (company_id, feature_id, enabled, reason, set_by, set_via, created_at)
+    VALUES (p_company, v_feature, p_enabled,
+            CASE WHEN p_enabled THEN 'Switched on by a company owner or admin' ELSE 'Switched off by a company owner or admin' END,
+            v_uid::uuid, 'company_admin', pg_catalog.now())
+    ON CONFLICT (company_id, feature_id) DO NOTHING;
+    IF FOUND THEN
+      RETURN QUERY SELECT 'ok'::text, v_was, v_was_via; RETURN;
     END IF;
-    -- DELETE + INSERT, never UPDATE: every UPDATE of this table is stamped platform_admin by the trigger.
-    DELETE FROM public.company_feature_overrides WHERE company_id = p_company AND feature_id = v_feature;
-  END IF;
+  END LOOP;
 
-  INSERT INTO public.company_feature_overrides (company_id, feature_id, enabled, reason, set_by, set_via, created_at)
-  VALUES (p_company, v_feature, p_enabled,
-          CASE WHEN p_enabled THEN 'Switched on by a company owner or admin' ELSE 'Switched off by a company owner or admin' END,
-          v_uid::uuid, 'company_admin', pg_catalog.now());
-
-  RETURN QUERY SELECT 'ok'::text, v_was, v_was_via;
+  RAISE EXCEPTION 'mcp_connector_self_serve_set: the MCP connector setting kept changing; try again'
+    USING ERRCODE = '40001';
 END;
 $$;
 ALTER FUNCTION public.mcp_connector_self_serve_set(uuid, boolean) OWNER TO migration_admin;

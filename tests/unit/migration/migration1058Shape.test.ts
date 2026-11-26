@@ -104,7 +104,7 @@ describe('1058: mcp_connector_self_serve_set', () => {
 
   it('keeps the platform-admin OFF lock and never UPDATEs', () => {
     expect(b).toContain("IF p_enabled AND NOT v_was AND v_was_via = 'platform_admin' THEN");
-    expect(b).toContain("COALESCE(o.set_via, 'platform_admin')");
+    expect(b).toContain("v_was_via := CASE WHEN v_had THEN COALESCE(v_raw_via, 'platform_admin') END;");
     expect(b).toContain("'locked'::text");
     expect(stripComments(b)).not.toMatch(/\bUPDATE\b/);
     expect(b).toContain("'company_admin'");
@@ -113,9 +113,13 @@ describe('1058: mcp_connector_self_serve_set', () => {
     // platform-admin writes. No row lock: FOR SHARE / FOR UPDATE need UPDATE privilege, which migration_admin
     // (the owner) is not given (the integration suite runs it with UPDATE revoked).
     const lock = b.indexOf("pg_catalog.hashtextextended('mcp_connector_self_serve:' || p_company::text, 0)");
-    const read = b.indexOf("SELECT o.enabled, COALESCE(o.set_via, 'platform_admin') INTO v_was, v_was_via");
+    const read = b.indexOf('SELECT o.enabled, o.set_via INTO v_was, v_raw_via');
     expect(lock).toBeGreaterThan(-1);
     expect(read).toBeGreaterThan(lock);
+    // Unkeyed writers (pre-1058 code) can change the row after the read: the DELETE matches only the row as read,
+    // the INSERT never overwrites, and a miss goes back to the read (behaviour: mcp-connector-1058-toggle-races).
+    expect(b).toMatch(/AND enabled = v_was AND set_via IS NOT DISTINCT FROM v_raw_via;\s+CONTINUE WHEN NOT FOUND;/);
+    expect(b).toMatch(/ON CONFLICT \(company_id, feature_id\) DO NOTHING;\s+IF FOUND THEN/);
     expect(stripComments(b)).not.toMatch(/\bFOR\s+(SHARE|UPDATE|NO\s+KEY\s+UPDATE|KEY\s+SHARE)\b/);
   });
 });

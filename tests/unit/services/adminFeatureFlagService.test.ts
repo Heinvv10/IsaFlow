@@ -95,7 +95,7 @@ describe('getCompanyEffectiveFeatures', () => {
 describe('setCompanyFeatureOverride', () => {
   beforeEach(() => { vi.mocked(sql).mockReset(); });
 
-  const LOCK = "SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('mcp_connector_self_serve:' || ?::text, 0))";
+  const LOCK = "SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('mcp_connector_self_serve:' || ?::uuid::text, 0))";
   const textOf = (i: number) => (vi.mocked(sql).mock.calls[i]![0] as unknown as string[]).join('?');
 
   it("takes the self-serve advisory key in its own statement, inside one transaction, then upserts stamped platform_admin", async () => {
