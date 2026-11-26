@@ -171,7 +171,7 @@ export async function withToolSession<T>(
     fnStarted = true;
     const result = await runOwnedContext(txCtx, () => fn(session));
     if (!commit) {
-      const rollback = await rollbackError(db, 'sage-migration');
+      const rollback = await rollbackError(client, 'sage-migration');
       [unusable, rolledBack] = [rollback !== null, true];
       // Checked AFTER the ROLLBACK: a loss first seen there is a loss too (R21-2). A ROLLBACK that failed or did not answer for another
       // reason costs only its connection (released as broken): what the request read stands (R22-1).
@@ -206,7 +206,7 @@ export async function withToolSession<T>(
     return result;
   } catch (err) {
     if (!rolledBack) {
-      const rollback = await rollbackError(db, 'sage-migration');
+      const rollback = await rollbackError(client, 'sage-migration');
       unusable = rollback !== null;
       // R24-5: a dry run that ended on an error (a stop, a bug) and whose ROLLBACK is then not confirmed still says its writes may be held.
       if (rollback !== null && o.wrote === true && fnStarted && lost === null && !connectionEnded(rollback) && !connectionEnded(err)) throw new DryRollbackUnconfirmedError(rollback, pid, undefined, err);
