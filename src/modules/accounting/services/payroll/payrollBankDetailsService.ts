@@ -196,7 +196,7 @@ export async function getEmployeeBankDetailsByRowId(
     SELECT id, employee_id, bank_name, account_number, account_type, branch_code, account_holder, account_holder_relationship,
            effective_from::text AS effective_from
     FROM payroll_bank_details
-    WHERE company_id = ${companyId}::uuid AND employee_id = ${employeeId}::uuid AND id = ${rowId}::uuid
+    WHERE company_id = ${companyId}::uuid AND employee_id = ${employeeId}::uuid AND id::text = ${rowId}
   `) as BankRow[];
   return rows[0] ? toView(rows[0], role) : null;
 }
