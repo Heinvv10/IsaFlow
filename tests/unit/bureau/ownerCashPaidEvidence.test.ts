@@ -79,3 +79,25 @@ describe('evidence, in order: marked paid, confirmed bank file, then the labelle
     expect(got!.paidBasis).toBeUndefined();
   });
 });
+
+// Review O1/O2 of a4486fab49: a garnishee creditor is paid from the same salary file, so it is cash the run needs;
+// a confirmed file of an earlier approval covers only what it paid.
+describe('garnishee creditors and a re-approved run are cash the run still needs', () => {
+  const big = run({ total_net: '125603.09', total_paye: '73219.79', total_uif: '354.24', total_sdl: '2000', pay_date: '2026-06-30', garnishee: '10000' });
+  it('O1: R10 000 of garnishees on top of net + PAYE + UIF + SDL: the R6 177.12 shortfall is shown', () => {
+    expect(pickPayrollRun([{ ...big, garnishee: '0' }], 205_000, '2026-06-28')).toMatchObject({ totalRequired: 201_177.12, canPay: true });
+    expect(pickPayrollRun([big], 205_000, '2026-06-28')).toMatchObject({ totalRequired: 211_177.12, canPay: false, shortfall: 6177.12, garnisheeOwed: 10_000 });
+  });
+  const paid = (over: Partial<PayrollRunRow> = {}) => run({ status: 'paid', pay_date: '2026-06-25', paid_on: '2026-06-24', garnishee: '10000', ...over });
+  it('a run marked paid by a typed reference leaves the garnishee payable open: still owed', () => {
+    expect(pickPayrollRun([paid()], 0, '2026-06-28')).toMatchObject({ totalRequired: STATUTORY + 10_000, garnisheeOwed: 10_000 });
+  });
+  it('a paid run whose confirmed file paid the creditors owes no garnishee; a part-paid one the rest', () => {
+    expect(pickPayrollRun([paid({ bank_file_id: 'f', creditor_short: 0 })], 0, '2026-06-28')).toMatchObject({ totalRequired: STATUTORY });
+    expect(pickPayrollRun([paid({ bank_file_id: 'f', creditor_short: 4000 })], 0, '2026-06-28')).toMatchObject({ totalRequired: STATUTORY + 4000, garnisheeOwed: 4000 });
+  });
+  it('O2: a confirmed file of an earlier approval, the run approved again higher: what the file left unpaid is owed', () => {
+    const reapproved = run({ pay_date: '2026-06-25', bank_paid_on: '2026-06-25', bank_file_id: 'f', employee_owed: '5000' });
+    expect(pickPayrollRun([reapproved], 0, '2026-06-28')).toMatchObject({ paidBasis: 'bank_file', totalRequired: STATUTORY + 5000 });
+  });
+});

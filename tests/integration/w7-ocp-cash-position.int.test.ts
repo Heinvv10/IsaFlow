@@ -103,3 +103,74 @@ describe('the inference stays, labelled, for a run with neither', () => {
     expect(got.payroll!.paidBasis).toBeUndefined();
   });
 });
+
+// Review O1/O2 of a4486fab49. The garnishee rows are synthetic (guards and FK checks off for the rolled-back transaction
+// only, as w7-gc2-reopen-balance does): the reader alone, over shapes the routes produce.
+async function garnishee(c: PoolClient, t: Tenant, runId: string, rands: number, creditorPaidFile?: string): Promise<void> {
+  await c.query("SET LOCAL session_replication_role = 'replica'");
+  for (const tbl of ['payroll_garnishee_orders', 'payroll_garnishee_deductions', 'payroll_bank_file_items']) await c.query(`ALTER TABLE ${tbl} DISABLE TRIGGER USER`);
+  const order = crypto.randomUUID();
+  await c.query(
+    `INSERT INTO payroll_garnishee_orders (id, company_id, employee_id, kind, reference, creditor_name, instalment, start_date, payable_account_id, created_by)
+     VALUES ($1, $2, $3, 'maintenance', 'W7 OCP', 'Court Creditor', $4, '2026-01-01', $5, 'x')`, [order, t.company, t.employee, rands, crypto.randomUUID()]);
+  await c.query(
+    `INSERT INTO payroll_garnishee_deductions (company_id, run_id, order_id, employee_id, requested, amount, balance_applied)
+     VALUES ($1, $2, $3, $4, $5, $5, true)`, [t.company, runId, order, t.employee, rands]);
+  if (creditorPaidFile) {
+    await c.query(
+      `INSERT INTO payroll_bank_file_items (company_id, file_id, employee_id, amount_cents, garnishee_order_id, creditor_bank_name, creditor_branch_code,
+         creditor_account_number, creditor_account_type, creditor_bank_set_at) VALUES ($1, $2, $3, $4, $5, 'FNB', '250655', '62001234567', 'cheque', now())`,
+      [t.company, creditorPaidFile, t.employee, rands * 100, order]);
+  }
+}
+const confirmedFileId = async (c: PoolClient, runId: string) =>
+  String((await c.query("SELECT id FROM payroll_bank_files WHERE run_id = $1 AND status = 'confirmed'", [runId])).rows[0].id);
+
+describe('garnishee creditors are cash the run needs (O1)', () => {
+  it('an approved run with R3 000 of garnishees needs 3 000 more, named in garnisheeOwed', async () => {
+    const got = await twoRunsInMonth(pool, A, async (c) => { await garnishee(c, A, await seedRun(c, A, REGULAR), 3000); }, at(A));
+    expect(got.payroll).toMatchObject({ totalRequired: 23000, garnisheeOwed: 3000 });
+  });
+  it('another tenant\'s garnishees (10x) never reach this company\'s figure', async () => {
+    const got = await twoRunsInMonth(pool, A, async (c) => {
+      await seedRun(c, A, REGULAR);
+      await garnishee(c, B, await seedRun(c, B, REGULAR_10X), 30000);
+    }, at(A));
+    expect(got.payroll).toMatchObject({ totalRequired: 20000 });
+    expect(got.payroll!.garnisheeOwed).toBeUndefined();
+  });
+  it('marked paid by a typed reference: the payable is still open, so the garnishee is still owed', async () => {
+    const got = await twoRunsInMonth(pool, A, async (c) => {
+      const id = await seedRun(c, A, { ...REGULAR, status: 'paid', approvedAt: REGULAR.runDate });
+      await c.query("UPDATE payroll_run_headers SET paid_on = '2026-05-19', paid_reference = 'EFT 1' WHERE id = $1", [id]);
+      await garnishee(c, A, id, 3000);
+    }, at(A));
+    expect(got.payroll).toMatchObject({ paidBasis: 'recorded', totalRequired: 2000 + 3000, garnisheeOwed: 3000 });
+  });
+  it('a confirmed file with the creditor line has paid it; a file without one leaves it owed', async () => {
+    const covered = await twoRunsInMonth(pool, A, async (c) => {
+      const id = await seedRun(c, A, REGULAR);
+      await confirmedFile(c, A, id, '2026-05-19');
+      await garnishee(c, A, id, 3000, await confirmedFileId(c, id));
+    }, at(A));
+    expect(covered.payroll).toMatchObject({ paidBasis: 'bank_file', totalRequired: 2000 });
+    expect(covered.payroll!.garnisheeOwed).toBeUndefined();
+    const notCovered = await twoRunsInMonth(pool, A, async (c) => {
+      const id = await seedRun(c, A, REGULAR);
+      await confirmedFile(c, A, id, '2026-05-19');
+      await garnishee(c, A, id, 3000);
+    }, at(A));
+    expect(notCovered.payroll).toMatchObject({ paidBasis: 'bank_file', totalRequired: 2000 + 3000, garnisheeOwed: 3000 });
+  });
+});
+
+describe('a confirmed file of an earlier approval, the run approved again higher (O2)', () => {
+  it('what the file left unpaid to the employee is owed, not nothing', async () => {
+    const got = await twoRunsInMonth(pool, A, async (c) => {
+      const id = await seedRun(c, A, REGULAR);
+      await confirmedFile(c, A, id, '2026-05-19');
+      await c.query('UPDATE payroll_run_lines SET net_pay = net_pay + 500 WHERE run_id = $1', [id]);
+    }, at(A));
+    expect(got.payroll).toMatchObject({ paidBasis: 'bank_file', totalRequired: 2000 + 500 });
+  });
+});

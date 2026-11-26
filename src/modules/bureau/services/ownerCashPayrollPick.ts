@@ -29,6 +29,14 @@ export interface PayrollRunRow {
   paid_on?: string | null;
   /** The action date of the run's confirmed salary bank file (payroll_bank_files, 999h): the bank has accepted it. Absent = none. */
   bank_paid_on?: string | null;
+  /** The run's garnishee deductions (payroll_garnishee_deductions, company-scoped): paid to creditors from the same salary file, on top of net pay (review O1 of a4486fab49). */
+  garnishee?: string | number | null;
+  /** The confirmed bank file's id, when the run has one; with it, `creditor_short` and `employee_owed` are what that file left unpaid. */
+  bank_file_id?: string | null;
+  /** The run's applied garnishee deductions the confirmed file did not pay its creditors (creditorShortfall, GC2), positive entries only. */
+  creditor_short?: string | number | null;
+  /** What the confirmed file left unpaid to employees against the run's current lines (fileSettlement.owedCents / 100; review O2). */
+  employee_owed?: string | number | null;
 }
 
 /**
@@ -48,6 +56,8 @@ export interface CashPositionPayroll {
   shortfall: number;
   /** The open runs `totalRequired` adds up: this run and every earlier one (pickPayrollRun). */
   runsCounted: number;
+  /** The reported run's garnishee creditors still to be paid out of cash (included in totalRequired). */
+  garnisheeOwed?: number;
   /** Set when the reported run's net pay has been paid: what says so (PaidBasis) and the date (null = not recorded). */
   paidBasis?: PaidBasis;
   paidOn?: string | null;
@@ -130,7 +140,7 @@ function paidBasisOf(r: PayrollRunRow, asAt: string | undefined): { basis: PaidB
  * due, and a reopened off-cycle run also the gross above its paid snapshot (999x off_cycle_paid_gross).
  */
 function owedOf(r: PayrollRunRow, asAt: string | undefined): {
-  owed: number; paye: number; credit: number; paid: boolean; basis: { basis: PaidBasis; on: string | null } | null;
+  owed: number; paye: number; credit: number; paid: boolean; basis: { basis: PaidBasis; on: string | null } | null; garnishee: number;
 } {
   // ETI offsets PAYE only (gate ruling 2 on e0eec1dea1): PAYE less ETI, floored at nil; what ETI leaves beyond PAYE is a
   // credit against the month's other PAYE. UIF and SDL stay owed in full.
@@ -140,10 +150,17 @@ function owedOf(r: PayrollRunRow, asAt: string | undefined): {
   const other = r2(num(r.total_uif) + num(r.total_sdl));
   const basis = paidBasisOf(r, asAt);
   const paid = basis !== null;
-  if (!paid) return { owed: r2(num(r.total_net) + paye + other), paye, credit, paid, basis };
-  const above = r.final !== true && r.paid_gross != null ? Math.max(0, r2(num(r.total_gross) - num(r.paid_gross))) : 0;
-  if (asAt !== undefined && asAt > emp201Due(r)) return { owed: above, paye: 0, credit: 0, paid, basis };
-  return { owed: r2(paye + other + above), paye, credit, paid, basis };
+  // Garnishee creditors are paid from the same salary file (GC2): cash the run needs beyond net pay (review O1). Until
+  // paid, all of it; once the net pay has left, what a confirmed file's creditor lines did not pay (a typed-reference
+  // Mark paid leaves the payable open, so all of it).
+  const garnAll = Math.max(0, num(r.garnishee));
+  const garnishee = !paid || r.bank_file_id == null || r.creditor_short == null ? garnAll : Math.min(garnAll, Math.max(0, num(r.creditor_short)));
+  if (!paid) return { owed: r2(num(r.total_net) + paye + other + garnishee), paye, credit, paid, basis, garnishee };
+  // What a confirmed file left unpaid to employees (a re-approval at other figures, review O2) replaces the off-cycle snapshot's gap.
+  const above = r.bank_file_id != null && r.employee_owed != null ? Math.max(0, num(r.employee_owed))
+    : r.final !== true && r.paid_gross != null ? Math.max(0, r2(num(r.total_gross) - num(r.paid_gross))) : 0;
+  if (asAt !== undefined && asAt > emp201Due(r)) return { owed: r2(above + garnishee), paye: 0, credit: 0, paid, basis, garnishee };
+  return { owed: r2(paye + other + above + garnishee), paye, credit, paid, basis, garnishee };
 }
 
 export function pickPayrollRun(runs: PayrollRunRow[], cash: number, asAt?: string): CashPositionPayroll | null {
@@ -162,8 +179,8 @@ export function pickPayrollRun(runs: PayrollRunRow[], cash: number, asAt?: strin
   let latestPaid: CashPositionPayroll | null = null;
   let latestDue: CashPositionPayroll | null = null;
   for (const r of byPayDate) {
-    const { owed: owes, paye, paid, basis } = owedBy.get(r)!;
-    const full = { ...shapePayrollAffordability(r, cash)!, ...(basis ? { paidBasis: basis.basis, paidOn: basis.on } : {}) };
+    const { owed: owes, paye, paid, basis, garnishee } = owedBy.get(r)!;
+    const full = { ...shapePayrollAffordability(r, cash)!, ...(basis ? { paidBasis: basis.basis, paidOn: basis.on } : {}), ...(garnishee > 0 ? { garnisheeOwed: garnishee } : {}) };
     // Judged on what it owes (owedOf: ETI off PAYE only, review L1 of f37f0f15a6), never on the whole run netted: a run
     // not paid that owes nothing (a draft with no totals) needs nothing and hides nothing.
     if (!paid && owes <= 0) continue;
@@ -186,7 +203,7 @@ export function pickPayrollRun(runs: PayrollRunRow[], cash: number, asAt?: strin
   if (latestDue || latestPaid) return latestDue ?? latestPaid;
   const first = runs[0];
   if (!first) return null;
-  const { owed, basis } = owedBy.get(first)!;
+  const { owed, basis, garnishee } = owedBy.get(first)!;
   const owedFirst = Math.max(0, owed);
-  return { ...shapePayrollAffordability(first, cash)!, ...(basis ? { paidBasis: basis.basis, paidOn: basis.on } : {}), totalRequired: owedFirst, canPay: cash >= owedFirst, shortfall: cash >= owedFirst ? 0 : r2(owedFirst - cash) };
+  return { ...shapePayrollAffordability(first, cash)!, ...(basis ? { paidBasis: basis.basis, paidOn: basis.on } : {}), ...(garnishee > 0 ? { garnisheeOwed: garnishee } : {}), totalRequired: owedFirst, canPay: cash >= owedFirst, shortfall: cash >= owedFirst ? 0 : r2(owedFirst - cash) };
 }

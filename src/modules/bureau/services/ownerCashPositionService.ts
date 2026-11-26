@@ -16,6 +16,7 @@ import { log } from '@/lib/logger';
 import { runOrderKeySql } from '@/modules/accounting/services/payroll/payrollRunOrder';
 import { payRunFinalSql } from '@/modules/accounting/services/payroll/payRunFinalSql';
 import { approvalCoveredPaydaySql } from '@/modules/accounting/services/payroll/payrollPaydayCover';
+import { creditorShortfall, fileSettlement } from '@/modules/accounting/services/payroll/payrollBankFileSettlement';
 import { getVATReturn } from '@/modules/accounting/services/reports/vatReturnService';
 import {
   expectedVatPeriodAsOf,
@@ -76,6 +77,10 @@ async function nextPayrollSection(
            paid_on::text AS paid_on,
            (SELECT min(f.action_date)::text FROM payroll_bank_files f
              WHERE f.company_id = payroll_run_headers.company_id AND f.run_id = payroll_run_headers.id AND f.status = 'confirmed') AS bank_paid_on,
+           (SELECT f.id::text FROM payroll_bank_files f
+             WHERE f.company_id = payroll_run_headers.company_id AND f.run_id = payroll_run_headers.id AND f.status = 'confirmed') AS bank_file_id,
+           (SELECT COALESCE(sum(d.amount), 0) FROM payroll_garnishee_deductions d
+             WHERE d.company_id = payroll_run_headers.company_id AND d.run_id = payroll_run_headers.id) AS garnishee,
            (SELECT sum(v::numeric) FROM jsonb_each_text(off_cycle_paid_gross) AS g(k, v)) AS paid_gross
       FROM payroll_run_headers
      WHERE company_id = ${companyId}::uuid
@@ -83,6 +88,12 @@ async function nextPayrollSection(
        AND (period_year * 12 + period_month) BETWEEN ${cur - PAY_RUN_WINDOW_MONTHS_BACK}::int AND ${cur}::int
      ORDER BY ${runOrderKeySql('payroll_run_headers')}
   `) as unknown as PayrollRunRow[];
+  // What each confirmed file left unpaid (GC2 / review #1524 D-3): the creditors, and the employees of a re-approved run. One query at a time (one request transaction).
+  for (const r of rows) {
+    if (r.bank_file_id == null) continue;
+    r.creditor_short = (await creditorShortfall(companyId, r.id, r.bank_file_id)).reduce((t, c) => t + Math.max(0, c.cents), 0) / 100;
+    r.employee_owed = (await fileSettlement(companyId, r.id, r.bank_file_id)).owedCents / 100;
+  }
   return pickPayrollRun(rows, cash, asAt);
 }
 

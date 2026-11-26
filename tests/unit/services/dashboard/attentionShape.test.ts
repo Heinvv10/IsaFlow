@@ -229,10 +229,11 @@ describe('shapeAttention: salary shortfall', () => {
   it('says how the net pay is known to be paid: recorded, bank file, or an inference to confirm', () => {
     const detail = (over: Partial<NonNullable<AttentionInput['cash']['payroll']>>) =>
       shapeAttention(input({ cash: { cash: 30000, payroll: payroll(over), vat: null } }))[0]!.detail!;
-    expect(detail({ status: 'paid', paidBasis: 'recorded', paidOn: '2026-11-25' })).toMatch(/ Net pay was paid on 2026-11-25\.$/);
-    expect(detail({ status: 'paid', paidBasis: 'recorded', paidOn: null })).toMatch(/ Net pay was marked paid\.$/);
-    expect(detail({ paidBasis: 'bank_file', paidOn: '2026-11-25' })).toMatch(/ Net pay was paid: its salary bank file was confirmed\.$/);
-    expect(detail({ paidBasis: 'inferred', paidOn: '2026-11-25' })).toMatch(/ Net pay is assumed paid on its pay date; mark the run paid to confirm\.$/);
+    expect(detail({ status: 'paid', paidBasis: 'recorded', paidOn: '2026-11-25' })).toMatch(/\)\. Net pay was paid on 25 Nov 2026\.$/);
+    expect(detail({ status: 'paid', paidBasis: 'recorded', paidOn: null })).toMatch(/\)\. Net pay was marked paid\.$/);
+    expect(detail({ garnisheeOwed: 10000 })).toContain(` Includes ${formatMoney(10000)} owed to garnishee creditors.`);
+    expect(detail({ paidBasis: 'bank_file', paidOn: '2026-11-25' })).toMatch(/\)\. Net pay was paid: its salary bank file was confirmed\.$/);
+    expect(detail({ paidBasis: 'inferred', paidOn: '2026-11-25' })).toMatch(/\)\. Net pay is assumed paid on its pay date; mark the run paid to confirm\.$/);
     expect(detail({})).not.toMatch(/Net pay/);
   });
 
