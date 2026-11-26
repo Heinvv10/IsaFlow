@@ -25,6 +25,8 @@ on real rows by `w7-pra-review3.int` (every successor shape, both readers). Two 
 equal (`three-rows-one-amount-sums-to-month`, `weekly-split-same-amount-sums-to-whole`) because the harness now keys
 dated rows by code + name; no `expected` edited.
 
+Coordinator ruling on #1901 (2026-11-26, option B: R2-M1 reverted for monthly runs): `leaver-row-ends-on-end-date-mid-month-full` keeps its `expected` (the calculator never apportions a row ending on the employee's end); only its notes change, to say a monthly run no longer reads that row before the 27th (a reader rule the oracle cannot express, rule 11; covered by payroll-leaver-exemption.int and w7-pra-review3.int). No `expected` edited; no figure moves.
+
 | Case | Source | Expected | Engine before | Engine after | Delta (c) | Disposition |
 |---|---|---|---|---|---|---|
 | db-fund-12d-category-factor | UNVERIFIED | paye 4096, sdl 277.5, net 23476.88 | paye 4096.01, sdl 277.5, net 23476.87 | paye 4096.01, sdl 277.5, net 23476.87 | 0 | unchanged: no field moved (no dated row, no end date) |

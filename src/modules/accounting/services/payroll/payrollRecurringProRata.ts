@@ -27,7 +27,7 @@ import { getEmployeeComponents, recurringEarningsEndedInPeriod } from './payroll
 import { listPayrollRunEmployees } from './payrollEmployeeService';
 import { payFrequencyOf, runPeriodOf } from './payrollFrequency';
 import type { PayrollJournalNote } from './payrollJournalBuilder';
-import type { PayrollPeriod, ValidationResult } from './payrollTypes';
+import type { EmployeeComponent, PayrollPeriod, ValidationResult } from './payrollTypes';
 
 export const PRO_RATA_CODE = 'RECURRING_NEEDS_PRO_RATA';
 
@@ -99,17 +99,23 @@ export async function recurringRowsNeedingProRata(
   // W29: the rows the run reads as having ended inside employment (payrollRecurringShareRead), so the guard and the pay
   // agree on which rows the share pays: a package-cut row replaced by a once-off is not among them, and stays flagged.
   const endedIds = new Set<string>();
-  // Option B (#1901): the components either reader pays, per employee, to find a half-paid monthly leaver (below).
+  // Option B (#1901): the components either reader pays, per employee, to find a half-paid monthly leaver (below). A
+  // recurring row starting after the last day is not paid (apportionRecurringRows), so it pays nothing beside the row.
   const readComponents = new Set<string>();
   const monthly = isMonthlyPeriod(period);
+  const lastDayOf = new Map(rows.map((r) => [String(r.employee_id), r.end_date == null ? null : fmtDate(r.end_date)]));
+  const paysBeside = (employeeId: string, c: EmployeeComponent) => {
+    const lastDay = lastDayOf.get(employeeId);
+    if (!(c.isRecurring && lastDay != null && c.effectiveFrom !== undefined && c.effectiveFrom > lastDay)) readComponents.add(`${employeeId}:${c.component.id}`);
+  };
   for (const employeeId of new Set(rows.map((r) => String(r.employee_id)))) {
     for (const c of await getEmployeeComponents(employeeId, companyId, last)) {
       if (c.assignmentId) paidIds.add(c.assignmentId);
-      readComponents.add(`${employeeId}:${c.component.id}`);
+      paysBeside(employeeId, c);
     }
     for (const c of await recurringEarningsEndedInPeriod(employeeId, companyId, periodStart, last, !monthly)) {
       if (c.assignmentId) endedIds.add(c.assignmentId);
-      readComponents.add(`${employeeId}:${c.component.id}`);
+      paysBeside(employeeId, c);
     }
   }
   const out: ProRataRow[] = [];

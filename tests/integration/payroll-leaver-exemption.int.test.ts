@@ -2,8 +2,9 @@
  * Blind review of the leaver exemption (2026-11-02). Hein's ruling covers a leaver whose recurring row ends on their
  * end date INSIDE the 27th-to-month-end band: that month pays in full and is not flagged. Not earlier, and not a row
  * that was superseded or has a live successor of the same component.
- *   1 end date 10 March: the salary is not paid as recurring in March (as master); a hand-entered 1-10 March pro-rata
- *     once-off is paid once. End date 28 March: paid in full.
+ *   1 end date 10 March: the salary is not paid as recurring in March (as master; W29 review R2-M1, which paid it whole,
+ *     is reverted: coordinator ruling on #1901, option B); a hand-entered 1-10 March pro-rata once-off is paid once. End
+ *     date 28 March: paid in full. A leaver raised mid-month whose own row is unpaid is flagged, never half paid.
  *   2 a salary ending on the end date (28 March) but superseded, or followed by a live row from the 29th: paid once.
  *   3 a row starting on the 28th and ending on the end date (30 March) is flagged as starting (paid in full).
  *   4 a once-off back-dated into an approved month is refused also for an employee who was not on that run.
@@ -68,6 +69,11 @@ beforeAll(async () => {
   await employee('end10', '2020-01-01', '2026-03-10');
   await add('end10Salary', 'end10', salary, 21670, '2020-01-01', '2026-03-10', true);
   await add('end10ProRata', 'end10', bonus, 7000, '2026-03-01', '2026-03-10', false);
+  // Option B (#1901 ruling 2026-11-26): raised on the 10th, leaving on the 20th. The first row ends inside employment and is
+  // paid its share; the own row (to the end date, before the 27th) is not paid, so the leaver would be half paid: flagged.
+  await employee('raise10', '2020-01-01', '2026-03-20');
+  await add('r10a', 'raise10', salary, 21670, '2020-01-01', '2026-03-09', true);
+  await add('r10b', 'raise10', salary, 23000, '2026-03-10', '2026-03-20', true);
   await employee('end28', '2020-01-01', '2026-03-28');
   await add('end28Salary', 'end28', salary, 21670, '2020-01-01', '2026-03-28', true);
   await employee('superseded', '2020-01-01', '2026-03-28');
@@ -135,6 +141,14 @@ afterAll(async () => {
 describe(`1-3: the leaver exemption is the band only (TZ=${process.env.TZ ?? 'unset'})`, () => {
   it('end 10 March: the salary is not paid as recurring; the hand-entered 1-10 pro-rata is paid once', async () => {
     expect((await line(march, 'end10')).paid).toEqual([['Pro-rata', 7000]]);
+  });
+
+  it('option B: raised on the 10th, leaving on the 20th: the first row its share (6 of 15 working days), the own row flagged, never silently half paid', async () => {
+    const l = await line(march, 'raise10');
+    expect(l.paid).toEqual([['Basic Salary', 8668]]);
+    expect(l.flags.some(f => f.code === 'RECURRING_NEEDS_PRO_RATA' && f.message.includes('ends on 2026-03-20'))).toBe(true);
+    // The 10-March leaver alone (one salary row, a hand pro-rata of another component) is not flagged: master's rule.
+    expect((await line(march, 'end10')).flags.map(f => f.code)).not.toContain('RECURRING_NEEDS_PRO_RATA');
   });
 
   it('end 28 March: paid in full, not flagged', async () => {
