@@ -95,12 +95,13 @@ const unseen = (unread: boolean): string => (unread ? 'who holds it could not be
 const who = (h: LockHolder | undefined, unread = false): string => (h === undefined ? `${unseen(unread)}: wait for it to end` : whoHolds(h));
 
 /**
- * The live key's holder (R27-8): a backend idle in its transaction has not been sent a COMMIT (a COMMIT received makes it active, then
- * ends the transaction), so nothing of it can be committed; one at work may be committing, and is never offered for ending.
+ * The live key's holder (R27-8, R28-3): a backend idle in its transaction when looked up had not received a COMMIT (a COMMIT received
+ * makes it active, then ends the transaction); one at work may be committing, and is never offered for ending.
  */
 const liveKeyHolder = (h: LockHolder | undefined, unread: boolean): string => {
   if (h === undefined) return `${unseen(unread)}; it may be committing, so do not terminate it blind: check the books, wait for it to end, then re-run`;
-  if (/^idle in transaction/.test(h.state ?? '')) return `${whoHolds(h)}; it was never sent a COMMIT (it is idle in its transaction), so nothing of it is committed; then re-run`;
+  // A snapshot (R28-3): idle in its transaction WHEN LOOKED UP, so no COMMIT had reached it then; one still on its way can land after.
+  if (/^idle in transaction/.test(h.state ?? '')) return `${whoHolds(h)}; it had not received a COMMIT when looked up (it was idle in its transaction), so nothing of it was committed then; check the books, then re-run`;
   return `${described(h)}: it may be committing, so do not terminate it: check the books, wait for it to end, then re-run`;
 };
 

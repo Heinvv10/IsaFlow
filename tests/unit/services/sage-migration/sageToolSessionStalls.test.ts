@@ -93,7 +93,7 @@ describe('R26-3: a query that waits is said; settling it starts over; no timer o
     let seen: Error | null = null;
     await withToolSession(pool, 'c1', 'u1', false, async (s) => { await toolQuery('SELECT take_number_lock').catch(() => undefined); seen = s.stall!(); });
     expect(seen).toBeInstanceOf(LockWaitError);
-    expect((seen as unknown as LockWaitError).holder).toEqual({ pid: 888, state: 'idle in transaction', app: 'sage-migration', ageS: null, idleMs: null });
+    expect((seen as unknown as LockWaitError).holder).toMatchObject({ pid: 888, state: 'idle in transaction', app: 'sage-migration', ageS: null, idleMs: null });
     expect(sampler).toHaveBeenCalledWith(expect.stringContaining('pg_blocking_pids($1)'), [41]);
   });
 });

@@ -140,6 +140,8 @@ export interface MigrationOptions {
   shouldStop?: () => string | null;
   /** Round 25: a line a person should see now (a request waiting with no answer, who blocks it; a run lock release not confirmed). */
   onNotice?: (line: string) => void;
+  /** Set by the runner: when it took its run lock (epoch ms). A lock holder whose transaction is older may be a dead run's (R28-4). */
+  runLockAt?: number;
   /** The run's progress as it happens (round 18): the CLI keeps it, so a stop at once (a second signal, a crash) still says what is known. */
   onProgress?: (p: MigrationProgress) => void;
 }

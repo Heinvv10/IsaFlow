@@ -64,6 +64,9 @@ function liveBlockers(rec: MigrationReport['reconciliation'], diff: MigrationRep
 /** A dry batch that waited on another session's lock (a held key, a lock timeout): the dry run stops at it (round 25). */
 export interface DryLockStop { batch: BatchReport; error: Error }
 
+/** What every session of the run is given: the notices, and when the run lock was taken (R28-4). */
+const sessionOpts = (o: MigrationOptions) => ({ onNotice: o.onNotice, runLockAt: o.runLockAt });
+
 async function dryRun(pool: Pool, o: MigrationOptions, all: PlannedBatches, before: Snapshot) {
   return withToolSession(pool, o.companyId, o.userId, false, async (session) => {
     let lockStop: DryLockStop | null = null;
@@ -100,7 +103,7 @@ async function dryRun(pool: Pool, o: MigrationOptions, all: PlannedBatches, befo
     const items = categories.failed === 0 ? await run(all.items) : skippedPhase();
     const purchaseOrders = categories.failed + items.failed === 0 ? await run(all.purchaseOrders) : skippedPhase();
     return { categories, items, purchaseOrders, clean: categories.failed + items.failed + purchaseOrders.failed === 0, lockStop: lockStop as DryLockStop | null };
-  }, { wrote: true, onNotice: o.onNotice }); // the dry run WRITES (rolled back): its ROLLBACK must be confirmed (R23-5)
+  }, { wrote: true, ...sessionOpts(o) }); // the dry run WRITES (rolled back): its ROLLBACK must be confirmed (R23-5)
 }
 
 async function livePhase(pool: Pool, o: MigrationOptions, list: Send[], before: Snapshot, sent: Sent, beforeBatch: () => Promise<void>): Promise<PhaseReport> {
@@ -114,7 +117,7 @@ async function livePhase(pool: Pool, o: MigrationOptions, list: Send[], before: 
     let stopHere = false;
     o.onProgress?.({ kind: 'sending', batch: { entity: s.entity, n: s.n, size: s.size, key: keyFor(s, before, false) } });
     try {
-      b = await withToolSession(pool, o.companyId, o.userId, true, (session) => sendBatch(session, s, before, false), { onNotice: o.onNotice });
+      b = await withToolSession(pool, o.companyId, o.userId, true, (session) => sendBatch(session, s, before, false), sessionOpts(o));
     } catch (err) {
       // The request transaction failed as a whole (a lost connection, a failed COMMIT): the batch is reported failed. A COMMIT whose answer
       // never came may still have landed, so the books are the judge: the run stops (below) and a re-run finds what landed.
@@ -172,7 +175,7 @@ export async function runSageMigration(pool: Pool, parsed: ParsedExport, opts: M
   const lock = await acquireRunLock(pool, opts.companyId, opts.onNotice); // watched: a connect with no answer is said (R27-6)
   let report: MigrationReport;
   try {
-    report = await runLocked(pool, parsed, opts, lock);
+    report = await runLocked(pool, parsed, { ...opts, runLockAt: Date.now() }, lock); // when the lock was taken: told to every session
   } catch (err) {
     const unconfirmed = await lock.unlock(); // B25-3: said even when the run itself stopped
     if (unconfirmed) opts.onNotice?.(`WARNING: ${unconfirmed}`);
@@ -193,7 +196,7 @@ async function runLocked(pool: Pool, parsed: ParsedExport, opts: MigrationOption
     if (stop) throw new StopRequested(stop);
   };
   if (opts.runTag !== undefined && !RUN_TAG.test(opts.runTag)) throw new Error('runTag must be 1-32 letters, digits, - or _');
-  const notice = { onNotice: opts.onNotice };
+  const notice = sessionOpts(opts);
   const { before, plan } = await withToolSession(pool, opts.companyId, opts.userId, false, async (session) => {
     if (opts.poGlAccountId) await assertPoGlAccount(opts.companyId, opts.poGlAccountId);
     const snapshot = await readSnapshot(opts.companyId);

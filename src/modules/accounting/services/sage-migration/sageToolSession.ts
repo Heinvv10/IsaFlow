@@ -94,11 +94,11 @@ export function toolOutcome(text: string, isError: boolean): ToolOutcome {
  * A transaction the tools marked rollbackOnly, or whose COMMIT fails, is an error (`commit: true`), never a silent success.
  */
 export async function withToolSession<T>(
-  pool: Pool, companyId: string, userId: string, commit: boolean, fn: (s: ToolSession) => Promise<T>, o: { wrote?: boolean; onNotice?: (line: string) => void } = {},
+  pool: Pool, companyId: string, userId: string, commit: boolean, fn: (s: ToolSession) => Promise<T>, o: { wrote?: boolean; onNotice?: (line: string) => void; runLockAt?: number } = {},
 ): Promise<T> {
   // The watch starts before the connect, so a connect that waits is said too (B26-1); a connect that cannot be had within the pool's
   // connectionTimeoutMillis sent nothing: before the live phase a refused start, in a live batch a failed batch, nothing written.
-  const watch = watchWaits(pool, o.onNotice);
+  const watch = watchWaits(pool, o.onNotice, o.runLockAt); // runLockAt: a holder older than this run's lock may be a dead run's (R28-4)
   let client: PoolClient;
   const connecting = watch.begin();
   try {
@@ -197,7 +197,7 @@ export async function withToolSession<T>(
         let r: Awaited<ReturnType<typeof mcpRegistry.call>>;
         try {
           if (WRITE_TOOLS.has(name) && typeof args.idempotency_key === 'string' && args.idempotency_key.trim() !== '') {
-            await takeKeyLockNow(db as never, (typeof (pool as { query?: unknown }).query === 'function' ? pool : db) as never, idempotencyLockText(companyId, name, args.idempotency_key, PER_USER_TOOLS.has(name) ? userId : undefined), commit ? 'live' : 'dry');
+            await takeKeyLockNow(db as never, (typeof (pool as { query?: unknown }).query === 'function' ? pool : db) as never, idempotencyLockText(companyId, name, args.idempotency_key, PER_USER_TOOLS.has(name) ? userId : undefined), commit ? 'live' : 'dry', { runLockAt: o.runLockAt });
           }
           r = await mcpRegistry.call(name, sent, { ...ctx, onIdempotentReplay: () => { replayed = true; } });
         } catch (err) {

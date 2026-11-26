@@ -84,7 +84,7 @@ describe('B27-3 / R27-3: who holds the row, and what the person is told', () => 
     expect(await migrationWaiting(), "the CLI's own session, by its application_name").toBe('isaflow-sage-migration');
     const r = await run;
     expect(r.code, r.err).toBe(2);
-    expect(r.err).toMatch(new RegExp(`the dry run stopped at item batch 1 \\(.*\\): a lock it needs is held by another session and the wait timed out .*held by backend pid ${pid}, idle in transaction, application IsaFlow web: invoice edit \\(qa@client\\), in a transaction for \\d+ s: another session's open transaction; check with whoever owns it before ending it\\); then re-run; the live run was not started`));
+    expect(r.err).toMatch(new RegExp(`the dry run stopped at item batch 1 \\(.*\\): a lock it needs is held by another session and the wait timed out .*held by backend pid ${pid}, idle in transaction, application IsaFlow web: invoice edit \\(qa@client\\), in a transaction for \\d+ s, idle for \\d+ s: another session's open transaction; check with whoever owns it before ending it\\); then re-run; the live run was not started`));
     expect(r.err).not.toMatch(/pg_terminate_backend|server ends it|wait for the server/);
     await holder.query('ROLLBACK');
   }, 240_000);
@@ -102,7 +102,7 @@ describe('B27-3 / R27-3: who holds the row, and what the person is told', () => 
     for (let i = 0; i < 50 && (await pool.query('SELECT cardinality(pg_blocking_pids($1)) AS n', [pidB])).rows[0].n === 0; i++) await new Promise((res) => setTimeout(res, 100));
     const r = await cli(file);
     expect(r.code, r.err).toBe(2);
-    expect(r.err).toContain(`held by backend pid ${pidA}, idle in transaction, application IsaFlow web: invoice edit (qa@client)`);
+    expect(r.err).toContain(`held by backend pid ${pidA},`); // R28-8: the root's pid, whatever the wording around it
     expect(r.err).not.toContain(`backend pid ${pidB}`);
     await a.query('ROLLBACK');
     await bWaits;

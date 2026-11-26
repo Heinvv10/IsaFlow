@@ -61,7 +61,7 @@ describe('B24-2: a lock another session holds never hangs a migration request', 
     registry.call.mockClear();
     const err = await withToolSession({ connect: async () => client } as never, 'c1', 'u1', false, (s) => s.call('w', { idempotency_key: 'batch-1' })).then(() => null, (e: unknown) => e);
     expect(err).toBeInstanceOf(BatchKeyHeldError);
-    expect((err as Error).message).toBe("another session holds this batch's lock: likely a previous run's dry transaction (backend pid 777, idle in transaction, application isaflow-sage-migration: a migration transaction left open (its client is gone); SELECT pg_terminate_backend(777) ends it); then re-run");
+    expect((err as Error).message).toBe("another session holds this batch's lock: likely a previous run's dry transaction (backend pid 777, idle in transaction, application isaflow-sage-migration: another session's open transaction; check with whoever owns it before ending it); then re-run"); // R28-4: one sample, no run-lock time: never ended blind
     expect(registry.call).not.toHaveBeenCalled();
     // the key text the registry locks (src/lib/mcp/audit.ts acquireIdempotencyLock)
     expect(queries.find(([t]) => t.startsWith('SELECT pg_try_advisory_xact_lock'))?.[1]).toEqual(['mcp:c1:w:batch-1']);

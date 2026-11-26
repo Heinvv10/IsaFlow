@@ -8,31 +8,49 @@
 import { describe, expect, it } from 'vitest';
 import { BatchKeyHeldError, LockWaitError, LostBeforeCommitError, StatementTimeoutError } from '@/modules/accounting/services/sage-migration/sageSessionErrors';
 import { SAGE_APP_NAME } from '@/modules/accounting/services/sage-migration/sageTimeouts';
+import { idleSettingMs } from '@/modules/accounting/services/sage-migration/sageLockHolder';
 
 const wait = (holder?: ConstructorParameters<typeof LockWaitError>[1]) => new LockWaitError(new Error('canceling statement due to lock timeout'), holder, 'dry').message;
 
+/** Our own application, idle in a transaction, confirmed across two samples and older than this run's lock: the only "left open". */
+const own = { app: SAGE_APP_NAME, state: 'idle in transaction', confirmedIdle: true, olderThanRun: true };
+
 describe('the holder hint', () => {
-  it("the migration's own session idle in transaction: a migration transaction left open; ending it is offered", () => {
-    expect(wait({ pid: 5, state: 'idle in transaction', app: SAGE_APP_NAME, ageS: 40, idleMs: 0 }))
-      .toContain(`held by backend pid 5, idle in transaction, application ${SAGE_APP_NAME}, in a transaction for 40 s: a migration transaction left open (its client is gone); SELECT pg_terminate_backend(5) ends it)`);
+  it("a migration transaction left open: ours, idle, confirmed by two samples, older than this run: ending it is offered, its client MAY be gone", () => {
+    expect(wait({ pid: 5, ...own, ageS: 40, idleS: 30, idleMs: null }))
+      .toContain(`held by backend pid 5, idle in transaction, application ${SAGE_APP_NAME}, in a transaction for 40 s, idle for 30 s: a migration transaction left open, from before this run (its client may be gone); SELECT pg_terminate_backend(5) ends it)`);
   });
   it('"idle in transaction (aborted)" is a transaction left open too, never "at work" (R27-3)', () => {
-    const m = wait({ pid: 5, state: 'idle in transaction (aborted)', app: SAGE_APP_NAME });
+    const m = wait({ pid: 5, ...own, state: 'idle in transaction (aborted)' });
     expect(m).toContain('a migration transaction left open');
-    expect(m).toContain('SELECT pg_terminate_backend(5)');
     expect(m).not.toMatch(/at work/);
   });
-  it("another application's session idle in transaction: its pid, app, state and age; never offered for ending (hd1/hd2)", () => {
-    const m = wait({ pid: 745255, state: 'idle in transaction', app: 'IsaFlow web: invoice edit (lew@client)', ageS: 12, idleMs: 0 });
-    expect(m).toContain("held by backend pid 745255, idle in transaction, application IsaFlow web: invoice edit (lew@client), in a transaction for 12 s: another session's open transaction; check with whoever owns it before ending it)");
-    expect(m).not.toMatch(/pg_terminate_backend|server ends/);
+  it('R28-4 / B28-3: our application name alone is not enough: one sample, or a transaction from after this run took its lock, is "check with whoever owns it"', () => {
+    for (const h of [{ ...own, confirmedIdle: false }, { ...own, confirmedIdle: undefined }, { ...own, olderThanRun: false }, { ...own, app: 'IsaFlow web' }]) {
+      const m = wait({ pid: 3702489, ...h });
+      expect(m, JSON.stringify(h)).toContain("another session's open transaction; check with whoever owns it before ending it");
+      expect(m, JSON.stringify(h)).not.toMatch(/pg_terminate_backend|left open/);
+    }
   });
-  it('"the server ends it" only when idle_in_transaction_session_timeout is set', () => {
-    expect(wait({ pid: 9, state: 'idle in transaction', app: 'x', idleMs: 30_000 })).toContain('; the server ends it once it has been idle 30 s (idle_in_transaction_session_timeout)');
-    expect(wait({ pid: 9, state: 'idle in transaction', app: SAGE_APP_NAME, idleMs: 0 })).not.toMatch(/server ends/);
-    expect(wait({ pid: 9, state: 'idle in transaction', app: SAGE_APP_NAME, idleMs: null })).not.toMatch(/server ends/);
+  it("another application's session idle in transaction: its pid, app, state and ages; never offered for ending (hd1/hd2)", () => {
+    const m = wait({ pid: 745255, state: 'idle in transaction', app: 'IsaFlow web: invoice edit (lew@client)', ageS: 12, idleS: 11 });
+    expect(m).toContain("held by backend pid 745255, idle in transaction, application IsaFlow web: invoice edit (lew@client), in a transaction for 12 s, idle for 11 s: another session's open transaction; check with whoever owns it before ending it)");
+    expect(m).not.toMatch(/pg_terminate_backend|ends it once/);
   });
-  it('at work (active): named with its state and application; waited for, never ended', () => {
+  it("R28-2 / B28-4: the server's ending is said only from the holder's own role/database default, and as a default", () => {
+    expect(wait({ pid: 9, state: 'idle in transaction', app: 'x', idleMs: 25_000 })).toContain("; its role's or database's default (idle_in_transaction_session_timeout 25 s) ends it once it has been idle that long, unless its session set its own");
+    expect(wait({ pid: 9, ...own, idleMs: 0 })).not.toMatch(/ends it once/);
+    expect(wait({ pid: 9, ...own, idleMs: null })).not.toMatch(/ends it once/);
+  });
+  it('B28-5: a holder that is itself waiting is never "at work"; a cycle through this run\'s request is a deadlock, with the hint', () => {
+    const waiting = wait({ pid: 536684, state: 'active', app: 'IsaFlow web: chain W10', waiting: true, chain: [527709, 536684], deadlockTimeout: '1s' });
+    expect(waiting).toContain('held by backend pid 536684, active, application IsaFlow web: chain W10: it is itself waiting on a lock (backend pids 527709, 536684) and no session ahead of it could be named as the root');
+    expect(waiting).not.toMatch(/at work/);
+    const cycle = wait({ pid: 1607589, state: 'active', app: 'IsaFlow web: stock take', waiting: true, cycle: true, chain: [1607589], deadlockTimeout: '20s' });
+    expect(cycle).toContain("a lock cycle with this run's own request (backend pids 1607589), a deadlock the server breaks after deadlock_timeout (20s); this request gives way at its lock_timeout; then re-run");
+    expect(cycle).not.toMatch(/at work/);
+  });
+  it('at work (active, not waiting): named with its state and application; waited for, never ended', () => {
     const m = wait({ pid: 6, state: 'active', app: 'psql' });
     expect(m).toContain('held by backend pid 6, active, application psql: it is at work; wait for it to finish');
     expect(m).not.toMatch(/pg_terminate_backend/);
@@ -55,16 +73,24 @@ describe('the holder hint', () => {
   });
 });
 
-describe('R27-8: a held LIVE key, and a live loss by read timeout', () => {
+describe('idleSettingMs: pg_db_role_setting values', () => {
+  it('reads the units PostgreSQL takes (bare is ms)', () => {
+    expect(['idle_in_transaction_session_timeout=25s', 'idle_in_transaction_session_timeout=25000', 'idle_in_transaction_session_timeout=1min', "idle_in_transaction_session_timeout='2h'", 'idle_in_transaction_session_timeout=0', 'x', null].map(idleSettingMs))
+      .toEqual([25_000, 25_000, 60_000, 7_200_000, 0, null, null]);
+  });
+});
+
+describe('R27-8 / R28-3: a held LIVE key, and a live loss by read timeout', () => {
   it('never claims an unconfirmed COMMIT', () => {
-    for (const h of [undefined, { pid: 3, state: 'active', app: SAGE_APP_NAME }, { pid: 3, state: 'idle in transaction', app: SAGE_APP_NAME }]) {
+    for (const h of [undefined, { pid: 3, state: 'active', app: SAGE_APP_NAME }, { pid: 3, ...own }]) {
       expect(new BatchKeyHeldError(h, 'live').message).not.toMatch(/COMMIT was not confirmed/);
     }
   });
-  it('a holder idle in its transaction was never sent a COMMIT: nothing of it is committed; ours is offered for ending', () => {
-    const m = new BatchKeyHeldError({ pid: 3, state: 'idle in transaction', app: SAGE_APP_NAME }, 'live').message;
-    expect(m).toContain('it was never sent a COMMIT (it is idle in its transaction), so nothing of it is committed');
+  it('a holder idle in its transaction had not received a COMMIT WHEN LOOKED UP (a snapshot); ours left open is offered for ending', () => {
+    const m = new BatchKeyHeldError({ pid: 3, ...own }, 'live').message;
+    expect(m).toContain('it had not received a COMMIT when looked up (it was idle in its transaction), so nothing of it was committed then; check the books, then re-run');
     expect(m).toContain('SELECT pg_terminate_backend(3) ends it');
+    expect(m).not.toMatch(/never sent a COMMIT/);
   });
   it('a holder at work may be committing: never offered for ending', () => {
     const m = new BatchKeyHeldError({ pid: 3, state: 'active', app: SAGE_APP_NAME }, 'live').message;

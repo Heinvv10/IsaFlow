@@ -160,7 +160,7 @@ describe('R25-3: in the live phase a held key or a lock timeout stops the run (e
       const err = await run().then(() => null, (e: unknown) => e) as InstanceType<typeof MigrationStopped>;
       expect(err).toBeInstanceOf(MigrationStopped);
       expect(err.liveStarted).toBe(true);
-      expect(err.batches.failed).toEqual([expect.objectContaining({ entity: 'category', n: 1, status: 'failed', error: expect.stringMatching(/a live transaction that has not ended \(a previous run's, or another client using the same key\): backend pid 505, idle in transaction, application \(none\): another session's open transaction; check with whoever owns it before ending it; it was never sent a COMMIT|held by backend pid 707, active, application psql: it is at work; wait for it to finish/) })]);
+      expect(err.batches.failed).toEqual([expect.objectContaining({ entity: 'category', n: 1, status: 'failed', error: expect.stringMatching(/a live transaction that has not ended \(a previous run's, or another client using the same key\): backend pid 505, idle in transaction, application \(none\): another session's open transaction; check with whoever owns it before ending it; it had not received a COMMIT when looked up|held by backend pid 707, active, application psql: it is at work; wait for it to finish/) })]);
       expect(live()).toEqual(['category live']); // the second category, the items: never sent
     });
   }

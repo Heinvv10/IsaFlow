@@ -4,7 +4,8 @@
  * the registry's own wait on it then returns at once (advisory locks stack within a session).
  */
 import { log } from '@/lib/logger';
-import { HOLDER_COLUMNS, holderFrom } from './sageLockHolder';
+import { confirmIdle, HOLDER_COLUMNS, HOLDER_CONFIRM_MS, holderFrom, idleInTransaction } from './sageLockHolder';
+import { SAGE_APP_NAME } from './sageTimeouts';
 import { BatchKeyHeldError, type LockPhase } from './sageSessionErrors';
 
 /**
@@ -30,15 +31,27 @@ type Queryable = { query: (text: string, values?: unknown[]) => Promise<{ rows: 
 /**
  * `lookup` reads who holds it: the pool, not the request's own connection, which runs as app_user and so may not see another session's
  * state in pg_stat_activity. A lookup that fails is logged and said as "could not be read" (R27-7); the held key is said all the same.
+ * A holder that looks like a migration transaction left open (our application, idle in a transaction) is looked up once more after
+ * `o.confirmMs` (HOLDER_CONFIRM_MS): only one still idle with its state unchanged can be offered for ending (R28-4). `o.runLockAt`: when
+ * this run took its run lock.
  */
-export async function takeKeyLockNow(client: Queryable, lookup: Queryable, lockText: string, phase: LockPhase): Promise<void> {
+export async function takeKeyLockNow(client: Queryable, lookup: Queryable, lockText: string, phase: LockPhase, o: { runLockAt?: number; confirmMs?: number } = {}): Promise<void> {
   const got = await client.query('SELECT pg_try_advisory_xact_lock(hashtext($1)::bigint) AS ok', [lockText]);
   if (got.rows[0]?.ok !== false) return;
   let unread = false;
-  const holder = await lookup.query(HOLDER_SQL, [lockText]).then((r) => r.rows[0], (err: unknown) => {
+  const read = () => lookup.query(HOLDER_SQL, [lockText]).then((r) => holderFrom(r.rows[0], o.runLockAt), (err: unknown) => {
     unread = true;
     log.warn('sage migration: who holds the batch key could not be read', { message: err instanceof Error ? err.message : String(err) }, 'sage-migration');
     return undefined;
   });
-  throw new BatchKeyHeldError(holderFrom(holder), phase, unread);
+  const at = Date.now();
+  let holder = await read();
+  if (holder !== undefined && holder.app === SAGE_APP_NAME && idleInTransaction(holder.state) && holder.olderThanRun === true) {
+    const apart = o.confirmMs ?? HOLDER_CONFIRM_MS;
+    const first = { holder, at };
+    await new Promise((r) => { setTimeout(r, apart); });
+    const again = await read();
+    holder = again === undefined ? holder : confirmIdle(first, again, Date.now(), apart);
+  }
+  throw new BatchKeyHeldError(holder, phase, unread);
 }
