@@ -173,6 +173,22 @@ describe('B28-1: a stream given up is said on the other stream', () => {
     expect(r.got).toEqual({ 1: '', 2: '' });
     expect(r.c.gone).toEqual({ stdout: true, stderr: true });
   });
+  it('one file (2>&1): a stream that fails is not said on the other either, even if that one still takes bytes', () => {
+    const { r, api } = apiOf((fd) => (fd === 1 ? 'EPIPE' : 1000), true);
+    api.prepareConsole(() => null);
+    api.out('SUMMARY');
+    expect(r.givenUp).toEqual([]); // onGiveUp is the api's own notice now
+    expect(r.got[2]).toBe('');
+  });
+  it('a stream found closed by another writer (markGone) while lines wait: drained() resolves', async () => {
+    const r = rig(() => 'EAGAIN');
+    r.c.write('stderr', 'waits\n');
+    let done = false;
+    void r.c.drained().then(() => { done = true; });
+    r.c.markGone('stderr', 'EPIPE');
+    await Promise.resolve();
+    expect(done).toBe(true);
+  });
   it('a console in blocking mode is said', () => {
     const r = rig(() => 1000);
     consoleApi(r.c, { sameFile: () => false, blockingFds: () => [2] }).prepareConsole(() => null);

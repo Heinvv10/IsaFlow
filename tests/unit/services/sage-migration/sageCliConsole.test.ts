@@ -77,13 +77,14 @@ describe('B28-1: a second SIGINT while the stop message waits for a reader', () 
 
 describe('R28-6: the O_NONBLOCK precondition', () => {
   it('after prepareConsole, fd 1 and fd 2 (pipes) are non-blocking, and none is reported blocking', async () => {
-    const { text } = await shell(`${CHILD} 2>&1 | cat`, { FLAGS: '1' });
+    // Two pipes, two open files (2>&1 would make them one, whose flags touching either stream sets).
+    const { text } = await shell(`( ${CHILD} | cat > /dev/null ) 2>&1 | cat`, { FLAGS: '1' });
     const got = JSON.parse(text) as { blocking: number[] | null; fd1: string; fd2: string };
     expect(got.blocking).toEqual([]);
     for (const f of [got.fd1, got.fd2]) expect(Number.parseInt(f, 8) & 0o4000).toBe(0o4000);
   }, 30_000);
   it('before anything touched them, fd 1 and fd 2 (pipes) ARE blocking, and blockingFds says so (what prepareConsole guards against)', async () => {
-    const { text } = await shell(`${CHILD} 2>&1 | cat`, { FLAGS: '2' });
+    const { text } = await shell(`( ${CHILD} | cat > /dev/null ) 2>&1 | cat`, { FLAGS: '2' });
     expect(JSON.parse(text)).toEqual({ blocking: [1, 2] });
   }, 30_000);
 });
