@@ -29,10 +29,16 @@
  *    GARNISHEE_PART_MONTH (breaker round 2).
  *  - Monthly runs only: a weekly or fortnightly run with an order in force is refused (payrollRunKindGuard
  *    `garnishee_frequency`) until instalments are pro-rated per run.
+ *  - Wave 7 GT: an off-cycle termination line (`termination`) attaches its leave and notice pay only, one instalment
+ *    an order, maintenance first; and any line skips an order the month's other final run took (`takenThisMonth`).
+ *    The rule and its sources: payrollGarnisheeTermination.
  */
 import { formatMoney } from '@/lib/money/formatMoney';
 import { normaliseSarsCode } from './payeAnnualPayment';
 import type { EmployeeComponent, ValidationResult } from './payrollTypes';
+import {
+  takenThisMonthNotice, terminationAttachableBaseOf, terminationOrderWarning, terminationPayLeftCents,
+} from './payrollGarnisheeTermination';
 
 export const GARNISHEE_KINDS = ['emolument_attachment', 'maintenance', 'administration'] as const;
 export type GarnisheeKind = (typeof GARNISHEE_KINDS)[number];
@@ -51,6 +57,9 @@ export interface GarnisheeOrderInput {
   /** In force for only part of the run's period (starts after its first day or ends before its last): the full
    *  instalment is still taken (a named limit), and the line warns GARNISHEE_PART_MONTH. Set by the loader. */
   partMonth?: boolean;
+  /** Wave 7 GT (grill F12): another final run of the same month (the regular run for a termination line, a termination
+   *  run for a regular line) already deducted this order, so this line takes none. Set by the loader. */
+  takenThisMonth?: boolean;
   /** For the oldest-first tie-break: ISO timestamp. */
   createdAt: string;
 }
@@ -107,12 +116,17 @@ export function applyGarnishees(input: {
   orders: readonly GarnisheeOrderInput[];
   components: readonly EmployeeComponent[];
   netPayBefore: number;
+  /** Wave 7 GT: an off-cycle termination line, and its gross pay (for the attachable share of net pay). */
+  termination?: { grossPay: number };
 }): { deductions: GarnisheeDeduction[]; total: number; warnings: ValidationResult[] } {
-  const warnings: ValidationResult[] = [];
+  const termination = input.termination != null;
+  const warnings: ValidationResult[] = [...takenThisMonthNotice(input.orders.filter((o) => o.takenThisMonth === true), termination)];
   const deductions: GarnisheeDeduction[] = [];
-  let capLeft = Math.floor(cents(basicSalaryOf(input.components)) * EMOLUMENT_ATTACHMENT_SHARE);
-  let netLeft = Math.max(0, cents(input.netPayBefore));
-  for (const order of orderGarnishees(input.orders)) {
+  const baseCents = cents(termination ? terminationAttachableBaseOf(input.components) : basicSalaryOf(input.components));
+  let capLeft = Math.floor(baseCents * EMOLUMENT_ATTACHMENT_SHARE);
+  let netLeft = termination ? terminationPayLeftCents(baseCents, input.netPayBefore, input.termination!.grossPay)
+    : Math.max(0, cents(input.netPayBefore));
+  for (const order of orderGarnishees(input.orders.filter((o) => o.takenThisMonth !== true))) {
     const requested = Math.max(0, Math.min(cents(order.instalment), order.balance == null ? Infinity : cents(order.balance)));
     if (requested === 0) continue;
     let take = requested;
@@ -145,7 +159,7 @@ export function applyGarnishees(input: {
           + 'orders. IsaFlow has not checked this against the Magistrates\' Courts Act s74: confirm the amount against the order.',
       });
     }
-    if (order.partMonth) {
+    if (order.partMonth && !termination) { // a termination line takes the one instalment once (ruling 15)
       warnings.push({
         code: GARNISHEE_PART_MONTH, severity: 'warning',
         message: `full monthly instalment charged for a part-month order (named limit): garnishee order ${order.reference} `
@@ -153,6 +167,7 @@ export function applyGarnishees(input: {
           + 'Check the order for what it says about a part month.',
       });
     }
+    if (termination) warnings.push(terminationOrderWarning(order, take));
     deductions.push({
       orderId: order.id, kind: order.kind, reference: order.reference, creditorName: order.creditorName,
       requested: requested / 100, amount: take / 100,
@@ -161,7 +176,7 @@ export function applyGarnishees(input: {
   const attached = deductions.some((d) => d.kind === 'emolument_attachment');
   const commission = input.components.some((c) => c.component.componentType === 'earning'
     && normaliseSarsCode(c.component.sarsSourceCode) === COMMISSION_CODE && c.amount > 0);
-  if (attached && commission) {
+  if (attached && commission && !termination) {
     warnings.push({
       code: GARNISHEE_BASE_EXCLUDES_COMMISSION, severity: 'warning',
       message: 'garnishee base excludes commission (UNVERIFIED vs s65J(1A)(b)): the 25% limit is taken on basic salary (3601) '

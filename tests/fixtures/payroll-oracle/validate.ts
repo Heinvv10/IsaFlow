@@ -130,6 +130,7 @@ export function validateCase(raw: unknown, file: string): void {
   need(isNum(input.employerAnnualRemuneration), file, 'input.employerAnnualRemuneration must be a number');
   need(input.unmodelled === undefined || isObj(input.unmodelled), file, 'input.unmodelled must be an object');
   if (input.unmodelled !== undefined) onlyKeys(input.unmodelled as Obj, UNMODELLED_KEYS, file, 'input.unmodelled');
+  if (isObj(input.unmodelled) && input.unmodelled.garnisheeOrders !== undefined) validateGarnishees(input.unmodelled.garnisheeOrders, file);
 
   need(isObj(input.employee), file, 'input.employee must be an object');
   const e = input.employee as Obj;
@@ -168,6 +169,25 @@ export function validateCase(raw: unknown, file: string): void {
       need(isNum((t as Obj).engineActual), file, `tolerance on ${k}: engineActual (the engine's current figure) is required`);
     }
   }
+}
+
+/**
+ * GA's garnishee orders, and W11's (wave 7 GT, grill F4) `balance` (what the order still owes; absent = no total debt)
+ * and `takenThisMonth` (the month's other final run deducted it). Each key strict, so a typo is refused.
+ */
+const GARNISHEE_KEYS = ['kind', 'monthlyAmount', 'balance', 'takenThisMonth'] as const;
+function validateGarnishees(raw: unknown, file: string): void {
+  need(Array.isArray(raw) && raw.length > 0, file, 'input.unmodelled.garnisheeOrders must be a non-empty array');
+  (raw as unknown[]).forEach((o, i) => {
+    const at = `input.unmodelled.garnisheeOrders[${i}]`;
+    need(isObj(o), file, `${at} must be an object`);
+    onlyKeys(o as Obj, GARNISHEE_KEYS, file, at);
+    const g = o as Obj;
+    need(g.kind === 'emolument_attachment' || g.kind === 'maintenance' || g.kind === 'administration', file, `${at}.kind is not a garnishee kind`);
+    need(isNum(g.monthlyAmount) && (g.monthlyAmount as number) > 0, file, `${at}.monthlyAmount must be a positive number`);
+    need(g.balance === undefined || (isNum(g.balance) && (g.balance as number) >= 0), file, `${at}.balance must be a number of at least 0`);
+    need(g.takenThisMonth === undefined || typeof g.takenThisMonth === 'boolean', file, `${at}.takenThisMonth must be a boolean`);
+  });
 }
 
 function validateComponents(list: unknown[], where: string, file: string): void {

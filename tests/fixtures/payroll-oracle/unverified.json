@@ -58,5 +58,25 @@
     "case": "ri-eti-hourly-overtime-counted-once",
     "reason": "The overtime amount uses the BCEA s10(2) multiplier, read only in the Act as gazetted (GG 18491, 5 Dec 1997); the ETI figures (hours, minimum wage, band) are from the SARS ETI page and do not turn on it. Engine equals the hand figure.",
     "wouldVerify": "The consolidated BCEA 75 of 1997 s10(2) as currently in force, or a Sage or SimplePay payslip with ETI and overtime."
+  },
+  {
+    "case": "termination-garnishee-leave-pay",
+    "reason": "The PAYE is SARS-sourced (G21 p. 31-32, as offcycle-termination-leave-after-regular); the garnishee figure follows Hein's ruling 15 (25% of leave + notice pay), read against the Magistrates' Courts Act s61 and s65J(1)(b)(i) ('emoluments ... owing or accruing'), not a SARS or vendor figure.",
+    "wouldVerify": "A SARS guide, a vendor (Sage / SimplePay) or a legal opinion stating how an emoluments attachment or maintenance order applies to leave and notice pay on termination, and whether the 25% limit is on that pay or on s65J(1A)(b)'s basic salary"
+  },
+  {
+    "case": "termination-garnishee-severance-excluded",
+    "reason": "Severance (3901) is left out of the attachable base on Hein's ruling 6; neither Act read (Magistrates' Courts Act s61/s65J, Maintenance Act s1/s28) excludes it in terms, and the Pension Funds Act s37A/s37D was not read.",
+    "wouldVerify": "A SARS guide, a vendor (Sage / SimplePay) or a legal opinion stating how an emoluments attachment or maintenance order applies to leave and notice pay on termination, and whether the 25% limit is on that pay or on s65J(1A)(b)'s basic salary"
+  },
+  {
+    "case": "termination-maintenance-first",
+    "reason": "Maintenance first and outside the 25% follows the Maintenance Act s28(1) and s29(3) (read 2026-11-26), applied to leave and notice pay on ruling 15; no SARS or vendor figure.",
+    "wouldVerify": "A SARS guide, a vendor (Sage / SimplePay) or a legal opinion stating how an emoluments attachment or maintenance order applies to leave and notice pay on termination, and whether the 25% limit is on that pay or on s65J(1A)(b)'s basic salary"
+  },
+  {
+    "case": "termination-after-regular-took-instalment",
+    "reason": "One instalment a month across the regular and termination runs is Hein's ruling 15 (grill F12), not a statute or SARS rule; PAYE as offcycle-termination-leave-after-regular.",
+    "wouldVerify": "A SARS guide, a vendor (Sage / SimplePay) or a legal opinion stating how an emoluments attachment or maintenance order applies to leave and notice pay on termination, and whether the 25% limit is on that pay or on s65J(1A)(b)'s basic salary"
   }
 ]

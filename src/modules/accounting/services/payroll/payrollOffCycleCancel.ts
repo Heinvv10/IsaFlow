@@ -13,6 +13,8 @@
  *    applyRunLoans), and regular-pay directive uses and severance claims are written at APPROVAL only
  *    (payrollRunDirectiveClaim). A run that ever carried a journal, a directive use, a claim or a loan payment is
  *    therefore one that was approved before, and it is refused (reopen keeps those records).
+ *  - Garnishee deductions (wave 7 GT: a termination run takes them) are dropped (releaseCancelledRunGarnishees); a
+ *    cancellable run's are never applied, so no balance moves.
  *  - Off-cycle runs never close a month's ETI (payrollRunCadence), so no regular run's ETI depends on it.
  * A pending R-035 approval request for the run is withdrawn (rejected by the canceller, with a 'declined' audit row on
  * the pay run) in the same transaction, so it leaves the approvers' list.
@@ -27,6 +29,7 @@ import { OffCycleRunRefusedError } from './payrollOffCycleRun';
 import { decideRequest } from '../gl/approvalService';
 import { lockApprovalRequestForUpdate } from '../gl/approvalRequestLock';
 import { GRANDFATHERED_PLAN_HASH, recordPayRunApprovalAudit } from './payRunApprovalAudit';
+import { releaseCancelledRunGarnishees } from './payrollGarnisheeRun';
 
 const refused = (m: string) => new OffCycleRunRefusedError(m, 409);
 const WITHDRAWN = 'Withdrawn: the off-cycle run was cancelled.';
@@ -75,6 +78,8 @@ export async function cancelOffCycleRun(companyId: string, runId: string, userId
         metadata: { requestId: withdrawn.id, reason: 'off-cycle run cancelled' },
       });
     }
+    // Wave 7 GT (F12): a termination run's garnishee deductions go with its lines; no balance moved (never approved).
+    const garnishees = await releaseCancelledRunGarnishees(tx, companyId, runId);
     await tx`DELETE FROM payroll_run_lines WHERE run_id = ${runId}::uuid`;
     const rows = (await tx`
       UPDATE payroll_run_headers
@@ -84,7 +89,7 @@ export async function cancelOffCycleRun(companyId: string, runId: string, userId
        WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid
        RETURNING *
     `) as DbRow[];
-    log.info('Off-cycle payroll run cancelled', { companyId, runId, previousStatus: String(run.status), userId }, 'payrollOffCycleCancel');
+    log.info('Off-cycle payroll run cancelled', { companyId, runId, previousStatus: String(run.status), userId, garnishees }, 'payrollOffCycleCancel');
     return mapRunRow(rows[0]!);
   });
 }

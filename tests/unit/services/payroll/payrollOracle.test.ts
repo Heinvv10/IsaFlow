@@ -88,6 +88,11 @@ const EXPECTED_CASE_IDS = [
   'statutory-2027-bracket-36pct-55000',
   'statutory-2027-bracket-39pct-60000',
   'statutory-2027-bracket-41pct-100000',
+  // W11 (wave 7 GT, grill F4): a termination run's garnishee on leave and notice pay (rulings 6, 15).
+  'termination-after-regular-took-instalment',
+  'termination-garnishee-leave-pay',
+  'termination-garnishee-severance-excluded',
+  'termination-maintenance-first',
   'ts-deemed-standard-tables-not-flat-25pct',
   'ts-non-standard-5h-day-over-394-flat-25pct',
   'ts-non-standard-5h-day-under-394-nil-paye',
@@ -139,6 +144,9 @@ describe('payroll oracle fixtures', () => {
       'psp-company-27pct', 'psp-trust-45pct',
       // RI: the BCEA-multiplier cases match the engine (adversarial payroll signed them; no current BCEA consolidation read).
       'ri-eti-hourly-overtime-counted-once', 'ri-overtime-10h-at-1-5x', 'ri-sunday-8h-at-2x',
+      // GT (wave 7): garnishee on a termination run; statutes read and Hein's rulings 6 and 15, no SARS guide or vendor figure.
+      'termination-after-regular-took-instalment', 'termination-garnishee-leave-pay', 'termination-garnishee-severance-excluded',
+      'termination-maintenance-first',
       'weekly-week-53-medical-retirement', 'weekly-week-53-pay-sunday',
     ]);
   });

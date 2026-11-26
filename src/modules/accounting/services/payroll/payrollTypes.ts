@@ -148,6 +148,8 @@ export interface ValidationResult {
   periods?: string[];
   /** PAYE_LATER_PERIODS_APPROVED only (wave 6 FQc): the later runs' ids. The approval gate matches on these. */
   runs?: string[];
+  /** GARNISHEE_TAKEN_THIS_MONTH only (wave 7 GT): the garnishee orders the month's other final run took; approval re-checks them. */
+  orders?: string[];
   /** ETI_MONTH_PENDING only (wave 6 FQc): this line's ETI parts, which the run closing the month adds up. */
   etiMonth?: EtiMonthParts;
   /** PAYE_OUTSIDE_TABLES only: how this month's PAYE was taken (taxStatusTreatment; 'directive': directiveRegularPay); the year to date leaves such a month out. */
@@ -198,6 +200,8 @@ export interface PayrollLineInput {
   monthEarlier?: MonthEarlierLines;
   /** The employee's garnishee orders for the period (payrollGarnisheeRun; GA); absent = none. Taken from net pay last. */
   garnisheeOrders?: GarnisheeOrderInput[];
+  /** Wave 7 GT: an off-cycle termination line; its orders attach the leave and notice pay only (payrollGarnisheeTermination). */
+  garnisheeTermination?: boolean;
   /** A weekly or fortnightly line's frequency, dates, UIF and ETI month to date (wave 6 FQc); absent = monthly. */
   cadence?: LineCadence;
 }

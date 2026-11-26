@@ -217,7 +217,9 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
   warnings.push(...netPayShortfallWarnings({ netPay, loanInstalments, allEarnings, grossPay }));
 
   // GA: garnishee orders come off the net pay above, after tax, never below nil (payrollGarnishee; s65J(1A)(a)).
-  const garnishee = applyGarnishees({ orders: input.garnisheeOrders ?? [], components, netPayBefore: netPay });
+  // GT: a termination line attaches its leave and notice pay only (payrollGarnisheeTermination; rulings 6, 15).
+  const garnishee = applyGarnishees({ orders: input.garnisheeOrders ?? [], components, netPayBefore: netPay,
+    ...(input.garnisheeTermination ? { termination: { grossPay } } : {}) });
   warnings.push(...garnishee.warnings);
 
   // "How was this calculated?" (EX-core): the figures above, arranged; payrollExplain computes none of them.

@@ -2,7 +2,8 @@
  * Review #1679e (OC x GA): an off-cycle run takes no garnishee instalment. The month's instalment is the regular
  * run's; a bonus or termination run with an order in force deducts nothing and its line says so (info,
  * GARNISHEE_TAKEN_BY_REGULAR_RUN). A R2 000 maintenance order: the regular run deducts R2 000, a R5 000 bonus run R0
- * (net as without the order), a termination run R0; the month's deductions stay R2 000.
+ * (net as without the order), a termination run R0 (wave 7 GT: the regular run took the month's instalment,
+ * GARNISHEE_TAKEN_THIS_MONTH); the month's deductions stay R2 000.
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { rig, type Route } from './brkr.helpers';
@@ -83,11 +84,13 @@ describe('garnishee instalments belong to the regular run', () => {
     expect(await deducted(regular) + await deducted(bonus)).toBe(2_000);
   });
 
-  it('a termination run deducts nothing either', async () => {
+  // Wave 7 GT: a termination run attaches leave and notice pay, but not an order the month's final regular run took.
+  it('a termination run deducts nothing for an order the month\'s regular run took (wave 7 GT, ruling 15)', async () => {
     await a.pool.query(`UPDATE payroll_employees SET end_date = '2026-11-25', termination_reason = 'resignation',
       termination_notice_period_days = 10, termination_served_notice_days = 0, termination_include_leave_payout = false WHERE id = $1`, [mid]);
     const term = await calculated(await create({ reason: 'termination', runDate: '2026-11-28', employees: [{ employeeId: mid }] }));
     expect(await deducted(term)).toBe(0);
-    expect((await line(term)).v.map((w: { code: string }) => w.code)).toContain('GARNISHEE_TAKEN_BY_REGULAR_RUN');
+    expect((await line(term)).v.find((w: { code: string }) => w.code === 'GARNISHEE_TAKEN_THIS_MONTH'))
+      .toMatchObject({ severity: 'info', message: expect.stringMatching(/taken by the month's regular run/) });
   });
 });

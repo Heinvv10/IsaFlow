@@ -55,15 +55,20 @@ export function pspEntityOf(label: string): PspEntityType | null {
 
 const numberOf = (v: unknown): number | null => (typeof v === 'number' ? v : null);
 
-/** The case's garnishee orders (GA): kind and monthly amount, open-ended, in the order listed. */
-function oracleGarnishees(c: OracleCase): Pick<PayrollLineInput, 'garnisheeOrders'> {
+/**
+ * The case's garnishee orders (GA): kind and monthly amount, in the order listed; W11 (wave 7 GT): `balance` (absent =
+ * open-ended) and `takenThisMonth` as the loader sets them, and a termination case's line attaches its leave and notice pay.
+ */
+function oracleGarnishees(c: OracleCase): Pick<PayrollLineInput, 'garnisheeOrders' | 'garnisheeTermination'> {
   const raw = c.input.unmodelled?.garnisheeOrders;
   if (!Array.isArray(raw)) return {};
   return {
-    garnisheeOrders: raw.map((o: { kind: GarnisheeKind; monthlyAmount: number }, i) => ({
+    garnisheeOrders: raw.map((o: { kind: GarnisheeKind; monthlyAmount: number; balance?: number; takenThisMonth?: boolean }, i) => ({
       id: `${c.id}-garnishee-${i}`, kind: o.kind, reference: `${c.id}-${i}`, creditorName: 'Oracle creditor',
-      instalment: o.monthlyAmount, balance: null, priority: i, createdAt: '2026-01-01T00:00:00Z',
+      instalment: o.monthlyAmount, balance: o.balance ?? null, priority: i, createdAt: '2026-01-01T00:00:00Z',
+      ...(o.takenThisMonth === true ? { takenThisMonth: true } : {}),
     })),
+    ...(c.input.period.runKind === 'termination' ? { garnisheeTermination: true } : {}),
   };
 }
 

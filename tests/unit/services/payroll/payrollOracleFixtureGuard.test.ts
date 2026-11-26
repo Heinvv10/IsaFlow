@@ -203,3 +203,26 @@ describe('oracle fixture guard: no window on a prior period (review #1901 L4)', 
   });
 });
 
+
+describe('oracle fixture guard: garnishee orders (W11, wave 7 GT, grill F4)', () => {
+  const G = 'ga-maintenance-outside-cap.json';
+  const ga = (): Record<string, unknown> => JSON.parse(readFileSync(join(ORACLE_DIR, G), 'utf8')) as Record<string, unknown>;
+  const first = (c: Record<string, unknown>) => ((input(c).unmodelled as Record<string, unknown>).garnisheeOrders as Array<Record<string, unknown>>)[0]!;
+
+  it('accepts balance and takenThisMonth, and passes the personal-data check', () => {
+    const c = ga();
+    Object.assign(first(c), { balance: 1800, takenThisMonth: true });
+    expect(() => validateCase(c, G)).not.toThrow();
+  });
+
+  it.each([
+    ['an unknown key', (o: Record<string, unknown>) => { o.balanceOwed = 1; }, /unknown key\(s\) balanceOwed/],
+    ['a negative balance', (o: Record<string, unknown>) => { o.balance = -1; }, /balance must be a number of at least 0/],
+    ['takenThisMonth as text', (o: Record<string, unknown>) => { o.takenThisMonth = 'yes'; }, /takenThisMonth must be a boolean/],
+    ['an unknown kind', (o: Record<string, unknown>) => { o.kind = 'loan'; }, /not a garnishee kind/],
+  ])('refuses %s', (_l, mutate, re) => {
+    const c = ga();
+    mutate(first(c));
+    expect(() => validateCase(c, G)).toThrow(re);
+  });
+});
