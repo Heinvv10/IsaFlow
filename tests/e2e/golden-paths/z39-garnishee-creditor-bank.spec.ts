@@ -18,6 +18,9 @@ import AxeBuilder from '@axe-core/playwright';
 import { Api } from './_api';
 import { findOrCreateSandbox, switchApiCompany, switchBrowserCompany } from './_migrationSandbox';
 import { seedTheme, settle, THEMES } from '../helpers/themeSpec';
+import { guardDevTarget } from '../helpers/devTarget';
+
+guardDevTarget(test);
 
 const SANDBOX = { name: '0GP Golden Garnishee Creditor Sandbox', onboardingId: '15033f45-67de-41ed-948b-6fdd037193f4' };
 const EVIDENCE_DIR = process.env.EVIDENCE_DIR;
@@ -58,8 +61,6 @@ async function employeeWithOrder(baseURL: string, tag: string): Promise<string> 
 }
 
 test.beforeAll(async ({ baseURL }) => {
-  const u = new URL(baseURL!);
-  expect(u.hostname === 'localhost' && u.port !== '3101', `z39 runs only on a dev/CI localhost port, not ${u.host}`).toBe(true);
   const api = await Api.login(baseURL!);
   try {
     sandboxId = await findOrCreateSandbox(api, SANDBOX);
