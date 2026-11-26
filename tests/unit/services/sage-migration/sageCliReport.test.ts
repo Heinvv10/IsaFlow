@@ -140,6 +140,9 @@ describe('R17-2: the success path', () => {
     expect(out.join('')).toContain('SUMMARY LINE');
     expect(err.join('')).toBe('');
     expect(json(report)).toMatchObject({ marker: 'THE-FINAL-REPORT' });
+    // R27-2: through the synchronous console (fd 1), never process.stdout.write directly
+    const { cliConsole } = await import('../../../../scripts/sage-migration/runConsole');
+    expect((cliConsole as unknown as { through: Array<{ fd: number; text: string }> }).through).toContainEqual({ fd: 1, text: 'SUMMARY LINE\n' });
   });
   it('a summary failing after a live run: exit 4, its line on STDERR (not stdout), the report still written', async () => {
     h.behave = 'live-summary-fails';
