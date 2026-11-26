@@ -12,8 +12,11 @@ const pinned = (m: Record<string, Record<number, string>>) =>
 /** The only shapes a pinned uuid cast of an actor-shaped value may have: uuid[] author arrays and the regex-guarded created_by cast. */
 const AUTHOR_SHAPE = /approval_add_author\(|^ARRAY\[\$\{userId\}::UUID\]$|THEN t\.created_by::UUID END|^SELECT DISTINCT a FROM unnest\(\$\{authors\}::UUID\[\]\)/;
 /** A `${expr}` that names an actor, and what a bare actor looks like. */
-const ACTOR_EXPR = /\$\{([^}]*\b(?:userId|createdBy|actorId|approverUserId|processedBy|approvedBy|editedBy|user\.id|actor\.userId)\b[^}]*)\}/g;
+const ACTOR_EXPR = /\$\{([^}]*\b(?:userId|createdBy|actorId|approverUserId|processedBy|approvedBy|editedBy|by|user\.id|actor\.userId)\b[^}]*)\}/g;
 const BARE = /^[A-Za-z_$][\w$]*(?:\??\.[A-Za-z_$][\w$]*)*$/;
+/** The only calls allowed inside a `${…}` on a pinned line (none is an actor): any other call could wrap the actor (`${asActor(u)}`). */
+const CALLS_OK = new Set(['(p.amountCents / 100).toFixed(2)', 'JSON.stringify(input.lines)', 'recurringJournalAutoPosts(input.autoPost)']);
+const callsIn = (text: string) => [...text.matchAll(/\$\{([^}]*\([^}]*)\}/g)].map((m) => m[1]!.trim()).filter((e) => !CALLS_OK.has(e));
 const left = (text: string, f: string) => text.replace(/\$\{([^}]*)\}\s*::\s*"?(?:pg_catalog\.)?"?uuid"?(\[\])?/gi, (m, e: string) => (apArNonActorOk(e.trim(), f) ? '' : m));
 
 describe('pinned AP/AR lines carry no actor uuid cast (AAa)', () => {
@@ -28,6 +31,10 @@ describe('pinned AP/AR lines carry no actor uuid cast (AAa)', () => {
       [...text.matchAll(ACTOR_EXPR)].map((m) => m[1]!.trim()).filter((e) => !BARE.test(e)).map((e) => `${f}:${n} ${e}`));
     expect(calls).toEqual([]);
     expect([...'${asActor(userId)}'.matchAll(ACTOR_EXPR)].map((m) => m[1]!.trim()).filter((e) => !BARE.test(e))).toEqual(['asActor(userId)']);
+  });
+  it('no pinned line has a call inside a ${…} unless listed (a helper could wrap the actor)', () => {
+    expect(pinned({ ...AP_AR_SITES, ...AP_AR_VALUE_BINDS }).flatMap(({ f, n, text }) => callsIn(text).map((e) => `${f}:${n} ${e}`))).toEqual([]);
+    expect(callsIn('${a}, ${asActor(u)}, ${asActor(by)}')).toEqual(['asActor(u)', 'asActor(by)']);
   });
   it('the exempt shapes are only the author arrays', () => {
     expect(AUTHOR_SHAPE.test('ARRAY[${userId}]::uuid[]')).toBe(false);
