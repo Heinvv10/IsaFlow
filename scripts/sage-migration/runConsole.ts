@@ -11,7 +11,9 @@
  *     said on the other stream when it is a different, writable file (`onGiveUp`); the exit code is never changed by it;
  *   - the CLI exits only once both streams are drained or given up (`exitAfterConsole`, asked once: a later ask keeps the first code and
  *     waits the same wait), and at most CONSOLE_EXIT_CEILING_MS after the first ask (a natural end's included), whatever the progress;
- *   - only a second SIGNAL ends it at once (`exitNow`): what is cut is said on the other stream when it can be (B29-4).
+ *   - only a second SIGNAL ends it at once (`exitNow`): what is cut is said on the other stream when it can be (B29-4);
+ *   - those notices say only where --report is; what it holds is the one final word, said at every end after the file's last write, on a
+ *     stream still alive (round 34: `sayFinalWord`).
  * fd 1 / fd 2's O_NONBLOCK flags are put back as found, and process.*.write restored, when the CLI exits or ends by itself (runConsoleSys.ts,
  * B29-2, R29-8; its named limits: pipes shared with other programs, SIGKILL and unhandled signals, B30-1/3/4).
  * A pipe holds little (8-64 KiB on velo): a large run should give --report.
@@ -44,19 +46,28 @@ const realSys: ConsoleSys = {
   onExit: (fn) => { process.once('exit', fn); },
 };
 
+/** The run's --report as the console sees it (runReport.ts OwnedReport): where it is, and what it holds now. */
+export interface ReportView { readonly path: string; finalWord(): string }
+/** An error's message, never throwing (B34-2: a hostile toString or message getter). */
+const told = (err: unknown): string => {
+  try { return err instanceof Error ? err.message : String(err); } catch { return 'an error whose message cannot be read'; }
+};
+
 /** The console's CLI side, for one Console (the process's own; a test's). `sys` is replaced in tests only. */
 export function consoleApi(c: Console, sys: ConsoleSys = realSys) {
   const say = (s: string): void => { c.write('stderr', `${s}\n`); };
   let exiting: { code: number | undefined; done: Promise<void> } | null = null;
-  /** What the CLI says of its --report right now (runReport.ts OwnedReport.hintLine, B33-1), or null when none was given. */
-  let report: () => string | null = () => null;
+  /** The run's --report, or null when none was given (or it was not created). */
+  let report: () => ReportView | null = () => null;
+  let finalSaid = false;
   let restore: Array<() => void> = [];
   let ceiling: ReturnType<typeof setTimeout> | undefined;
   let ceilingPassed = false;
   let oneNotice = false; // both streams given up at the ceiling: one notice for both, not one per stream (L2)
+  /** What a notice says of --report mid-run: where it is, never what it holds (round 34: the final word says that, at the exit). */
   const hint = (pipe: boolean): string => {
-    const line = report();
-    if (line !== null) return line;
+    const r = report();
+    if (r !== null) return `--report ${r.path} is where the run's report is written`;
     return pipe ? 'give --report <path>: a pipe holds only a few KiB, and a large run says more' : 'give --report <path>: it always holds the whole report';
   };
   /**
@@ -66,13 +77,35 @@ export function consoleApi(c: Console, sys: ConsoleSys = realSys) {
    */
   const putBack = (): void => {
     for (const r of restore.splice(0).reverse()) {
-      try { r(); } catch (err) { sys.writeNow(2, `could not put the console back as found: ${err instanceof Error ? err.message : String(err)}\n`); }
+      try { r(); } catch (err) { sys.writeNow(2, `could not put the console back as found: ${told(err)}\n`); }
     }
   };
-  /** Puts the process back, then exits, whatever a restore does (R30-5: the exit code is the contract). */
+  /**
+   * The one final word about --report (round 34, B33-1, B34-1): what the file holds, asked at the exit, after its last write; said once,
+   * on a stream still alive (stderr, else stdout; one with nothing queued first), nowhere when both are gone. Every end comes here: an exit
+   * (leave: a drained console, the ceiling, a second signal) and a natural end (the 'exit' listener).
+   */
+  const sayFinalWord = (): void => {
+    if (finalSaid) return;
+    finalSaid = true;
+    let line: string;
+    try {
+      const r = report();
+      if (r === null) return;
+      line = r.finalWord();
+    } catch (err) {
+      line = `--report: what it holds could not be told (${told(err)}): check the books`;
+    }
+    // Streams not given up, one with nothing queued first; the next is tried when one refuses (a stream never written may be gone).
+    const alive = (['stderr', 'stdout'] as const).filter((st) => !c.gone[st]).sort((a, b) => Number(c.queuedBytes(a) > 0) - Number(c.queuedBytes(b) > 0));
+    for (const st of alive) {
+      if (sys.writeNow(FD[st], `${c.queuedBytes(st) > 0 ? '\n' : ''}${line}\n`)) return; // bytes queued: on a line of its own
+    }
+  };
+  /** Says the final word, puts the process back, then exits, whatever a restore does (R30-5: the exit code is the contract). */
   const leave = (code: number | undefined): void => {
     clearTimeout(ceiling);
-    try { putBack(); } finally { sys.exit(code); }
+    try { sayFinalWord(); putBack(); } finally { sys.exit(code); }
   };
   const CEILING = `the exit waited ${CONSOLE_EXIT_CEILING_MS / 1000} s for its reader`;
   /**
@@ -109,9 +142,9 @@ export function consoleApi(c: Console, sys: ConsoleSys = realSys) {
     /**
      * Wires the console for the CLI: the notice when a stream is given up (on the other stream, when that is a different, writable file),
      * the O_NONBLOCK precondition (touched, then read back; a pipe still blocking is said), fd 1 / 2's flags for the exit, and the
-     * process's other writers routed through it. `where()` says what --report holds now, or null; `restoreFlags`: saved at the very start.
+     * process's other writers routed through it. `where()` is the run's --report (or null); `restoreFlags`: saved at the very start.
      */
-    prepareConsole(where: () => string | null, restoreFlags?: () => void): { blocking: number[] } {
+    prepareConsole(where: () => ReportView | null, restoreFlags?: () => void): { blocking: number[] } {
       report = where;
       c.shared = sys.sameFile();
       c.onGiveUp = (stream, why) => {
@@ -130,7 +163,7 @@ export function consoleApi(c: Console, sys: ConsoleSys = realSys) {
       void process.stdout; // bun makes fd 1 / 2 O_NONBLOCK when the stream is first touched
       void process.stderr;
       restore.push(sys.capture(c)); // the logger's lines join the same queues
-      sys.onExit(putBack); // a run that ends by itself (exit 0 / 1 / 3) puts them back too (B29-2, B33-2)
+      sys.onExit(() => { sayFinalWord(); putBack(); }); // a run that ends by itself (exit 0 / 1 / 3): its final word, then put back (B29-2, B33-2)
       const blocking = sys.blockingFds();
       if (blocking.length > 0) say(`the console (fd ${blocking.join(', ')}) is in blocking mode: a reader that stops reading holds the run up until it reads again`);
       return { blocking };

@@ -92,8 +92,6 @@ export class OwnedReport {
   intact = true;
   /** The `status` of that last body written whole ("running" from the create): what the file holds while `intact` (B32-1). */
   holds = 'running';
-  /** The last write was refused (B33-1: a placeholder after a refused write is no longer "the report is written when the run ends"). */
-  private failed = false;
   private constructor(readonly path: string, private readonly fd: number) {}
 
   /**
@@ -139,32 +137,28 @@ export class OwnedReport {
       }
       fsyncSync(this.fd);
       this.intact = true;
-      this.failed = false;
       this.holds = typeof body === 'object' && body !== null && typeof (body as { status?: unknown }).status === 'string' ? (body as { status: string }).status : 'unknown';
       return null;
     } catch (err) {
       if (changed) this.intact = false;
-      this.failed = true;
       return `--report ${this.path} could not be written: ${message(err)}`;
     }
   }
 
   /** What the file holds, said from what was written whole (B32-1), never from what was tried. */
   holding(): string {
-    if (!this.intact) return 'may hold neither stop report now (a failing disk)';
+    if (!this.intact) return 'may hold a torn or partial body now (a failing disk)'; // a failed fsync too: not trusted (named limit)
     if (this.holds === 'running') return 'still holds only the "running" placeholder';
     if (this.holds.endsWith('_not_written')) return `holds only a "${this.holds}" note`;
     return `holds a "${this.holds}" body`;
   }
 
   /**
-   * What the console says of the file when a stream is cut, given up or closed (B33-1): that it holds the run's report only when it holds
-   * one whole (the run's own or a stop report); while nothing was tried yet, that it is where the report is written; otherwise what it
-   * holds, and that no report of the run was written.
+   * The console's final word about the file (round 34: B33-1, B34-1), said once at the exit, after its last write: that it holds the run's
+   * report only when it holds one whole (the run's own or a stop report); otherwise what it holds, and that no report of the run was written.
    */
-  hintLine(): string {
+  finalWord(): string {
     if (this.intact && this.holds !== 'running' && !this.holds.endsWith('_not_written')) return `--report ${this.path} holds the run's report`;
-    if (this.intact && this.holds === 'running' && !this.failed) return `--report ${this.path} is where the run's report is written when it ends`;
     return `--report ${this.path} ${this.holding()}: no report of this run was written: check the books`;
   }
 
@@ -197,6 +191,6 @@ export function summarize(report: MigrationReport, allowRefusals: boolean, allow
     return { lines: fns.lines(report), code: fns.code(report, allowRefusals, allowDifferences) };
   } catch (err) {
     if (report.live === null) throw err;
-    return { lines: [`the live run committed; the summary failed (${err instanceof Error ? err.message : String(err)}): check the books (the report file holds what the run returned)`], code: 4 };
+    return { lines: [`the live run committed; the summary failed (${err instanceof Error ? err.message : String(err)}): check the books`], code: 4 };
   }
 }

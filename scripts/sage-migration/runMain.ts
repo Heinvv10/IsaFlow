@@ -153,7 +153,7 @@ async function endPool(): Promise<void> {
 export async function runCli(o: { removeHandlers?: boolean } = {}, restoreStartFlags?: () => void): Promise<void> {
   // FIRST: before anything touches process.stdout / stderr, so fd 1 / 2's flags are saved as found (B29-2); then fd 1 / 2 non-blocking,
   // and a stream given up is said on the other (R28-1, R28-6).
-  prepareConsole(() => (cli.owned ? cli.owned.hintLine() : null), restoreStartFlags); // what the file holds now (B33-1)
+  prepareConsole(() => cli.owned, restoreStartFlags); // its path for the notices, its final word at the exit (round 34)
   const uninstall = installHandlers();
   try {
     await main();

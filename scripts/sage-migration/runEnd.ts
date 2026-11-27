@@ -50,7 +50,7 @@ export function leaveStopReport(err: unknown, exitCode: number, keepOpen = false
   if (why) {
     say(why);
     const again = owned.write({ status: 'stop_report_not_written', exitCode, why });
-    if (again) { say(again); say(`--report ${owned.path} ${owned.holding()}: the lines above are the run's report`); } // L3
+    if (again) say(again); // what the file then holds is the console's final word at the exit (round 34)
   }
   if (!keepOpen) owned.close();
 }
@@ -89,7 +89,7 @@ function rewriteStopReport(err: unknown, first: unknown, exitCode: number): { wr
       return { written: false, lines: [`${why}: the stop report ${hadFirst ? 'written before was written back' : 'as known when the run ended was written in its place'} ${listed}`] };
     }
     const small = owned.write({ status: 'stop_report_not_written', exitCode, why: back });
-    return { written: false, lines: [why, back, ...(small === null ? [] : [small]), `--report ${owned.path} ${owned.holding()}: the lines above are the run's report`] };
+    return { written: false, lines: [why, back, ...(small === null ? [] : [small])] }; // what the file holds: the final word at the exit
   } finally {
     owned.close();
   }
