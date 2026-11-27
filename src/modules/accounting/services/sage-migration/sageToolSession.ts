@@ -119,13 +119,16 @@ export async function withToolSession<T>(
     let promised = false;
     try { promised = raw instanceof Promise; } catch { promised = false; } // a driver's return value: read once, in a try
     if (!promised) { settled(); return raw; }
-    // B36-1, B37-2: whatever the driver rejects with is snapshotted here, where it enters: no later read touches the foreign value.
-    const r = (raw as Promise<unknown>).then((v) => v, (err: unknown) => { throw snapshot(err); });
-    r.then(settled, (err: unknown) => {
+    // B36-1, B37-2: the session's own reads of a rejection are of its snapshot, made here, where it enters. The caller (a tool, whose own
+    // error handling reads pg's error: its constraint, its detail) gets the driver's answer as it is; the session's catches snapshot what
+    // reaches them, and its own COMMIT is read only through its snapshot.
+    const r = raw as Promise<unknown>;
+    r.then(settled, (rejected: unknown) => {
+      const err = snapshot(rejected);
       const code = codeOf(err);
       if (code === '55P03' && lockTimedOut === null) [lockTimedOut, lockHolder] = [err, watch.lastBlocker()]; // read before the wait ends
       else if (code === '57014' && !ending && statementTimedOut === null) [statementTimedOut, statementMs] = [err, Date.now() - sentAt];
-      else if (told(err) === 'Query read timeout' && lost === null) [lost, lostBy] = [err as Error, 'timeout'];
+      else if (told(err) === 'Query read timeout' && lost === null) [lost, lostBy] = [err, 'timeout'];
       settled();
     });
     return r;
