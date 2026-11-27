@@ -13,6 +13,7 @@ import { runSageMigration } from '../../src/modules/accounting/services/sage-mig
 import { SAGE_POOL_END_TIMEOUT_MS, sagePoolConfig } from '../../src/modules/accounting/services/sage-migration/sageTimeouts';
 import type { ParsedExport } from '../../src/modules/accounting/services/sage-migration/sageExportTypes';
 import { exitCodeForError, stopMessage } from '../../src/modules/accounting/services/sage-migration/sageStopMessage';
+import { safeThrown } from '../../src/modules/accounting/services/sage-migration/sageTold';
 import { checkReportArgs, exitAfterReportFailure, OwnedReport, summarize } from './runReport';
 import { endConsole, exitAfterConsole, out, prepareConsole, say, told } from './runConsole';
 import { cli, installHandlers, leaveStopReport, shouldStop } from './runEnd';
@@ -82,7 +83,7 @@ async function main(): Promise<void> {
   }
   // Round 25: every connection kept alive and every query bounded client-side (sagePoolConfig), the run lock's included.
   const pool = new pg.Pool(sagePoolConfig(process.env.DATABASE_URL, values.company!.toLowerCase()));
-  pool.on('error', (err) => say(`database pool error: ${err.message}`));
+  pool.on('error', (err: unknown) => say(`database pool error: ${told(err)}`)); // B36-3: a hostile pool error is said, never thrown
   openPool = pool; // ended by runCli AFTER the result (or the stop message) is out, and bounded (B26-1)
   {
     const report = await runSageMigration(pool, parsed, {
@@ -160,7 +161,8 @@ export async function runCli(o: { removeHandlers?: boolean } = {}, restoreStartF
     if (cli.endedAtOnce) { await cli.ending; return; } // terminate's exit stands (R29-1, R29-2, R30-1: its wait, never one of main's)
     await endPool(); // after the summary, the report and the closing line: a pool that does not close cannot swallow them
     endConsole(); // the run ends by itself: what it still has to say gets the same total ceiling (R30-3)
-  } catch (err) {
+  } catch (raw) {
+    const err = safeThrown(raw); // R36-1: a hostile value thrown out of main() cannot throw again in the reads below
     // terminate ended the run: the runner's own stop that follows says, writes and decides nothing (R29-1); its exit is the same wait.
     if (cli.endedAtOnce) { await cli.ending; return; }
     cli.state.end('the run stopped'); // FIRST: nothing new starts while the stop message is written

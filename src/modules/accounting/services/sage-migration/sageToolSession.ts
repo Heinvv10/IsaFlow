@@ -18,6 +18,7 @@ import type { McpToolContext } from '@/lib/mcp/types';
 import { CommitRefusedError, CommitUnconfirmedError, RunEndedError, commitRefusedByServer, ConnectionLostError, DryRollbackUnconfirmedError, LockWaitError, LostBeforeCommitError, StatementTimeoutError, type LockHolder } from './sageSessionErrors';
 import { idempotencyLockText, takeKeyLockNow } from './sageKeyLock';
 import { watchWaits } from './sageWaitWatch';
+import { codeOf, safeThrown, told } from './sageTold';
 import { SAGE_COMMIT_TIMEOUT_MS, SAGE_LOCK_TIMEOUT_MS, SAGE_STATEMENT_TIMEOUT_MS, sageAppName } from './sageTimeouts';
 
 export { SAGE_CONNECT_TIMEOUT_MS, SAGE_KEEPALIVE_INITIAL_DELAY_MS, SAGE_LOCK_TIMEOUT_MS, SAGE_QUERY_TIMEOUT_MS, SAGE_STATEMENT_TIMEOUT_MS, sagePoolConfig } from './sageTimeouts';
@@ -62,9 +63,9 @@ export function setCommitBoundForTests(ms: number): () => void {
  * live connection). A connection that really ended also emits the client's 'error', which is listened to.
  */
 const connectionEnded = (err: unknown): boolean => {
-  const code = typeof err === 'object' && err !== null ? (err as { code?: unknown }).code : undefined; // a thrown null / undefined (R21-4)
+  const code = codeOf(err); // a thrown null / undefined (R21-4); a value whose code cannot be read (B36-1): undefined
   if (typeof code === 'string') return /^57P0[123]$/.test(code);
-  return code === undefined && err instanceof Error && /^Connection terminated/.test(err.message);
+  return code === undefined && err instanceof Error && /^Connection terminated/.test(told(err));
 };
 
 /** What a request already said of itself (a loss, an unconfirmed COMMIT or ROLLBACK, a stall): it stands, never re-worded. */
@@ -139,13 +140,15 @@ export async function withToolSession<T>(
     if (lost !== null) return Promise.reject(lost);
     const settled = watch.begin();
     const sentAt = Date.now();
-    const r = base.query(...a);
-    if (!(r instanceof Promise)) { settled(); return r; }
+    const raw = base.query(...a);
+    if (!(raw instanceof Promise)) { settled(); return raw; }
+    // B36-1: whatever the driver rejects with is made safe here, where it enters: no later read of it can throw.
+    const r = raw.then((v) => v, (err: unknown) => { throw safeThrown(err); });
     r.then(settled, (err: unknown) => {
-      const code = (err as { code?: unknown } | null)?.code;
+      const code = codeOf(err);
       if (code === '55P03' && lockTimedOut === null) [lockTimedOut, lockHolder] = [err, watch.lastBlocker()]; // read before the wait ends
       else if (code === '57014' && !ending && statementTimedOut === null) [statementTimedOut, statementMs] = [err, Date.now() - sentAt];
-      else if (err instanceof Error && err.message === 'Query read timeout' && lost === null) [lost, lostBy] = [err, 'timeout'];
+      else if (err instanceof Error && told(err) === 'Query read timeout' && lost === null) [lost, lostBy] = [err, 'timeout'];
       settled();
     });
     return r;
@@ -250,7 +253,7 @@ export async function withToolSession<T>(
       if (lost === null && connectionEnded(err)) [lost, lostBy] = [err as Error, 'ended'];
       // The server ANSWERED it with an ERROR (57014, a deferred constraint...): rolled back, nothing written (B28-2). Not "may still land".
       if (lost === null && commitRefusedByServer(err)) throw new CommitRefusedError(err);
-      throw new CommitUnconfirmedError(err instanceof Error ? err.message : String(err), result, lost !== null);
+      throw new CommitUnconfirmedError(told(err), result, lost !== null); // B36-1: whatever it rejected with, unconfirmed
     } finally {
       clearTimeout(commitTimer);
     }

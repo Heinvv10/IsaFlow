@@ -8,6 +8,7 @@ import { createHash } from 'node:crypto';
 import type { Pool, PoolClient } from 'pg';
 import { ConnectionLostError } from './sageSessionErrors';
 import { watchWaits } from './sageWaitWatch';
+import { asError, told } from './sageTold';
 import { log } from '@/lib/logger';
 
 export class RunInProgressError extends Error {}
@@ -19,7 +20,7 @@ export class RunInProgressError extends Error {}
  */
 export class RunLockNotTakenError extends Error {
   constructor(cause: Error, readonly pid: number | undefined) {
-    super(`the run lock could not be taken (${cause.message}): nothing was written; ${pid === undefined ? 'its backend pid is unknown' : `its backend pid ${pid} may hold the run lock until the server drops that connection: if a re-run is refused as running, SELECT pg_terminate_backend(${pid})`}`, { cause });
+    super(`the run lock could not be taken (${told(cause)}): nothing was written; ${pid === undefined ? 'its backend pid is unknown' : `its backend pid ${pid} may hold the run lock until the server drops that connection: if a re-run is refused as running, SELECT pg_terminate_backend(${pid})`}`, { cause });
     this.name = 'RunLockNotTakenError';
   }
 }
@@ -82,7 +83,7 @@ async function takeRunLock(pool: Pool, companyId: string, watched: <T>(run: () =
   try {
     gotLock = (await watched(() => client.query<{ ok: boolean }>('SELECT pg_try_advisory_lock($1::int, $2::int) AS ok', [k1, k2]))).rows[0]?.ok === true;
   } catch (err) {
-    failure = err instanceof Error ? err : new Error(String(err));
+    failure = asError(err);
   }
   if (failure || !gotLock) {
     // Who holds it (B25-3): a running run, or a dead run's connection the server has not dropped yet. Best effort: unknown is said so.
@@ -95,8 +96,8 @@ async function takeRunLock(pool: Pool, companyId: string, watched: <T>(run: () =
         holder = h.rows[0]?.pid;
       } catch (err) {
         // R26-10: the connection goes back WITH this error (pg destroys it): a lookup that timed out may still be running on it.
-        lookupFailure = err instanceof Error ? err : new Error(String(err));
-        log.warn('sage migration: the run lock holder could not be read', { message: lookupFailure.message }, 'sage-migration');
+        lookupFailure = asError(err);
+        log.warn('sage migration: the run lock holder could not be read', { message: told(lookupFailure) }, 'sage-migration');
       }
     }
     // One release for both: with the error when a query failed (pg destroys the connection), plain when someone else holds the lock (it is fine).
@@ -111,7 +112,7 @@ async function takeRunLock(pool: Pool, companyId: string, watched: <T>(run: () =
   try {
     await watched(() => client.query('SET idle_session_timeout = 0'));
   } catch (err) {
-    failure = err instanceof Error ? err : new Error(String(err));
+    failure = asError(err);
     client.removeListener('error', onError);
     client.release(failure);
     throw new RunLockNotTakenError(failure, pid);
@@ -128,14 +129,14 @@ async function takeRunLock(pool: Pool, companyId: string, watched: <T>(run: () =
       clearTimeout(timer);
     }
   };
-  const lostError = (): LockLostError => new LockLostError(`lock lost (${lost?.message}): the run lock is gone, so another run could now start for this company, and this one stops`);
+  const lostError = (): LockLostError => new LockLostError(`lock lost (${lost === undefined ? 'unknown' : told(lost)}): the run lock is gone, so another run could now start for this company, and this one stops`);
   const held = (): void => { if (lost) throw lostError(); };
   const check = async (): Promise<void> => {
     if (!lost) {
       try {
         await bounded(() => client.query('SELECT 1'));
       } catch (err) {
-        lost = err instanceof Error ? err : new Error(String(err));
+        lost = asError(err);
       }
     }
     held();
@@ -151,14 +152,14 @@ async function takeRunLock(pool: Pool, companyId: string, watched: <T>(run: () =
         if (unlocked.rows[0]?.ok !== true) log.error('sage migration: the run lock was not held at unlock', { companyId }, 'sage-migration');
         await bounded(() => client.query('RESET idle_session_timeout')); // the connection goes back to the pool as the server configured it
       } catch (err) {
-        unlockFailure = err instanceof Error ? err : new Error(String(err));
+        unlockFailure = asError(err);
       }
     }
     client.removeListener('error', onError);
     client.release(unlockFailure);
     if (!unlockFailure) return null;
     const pid = typeof processID === 'number' ? `backend pid ${processID}: if a re-run is refused as running, it still holds it: SELECT pg_terminate_backend(${processID})` : 'backend pid unknown';
-    return `its run lock release was not confirmed (${unlockFailure.message}); ${pid}`;
+    return `its run lock release was not confirmed (${told(unlockFailure)}); ${pid}`;
   };
   return { unlock, check, held };
 }

@@ -38,6 +38,7 @@ import { buildReconciliation } from './sageReconciliation';
 import { readSnapshot, type Snapshot } from './sageSnapshot';
 import { resolveSuppliers } from './sageSuppliers';
 import { withToolSession } from './sageToolSession';
+import { safeThrown, told } from './sageTold';
 
 /** The caller asked the run to stop (a signal): thrown where the run lock is checked, so the usual stop path reports it. */
 export class StopRequested extends Error {}
@@ -119,10 +120,11 @@ async function livePhase(pool: Pool, o: MigrationOptions, list: Send[], before: 
     o.onProgress?.({ kind: 'sending', batch: { entity: s.entity, n: s.n, size: s.size, key: keyFor(s, before, false) } });
     try {
       b = await withToolSession(pool, o.companyId, o.userId, true, (session) => sendBatch(session, s, before, false), sessionOpts(o));
-    } catch (err) {
+    } catch (raw) {
+      const err = safeThrown(raw); // B36-1: no read below can throw
       // The request transaction failed as a whole (a lost connection, a failed COMMIT): the batch is reported failed. A COMMIT whose answer
       // never came may still have landed, so the books are the judge: the run stops (below) and a re-run finds what landed.
-      const message = err instanceof Error ? err.message : String(err);
+      const message = told(err);
       log.error('sage migration: batch failed', { entity: s.entity, n: s.n, message }, 'sage-migration');
       b = { entity: s.entity, n: s.n, size: s.size, key: keyFor(s, before, false), status: 'failed', allRowsAlreadyPresent: false, rowsAbsent: 0, toolReported: null, error: message };
       // An unconfirmed COMMIT may have landed: keep the LIVE tool answer the request had before its COMMIT (what the batch did if it landed).
@@ -153,8 +155,9 @@ async function livePhase(pool: Pool, o: MigrationOptions, list: Send[], before: 
  */
 async function settled(committed: BatchReport[], all: PlannedBatches, read: () => Promise<Snapshot>): Promise<{ committed: BatchReport[]; unchecked?: string }> {
   let snapshot: Snapshot;
-  try { snapshot = await read(); } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+  try { snapshot = await read(); } catch (raw) {
+    const err = safeThrown(raw);
+    const message = told(err);
     // The caller ended the run (R29-1): nothing is read, and nothing is said of it here (the caller's own stop report stands).
     if (!(err instanceof RunEndedError)) log.warn('sage migration: the books could not be read to check the committed batches', { message }, 'sage-migration');
     // Only why the READ failed: never the read's own "nothing of it was written", which would read as said of the batches (B28-6, R29-6).
@@ -219,7 +222,7 @@ async function runLocked(pool: Pool, parsed: ParsedExport, opts: MigrationOption
   }
   const { lockStop, ...dry } = dryOut;
   // The dry run stopped on another session's lock (round 25): a --live run refuses its start (exit 2); a preview reports dry_run_failed.
-  if (lockStop && opts.live) throw new Error(`the dry run stopped at ${lockStop.batch.entity} batch ${lockStop.batch.n} (${lockStop.batch.key}): ${lockStop.error.message}; the live run was not started${held ? `; ${held.held}` : ''}`); // R26-6
+  if (lockStop && opts.live) throw new Error(`the dry run stopped at ${lockStop.batch.entity} batch ${lockStop.batch.n} (${lockStop.batch.key}): ${told(lockStop.error)}; the live run was not started${held ? `; ${held.held}` : ''}`); // R26-6
   const base = { companyId: opts.companyId, refused: plan.refusals, dryRun: dry, ...(held ? { dryRunHeld: held.held } : {}) };
   const skipped = (phase: PhaseReport) => (opts.skipBudgetCheck ? budgetWouldHaveFailed(phase.batches) : []);
   // What the PO tool does not compare (supplier, delivery date, reference, lines) is compared here, from the books as read before the run.

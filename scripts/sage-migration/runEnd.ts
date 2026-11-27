@@ -16,7 +16,7 @@ import type { BatchReport } from '../../src/modules/accounting/services/sage-mig
 import { type OwnedReport, stopReportBody } from './runReport';
 import { SAGE_QUERY_TIMEOUT_MS } from '../../src/modules/accounting/services/sage-migration/sageTimeouts';
 import { RunState } from './runState';
-import { cliConsole, exitAfterConsole, exitNow, exitPending, say, told } from './runConsole';
+import { cliConsole, codeOf, exitAfterConsole, exitNow, exitPending, say, told } from './runConsole';
 
 /** The module's run: runCli runs once per process (the CLI; each test re-imports the module) (R19-5). */
 export const cli = {
@@ -190,7 +190,7 @@ export function installHandlers(): () => void {
   };
   const crash = (kind: string) => (e: unknown) => terminate(`${kind}: ${told(e)}`, false); // B35-2: a hostile value cannot throw here
   // A write through the stream itself failed: said once (B19-3), the stream not written again; the run goes on.
-  const stream = (name: 'stdout' | 'stderr') => (e: NodeJS.ErrnoException) => { cliConsole.markGone(name, e.code ?? e.message); };
+  const stream = (name: 'stdout' | 'stderr') => (e: unknown) => { const code = codeOf(e); cliConsole.markGone(name, typeof code === 'string' ? code : told(e)); }; // R36-3
   type Listener = (...a: unknown[]) => void;
   const on: Array<[NodeJS.EventEmitter, string, Listener]> = [
     ...(['SIGINT', 'SIGTERM', 'SIGHUP'] as const).map((sig): [NodeJS.EventEmitter, string, Listener] => [process, sig, signal(sig)]),

@@ -14,11 +14,12 @@ export class CommitUnconfirmedError extends Error {
 }
 
 import pg from 'pg';
+import { codeOf, told } from './sageTold';
 import { described, ownBackend, whoHolds, type LockHolder } from './sageLockHolder';
 
 export type { LockHolder } from './sageLockHolder';
 
-const text = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+const text = told;
 
 /**
  * The run's caller ended the run (R29-1: the CLI's terminate or its own exit): no request is started any more; nothing of this one was
@@ -40,7 +41,7 @@ export class RunEndedError extends Error {
 export class CommitRefusedError extends Error {
   readonly code: string;
   constructor(cause: unknown) {
-    const code = String((cause as { code?: unknown }).code);
+    const code = told(codeOf(cause));
     super(`the server refused the COMMIT (${code}: ${text(cause)}): the transaction was rolled back, nothing of it was written`, { cause });
     this.code = code;
     this.name = 'CommitRefusedError';
@@ -55,9 +56,10 @@ export class CommitRefusedError extends Error {
 export const commitRefusedByServer = (err: unknown): boolean => {
   const ServerError = (pg as { DatabaseError?: abstract new (...a: never[]) => Error }).DatabaseError;
   if (typeof ServerError !== 'function' || !(err instanceof ServerError)) return false;
-  const e = err as Error & { code?: string; severity?: string };
-  const code = e.code;
-  if (e.severity === 'FATAL' || e.severity === 'PANIC') return false;
+  const code = codeOf(err);
+  let severity: unknown;
+  try { severity = (err as { severity?: unknown }).severity; } catch { return false; } // a value that cannot be read is no server answer
+  if (severity === 'FATAL' || severity === 'PANIC') return false;
   return typeof code === 'string' && /^[0-9A-Z]{5}$/.test(code) && !/^(08|57P|58|XX)/.test(code) && code !== '25P03' && code !== '40003';
 };
 
@@ -99,7 +101,7 @@ export class ConnectionLostError extends Error {
 export class DryRollbackUnconfirmedError extends Error {
   readonly held: string;
   constructor(cause: Error, readonly pid: number | undefined, readonly result?: unknown, readonly after?: unknown) {
-    const held = `the dry run's ROLLBACK was not confirmed (${cause.message}); its writes may still be held (${ownBackend(pid)})`;
+    const held = `the dry run's ROLLBACK was not confirmed (${told(cause)}); its writes may still be held (${ownBackend(pid)})`;
     // After the dry run's own error (R27 wording): what was not written, and that no live run followed, said as for a held ROLLBACK alone.
     const first = text(after);
     const notWritten = /nothing was written/.test(first) ? '' : '; the dry run commits nothing, so nothing was written to the books'; // said once
@@ -174,7 +176,7 @@ export class StatementTimeoutError extends Error {
  * next to a list of committed batches, that sentence would read as said of them. Every typed error is worded from its cause.
  */
 export function causeWording(err: unknown): string {
-  const cause = (e: unknown): string => { const c = (e as { cause?: unknown }).cause; return c === undefined ? text(e) : text(c); };
+  const cause = (e: unknown): string => { let c: unknown; try { c = (e as { cause?: unknown }).cause; } catch { c = undefined; } return c === undefined ? text(e) : text(c); };
   if (err instanceof ConnectionLostError) return `${err.how === 'no-connection' ? 'no connection could be had' : 'its connection was lost'}: ${cause(err)}`;
   if (err instanceof LostBeforeCommitError) return `its connection was lost: ${cause(err)}`;
   if (err instanceof StatementTimeoutError) return `a statement of it timed out or was cancelled: ${cause(err)}`;

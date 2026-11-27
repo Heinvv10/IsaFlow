@@ -13,6 +13,7 @@ import { updatesOf } from './sageDifferences';
 import { writtenWording } from './sageRowWording';
 import { MigrationStopped } from './sageMigrationStopped';
 import type { BatchReport } from './sageMigrationTypes';
+import { told } from './sageTold';
 
 const cut = (text: string | null): string =>
   text === null ? 'no reason given' : text.length <= CONSOLE_ERROR_CHARS ? text : `${text.slice(0, CONSOLE_ERROR_CHARS)} ... (${text.length} characters)`;
@@ -40,7 +41,7 @@ export function stopReportBatches(err: MigrationStopped): { committed: BatchRepo
 }
 
 export function stopMessage(err: unknown): string {
-  const why = `sage migration stopped: ${err instanceof Error ? err.message : String(err)}`;
+  const why = `sage migration stopped: ${told(err)}`;
   if (!(err instanceof MigrationStopped) || !err.liveStarted) return why;
   const line = (b: BatchReport, what: string) => `\n${what}: ${b.entity} batch ${b.n} (${b.key})`;
   const committed = err.committed.map((b) => {

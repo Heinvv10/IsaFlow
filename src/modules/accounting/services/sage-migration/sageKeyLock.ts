@@ -4,6 +4,7 @@
  * the registry's own wait on it then returns at once (advisory locks stack within a session).
  */
 import { log } from '@/lib/logger';
+import { told } from './sageTold';
 import { confirmIdle, HOLDER_COLUMNS, HOLDER_CONFIRM_MS, holderFrom, idleInTransaction } from './sageLockHolder';
 import { BatchKeyHeldError, type LockPhase } from './sageSessionErrors';
 
@@ -40,7 +41,7 @@ export async function takeKeyLockNow(client: Queryable, lookup: Queryable, lockT
   let unread = false;
   const read = () => lookup.query(HOLDER_SQL, [lockText]).then((r) => holderFrom(r.rows[0], o), (err: unknown) => {
     unread = true;
-    log.warn('sage migration: who holds the batch key could not be read', { message: err instanceof Error ? err.message : String(err) }, 'sage-migration');
+    log.warn('sage migration: who holds the batch key could not be read', { message: told(err) }, 'sage-migration');
     return undefined;
   });
   const at = Date.now();

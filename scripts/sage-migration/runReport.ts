@@ -11,7 +11,7 @@ import type { MigrationReport } from '../../src/modules/accounting/services/sage
 import { MigrationStopped } from '../../src/modules/accounting/services/sage-migration/sageMigrationStopped';
 import { exitCodeFor, summaryLines } from '../../src/modules/accounting/services/sage-migration/sageReportSummary';
 import { stopMessage, stopReportBatches } from '../../src/modules/accounting/services/sage-migration/sageStopMessage';
-import { say, told } from './runConsole';
+import { codeOf, say, told } from './runConsole';
 
 /**
  * Every --report and --file value in the arguments, up to a bare `--`. A value that starts with `--` is an option, never a path
@@ -101,7 +101,7 @@ export class OwnedReport {
   static create(path: string): OwnedReport | { why: string; left?: true } {
     let fd: number;
     try { fd = openSync(path, 'wx', 0o644); } catch (err) {
-      const code = (err as NodeJS.ErrnoException).code;
+      const code = codeOf(err);
       return { why: code === 'EEXIST'
         ? alreadyExists(path)
         : `--report ${path} cannot be written (${message(err)})` };

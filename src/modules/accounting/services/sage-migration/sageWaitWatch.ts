@@ -7,6 +7,7 @@
  */
 import type { Pool } from 'pg';
 import { log } from '@/lib/logger';
+import { told } from './sageTold';
 import { confirmIdle, HOLDER_COLUMNS, holderFrom, type LockHolder } from './sageLockHolder';
 
 /** A wait this long is said, and again every time as long. */
@@ -75,7 +76,7 @@ export function watchWaits(pool: Pool, onNotice?: (line: string) => void, ctx: {
           blocker = seen && firstSeen ? confirmIdle(firstSeen, seen, Date.now()) : seen;
           if (blocker !== undefined) lastBlocker = blocker;
         })
-        .catch((err: unknown) => log.warn('sage migration: who blocks the request could not be read', { message: err instanceof Error ? err.message : String(err) }, 'sage-migration'))
+        .catch((err: unknown) => log.warn('sage migration: who blocks the request could not be read', { message: told(err) }, 'sage-migration'))
         .finally(() => { sampling = false; });
     }
     const span = Math.floor(waited / SAGE_WAIT_NOTICE_MS);

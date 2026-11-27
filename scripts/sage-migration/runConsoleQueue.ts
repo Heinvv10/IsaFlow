@@ -4,7 +4,7 @@
  * own budget of no progress; a stream that makes none for that long, or fails, is given up (R27-2, R28-1, R28-6, B28-1, R29-3, B30-1).
  */
 import { writeSync } from 'node:fs';
-import { keepNonBlocking, told } from './runConsoleSys';
+import { codeOf, keepNonBlocking, told } from './runConsoleSys';
 
 /** How long a stream may make no progress before it is given up. */
 export const CONSOLE_WAIT_MS = 30_000;
@@ -12,6 +12,8 @@ export const CONSOLE_WAIT_MS = 30_000;
 const PAUSE_MS = 5;
 
 export type Stream = 'stdout' | 'stderr';
+/** Why a stream was given up (R36-6: one source, passed in, never parsed back from the words): it failed, it made no progress, or the exit's ceiling. */
+export type GoneReason = 'error' | 'stall' | 'ceiling';
 export const FD: Record<Stream, number> = { stdout: 1, stderr: 2 };
 
 /** What the console needs from the system: replaced in tests only. */
@@ -32,10 +34,10 @@ interface Pending { stream: Stream; buf: Buffer; done?: (err?: Error) => void }
 
 export class Console {
   readonly gone: Record<Stream, boolean> = { stdout: false, stderr: false };
-  /** Given up for a STALL (no progress, or the exit's ceiling), not for an error: its pipe may still take a short line (B35-1). */
-  readonly stalled: Record<Stream, boolean> = { stdout: false, stderr: false };
-  /** Said when a stream is given up: `why` is the error code, or "no reader within N s". */
-  onGiveUp: ((stream: Stream, why: string) => void) | null = null;
+  /** Why each stream was FIRST given up (null while it is not): a stall or the ceiling leaves a pipe that may still take a short line (B35-1). */
+  readonly goneFor: Record<Stream, GoneReason | null> = { stdout: null, stderr: null };
+  /** Said when a stream is given up: `why` is the error code, "no reader within N s" or the ceiling's words; `reason` says which. */
+  onGiveUp: ((stream: Stream, why: string, reason: GoneReason) => void) | null = null;
   /** A stream whose write returned false has nothing queued any more ('drain' for process.*.write, R29-3). */
   onDrain: ((stream: Stream) => void) | null = null;
   /** fd 1 and fd 2 are one open file (2>&1): one queue, in the order said, and one budget. Otherwise a queue and a budget each. */
@@ -72,10 +74,10 @@ export class Console {
   }
 
   /** A stream written another way failed (`why`), or (`stall`) the exit's ceiling gives it up: it is not written here either. */
-  markGone(stream: Stream, why: string, stall = false): void { this.giveUp([stream], why, stall); }
+  markGone(stream: Stream, why: string, reason: GoneReason = 'error'): void { this.giveUp([stream], why, reason); }
 
   /** Gives every stream up (the exit's ceiling): what is queued is dropped. */
-  giveUpAll(why: string): void { this.giveUp(['stdout', 'stderr'], why); }
+  giveUpAll(why: string): void { this.giveUp(['stdout', 'stderr'], why, 'ceiling'); }
 
   /** Nothing is waiting to be written. */
   idle(): boolean { return Object.values(this.lanes).every((l) => l.q.length === 0); }
@@ -93,15 +95,15 @@ export class Console {
       try {
         n = this.deps.write(FD[head.stream], head.buf, 0, head.buf.length);
       } catch (err) {
-        const code = (err as NodeJS.ErrnoException).code;
-        if (code !== 'EAGAIN') { this.giveUp([head.stream], code ?? told(err)); continue; }
+        const code = codeOf(err); // R36-3: a thrown null / undefined, or a value whose code cannot be read, is no EAGAIN
+        if (code !== 'EAGAIN') { this.giveUp([head.stream], typeof code === 'string' ? code : told(err), 'error'); continue; }
         n = 0;
       }
       if (n > 0) l.lastProgress = this.deps.now(); // any byte taken starts the budget over (R28-1)
       if (n >= head.buf.length) { l.q.shift(); head.done?.(); continue; }
       if (n > 0) { head.buf = head.buf.subarray(n); continue; }
       if (this.deps.now() - l.lastProgress >= CONSOLE_WAIT_MS) {
-        this.giveUp(lane === 'shared' ? ['stdout', 'stderr'] : [lane], `no reader within ${CONSOLE_WAIT_MS / 1000} s`, true);
+        this.giveUp(lane === 'shared' ? ['stdout', 'stderr'] : [lane], `no reader within ${CONSOLE_WAIT_MS / 1000} s`, 'stall');
         continue;
       }
       l.retrying = true;
@@ -111,16 +113,16 @@ export class Console {
     this.settle();
   }
 
-  private giveUp(streams: Stream[], why: string, stall = false): void {
+  private giveUp(streams: Stream[], why: string, reason: GoneReason): void {
     for (const stream of streams) {
       const wasGone = this.gone[stream];
       this.gone[stream] = true;
-      if (!wasGone) this.stalled[stream] = stall; // why it was FIRST given up
+      if (!wasGone) this.goneFor[stream] = reason; // why it was FIRST given up
       for (const l of Object.values(this.lanes)) {
         for (const p of l.q) if (p.stream === stream) p.done?.(new Error(`${stream} was given up (${why})`));
         l.q = l.q.filter((p) => p.stream !== stream);
       }
-      if (!wasGone) this.onGiveUp?.(stream, why); // said once (B19-3)
+      if (!wasGone) this.onGiveUp?.(stream, why, reason); // said once (B19-3)
     }
     this.settle();
   }
