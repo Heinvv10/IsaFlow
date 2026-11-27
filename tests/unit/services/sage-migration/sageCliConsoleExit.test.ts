@@ -234,7 +234,8 @@ describe('B33-1 / B33-2: what every notice says of --report, and the natural end
     const all = [r.got[1], closed.got[2], ...notices.filter((t) => !t.includes('THE FINAL WORD'))];
     expect(all).toHaveLength(5);
     for (const text of all) expect(text).toContain(`; ${LINE}\n`);
-    expect(notices.filter((t) => t.includes('THE FINAL WORD'))).toEqual(['THE FINAL WORD\n', 'THE FINAL WORD\n']); // the ceiling (one stream) and the cut; both gone: none
+    // the ceiling (one stream: on the live one), the ceiling (both: one try on a stalled one, B35-1, on a line of its own) and the cut
+    expect(notices.filter((t) => t.includes('THE FINAL WORD'))).toEqual(['THE FINAL WORD\n', '\nTHE FINAL WORD\n', 'THE FINAL WORD\n']);
   });
   it('B33-2: the natural end puts each back on its own (a throwing restore is said, the flags still last) and never throws', () => {
     const order: string[] = [];

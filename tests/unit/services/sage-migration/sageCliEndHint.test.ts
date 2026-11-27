@@ -5,7 +5,7 @@
  *   - L2: a refused ftruncate whose fstat also fails reports the ftruncate's error; L4: a timeout callback that throws is logged.
  */
 import { describe, expect, it, vi } from 'vitest';
-import { crashInFlight, h, said, settle, stall, start, useCliEndHarness } from './sageCliEndHarness';
+import { crashInFlight, fire, h, report, said, settle, stall, start, useCliEndHarness } from './sageCliEndHarness';
 
 vi.mock('@/modules/accounting/services/sage-migration/sageMigrationRunner', async () => (await import('./sageCliEndHarness')).runnerMock());
 vi.mock('@/modules/accounting/services/sage-migration/sageReportSummary', async () => (await import('./sageCliEndHarness')).summaryMock());
@@ -78,3 +78,32 @@ describe('L3 / L2 / L4: the report\'s own lines', () => {
     } finally { vi.useRealTimers(); }
   });
 });
+
+describe('B35-2: a hostile thrown value is told, never thrown from a handler', () => {
+  const hostile = () => ({ toString: () => { throw new Error('hostile toString'); } });
+  it('an uncaught hostile throw during the live phase: the run stops properly, exit 4 and a stop report', async () => {
+    stall(false);
+    h.crashAt = 3;
+    h.crash = () => fire('uncaughtException', hostile());
+    const { done } = await start();
+    await settle();
+    await done;
+    expect(h.exit.mock.calls).toEqual([[4]]);
+    expect(said()).toContain('sage migration stopped: an uncaught error ended the run: an error whose message cannot be read');
+    expect(report()).toMatchObject({ status: 'stopped', liveStarted: true });
+  });
+  it('a pool end that rejects with a hostile value: said, and the clean run keeps exit 0 and its report', async () => {
+    stall(false);
+    h.batches = 1;
+    h.poolGate = { then: (_ok: unknown, fail: (e: unknown) => void) => fail(hostile()) } as unknown as Promise<void>;
+    const { done } = await start();
+    await settle();
+    await done;
+    expect(h.exit).not.toHaveBeenCalled();
+    expect(process.exitCode ?? 0).toBe(0);
+    expect(said()).toContain('closing the database pool failed: an error whose message cannot be read');
+    expect(said()).not.toContain('sage migration stopped');
+    expect(report().status).toBe('dry_run_ok');
+  });
+});
+

@@ -8,12 +8,15 @@
  */
 type ConsoleModule = typeof import('../../../../scripts/sage-migration/runConsole');
 
-type Stall = Partial<Record<'stdout' | 'stderr', boolean | 'EPIPE'>>;
-/** What a write to `fd` meets now: EAGAIN (stalled), EPIPE (gone) or nothing. */
+type Stall = Partial<Record<'stdout' | 'stderr', boolean | 'EPIPE' | 'room'>> & { shared?: boolean };
+const stallOf = (fd: number) => (globalThis as { __sageConsoleStall?: Stall }).__sageConsoleStall?.[fd === 1 ? 'stdout' : 'stderr'];
+/** What a console write to `fd` meets now: EAGAIN (stalled, or 'room': stalled for the queue), EPIPE (gone) or nothing. */
 const stalled = (fd: number): 'EAGAIN' | 'EPIPE' | null => {
-  const v = (globalThis as { __sageConsoleStall?: Stall }).__sageConsoleStall?.[fd === 1 ? 'stdout' : 'stderr'];
+  const v = stallOf(fd);
   return v === 'EPIPE' ? 'EPIPE' : v ? 'EAGAIN' : null;
 };
+/** A one try (writeNow): refused by a stalled or gone stream, taken by one stalled with 'room' (a pipe that still takes a short line). */
+const refusesOneTry = (fd: number): boolean => stallOf(fd) !== 'room' && stalled(fd) !== null;
 /** The 'exit' listeners the console registered (a natural end's final word and restores): a test runs them with `atExit()`. */
 export const exitListeners = (): Array<() => void> => ((globalThis as { __sageAtExit?: Array<() => void> }).__sageAtExit ??= []);
 
@@ -36,8 +39,8 @@ export function spied(real: ConsoleModule): ConsoleModule {
     }), { through });
     // vitest's own fd 1 / 2 say nothing about the CLI's: the streams count as two files, none blocking.
     // the spies stay on the streams; fd 1 / 2 are vitest's, so their flags are left alone; the exit is process.exit (which tests mock)
-    return real.consoleApi(c, { sameFile: () => false, blockingFds: () => [], capture: () => () => undefined, saveFlags: () => () => undefined,
-      writeNow: (fd, text) => { if (stalled(fd)) return false; (fd === 1 ? process.stdout : process.stderr).write(text); return true; },
+    return real.consoleApi(c, { sameFile: () => (globalThis as { __sageConsoleStall?: Stall }).__sageConsoleStall?.shared === true, blockingFds: () => [], capture: () => () => undefined, saveFlags: () => () => undefined,
+      writeNow: (fd, text) => { if (refusesOneTry(fd)) return false; (fd === 1 ? process.stdout : process.stderr).write(text); return true; },
       exit: (code) => (code === undefined ? process.exit() : process.exit(code)), onExit: (fn) => { exitListeners().push(fn); } });
   };
   // vitest keeps a mocked module across vi.resetModules: each run (runCli calls prepareConsole first) gets a fresh console and exit state.

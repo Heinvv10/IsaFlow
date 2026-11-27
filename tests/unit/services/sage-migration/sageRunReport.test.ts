@@ -157,5 +157,8 @@ describe('the bodies and the exit codes', () => {
     expect(() => summarize(report(false), false, false, { lines: boom, code: () => 0 })).toThrow('summary bug');
     // R34-2: said before the report is written (and with no --report at all): it never claims what the file holds; the final word does
     expect(summarize(report(true), false, false, { lines: boom, code: () => 0 }).lines).toEqual(['the live run committed; the summary failed (summary bug): check the books']);
+    // B35-2: a hostile value is told, never thrown from the catch
+    const hostile = () => { throw { toString: () => { throw new Error('hostile'); } }; };
+    expect(summarize(report(true), false, false, { lines: hostile, code: () => 0 }).lines).toEqual(['the live run committed; the summary failed (an error whose message cannot be read): check the books']);
   });
 });

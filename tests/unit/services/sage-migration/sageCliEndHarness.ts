@@ -67,8 +67,8 @@ export const summaryMock = () => ({ CONSOLE_ERROR_CHARS: 600, summaryLines: () =
 export const pgMock = () => ({ default: { Pool: class { on() { return this; } async end() { await h.poolGate; } } } });
 
 export const stall = (on: boolean | 'EPIPE', stream: 'stdout' | 'stderr' = 'stderr') => { (globalThis as { __sageConsoleStall?: unknown }).__sageConsoleStall = { [stream]: on }; };
-/** Both streams at once: each EAGAIN (true), gone ('EPIPE') or healthy (false). */
-export const streams = (s: { stdout: boolean | 'EPIPE'; stderr: boolean | 'EPIPE' }) => { (globalThis as { __sageConsoleStall?: unknown }).__sageConsoleStall = s; };
+/** Both streams at once: each EAGAIN (true), gone ('EPIPE'), stalled but taking a one try ('room') or healthy (false); `shared`: 2>&1. */
+export const streams = (s: { stdout: boolean | 'EPIPE' | 'room'; stderr: boolean | 'EPIPE' | 'room'; shared?: boolean }) => { (globalThis as { __sageConsoleStall?: unknown }).__sageConsoleStall = s; };
 /** Runs the 'exit' listeners the console registered, as the process does when it ends by itself. */
 export const atExit = async () => { const { exitListeners } = await import('./sageCliConsoleSpy'); for (const fn of exitListeners().splice(0)) fn(); };
 const HOOKS = ['SIGINT', 'SIGTERM', 'uncaughtException', 'unhandledRejection'] as const;
