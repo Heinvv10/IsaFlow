@@ -20,6 +20,8 @@ const h = vi.hoisted(() => ({
   loseAtCommit: null as string | null, // "<entity> live": that request's COMMIT fails on a lost connection (its answer ok)
   sessions: [] as Array<{ commit: boolean; wrote: boolean }>,
   dryHeld: false,
+  hostile: null as (() => unknown) | null, // round 36: the live category request rejects with this value
+  snapHostile: null as (() => unknown) | null, // round 36: the books read after a stop rejects with this value
 }));
 const SUPPLIER = '0f7d6a3e-2b1c-4d5e-8f90-a1b2c3d4e5f6';
 vi.mock('@/modules/accounting/services/sage-migration/localGuard', () => ({ assertLocalDatabase: () => undefined, assertLocalPool: () => undefined }));
@@ -32,6 +34,7 @@ vi.mock('@/modules/accounting/services/sage-migration/sageToolSession', async ()
     withToolSession: async (_p: unknown, _c: unknown, _u: unknown, commit: boolean, fn: (s: unknown) => unknown, o?: { wrote?: boolean }) => {
       h.sessions.push({ commit, wrote: o?.wrote === true });
       const r = await fn({ companyId: 'c', call: async () => ({ isError: false, text: '{}', body: {} }) });
+      if (commit && h.hostile !== null && h.sent.at(-1) === 'category live') throw h.hostile();
       if (commit && h.loseAtCommit !== null && h.sent.at(-1) === h.loseAtCommit) throw new real.CommitUnconfirmedError('Connection terminated unexpectedly', r, true);
       if (commit && h.loseBeforeCommit !== null && h.sent.at(-1) === h.loseBeforeCommit) throw new real.LostBeforeCommitError(new Error('Connection terminated unexpectedly'));
       // B24-1: the dry run's ROLLBACK not confirmed: the real error, carrying the dry run's result
@@ -42,12 +45,12 @@ vi.mock('@/modules/accounting/services/sage-migration/sageToolSession', async ()
 });
 vi.mock('@/modules/accounting/services/sage-migration/sageSuppliers', () => ({ resolveSuppliers: async () => new Map([['301', { id: SUPPLIER }]]) }));
 vi.mock('@/modules/accounting/services/sage-migration/sageSnapshot', () => ({
-  readSnapshot: async (): Promise<Snapshot> => ({
+  readSnapshot: async (): Promise<Snapshot> => { if (h.snapHostile !== null && h.sent.includes('category live')) throw h.snapHostile(); return {
     itemRefs: new Set(h.books.items.map((i) => i.ref)), poTotals: new Map(h.books.pos), poStates: new Map(), poLinkedLines: new Map(), poContent: new Map(), duplicatePoRefs: new Map(),
     stockMovements: 0, budgetPolicy: 'warn', inactiveSuppliers: new Set(), supplierSageRefs: new Map(), poNumbers: new Map(),
     items: h.books.items.map((i) => ({ id: `u${i.ref}`, code: i.code, system: 'sage', ref: i.ref, deleted: false, itemType: 'physical', inventoryTracked: false, isActive: true, stateHash: 'h' })),
     categories: h.books.cats.map((c) => ({ id: `c${c.ref}`, name: c.name, system: 'sage', ref: c.ref, isActive: true, stateHash: 'h' })),
-  } as never),
+  } as never; },
 }));
 vi.mock('@/modules/accounting/services/sage-migration/sageBatchRun', async (orig) => ({
   ...(await orig<typeof import('@/modules/accounting/services/sage-migration/sageBatchRun')>()),
@@ -76,7 +79,24 @@ const parsed = () => parseSageExport({
 const pool = { options: { max: 4 } } as never;
 const run = (over: Record<string, unknown> = {}) => runSageMigration(pool, parsed(), { companyId: 'c', userId: 'u', live: true, expect: { items: 1, purchaseOrders: 1 }, ...over });
 
-beforeEach(() => { h.books.cats = []; h.books.items = []; h.books.pos = new Map(); h.fail.clear(); h.updated = false; h.sent.length = 0; h.loseBeforeCommit = null; h.loseAtCommit = null; h.sessions.length = 0; h.dryHeld = false; });
+beforeEach(() => { h.books.cats = []; h.books.items = []; h.books.pos = new Map(); h.fail.clear(); h.updated = false; h.sent.length = 0; h.loseBeforeCommit = null; h.loseAtCommit = null; h.sessions.length = 0; h.dryHeld = false; h.hostile = null; h.snapHostile = null; });
+
+describe('round 36: a hostile value reaching the runner is read safely', () => {
+  const revoked = () => { const p = Proxy.revocable({}, {}); p.revoke(); return p.proxy; };
+  it('a live request that rejects with a revoked Proxy: that batch failed, told; no throw out of the runner', async () => {
+    h.hostile = revoked;
+    const r = await run();
+    expect(r.status).toBe('failed');
+    expect(r.live!.categories.batches[0]).toMatchObject({ status: 'failed', error: 'an error whose message cannot be read' });
+  });
+  it('the books read after a stop rejects with one: the stop stands (MigrationStopped), its read failure told', async () => {
+    h.loseAtCommit = 'category live';
+    h.snapHostile = revoked;
+    const err = await run().then(() => null, (e: unknown) => e);
+    expect((err as Error).name).toBe('MigrationStopped');
+    expect((err as { batches: { booksNotRechecked?: string } }).batches.booksNotRechecked).toContain('an error whose message cannot be read');
+  });
+});
 
 describe('the dry run', () => {
   it('a failed category batch keeps the items and the POs from starting', async () => {

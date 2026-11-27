@@ -14,12 +14,19 @@ type Sys = NonNullable<Parameters<typeof consoleApi>[1]>;
 const nowWrites: Array<[number, string]> = [];
 const exits: Array<number | undefined> = [];
 const sys = (over: Partial<Sys> = {}): Sys => ({ sameFile: () => false, blockingFds: () => [], capture: () => () => undefined, saveFlags: () => () => undefined,
-  writeNow: (fd, text) => { nowWrites.push([fd, text]); return true; }, exit: (code) => { exits.push(code); }, onExit: () => undefined, ...over });
+  writeNow: (fd, text) => { nowWrites.push([fd, text]); return Buffer.byteLength(text); }, exit: (code) => { exits.push(code); }, onExit: () => undefined, ...over });
+const got: Record<number, string> = { 1: '', 2: '' };
 function rig(take: (fd: number) => Step) {
   let clock = 0;
   const timers: Array<() => void> = [];
   const c = new Console({
-    write: (fd, _buf, _offset, length) => { const step = take(fd); if (typeof step === 'string') throw Object.assign(new Error(step), { code: step }); return Math.min(step, length); },
+    write: (fd, buf, offset, length) => {
+      const step = take(fd);
+      if (typeof step === 'string') throw Object.assign(new Error(step), { code: step });
+      const n = Math.min(step, length);
+      got[fd] += buf.subarray(offset, offset + n).toString('utf8');
+      return n;
+    },
     now: () => clock,
     later: (fn) => { timers.push(fn); },
   });
@@ -27,7 +34,7 @@ function rig(take: (fd: number) => Step) {
 }
 const VIEW = { path: '/tmp/r.json', finalWord: () => 'THE FINAL WORD' };
 const finals = () => nowWrites.filter(([, t]) => t.includes('THE FINAL WORD'));
-afterEach(() => { vi.useRealTimers(); nowWrites.length = 0; exits.length = 0; });
+afterEach(() => { vi.useRealTimers(); nowWrites.length = 0; exits.length = 0; got[1] = ''; got[2] = ''; });
 
 describe('B35-1: a stream given up for a stall still gets one try for the final word', () => {
   it('stdout failed (ENOSPC), stderr given up for no reader: the word is tried on stderr, on a line of its own', async () => {
@@ -57,28 +64,41 @@ describe('B35-1: a stream given up for a stall still gets one try for the final 
     await apiF.exitAfterConsole(4);
     expect(finals()).toEqual([]);
   });
-  it('both given up at the ceiling (2>&1 too): one try, on a line of its own; the second only when the first is refused', async () => {
+  it('both given up at the ceiling: one try, on a line of its own; the other fd only when it is another file (R36-4)', async () => {
     vi.useFakeTimers();
     for (const shared of [false, true]) {
       nowWrites.length = 0;
       const r = rig(() => 'EAGAIN');
       const tries: number[] = [];
-      const api = consoleApi(r.c, sys({ sameFile: () => shared, writeNow: (fd, text) => { nowWrites.push([fd, text]); if (!text.includes('FINAL')) return true; tries.push(fd); return tries.length > 1; } }));
+      const api = consoleApi(r.c, sys({ sameFile: () => shared, writeNow: (fd, text) => { nowWrites.push([fd, text]); if (!text.includes('FINAL')) return Buffer.byteLength(text); tries.push(fd); return tries.length > 1 ? Buffer.byteLength(text) : 0; } }));
       api.prepareConsole(() => VIEW);
       api.say('stop');
       api.out('summary');
       const done = api.exitAfterConsole(4);
       await vi.advanceTimersByTimeAsync(CONSOLE_EXIT_CEILING_MS);
       await done;
-      expect(finals()).toEqual([[2, '\nTHE FINAL WORD\n'], [1, '\nTHE FINAL WORD\n']]); // stderr refused, then stdout
+      // split: stderr refused, then stdout; 2>&1: one pipe, so the refusal stands for both fds
+      expect(finals()).toEqual(shared ? [[2, '\nTHE FINAL WORD\n']] : [[2, '\nTHE FINAL WORD\n'], [1, '\nTHE FINAL WORD\n']]);
     }
   });
+});
+
+describe('B36-2: a short write of the final word', () => {
+  for (const shared of [false, true]) {
+    it(`${shared ? '2>&1' : 'split'}: part of it taken is said: its fragment is ended with a newline, and nothing is said after it`, () => {
+      const r = rig(() => 1000);
+      const api = consoleApi(r.c, sys({ sameFile: () => shared, writeNow: (fd, text) => { nowWrites.push([fd, text]); return text.includes('FINAL') ? 7 : Buffer.byteLength(text); } }));
+      api.prepareConsole(() => VIEW);
+      api.exitNow(4);
+      expect(nowWrites).toEqual([[2, 'THE FINAL WORD\n'], [2, '\n']]); // the fragment "THE FIN" ends its line; stdout never gets a second copy
+    });
+  }
 });
 
 describe('R35-2 / R35-4: the "\\n" prefix counts what is queued on the stream\'s lane', () => {
   it('split: a live stream with bytes queued gets the word on a line of its own; one with none, plainly', () => {
     const r = rig((fd) => (fd === 2 ? 'EAGAIN' : 1000));
-    const api = consoleApi(r.c, sys({ writeNow: (fd, text) => { nowWrites.push([fd, text]); return fd === 2; } })); // stdout refuses the word
+    const api = consoleApi(r.c, sys({ writeNow: (fd, text) => { nowWrites.push([fd, text]); return fd === 2 ? Buffer.byteLength(text) : 0; } })); // stdout refuses the word
     api.prepareConsole(() => VIEW);
     api.say('a stop message still queued');
     api.exitNow(4);
@@ -106,6 +126,19 @@ describe('R35-2: 2>&1, one stream of the lane cut at the ceiling', () => {
     await done;
     expect(r.c.gone).toEqual({ stdout: false, stderr: true });
     expect(finals()).toEqual([[1, '\nTHE FINAL WORD\n']]);
+  });
+});
+
+describe('R36-6: why a stream was given up is the reason passed in, never parsed back from the words', () => {
+  it('a stream that FAILED with an error whose words look like a stall is closed: said so, and never tried for the final word', async () => {
+    const r = rig(() => 1000);
+    const api = consoleApi(r.c, sys());
+    api.prepareConsole(() => VIEW);
+    r.c.markGone('stderr', 'no reader within 30 s'); // an error event's message (runEnd's stream handler): the reason is 'error'
+    expect(r.c.goneFor.stderr).toBe('error');
+    expect(got[1]).toBe("stderr is closed (no reader within 30 s): what it was given is not printed there; --report /tmp/r.json is where the run's report is written\n");
+    await api.exitAfterConsole(4);
+    expect(finals()).toEqual([[1, 'THE FINAL WORD\n']]); // stdout only
   });
 });
 

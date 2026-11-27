@@ -71,7 +71,7 @@ if (process.env.WRITENOW !== undefined) { // B31-1: the exit's one try, on a ful
   fcntl(2, 4, fcntl(2, 3, 0) & ~0o4000);
   const t0 = Date.now();
   const ok = writeNow(2, 'THE CUT NOTICE\n');
-  writeSync(Number(process.env.WRITENOW), `writeNow ${ok} took ${Date.now() - t0} ms\n`);
+  writeSync(Number(process.env.WRITENOW), `writeNow ${ok > 0} took ${Date.now() - t0} ms\n`);
   process.exit(4);
 }
 if (process.env.CLEARNB !== undefined) { // B30-1: another program on the pipe puts it back to blocking under this one, then a large say

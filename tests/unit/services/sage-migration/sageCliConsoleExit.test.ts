@@ -15,7 +15,7 @@ type Sys = NonNullable<Parameters<typeof consoleApi>[1]>;
 const exits: Array<number | undefined> = [];
 const nowWrites: Array<[number, string]> = [];
 const sys = (over: Partial<Sys> = {}): Sys => ({ sameFile: () => false, blockingFds: () => [], capture: () => () => undefined, saveFlags: () => () => undefined,
-  writeNow: (fd, text) => { nowWrites.push([fd, text]); return true; }, exit: (code) => { exits.push(code); }, onExit: () => undefined, ...over });
+  writeNow: (fd, text) => { nowWrites.push([fd, text]); return Buffer.byteLength(text); }, exit: (code) => { exits.push(code); }, onExit: () => undefined, ...over });
 /** A console whose fd `fd` takes what `take(fd)` says each call (bytes, EAGAIN or EPIPE); time moves only by `tick`. */
 function rig(take: (fd: number) => Step) {
   let clock = 0;
@@ -187,7 +187,7 @@ describe('R30-2 / R30-3 / R30-5: the ceiling says what it cut; a natural end get
     const order: string[] = [];
     const r = rig(() => 1000);
     const api = consoleApi(r.c, sys({ saveFlags: () => () => { order.push('flags put back'); }, capture: () => () => { throw new Error('writers'); },
-      writeNow: (_fd, text) => { order.push(text.trim()); return true; } }));
+      writeNow: (_fd, text) => { order.push(text.trim()); return Buffer.byteLength(text); } }));
     api.prepareConsole(() => null);
     void api.exitAfterConsole(4);
     expect(order).toEqual(['could not put the console back as found: writers', 'flags put back']);
@@ -204,7 +204,7 @@ describe('B33-1 / B33-2: what every notice says of --report, and the natural end
     const notices: string[] = [];
     let step: (fd: number) => Step = (fd) => (fd === 2 ? 'EAGAIN' : 1000);
     const r = rig((fd) => step(fd));
-    const api = consoleApi(r.c, sys({ writeNow: (_fd, text) => { notices.push(text); return true; } }));
+    const api = consoleApi(r.c, sys({ writeNow: (_fd, text) => { notices.push(text); return Buffer.byteLength(text); } }));
     api.prepareConsole(() => VIEW);
     api.say('x');
     r.tick(CONSOLE_WAIT_MS); // stderr: no reader
@@ -213,20 +213,20 @@ describe('B33-1 / B33-2: what every notice says of --report, and the natural end
     apiC.prepareConsole(() => VIEW);
     apiC.out('SUMMARY'); // stdout closed
     const one = rig((fd) => (fd === 2 ? 'EAGAIN' : 1000));
-    const api1 = consoleApi(one.c, sys({ writeNow: (_fd, text) => { notices.push(text); return true; } }));
+    const api1 = consoleApi(one.c, sys({ writeNow: (_fd, text) => { notices.push(text); return Buffer.byteLength(text); } }));
     api1.prepareConsole(() => VIEW);
     api1.say('stop');
     void api1.exitAfterConsole(4);
     await vi.advanceTimersByTimeAsync(CONSOLE_EXIT_CEILING_MS); // the ceiling, one stream
     const both = rig(() => 'EAGAIN');
-    const api2 = consoleApi(both.c, sys({ writeNow: (_fd, text) => { notices.push(text); return true; } }));
+    const api2 = consoleApi(both.c, sys({ writeNow: (_fd, text) => { notices.push(text); return Buffer.byteLength(text); } }));
     api2.prepareConsole(() => VIEW);
     api2.say('stop');
     api2.out('summary');
     void api2.exitAfterConsole(4);
     await vi.advanceTimersByTimeAsync(CONSOLE_EXIT_CEILING_MS); // the ceiling, both
     const cut = rig((fd) => (fd === 2 ? 'EAGAIN' : 1000));
-    const api3 = consoleApi(cut.c, sys({ writeNow: (_fd, text) => { notices.push(text); return true; } }));
+    const api3 = consoleApi(cut.c, sys({ writeNow: (_fd, text) => { notices.push(text); return Buffer.byteLength(text); } }));
     api3.prepareConsole(() => VIEW);
     api3.say('stop');
     api3.exitNow(4); // the second signal's cut
@@ -242,7 +242,7 @@ describe('B33-1 / B33-2: what every notice says of --report, and the natural end
     let atExit: () => void = () => undefined;
     const r = rig(() => 1000);
     const api = consoleApi(r.c, sys({ saveFlags: () => () => { order.push('flags put back'); }, capture: () => () => { throw new Error('writers'); },
-      writeNow: (_fd, text) => { order.push(text.trim()); return true; }, onExit: (fn) => { atExit = fn; } }));
+      writeNow: (_fd, text) => { order.push(text.trim()); return Buffer.byteLength(text); }, onExit: (fn) => { atExit = fn; } }));
     api.prepareConsole(() => null);
     expect(() => atExit()).not.toThrow(); // a throw in the 'exit' listener would turn the exit code to 1
     expect(order).toEqual(['could not put the console back as found: writers', 'flags put back']);
@@ -254,7 +254,7 @@ describe('B33-1 / B33-2: what every notice says of --report, and the natural end
     const hostile = { toString: () => { throw new Error('hostile toString'); } };
     const r = rig(() => 1000);
     const api = consoleApi(r.c, sys({ saveFlags: () => () => { order.push('flags'); throw new Error('fcntl failed'); }, capture: () => () => { throw hostile; },
-      writeNow: (_fd, text) => { order.push(text.trim()); return true; }, onExit: (fn) => { atExit = fn; } }));
+      writeNow: (_fd, text) => { order.push(text.trim()); return Buffer.byteLength(text); }, onExit: (fn) => { atExit = fn; } }));
     api.prepareConsole(() => ({ path: '/tmp/r.json', finalWord: () => 'THE FINAL WORD' }));
     expect(() => atExit()).not.toThrow();
     expect(order).toEqual(['THE FINAL WORD', 'could not put the console back as found: an error whose message cannot be read', 'flags',

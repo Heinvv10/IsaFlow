@@ -15,7 +15,7 @@ type Sys = NonNullable<Parameters<typeof consoleApi>[1]>;
 const exits: Array<number | undefined> = [];
 const nowWrites: Array<[number, string]> = [];
 const sys = (over: Partial<Sys> = {}): Sys => ({ sameFile: () => false, blockingFds: () => [], capture: () => () => undefined, saveFlags: () => () => undefined,
-  writeNow: (fd, text) => { nowWrites.push([fd, text]); return true; }, exit: (code) => { exits.push(code); }, onExit: () => undefined, ...over });
+  writeNow: (fd, text) => { nowWrites.push([fd, text]); return Buffer.byteLength(text); }, exit: (code) => { exits.push(code); }, onExit: () => undefined, ...over });
 /** A console whose fd `fd` takes what `take(fd)` says each call (bytes, EAGAIN or EPIPE); time moves only by `tick`. */
 function rig(take: (fd: number) => Step) {
   let clock = 0;

@@ -21,6 +21,10 @@ export type ReportFault = null | 'EIO' | 'half';
 const fresh = () => ({
   opts: null as MigrationOptions | null, phase: 'live' as 'dry' | 'live', batches: 8, sent: [] as string[], liveEntered: false,
   crashAt: null as number | null, crash: (() => undefined) as () => void, throwAtEnd: null as string | null,
+  /** The runner throws this value itself (R36-1: a hostile value thrown out of main()). */
+  throwValue: null as (() => unknown) | null,
+  /** The pool's 'error' listener, as main installed it (B36-3). */
+  poolError: null as ((err: unknown) => void) | null,
   poolGate: Promise.resolve() as Promise<void>, endedSeen: null as string | null, inFlightGate: Promise.resolve() as Promise<void>,
   /** The nth report body written (1 = the "running" placeholder, 2 = the first stop report, 3 = its rewrite, ...): its fault. */
   reportFault: (() => null) as (nth: number) => ReportFault, reportWrites: 0, halfDone: false,
@@ -59,12 +63,13 @@ export function runnerMock() {
         }
       }
       if (h.throwAtEnd) throw new Error(h.throwAtEnd);
+      if (h.throwValue) throw h.throwValue();
       return { status: 'dry_run_ok', live: null, marker: 'THE-FINAL-REPORT' };
     }),
   };
 }
 export const summaryMock = () => ({ CONSOLE_ERROR_CHARS: 600, summaryLines: () => ['SUMMARY LINE'], exitCodeFor: () => 0 });
-export const pgMock = () => ({ default: { Pool: class { on() { return this; } async end() { await h.poolGate; } } } });
+export const pgMock = () => ({ default: { Pool: class { on(ev: string, fn: (err: unknown) => void) { if (ev === 'error') h.poolError = fn; return this; } async end() { await h.poolGate; } } } });
 
 export const stall = (on: boolean | 'EPIPE', stream: 'stdout' | 'stderr' = 'stderr') => { (globalThis as { __sageConsoleStall?: unknown }).__sageConsoleStall = { [stream]: on }; };
 /** Both streams at once: each EAGAIN (true), gone ('EPIPE'), stalled but taking a one try ('room') or healthy (false); `shared`: 2>&1. */

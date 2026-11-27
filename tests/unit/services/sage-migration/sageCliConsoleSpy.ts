@@ -40,7 +40,7 @@ export function spied(real: ConsoleModule): ConsoleModule {
     // vitest's own fd 1 / 2 say nothing about the CLI's: the streams count as two files, none blocking.
     // the spies stay on the streams; fd 1 / 2 are vitest's, so their flags are left alone; the exit is process.exit (which tests mock)
     return real.consoleApi(c, { sameFile: () => (globalThis as { __sageConsoleStall?: Stall }).__sageConsoleStall?.shared === true, blockingFds: () => [], capture: () => () => undefined, saveFlags: () => () => undefined,
-      writeNow: (fd, text) => { if (refusesOneTry(fd)) return false; (fd === 1 ? process.stdout : process.stderr).write(text); return true; },
+      writeNow: (fd, text) => { if (refusesOneTry(fd)) return 0; (fd === 1 ? process.stdout : process.stderr).write(text); return Buffer.byteLength(text); },
       exit: (code) => (code === undefined ? process.exit() : process.exit(code)), onExit: (fn) => { exitListeners().push(fn); } });
   };
   // vitest keeps a mocked module across vi.resetModules: each run (runCli calls prepareConsole first) gets a fresh console and exit state.
