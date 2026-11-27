@@ -129,6 +129,35 @@ describe('R35-2: 2>&1, one stream of the lane cut at the ceiling', () => {
   });
 });
 
+describe('B37-3 / R37-5: the final word within PIPE_BUF; a try that took only the prefix said nothing', () => {
+  it('a path that would make the line longer than PIPE_BUF is shortened in it: the claim is whole, the line at most 4094 bytes', async () => {
+    const path = `/tmp/${'d'.repeat(5000)}/r.json`;
+    const r = rig(() => 1000);
+    const api = consoleApi(r.c, sys());
+    api.prepareConsole(() => ({ path, finalWord: () => `--report ${path} holds the run's report` }));
+    await api.exitAfterConsole(4);
+    const [[, text]] = nowWrites.filter(([, t]) => t.includes("holds the run's report"));
+    expect(Buffer.byteLength(text!)).toBeLessThanOrEqual(4096);
+    expect(text).toMatch(/^--report \.\.\.d+\/r\.json \(its path shortened: 5012 bytes\) holds the run's report\n$/);
+  });
+  it('a line within PIPE_BUF is left as it is', async () => {
+    const r = rig(() => 1000);
+    const api = consoleApi(r.c, sys());
+    api.prepareConsole(() => VIEW);
+    await api.exitAfterConsole(4);
+    expect(finals()).toEqual([[2, 'THE FINAL WORD\n']]); // stderr, whole
+  });
+  it('only the "\\n" prefix taken: nothing of the word was said, so no fragment is ended (nothing claims it was said)', async () => {
+    const r = rig((fd) => (fd === 2 ? 'EAGAIN' : 1000));
+    const api = consoleApi(r.c, sys({ writeNow: (fd, text) => { nowWrites.push([fd, text]); return fd === 1 ? 0 : text.startsWith('\n') ? 1 : Buffer.byteLength(text); } }));
+    api.prepareConsole(() => VIEW);
+    api.say('x');
+    r.tick(CONSOLE_WAIT_MS); // stderr given up for a stall: tried after stdout, on a line of its own
+    await api.exitAfterConsole(4);
+    expect(nowWrites.filter(([, t]) => t.includes('FINAL') || t === '\n')).toEqual([[1, 'THE FINAL WORD\n'], [2, '\nTHE FINAL WORD\n']]); // no "\n" after it
+  });
+});
+
 describe('R36-6: why a stream was given up is the reason passed in, never parsed back from the words', () => {
   it('a stream that FAILED with an error whose words look like a stall is closed: said so, and never tried for the final word', async () => {
     const r = rig(() => 1000);

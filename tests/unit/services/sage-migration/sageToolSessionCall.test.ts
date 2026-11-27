@@ -198,21 +198,25 @@ describe('R21-1: the classifier\'s negative side', () => {
       }
     }
   });
-  it('a request that commits nothing failing with any of these: thrown as it is, never ConnectionLostError', async () => {
+  it('a request that commits nothing failing with any of these: thrown as its snapshot, never ConnectionLostError', async () => {
     for (const e of notLost()) {
       const client = Object.assign(new EventEmitter(), { query: async () => ({ rows: [] }), release: vi.fn() });
       const err = await withToolSession({ connect: async () => client } as never, 'c1', 'u1', false, async () => { throw e; }).then(() => null, (r: unknown) => r);
-      expect(err, e.message).toBe(e);
+      // Round 37: never the foreign value itself, its snapshot: the same message and code, ours and frozen
+      expect(err, e.message).not.toBe(e);
+      expect([(err as Error).message, (err as { code?: unknown }).code], e.message).toEqual([e.message, (e as { code?: unknown }).code]);
+      expect(Object.isFrozen(err)).toBe(true);
     }
   });
 });
 
 describe('R21-4: a null or undefined thrown', () => {
-  it('is thrown as it is (the classifier does not replace it with a TypeError), on both paths', async () => {
+  it('is thrown as its snapshot (the classifier does not replace it with a TypeError), on both paths', async () => {
     for (const thrown of [null, undefined]) {
       const client = Object.assign(new EventEmitter(), { query: async () => ({ rows: [] }), release: vi.fn() });
       const dry = await withToolSession({ connect: async () => client } as never, 'c1', 'u1', false, async () => { throw thrown; }).then(() => 'resolved', (r: unknown) => r);
-      expect(dry).toBe(thrown);
+      expect(dry).toBeInstanceOf(Error); // round 37: its snapshot, never a TypeError
+      expect((dry as Error).message).toBe(String(thrown));
       const committing = Object.assign(new EventEmitter(), { query: async (text: string) => { if (text === 'COMMIT') throw thrown; return { rows: [] }; }, release: vi.fn() });
       registry.call.mockResolvedValueOnce(ok('{"created":1}'));
       const err = await withToolSession({ connect: async () => committing } as never, 'c1', 'u1', true, (x) => x.call('w', { idempotency_key: 'k' })).then(() => null, (r: unknown) => r);

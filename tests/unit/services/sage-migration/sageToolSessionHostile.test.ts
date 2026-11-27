@@ -1,8 +1,9 @@
 /**
  * Round 36 (B36-1): a COMMIT whose promise rejects with a value that cannot be read (hostileValues.ts) is CommitUnconfirmedError, as a
  * plain Error is: the batch may have landed, so the runner lists it commit unconfirmed and stops there; never "failed, nothing written".
- * The same when the COMMIT is not sent (HC_WHEN=before). A query of the request that rejects with one is a plain failure, never a throw
- * out of the session's own handlers.
+ * (A COMMIT the driver rejects without sending it is, to the session, the same rejection: covered with every ROLLBACK answer in
+ * sageToolSessionRollback.test.ts.) A query of the request that rejects with one is a plain failure, never a throw out of the session's
+ * own handlers.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { McpToolContext, McpToolResult } from '@/lib/mcp/types';
@@ -14,7 +15,12 @@ vi.mock('@/lib/auth/companyMembership', () => ({ getCompanyMembership: async () 
 vi.mock('@/lib/auth/userAccountStatus', () => ({ isActiveUserAccount: () => true }));
 vi.mock('@/lib/afterCommit', () => ({ runOwnedContext: (_ctx: unknown, fn: () => unknown) => fn(), drainAfterCommit: () => undefined, settleAfterRollback: () => undefined }));
 vi.mock('@/lib/rollbackFailed', () => {
-  const rollbackError = async (c: { query: (t: string) => Promise<unknown> }) => c.query('ROLLBACK').then(() => null, (e: unknown) => e as Error);
+  // A test can make rollbackError itself throw (globalThis.__sageRollbackThrows): a contract break the session must survive (round 37).
+  const rollbackError = async (c: { query: (t: string) => Promise<unknown> }) => {
+    const t = (globalThis as { __sageRollbackThrows?: () => unknown }).__sageRollbackThrows;
+    if (t) throw t();
+    return c.query('ROLLBACK').then(() => null, (e: unknown) => e as Error);
+  };
   return { rollbackError, rollbackFailed: async (c: { query: (t: string) => Promise<unknown> }) => (await rollbackError(c)) !== null };
 });
 
@@ -52,6 +58,21 @@ describe('B36-1: a query of the request that rejects with one', () => {
       expect(err).toBeInstanceOf(Error);
       expect(() => String(err)).not.toThrow();
       expect(sent).not.toContain('COMMIT');
+    });
+  }
+});
+
+describe('round 37: a rollbackError that throws (a broken contract) cannot replace the outcome', () => {
+  for (const [what, make] of [['a plain Error', () => new Error('rollback blew up')] as [string, () => unknown], ...hostileValues]) {
+    it(`it throws ${what}: still CommitUnconfirmedError, and the connection destroyed`, async () => {
+      (globalThis as { __sageRollbackThrows?: () => unknown }).__sageRollbackThrows = make;
+      try {
+        registry.call.mockResolvedValueOnce(ok('{"created":1}'));
+        const client = clientWhose((t) => (t === 'COMMIT' ? new Error('COMMIT did not answer') : undefined));
+        const err = await withToolSession({ connect: async () => client } as never, 'c1', 'u1', true, (s) => s.call('w', { idempotency_key: 'k' })).then(() => null, (e: unknown) => e);
+        expect(err).toBeInstanceOf(CommitUnconfirmedError);
+        expect(client.release).toHaveBeenCalledWith(true);
+      } finally { (globalThis as { __sageRollbackThrows?: unknown }).__sageRollbackThrows = undefined; }
     });
   }
 });

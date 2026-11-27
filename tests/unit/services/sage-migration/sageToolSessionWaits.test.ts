@@ -79,13 +79,13 @@ describe('R24-5: a dry run that ends on an error and whose ROLLBACK is then not 
     const stop = new Error('stopped by SIGTERM: no further batch is sent; nothing was written to the books');
     const err = await withToolSession({ connect: async () => client } as never, 'c1', 'u1', false, async () => { throw stop; }, { wrote: true }).then(() => null, (e: unknown) => e);
     expect(err).toBeInstanceOf(DryRollbackUnconfirmedError);
-    expect((err as DryRollbackUnconfirmedError).after).toBe(stop);
+    expect((err as DryRollbackUnconfirmedError).after).toEqual(stop); // its snapshot (round 37): the same message
     expect((err as Error).message).toBe("stopped by SIGTERM: no further batch is sent; nothing was written to the books; and the dry run's ROLLBACK was not confirmed (ROLLBACK did not answer within 5000ms); its writes may still be held (backend pid 99, this run's own: SELECT pg_terminate_backend(99) ends it); the live run was not started");
   });
-  it('a plain read that ends on an error: the error as it is', async () => {
+  it('a plain read that ends on an error: the error (its snapshot)', async () => {
     const client = Object.assign(new EventEmitter(), { query: async (text: string) => { if (text === 'ROLLBACK') throw new Error('ROLLBACK did not answer within 5000ms'); return { rows: [] }; }, release: vi.fn() });
     const bug = new Error('a bug');
-    expect(await withToolSession({ connect: async () => client } as never, 'c1', 'u1', false, async () => { throw bug; }).then(() => null, (e: unknown) => e)).toBe(bug);
+    expect(await withToolSession({ connect: async () => client } as never, 'c1', 'u1', false, async () => { throw bug; }).then(() => null, (e: unknown) => e)).toEqual(bug); // its snapshot
   });
 });
 
