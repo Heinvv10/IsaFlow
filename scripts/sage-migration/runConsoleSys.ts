@@ -18,7 +18,7 @@
  */
 import { fstatSync, readFileSync, writeSync } from 'node:fs';
 import { isatty } from 'node:tty';
-import type { Console, Stream } from './runConsole';
+import type { Console, Stream } from './runConsoleQueue';
 
 const O_NONBLOCK = 0o4000;
 
