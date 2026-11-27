@@ -60,7 +60,7 @@ describe('scripts/sage-migration/run.ts', () => {
     const total = parsedExport().exportPoTotalCents;
     const report = join(dir, 'report.json');
     const r = cli([...base(), '--live', '--report', report, '--expect-items', '20', '--expect-pos', '10', '--expect-po-total', (total / 100).toFixed(2)]);
-    expect(r.err).toBe('');
+    expect(r.err).toBe(`--report ${report} holds the run's report\n`); // round 34: the one final word about --report, at the exit
     expect(r.code).toBe(0);
     expect(r.out).toContain('completed');
     expect(r.out).toContain('all sent rows booked: true; nothing refused: true');
