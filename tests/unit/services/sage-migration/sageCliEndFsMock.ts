@@ -30,5 +30,10 @@ export function fsMock(real: typeof import('node:fs')) {
     if (h?.fstatArmed) { h.fstatArmed = false; throw Object.assign(new Error('EIO: injected fstat'), { code: 'EIO' }); } // the one after it only
     return (real.fstatSync as (...x: unknown[]) => unknown)(...a);
   }) as typeof real.fstatSync;
-  return { ...real, default: { ...real, writeSync, ftruncateSync, fstatSync }, writeSync, ftruncateSync, fstatSync };
+  const fsyncSync = ((fd: number) => {
+    const h = (globalThis as { __sageCliEnd?: H }).__sageCliEnd;
+    if (h?.fsyncFault(h.reportWrites)) throw Object.assign(new Error('EIO: injected fsync'), { code: 'EIO' }); // only the report fsyncs
+    return real.fsyncSync(fd);
+  }) as typeof real.fsyncSync;
+  return { ...real, default: { ...real, writeSync, ftruncateSync, fstatSync, fsyncSync }, writeSync, ftruncateSync, fstatSync, fsyncSync };
 }

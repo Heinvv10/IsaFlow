@@ -66,12 +66,13 @@ describe('R29-2 / R29-4 / B29-4 / B29-2: the exit', () => {
   it('exitNow (a second signal): at once, the decided code; the cut is said on the other stream, with its size', () => {
     const r = stalledErr();
     const api = consoleApi(r.c, sys());
-    api.prepareConsole(() => "--report /tmp/r.json holds the run's report");
+    api.prepareConsole(() => ({ path: '/tmp/r.json', finalWord: () => 'FINAL WORD' }));
     api.say('x'.repeat(99));
     void api.exitAfterConsole(4);
     api.exitNow();
     expect(exits).toEqual([4]);
-    expect(nowWrites).toEqual([[1, "stderr: 100 bytes of what it was given were not written: a second signal ended the run at once; --report /tmp/r.json holds the run's report\n"]]);
+    expect(nowWrites).toEqual([[1, "stderr: 100 bytes of what it was given were not written: a second signal ended the run at once; --report /tmp/r.json is where the run's report is written\n"],
+      [1, 'FINAL WORD\n']]); // then the final word, on the stream with nothing queued
   });
   it(`a reader that keeps taking a byte now and then cannot hold the exit past ${CONSOLE_EXIT_CEILING_MS / 1000} s; the code is unchanged`, async () => {
     vi.useFakeTimers();
@@ -95,14 +96,15 @@ describe('R30-2 / R30-3 / R30-5: the ceiling says what it cut; a natural end get
     vi.useFakeTimers();
     const r = rig((fd) => (fd === 2 ? 'EAGAIN' : 1000));
     const api = consoleApi(r.c, sys());
-    api.prepareConsole(() => "--report /tmp/r.json holds the run's report");
+    api.prepareConsole(() => ({ path: '/tmp/r.json', finalWord: () => 'FINAL WORD' }));
     api.say('THE STOP MESSAGE');
     api.out('summary');
     const done = api.exitAfterConsole(4);
     await vi.advanceTimersByTimeAsync(CONSOLE_EXIT_CEILING_MS);
     await done;
     expect(r.c.gone).toEqual({ stdout: false, stderr: true });
-    expect(nowWrites).toEqual([[1, `stderr: the exit waited ${CONSOLE_EXIT_CEILING_MS / 1000} s for its reader: the rest of what it was given (the stop message or the summary among it) was dropped; --report /tmp/r.json holds the run's report\n`]]);
+    expect(nowWrites).toEqual([[1, `stderr: the exit waited ${CONSOLE_EXIT_CEILING_MS / 1000} s for its reader: the rest of what it was given (the stop message or the summary among it) was dropped; --report /tmp/r.json is where the run's report is written\n`],
+      [1, 'FINAL WORD\n']]);
     expect(exits).toEqual([4]);
   });
   it('both stalled: ONE notice for both, on stderr, best effort (L2: never one per stream into a stalled, half-written queue)', async () => {
@@ -195,42 +197,44 @@ describe('R30-2 / R30-3 / R30-5: the ceiling says what it cut; a natural end get
 
 describe('B33-1 / B33-2: what every notice says of --report, and the natural end\'s restores', () => {
   afterEach(() => { vi.useRealTimers(); exits.length = 0; nowWrites.length = 0; });
-  const LINE = 'REPORT-LINE (what the CLI says of its --report now)';
-  it('every caller of the hint says what report() says, word for word: no reader, closed, the ceiling (one stream, both), the cut', async () => {
+  const VIEW = { path: '/tmp/r.json', finalWord: () => 'THE FINAL WORD' };
+  const LINE = "--report /tmp/r.json is where the run's report is written";
+  it('every notice names where --report is, never what it holds: no reader, closed, the ceiling (one stream, both), the cut', async () => {
     vi.useFakeTimers();
     const notices: string[] = [];
     let step: (fd: number) => Step = (fd) => (fd === 2 ? 'EAGAIN' : 1000);
     const r = rig((fd) => step(fd));
     const api = consoleApi(r.c, sys({ writeNow: (_fd, text) => { notices.push(text); return true; } }));
-    api.prepareConsole(() => LINE);
+    api.prepareConsole(() => VIEW);
     api.say('x');
     r.tick(CONSOLE_WAIT_MS); // stderr: no reader
     const closed = rig((fd) => (fd === 1 ? 'EPIPE' : 1000));
     const apiC = consoleApi(closed.c, sys());
-    apiC.prepareConsole(() => LINE);
+    apiC.prepareConsole(() => VIEW);
     apiC.out('SUMMARY'); // stdout closed
     const one = rig((fd) => (fd === 2 ? 'EAGAIN' : 1000));
     const api1 = consoleApi(one.c, sys({ writeNow: (_fd, text) => { notices.push(text); return true; } }));
-    api1.prepareConsole(() => LINE);
+    api1.prepareConsole(() => VIEW);
     api1.say('stop');
     void api1.exitAfterConsole(4);
     await vi.advanceTimersByTimeAsync(CONSOLE_EXIT_CEILING_MS); // the ceiling, one stream
     const both = rig(() => 'EAGAIN');
     const api2 = consoleApi(both.c, sys({ writeNow: (_fd, text) => { notices.push(text); return true; } }));
-    api2.prepareConsole(() => LINE);
+    api2.prepareConsole(() => VIEW);
     api2.say('stop');
     api2.out('summary');
     void api2.exitAfterConsole(4);
     await vi.advanceTimersByTimeAsync(CONSOLE_EXIT_CEILING_MS); // the ceiling, both
     const cut = rig((fd) => (fd === 2 ? 'EAGAIN' : 1000));
     const api3 = consoleApi(cut.c, sys({ writeNow: (_fd, text) => { notices.push(text); return true; } }));
-    api3.prepareConsole(() => LINE);
+    api3.prepareConsole(() => VIEW);
     api3.say('stop');
     api3.exitNow(4); // the second signal's cut
     step = () => 1000;
-    const all = [r.got[1], closed.got[2], ...notices];
+    const all = [r.got[1], closed.got[2], ...notices.filter((t) => !t.includes('THE FINAL WORD'))];
     expect(all).toHaveLength(5);
     for (const text of all) expect(text).toContain(`; ${LINE}\n`);
+    expect(notices.filter((t) => t.includes('THE FINAL WORD'))).toEqual(['THE FINAL WORD\n', 'THE FINAL WORD\n']); // the ceiling (one stream) and the cut; both gone: none
   });
   it('B33-2: the natural end puts each back on its own (a throwing restore is said, the flags still last) and never throws', () => {
     const order: string[] = [];
@@ -243,4 +247,29 @@ describe('B33-1 / B33-2: what every notice says of --report, and the natural end
     expect(order).toEqual(['could not put the console back as found: writers', 'flags put back']);
     expect(exits).toEqual([]); // the natural end forces no exit
   });
+  it('B34-2 / R34-5: a restore that throws a hostile value (and a flags restore that throws) never escapes; the final word comes first', () => {
+    const order: string[] = [];
+    let atExit: () => void = () => undefined;
+    const hostile = { toString: () => { throw new Error('hostile toString'); } };
+    const r = rig(() => 1000);
+    const api = consoleApi(r.c, sys({ saveFlags: () => () => { order.push('flags'); throw new Error('fcntl failed'); }, capture: () => () => { throw hostile; },
+      writeNow: (_fd, text) => { order.push(text.trim()); return true; }, onExit: (fn) => { atExit = fn; } }));
+    api.prepareConsole(() => ({ path: '/tmp/r.json', finalWord: () => 'THE FINAL WORD' }));
+    expect(() => atExit()).not.toThrow();
+    expect(order).toEqual(['THE FINAL WORD', 'could not put the console back as found: an error whose message cannot be read', 'flags',
+      'could not put the console back as found: fcntl failed']);
+    expect(exits).toEqual([]);
+  });
+  it('round 34: a stream given up is not alive, even if a write to it would be taken now: the final word goes to the other', async () => {
+    let errStalled = true;
+    const r = rig((fd) => (fd === 2 && errStalled ? 'EAGAIN' : 1000));
+    const api = consoleApi(r.c, sys());
+    api.prepareConsole(() => ({ path: '/tmp/r.json', finalWord: () => 'THE FINAL WORD' }));
+    api.say('x');
+    r.tick(CONSOLE_WAIT_MS); // stderr given up: no reader within 30 s
+    errStalled = false; // its reader is back: still given up
+    await api.exitAfterConsole(4);
+    expect(nowWrites.filter(([, t]) => t.includes('THE FINAL WORD'))).toEqual([[1, 'THE FINAL WORD\n']]);
+  });
 });
+

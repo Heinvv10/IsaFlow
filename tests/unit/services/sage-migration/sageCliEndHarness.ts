@@ -26,6 +26,8 @@ const fresh = () => ({
   reportFault: (() => null) as (nth: number) => ReportFault, reportWrites: 0, halfDone: false,
   /** The ftruncate after the nth report body's bytes: refused (EIO) when true. */
   truncFault: (() => false) as (nth: number) => boolean,
+  /** The fsync after the nth report body: refused (EIO) when true. */
+  fsyncFault: (() => false) as (nth: number) => boolean,
   /** The fstat that follows a refused ftruncate: refused too (L2). */
   fstatFault: false, fstatArmed: false,
   dir: '', err: [] as string[], out: [] as string[], exit: null as unknown as ReturnType<typeof vi.spyOn>, before: {} as Record<string, Function[]>,
@@ -57,14 +59,18 @@ export function runnerMock() {
         }
       }
       if (h.throwAtEnd) throw new Error(h.throwAtEnd);
-      return { live: null, marker: 'THE-FINAL-REPORT' };
+      return { status: 'dry_run_ok', live: null, marker: 'THE-FINAL-REPORT' };
     }),
   };
 }
 export const summaryMock = () => ({ CONSOLE_ERROR_CHARS: 600, summaryLines: () => ['SUMMARY LINE'], exitCodeFor: () => 0 });
 export const pgMock = () => ({ default: { Pool: class { on() { return this; } async end() { await h.poolGate; } } } });
 
-export const stall = (on: boolean, stream: 'stdout' | 'stderr' = 'stderr') => { (globalThis as { __sageConsoleStall?: unknown }).__sageConsoleStall = { [stream]: on }; };
+export const stall = (on: boolean | 'EPIPE', stream: 'stdout' | 'stderr' = 'stderr') => { (globalThis as { __sageConsoleStall?: unknown }).__sageConsoleStall = { [stream]: on }; };
+/** Both streams at once: each EAGAIN (true), gone ('EPIPE') or healthy (false). */
+export const streams = (s: { stdout: boolean | 'EPIPE'; stderr: boolean | 'EPIPE' }) => { (globalThis as { __sageConsoleStall?: unknown }).__sageConsoleStall = s; };
+/** Runs the 'exit' listeners the console registered, as the process does when it ends by itself. */
+export const atExit = async () => { const { exitListeners } = await import('./sageCliConsoleSpy'); for (const fn of exitListeners().splice(0)) fn(); };
 const HOOKS = ['SIGINT', 'SIGTERM', 'uncaughtException', 'unhandledRejection'] as const;
 export function useCliEndHarness(): void {
   beforeEach(() => {

@@ -155,5 +155,7 @@ describe('the bodies and the exit codes', () => {
     const boom = () => { throw new Error('summary bug'); };
     expect(summarize(report(true), false, false, { lines: boom, code: () => 0 })).toMatchObject({ code: 4, lines: [expect.stringMatching(/^the live run committed; the summary failed/)] });
     expect(() => summarize(report(false), false, false, { lines: boom, code: () => 0 })).toThrow('summary bug');
+    // R34-2: said before the report is written (and with no --report at all): it never claims what the file holds; the final word does
+    expect(summarize(report(true), false, false, { lines: boom, code: () => 0 }).lines).toEqual(['the live run committed; the summary failed (summary bug): check the books']);
   });
 });

@@ -157,7 +157,7 @@ describe('B31-2 / R30-4: the rewrite of the stop report, on a failing disk', () 
   it('the rewrite refused half-way and every write after it: nothing claims a report is kept', async () => {
     await run((n) => (n === 3 ? 'half' : n > 3 ? 'EIO' : null));
     expect(said()).not.toMatch(/is kept|written back|the report says so/);
-    expect(said()).toMatch(/r\.json may hold neither stop report now \(a failing disk\): the lines above are the run's report/);
+    expect(said()).toMatch(/r\.json may hold a torn or partial body now \(a failing disk\): no report of this run was written: check the books\n$/); // the final word
   });
 });
 
@@ -194,7 +194,7 @@ describe('B32-1 / L1: what the file holds when the first stop report was itself 
   it('every write from the stop report on refused: the line names the placeholder the file still holds', async () => {
     await run((n) => (n >= 2 ? 'EIO' : null));
     expect(report().status).toBe('running');
-    expect(said()).toMatch(/r\.json still holds only the "running" placeholder: the lines above are the run's report/);
+    expect(said()).toMatch(/r\.json still holds only the "running" placeholder: no report of this run was written: check the books\n$/); // the final word
     expect(said()).not.toMatch(/is kept|written back|in its place|the report says so/);
   });
   it('L1: a rewrite that throws still ends the wait: the exit follows', async () => {
