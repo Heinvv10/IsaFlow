@@ -159,7 +159,7 @@ describe('B28-1: a stream given up is said on the other stream', () => {
   };
   it('stderr given up (no reader): said on stdout, a different file, with where the report is', () => {
     const { r, api } = apiOf((fd) => (fd === 2 ? 'EAGAIN' : 1000), false);
-    api.prepareConsole(() => '/tmp/r.json');
+    api.prepareConsole(() => "--report /tmp/r.json holds the run's report");
     api.say('committed: category batch 1');
     r.tick(CONSOLE_WAIT_MS);
     expect(r.got[1]).toBe(`stderr had no reader within ${CONSOLE_WAIT_MS / 1000} s: the rest of what it was given (the stop message or the summary among it) was dropped; --report /tmp/r.json holds the run's report\n`);

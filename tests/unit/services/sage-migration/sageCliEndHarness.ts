@@ -26,7 +26,9 @@ const fresh = () => ({
   reportFault: (() => null) as (nth: number) => ReportFault, reportWrites: 0, halfDone: false,
   /** The ftruncate after the nth report body's bytes: refused (EIO) when true. */
   truncFault: (() => false) as (nth: number) => boolean,
-  dir: '', err: [] as string[], exit: null as unknown as ReturnType<typeof vi.spyOn>, before: {} as Record<string, Function[]>,
+  /** The fstat that follows a refused ftruncate: refused too (L2). */
+  fstatFault: false, fstatArmed: false,
+  dir: '', err: [] as string[], out: [] as string[], exit: null as unknown as ReturnType<typeof vi.spyOn>, before: {} as Record<string, Function[]>,
 });
 export type H = ReturnType<typeof fresh>;
 const g = globalThis as { __sageCliEnd?: H };
@@ -73,7 +75,7 @@ export function useCliEndHarness(): void {
     for (const name of ['SERVICE_DATABASE_URL', 'PLATFORM_ADMIN_DATABASE_URL', 'MIGRATION_ADMIN_DATABASE_URL']) vi.stubEnv(name, '');
     h.exit = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never);
     vi.spyOn(process.stderr, 'write').mockImplementation((s) => { h.err.push(String(s)); return true; });
-    vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    vi.spyOn(process.stdout, 'write').mockImplementation((s) => { h.out.push(String(s)); return true; });
     h.before = Object.fromEntries(HOOKS.map((e) => [e, process.listeners(e as NodeJS.Signals)]));
     stall(true);
   });
@@ -82,6 +84,8 @@ export function useCliEndHarness(): void {
 
 /** What the CLI said on stderr so far. */
 export const said = (): string => h.err.join('');
+/** What the CLI wrote on stdout so far (a cut or ceiling notice about stderr lands there). */
+export const printed = (): string => h.out.join('');
 export const fire = (ev: (typeof HOOKS)[number], arg: unknown = ev) => { for (const l of process.listeners(ev as NodeJS.Signals).filter((x) => !h.before[ev]!.includes(x))) (l as (a: unknown) => void)(arg); };
 export const reportText = () => readFileSync(join(h.dir, 'r.json'), 'utf8');
 export const report = () => JSON.parse(reportText());

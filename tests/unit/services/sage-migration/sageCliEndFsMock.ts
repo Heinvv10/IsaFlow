@@ -19,8 +19,16 @@ export function fsMock(real: typeof import('node:fs')) {
   }) as typeof real.writeSync;
   const ftruncateSync = ((fd: number, len?: number) => {
     const h = (globalThis as { __sageCliEnd?: H }).__sageCliEnd;
-    if (h?.truncFault(h.reportWrites)) throw Object.assign(new Error('EIO: injected ftruncate'), { code: 'EIO' }); // only the report truncates
+    if (h?.truncFault(h.reportWrites)) { // only the report truncates
+      h.fstatArmed = h.fstatFault;
+      throw Object.assign(new Error('EIO: injected ftruncate'), { code: 'EIO' });
+    }
     return real.ftruncateSync(fd, len);
   }) as typeof real.ftruncateSync;
-  return { ...real, default: { ...real, writeSync, ftruncateSync }, writeSync, ftruncateSync };
+  const fstatSync = ((...a: unknown[]) => {
+    const h = (globalThis as { __sageCliEnd?: H }).__sageCliEnd;
+    if (h?.fstatArmed) { h.fstatArmed = false; throw Object.assign(new Error('EIO: injected fstat'), { code: 'EIO' }); } // the one after it only
+    return (real.fstatSync as (...x: unknown[]) => unknown)(...a);
+  }) as typeof real.fstatSync;
+  return { ...real, default: { ...real, writeSync, ftruncateSync, fstatSync }, writeSync, ftruncateSync, fstatSync };
 }

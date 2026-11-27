@@ -7,7 +7,7 @@
  *   - the exit always happens with its code, whatever a restore does. (Split from sageCliConsoleWriter.test.ts.)
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { CONSOLE_EXIT_CEILING_MS, Console, consoleApi } from '../../../../scripts/sage-migration/runConsole';
+import { CONSOLE_EXIT_CEILING_MS, CONSOLE_WAIT_MS, Console, consoleApi } from '../../../../scripts/sage-migration/runConsole';
 
 type Step = number | 'EAGAIN' | 'EPIPE';
 type Sys = NonNullable<Parameters<typeof consoleApi>[1]>;
@@ -66,7 +66,7 @@ describe('R29-2 / R29-4 / B29-4 / B29-2: the exit', () => {
   it('exitNow (a second signal): at once, the decided code; the cut is said on the other stream, with its size', () => {
     const r = stalledErr();
     const api = consoleApi(r.c, sys());
-    api.prepareConsole(() => '/tmp/r.json');
+    api.prepareConsole(() => "--report /tmp/r.json holds the run's report");
     api.say('x'.repeat(99));
     void api.exitAfterConsole(4);
     api.exitNow();
@@ -95,7 +95,7 @@ describe('R30-2 / R30-3 / R30-5: the ceiling says what it cut; a natural end get
     vi.useFakeTimers();
     const r = rig((fd) => (fd === 2 ? 'EAGAIN' : 1000));
     const api = consoleApi(r.c, sys());
-    api.prepareConsole(() => '/tmp/r.json');
+    api.prepareConsole(() => "--report /tmp/r.json holds the run's report");
     api.say('THE STOP MESSAGE');
     api.out('summary');
     const done = api.exitAfterConsole(4);
@@ -190,5 +190,57 @@ describe('R30-2 / R30-3 / R30-5: the ceiling says what it cut; a natural end get
     void api.exitAfterConsole(4);
     expect(order).toEqual(['could not put the console back as found: writers', 'flags put back']);
     expect(exits).toEqual([4]);
+  });
+});
+
+describe('B33-1 / B33-2: what every notice says of --report, and the natural end\'s restores', () => {
+  afterEach(() => { vi.useRealTimers(); exits.length = 0; nowWrites.length = 0; });
+  const LINE = 'REPORT-LINE (what the CLI says of its --report now)';
+  it('every caller of the hint says what report() says, word for word: no reader, closed, the ceiling (one stream, both), the cut', async () => {
+    vi.useFakeTimers();
+    const notices: string[] = [];
+    let step: (fd: number) => Step = (fd) => (fd === 2 ? 'EAGAIN' : 1000);
+    const r = rig((fd) => step(fd));
+    const api = consoleApi(r.c, sys({ writeNow: (_fd, text) => { notices.push(text); return true; } }));
+    api.prepareConsole(() => LINE);
+    api.say('x');
+    r.tick(CONSOLE_WAIT_MS); // stderr: no reader
+    const closed = rig((fd) => (fd === 1 ? 'EPIPE' : 1000));
+    const apiC = consoleApi(closed.c, sys());
+    apiC.prepareConsole(() => LINE);
+    apiC.out('SUMMARY'); // stdout closed
+    const one = rig((fd) => (fd === 2 ? 'EAGAIN' : 1000));
+    const api1 = consoleApi(one.c, sys({ writeNow: (_fd, text) => { notices.push(text); return true; } }));
+    api1.prepareConsole(() => LINE);
+    api1.say('stop');
+    void api1.exitAfterConsole(4);
+    await vi.advanceTimersByTimeAsync(CONSOLE_EXIT_CEILING_MS); // the ceiling, one stream
+    const both = rig(() => 'EAGAIN');
+    const api2 = consoleApi(both.c, sys({ writeNow: (_fd, text) => { notices.push(text); return true; } }));
+    api2.prepareConsole(() => LINE);
+    api2.say('stop');
+    api2.out('summary');
+    void api2.exitAfterConsole(4);
+    await vi.advanceTimersByTimeAsync(CONSOLE_EXIT_CEILING_MS); // the ceiling, both
+    const cut = rig((fd) => (fd === 2 ? 'EAGAIN' : 1000));
+    const api3 = consoleApi(cut.c, sys({ writeNow: (_fd, text) => { notices.push(text); return true; } }));
+    api3.prepareConsole(() => LINE);
+    api3.say('stop');
+    api3.exitNow(4); // the second signal's cut
+    step = () => 1000;
+    const all = [r.got[1], closed.got[2], ...notices];
+    expect(all).toHaveLength(5);
+    for (const text of all) expect(text).toContain(`; ${LINE}\n`);
+  });
+  it('B33-2: the natural end puts each back on its own (a throwing restore is said, the flags still last) and never throws', () => {
+    const order: string[] = [];
+    let atExit: () => void = () => undefined;
+    const r = rig(() => 1000);
+    const api = consoleApi(r.c, sys({ saveFlags: () => () => { order.push('flags put back'); }, capture: () => () => { throw new Error('writers'); },
+      writeNow: (_fd, text) => { order.push(text.trim()); return true; }, onExit: (fn) => { atExit = fn; } }));
+    api.prepareConsole(() => null);
+    expect(() => atExit()).not.toThrow(); // a throw in the 'exit' listener would turn the exit code to 1
+    expect(order).toEqual(['could not put the console back as found: writers', 'flags put back']);
+    expect(exits).toEqual([]); // the natural end forces no exit
   });
 });
