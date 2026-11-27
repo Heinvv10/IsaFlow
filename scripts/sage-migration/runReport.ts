@@ -11,7 +11,7 @@ import type { MigrationReport } from '../../src/modules/accounting/services/sage
 import { MigrationStopped } from '../../src/modules/accounting/services/sage-migration/sageMigrationStopped';
 import { exitCodeFor, summaryLines } from '../../src/modules/accounting/services/sage-migration/sageReportSummary';
 import { stopMessage, stopReportBatches } from '../../src/modules/accounting/services/sage-migration/sageStopMessage';
-import { say } from './runConsole';
+import { say, told } from './runConsole';
 
 /**
  * Every --report and --file value in the arguments, up to a bare `--`. A value that starts with `--` is an option, never a path
@@ -75,7 +75,7 @@ const sizeIs = (fd: number, n: number): boolean => {
   try { return fstatSync(fd).size === n; } catch { return false; }
 };
 const json = (body: unknown) => `${JSON.stringify(body, null, 2)}\n`;
-const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
+const message = told;
 
 /**
  * The report file this run created, written ONLY through the file descriptor of its exclusive create, held open for the whole run
@@ -191,6 +191,6 @@ export function summarize(report: MigrationReport, allowRefusals: boolean, allow
     return { lines: fns.lines(report), code: fns.code(report, allowRefusals, allowDifferences) };
   } catch (err) {
     if (report.live === null) throw err;
-    return { lines: [`the live run committed; the summary failed (${err instanceof Error ? err.message : String(err)}): check the books`], code: 4 };
+    return { lines: [`the live run committed; the summary failed (${told(err)}): check the books`], code: 4 };
   }
 }

@@ -16,7 +16,7 @@ import type { BatchReport } from '../../src/modules/accounting/services/sage-mig
 import { type OwnedReport, stopReportBody } from './runReport';
 import { SAGE_QUERY_TIMEOUT_MS } from '../../src/modules/accounting/services/sage-migration/sageTimeouts';
 import { RunState } from './runState';
-import { cliConsole, exitAfterConsole, exitNow, exitPending, say } from './runConsole';
+import { cliConsole, exitAfterConsole, exitNow, exitPending, say, told } from './runConsole';
 
 /** The module's run: runCli runs once per process (the CLI; each test re-imports the module) (R19-5). */
 export const cli = {
@@ -148,7 +148,7 @@ export function terminate(why: string, signal: boolean): void {
         say(`the batch in flight when the run ended, ${b.entity} batch ${b.n} (${b.key}), then ${settledWording(b)}; no batch followed it${rewrite.written ? ': the report says so' : ''}`);
         for (const line of rewrite.lines) say(line);
       } catch (e) {
-        log.error('sage migration: the batch in flight settled, but saying or writing it failed', { error: e instanceof Error ? e.message : String(e) }, 'sage-migration');
+        log.error('sage migration: the batch in flight settled, but saying or writing it failed', { error: told(e) }, 'sage-migration');
       } finally {
         resolve();
       }
@@ -159,7 +159,7 @@ export function terminate(why: string, signal: boolean): void {
         say(`the batch in flight when the run ended, ${flying.entity} batch ${flying.n} (${flying.key}), did not settle within ${IN_FLIGHT_WAIT_MS / 1000} s: it stays commit unconfirmed: check the books`);
         cli.owned?.close();
       } catch (e) {
-        log.error('sage migration: the wait for the batch in flight timed out, but saying or closing it failed', { error: e instanceof Error ? e.message : String(e) }, 'sage-migration'); // L4
+        log.error('sage migration: the wait for the batch in flight timed out, but saying or closing it failed', { error: told(e) }, 'sage-migration'); // L4
       } finally {
         resolve();
       }
@@ -188,7 +188,7 @@ export function installHandlers(): () => void {
       ? `${sig}: the live run stops before its next batch, if one remains; what it committed is then listed (send it again to stop at once)`
       : `${sig}: the run stops before its next batch, if one remains; nothing is written to the books (send it again to stop at once)`);
   };
-  const crash = (kind: string) => (e: unknown) => terminate(`${kind}: ${e instanceof Error ? e.message : String(e)}`, false);
+  const crash = (kind: string) => (e: unknown) => terminate(`${kind}: ${told(e)}`, false); // B35-2: a hostile value cannot throw here
   // A write through the stream itself failed: said once (B19-3), the stream not written again; the run goes on.
   const stream = (name: 'stdout' | 'stderr') => (e: NodeJS.ErrnoException) => { cliConsole.markGone(name, e.code ?? e.message); };
   type Listener = (...a: unknown[]) => void;

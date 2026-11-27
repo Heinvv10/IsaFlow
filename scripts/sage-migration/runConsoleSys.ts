@@ -22,6 +22,11 @@ import type { Console, Stream } from './runConsoleQueue';
 
 const O_NONBLOCK = 0o4000;
 
+/** An error's message, never throwing (B34-2, B35-2, R35-3): a hostile toString, a message getter that throws, a message that is a hostile object. */
+export const told = (err: unknown): string => {
+  try { return String(err instanceof Error ? err.message : err); } catch { return 'an error whose message cannot be read'; }
+};
+
 /** Whether fd 1 and fd 2 are one open file (2>&1): a stream given up cannot be said on the other then. */
 export function sameFile(): boolean {
   try {

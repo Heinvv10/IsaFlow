@@ -14,7 +14,7 @@ import { SAGE_POOL_END_TIMEOUT_MS, sagePoolConfig } from '../../src/modules/acco
 import type { ParsedExport } from '../../src/modules/accounting/services/sage-migration/sageExportTypes';
 import { exitCodeForError, stopMessage } from '../../src/modules/accounting/services/sage-migration/sageStopMessage';
 import { checkReportArgs, exitAfterReportFailure, OwnedReport, summarize } from './runReport';
-import { endConsole, exitAfterConsole, out, prepareConsole, say } from './runConsole';
+import { endConsole, exitAfterConsole, out, prepareConsole, say, told } from './runConsole';
 import { cli, installHandlers, leaveStopReport, shouldStop } from './runEnd';
 
 /*
@@ -53,13 +53,13 @@ const count = (text: string | undefined): number | undefined => {
 
 async function main(): Promise<void> {
   let parsedArgs: ReturnType<typeof parseCli>;
-  try { parsedArgs = parseCli(); } catch (err) { fail(err instanceof Error ? err.message : String(err)); }
+  try { parsedArgs = parseCli(); } catch (err) { fail(told(err)); }
   const { values } = parsedArgs;
   const target = checkReportArgs(process.argv.slice(2), values.report);
   if (!target.ok) fail(`${target.why} (nothing written)`);
   cli.reportAsked = target.path;
   // Every check that needs no database comes first (round 17): a refusal here writes nothing anywhere, --report not even created.
-  try { assertLocalDatabase(); } catch (err) { fail(err instanceof Error ? err.message : String(err)); }
+  try { assertLocalDatabase(); } catch (err) { fail(told(err)); }
   if (!values.company || !UUID_RE.test(values.company)) fail('--company <uuid> is required');
   if (!values.user || !UUID_RE.test(values.user)) fail('--user <uuid> is required');
   if (!values.file) fail('--file <export.json> is required');
@@ -74,7 +74,7 @@ async function main(): Promise<void> {
   };
   let parsed: ParsedExport;
   // An export that cannot be read or parsed is a refused start, said so (R18-5), before --report is created.
-  try { parsed = parseSageExport(JSON.parse(readFileSync(values.file!, 'utf8'))); } catch (err) { fail(`--file ${values.file} cannot be used: ${err instanceof Error ? err.message : String(err)}`); }
+  try { parsed = parseSageExport(JSON.parse(readFileSync(values.file!, 'utf8'))); } catch (err) { fail(`--file ${values.file} cannot be used: ${told(err)}`); }
   // --report is created exclusively now, before the first database step: a path that exists is never written, and nothing else is.
   if (target.path !== undefined) {
     const created = OwnedReport.create(target.path);
@@ -136,7 +136,7 @@ async function endPool(): Promise<void> {
   if (pool === null) return;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const outcome = await Promise.race([
-    pool.end().then(() => 'ended', (err: unknown) => { say(`closing the database pool failed: ${err instanceof Error ? err.message : String(err)}`); return 'failed'; }),
+    pool.end().then(() => 'ended', (err: unknown) => { say(`closing the database pool failed: ${told(err)}`); return 'failed'; }),
     new Promise<'timeout'>((resolve) => { timer = setTimeout(() => resolve('timeout'), SAGE_POOL_END_TIMEOUT_MS); timer.unref?.(); }),
   ]);
   clearTimeout(timer);
