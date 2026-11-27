@@ -47,6 +47,22 @@ const realSys: ConsoleSys = {
   onExit: (fn) => { process.once('exit', fn); },
 };
 
+/** A pipe takes a write of at most this many bytes whole or not at all (POSIX PIPE_BUF; 4096 on Linux). */
+const PIPE_BUF = 4096;
+/**
+ * The final word within PIPE_BUF with room for its newline and a leading one (B37-3): a longer write to a pipe with less room is taken in
+ * part, and the claim would be the part cut. An over-long --report path is shortened in the line to its last part, said as such.
+ */
+const fitted = (line: string, path: string): string => {
+  const room = PIPE_BUF - 2;
+  if (Buffer.byteLength(line) <= room) return line;
+  const rest = Buffer.byteLength(line) - Buffer.byteLength(path);
+  const keep = Math.max(0, room - rest - 40);
+  const tail = Buffer.from(path).subarray(-keep).toString('utf8').replace(/^\uFFFD+/, '');
+  const short = line.replace(path, `...${tail} (its path shortened: ${Buffer.byteLength(path)} bytes)`);
+  return Buffer.byteLength(short) <= room ? short : Buffer.from(short).subarray(0, room).toString('utf8');
+};
+
 /** The run's --report as the console sees it (runReport.ts OwnedReport): where it is, and what it holds now. */
 export interface ReportView { readonly path: string; finalWord(): string }
 
@@ -91,7 +107,7 @@ export function consoleApi(c: Console, sys: ConsoleSys = realSys) {
     try {
       const r = report();
       if (r === null) return;
-      line = r.finalWord();
+      line = fitted(r.finalWord(), r.path);
     } catch (err) {
       line = `--report: what it holds could not be told (${told(err)}): check the books`;
     }
@@ -102,10 +118,12 @@ export function consoleApi(c: Console, sys: ConsoleSys = realSys) {
     const stalled = both.filter((st) => c.gone[st] && c.goneFor[st] !== 'error');
     const cut = (st: Stream): boolean => c.gone[st] || (c.shared && (c.gone.stdout || c.gone.stderr)); // its last bytes may be a cut line
     for (const st of [...live, ...stalled]) { // a stream never written may be gone: the next is tried when one refuses
-      const text = `${cut(st) || queued(st) > 0 ? '\n' : ''}${line}\n`;
+      const prefix = cut(st) || queued(st) > 0 ? '\n' : '';
+      const text = `${prefix}${line}\n`;
       const taken = sys.writeNow(FD[st], text);
       if (taken >= Buffer.byteLength(text)) return;
-      if (taken > 0) { sys.writeNow(FD[st], '\n'); return; } // B36-2: part of it taken: said; its fragment ends its line, nothing follows
+      // B36-2: part of the word taken: said; its fragment ends its line, nothing follows. R37-5: only the prefix taken: nothing was said.
+      if (taken > prefix.length) { sys.writeNow(FD[st], '\n'); return; }
       if (c.shared) return; // R36-4: one file: the other fd is the very pipe that refused
     }
   };
