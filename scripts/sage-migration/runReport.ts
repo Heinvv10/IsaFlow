@@ -70,6 +70,10 @@ export function checkReportArgs(argv: readonly string[], parsed: string | undefi
   return { ok: true, path: parsed };
 }
 
+/** Whether the file is `n` bytes long; false when that cannot be read. */
+const sizeIs = (fd: number, n: number): boolean => {
+  try { return fstatSync(fd).size === n; } catch { return false; }
+};
 const json = (body: unknown) => `${JSON.stringify(body, null, 2)}\n`;
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
@@ -88,6 +92,8 @@ export class OwnedReport {
   intact = true;
   /** The `status` of that last body written whole ("running" from the create): what the file holds while `intact` (B32-1). */
   holds = 'running';
+  /** The last write was refused (B33-1: a placeholder after a refused write is no longer "the report is written when the run ends"). */
+  private failed = false;
   private constructor(readonly path: string, private readonly fd: number) {}
 
   /**
@@ -128,16 +134,38 @@ export class OwnedReport {
         ftruncateSync(this.fd, bytes.length); // only now: a write refused before here never left the file empty (B31-2)
       } catch (err) {
         // The file grew to just this body (it was no longer before): it IS this body, whole; a failed truncate left nothing of the old one.
-        if (fstatSync(this.fd).size !== bytes.length) throw err;
+        // An fstat that fails too cannot say so: the truncate's own error stands (L2).
+        if (!sizeIs(this.fd, bytes.length)) throw err;
       }
       fsyncSync(this.fd);
       this.intact = true;
+      this.failed = false;
       this.holds = typeof body === 'object' && body !== null && typeof (body as { status?: unknown }).status === 'string' ? (body as { status: string }).status : 'unknown';
       return null;
     } catch (err) {
       if (changed) this.intact = false;
+      this.failed = true;
       return `--report ${this.path} could not be written: ${message(err)}`;
     }
+  }
+
+  /** What the file holds, said from what was written whole (B32-1), never from what was tried. */
+  holding(): string {
+    if (!this.intact) return 'may hold neither stop report now (a failing disk)';
+    if (this.holds === 'running') return 'still holds only the "running" placeholder';
+    if (this.holds.endsWith('_not_written')) return `holds only a "${this.holds}" note`;
+    return `holds a "${this.holds}" body`;
+  }
+
+  /**
+   * What the console says of the file when a stream is cut, given up or closed (B33-1): that it holds the run's report only when it holds
+   * one whole (the run's own or a stop report); while nothing was tried yet, that it is where the report is written; otherwise what it
+   * holds, and that no report of the run was written.
+   */
+  hintLine(): string {
+    if (this.intact && this.holds !== 'running' && !this.holds.endsWith('_not_written')) return `--report ${this.path} holds the run's report`;
+    if (this.intact && this.holds === 'running' && !this.failed) return `--report ${this.path} is where the run's report is written when it ends`;
+    return `--report ${this.path} ${this.holding()}: no report of this run was written: check the books`;
   }
 
   /** Close the descriptor at the end of the run; an error closing it is reported, never thrown. */

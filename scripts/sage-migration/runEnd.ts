@@ -50,7 +50,7 @@ export function leaveStopReport(err: unknown, exitCode: number, keepOpen = false
   if (why) {
     say(why);
     const again = owned.write({ status: 'stop_report_not_written', exitCode, why });
-    if (again) say(again);
+    if (again) { say(again); say(`--report ${owned.path} ${owned.holding()}: the lines above are the run's report`); } // L3
   }
   if (!keepOpen) owned.close();
 }
@@ -66,14 +66,6 @@ const settledWording = (b: BatchReport): string => {
   if (b.commitUnconfirmed) return 'did not have its COMMIT confirmed: check the books';
   if (b.status === 'ok') return b.allRowsAlreadyPresent ? 'answered ok, nothing new written' : 'committed';
   return `failed, nothing written (${b.error ?? 'no reason given'})`;
-};
-
-/** What the file holds, said from what was written whole (B32-1), never from what was tried. */
-const holding = (owned: OwnedReport): string => {
-  if (!owned.intact) return 'may hold neither stop report now (a failing disk)';
-  if (owned.holds === 'running') return 'still holds only the "running" placeholder';
-  if (owned.holds === 'stop_report_not_written') return 'holds only a "stop_report_not_written" note';
-  return `holds a "${owned.holds}" body`;
 };
 
 /**
@@ -97,7 +89,7 @@ function rewriteStopReport(err: unknown, first: unknown, exitCode: number): { wr
       return { written: false, lines: [`${why}: the stop report ${hadFirst ? 'written before was written back' : 'as known when the run ended was written in its place'} ${listed}`] };
     }
     const small = owned.write({ status: 'stop_report_not_written', exitCode, why: back });
-    return { written: false, lines: [why, back, ...(small === null ? [] : [small]), `--report ${owned.path} ${holding(owned)}: the lines above are the run's report`] };
+    return { written: false, lines: [why, back, ...(small === null ? [] : [small]), `--report ${owned.path} ${owned.holding()}: the lines above are the run's report`] };
   } finally {
     owned.close();
   }
@@ -166,6 +158,8 @@ export function terminate(why: string, signal: boolean): void {
         over();
         say(`the batch in flight when the run ended, ${flying.entity} batch ${flying.n} (${flying.key}), did not settle within ${IN_FLIGHT_WAIT_MS / 1000} s: it stays commit unconfirmed: check the books`);
         cli.owned?.close();
+      } catch (e) {
+        log.error('sage migration: the wait for the batch in flight timed out, but saying or closing it failed', { error: e instanceof Error ? e.message : String(e) }, 'sage-migration'); // L4
       } finally {
         resolve();
       }
