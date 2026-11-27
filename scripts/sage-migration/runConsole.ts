@@ -22,7 +22,7 @@
 import { blockingFds, captureProcessStreams, sameFile, saveFlags, told, writeNow } from './runConsoleSys';
 import { Console, FD, type Stream } from './runConsoleQueue';
 
-export { blockingFds, told } from './runConsoleSys';
+export { blockingFds, codeOf, told } from './runConsoleSys';
 export { CONSOLE_WAIT_MS, Console, type ConsoleDeps, type Stream } from './runConsoleQueue';
 
 /** The longest an exit waits for the console in all, progress or not (R29-4). */
@@ -36,8 +36,8 @@ interface ConsoleSys {
   capture: (c: Console) => () => void;
   /** Remembers fd 1 / 2's flags; returns what puts them back. */
   saveFlags: () => () => void;
-  /** One try, no wait (the cut marker). */
-  writeNow: (fd: number, text: string) => boolean;
+  /** One try, no wait (the cut marker): the bytes taken, 0 when refused. */
+  writeNow: (fd: number, text: string) => number;
   exit: (code?: number) => void;
   /** Runs `fn` when the process ends by itself too (no process.exit): the run's own natural end must put the process back as well. */
   onExit: (fn: () => void) => void;
@@ -99,10 +99,14 @@ export function consoleApi(c: Console, sys: ConsoleSys = realSys) {
     const queued = (st: Stream): number => (c.shared ? c.queuedBytes('stdout') + c.queuedBytes('stderr') : c.queuedBytes(st));
     const both = ['stderr', 'stdout'] as const;
     const live = both.filter((st) => !c.gone[st]).sort((a, b) => Number(queued(a) > 0) - Number(queued(b) > 0));
-    const stalled = both.filter((st) => c.gone[st] && c.stalled[st]);
+    const stalled = both.filter((st) => c.gone[st] && c.goneFor[st] !== 'error');
     const cut = (st: Stream): boolean => c.gone[st] || (c.shared && (c.gone.stdout || c.gone.stderr)); // its last bytes may be a cut line
     for (const st of [...live, ...stalled]) { // a stream never written may be gone: the next is tried when one refuses
-      if (sys.writeNow(FD[st], `${cut(st) || queued(st) > 0 ? '\n' : ''}${line}\n`)) return;
+      const text = `${cut(st) || queued(st) > 0 ? '\n' : ''}${line}\n`;
+      const taken = sys.writeNow(FD[st], text);
+      if (taken >= Buffer.byteLength(text)) return;
+      if (taken > 0) { sys.writeNow(FD[st], '\n'); return; } // B36-2: part of it taken: said; its fragment ends its line, nothing follows
+      if (c.shared) return; // R36-4: one file: the other fd is the very pipe that refused
     }
   };
   /** Says the final word, puts the process back, then exits, whatever a restore does (R30-5: the exit code is the contract). */
@@ -119,7 +123,7 @@ export function consoleApi(c: Console, sys: ConsoleSys = realSys) {
   const giveUpStalled = (): void => {
     const stalled = (['stdout', 'stderr'] as const).filter((st) => c.queuedBytes(st) > 0);
     oneNotice = stalled.length === 2;
-    try { for (const st of stalled) c.markGone(st, CEILING, true); } finally { oneNotice = false; }
+    try { for (const st of stalled) c.markGone(st, CEILING, 'ceiling'); } finally { oneNotice = false; }
     if (stalled.length === 2 && !c.shared) sys.writeNow(FD.stderr, `\nstdout and stderr: ${CEILING}: the rest of what they were given was dropped; ${hint(true)}\n`);
   };
   /**
@@ -150,11 +154,11 @@ export function consoleApi(c: Console, sys: ConsoleSys = realSys) {
     prepareConsole(where: () => ReportView | null, restoreFlags?: () => void): { blocking: number[] } {
       report = where;
       c.shared = sys.sameFile();
-      c.onGiveUp = (stream, why) => {
+      c.onGiveUp = (stream, why, reason) => {
         const other = OTHER[stream];
         if (c.gone[other] || c.shared) return; // one file: the notice would go into the very pipe that was given up
-        const ceilingHit = why === CEILING;
-        const stalled = ceilingHit || /^no reader/.test(why);
+        const ceilingHit = reason === 'ceiling'; // R36-6: the reason passed in, never parsed back from the words
+        const stalled = reason !== 'error';
         const dropped = 'the rest of what it was given (the stop message or the summary among it) was dropped';
         const what = ceilingHit ? `: ${why}: ${dropped}` : stalled ? ` had ${why}: ${dropped}` : ` is closed (${why}): what it was given is not printed there`;
         const line = `${stream}${what}; ${hint(stalled)}\n`;
