@@ -15,8 +15,9 @@ import { fieldKey, invalidTextProblem, isRaw } from './sageValues';
 import { parseSageItem } from './sageItemParser';
 import { parseSagePurchaseOrder } from './sagePurchaseOrderParser';
 import { importStatusFor } from './sagePoStatus';
+import { OwnError } from './sageTold';
 
-export class SageExportShapeError extends Error {}
+export class SageExportShapeError extends OwnError {}
 
 const TOP_KEYS = ['Items', 'PurchaseOrders'];
 

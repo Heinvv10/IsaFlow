@@ -18,7 +18,11 @@ import type { McpToolContext } from '@/lib/mcp/types';
 import { CommitRefusedError, CommitUnconfirmedError, RunEndedError, commitRefusedByServer, ConnectionLostError, DryRollbackUnconfirmedError, LockWaitError, LostBeforeCommitError, StatementTimeoutError, type LockHolder } from './sageSessionErrors';
 import { idempotencyLockText, takeKeyLockNow } from './sageKeyLock';
 import { watchWaits } from './sageWaitWatch';
-import { codeOf, safeThrown, told } from './sageTold';
+import { codeOf, snapshot, told, OwnError } from './sageTold';
+import { connectionEnded, said, toolOutcome } from './sageSessionRead';
+import { log } from '@/lib/logger';
+
+export { toolOutcome } from './sageSessionRead';
 import { SAGE_COMMIT_TIMEOUT_MS, SAGE_LOCK_TIMEOUT_MS, SAGE_STATEMENT_TIMEOUT_MS, sageAppName } from './sageTimeouts';
 
 export { SAGE_CONNECT_TIMEOUT_MS, SAGE_KEEPALIVE_INITIAL_DELAY_MS, SAGE_LOCK_TIMEOUT_MS, SAGE_QUERY_TIMEOUT_MS, SAGE_STATEMENT_TIMEOUT_MS, sagePoolConfig } from './sageTimeouts';
@@ -43,7 +47,7 @@ export interface ToolSession {
   stall?: () => LockWaitError | StatementTimeoutError | null;
 }
 
-export class NotAMemberError extends Error {}
+export class NotAMemberError extends OwnError {}
 
 
 /** How long a COMMIT may take to answer (sageTimeouts.ts SAGE_COMMIT_TIMEOUT_MS: between the statement and the client query timeouts). */
@@ -56,38 +60,8 @@ export function setCommitBoundForTests(ms: number): () => void {
   return () => { commitBoundMs = COMMIT_TIMEOUT_MS; };
 }
 
-/**
- * The error of a connection that ended: the server terminated the backend (57P01-03), or pg's own client error (no code) for a
- * connection that ended. Nothing else (R21-1, B21-2): not a cancel or timeout (57014), a constraint, a serialization failure, a refused
- * connect, nor a code or a message that only looks like a loss (an 08006 or "terminating connection" raised by the books' own SQL on a
- * live connection). A connection that really ended also emits the client's 'error', which is listened to.
- */
-const connectionEnded = (err: unknown): boolean => {
-  const code = codeOf(err); // a thrown null / undefined (R21-4); a value whose code cannot be read (B36-1): undefined
-  if (typeof code === 'string') return /^57P0[123]$/.test(code);
-  return code === undefined && err instanceof Error && /^Connection terminated/.test(told(err));
-};
-
-/** What a request already said of itself (a loss, an unconfirmed COMMIT or ROLLBACK, a stall): it stands, never re-worded. */
-const SAID = [ConnectionLostError, LostBeforeCommitError, CommitRefusedError, CommitUnconfirmedError, LockWaitError, StatementTimeoutError, DryRollbackUnconfirmedError];
-const said = (err: unknown): boolean => SAID.some((k) => err instanceof k);
-
 const WRITE_TOOLS = new Set(mcpRegistry.listTools().filter((t) => t.write).map((t) => t.name));
 const PER_USER_TOOLS = new Set(mcpRegistry.listTools().filter((t) => (t as { perUserIdempotency?: boolean }).perUserIdempotency === true).map((t) => t.name));
-
-/**
- * What a tool call answered. A SUCCESS whose text is not a JSON object (a proxy's HTML page, an empty answer, a list) is a failure here,
- * never an "ok" with nothing reported: a batch must not pass on an answer nobody can read.
- */
-export function toolOutcome(text: string, isError: boolean): ToolOutcome {
-  if (isError) return { isError: true, text, body: null };
-  let parsed: unknown = null;
-  try { parsed = JSON.parse(text); } catch { parsed = null; }
-  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    return { isError: true, text: `the tool answered something that is not JSON (a success must be a JSON object): ${text.slice(0, 200)}`, body: null };
-  }
-  return { isError: false, text, body: parsed as Record<string, unknown> };
-}
 
 /**
  * Runs `fn` in one request transaction. Throws NotAMemberError when `userId` is not an active member of `companyId`. `o.wrote`: a request
@@ -108,8 +82,9 @@ export async function withToolSession<T>(
   const connecting = watch.begin();
   try {
     client = await pool.connect();
-  } catch (err) {
+  } catch (raw) {
     watch.stop();
+    const err = snapshot(raw);
     throw commit ? new LostBeforeCommitError(err) : new ConnectionLostError(err, 'no-connection');
   } finally {
     connecting();
@@ -123,7 +98,7 @@ export async function withToolSession<T>(
   // How it was lost: the connection ENDED (the server rolls the session back), or a client query_timeout ("Query read timeout": pg leaves
   // that query running, so on a half-open socket the server may still hold the request's writes, R26-1).
   let lostBy = 'ended' as 'ended' | 'timeout';
-  const onError = (err: Error): void => { lost ??= err; lostBy = 'ended'; };
+  const onError = (err: unknown): void => { lost ??= snapshot(err); lostBy = 'ended'; }; // R37-2: the event's value, snapshotted
   client.on('error', onError);
   // Round 25-26: every query of the request is watched, through a view of the client (never a patch of it: a pool may hand out wrapped
   // clients of its own). Once the connection is lost, every later query fails at once with that loss (B26-2): it could only queue behind
@@ -141,14 +116,16 @@ export async function withToolSession<T>(
     const settled = watch.begin();
     const sentAt = Date.now();
     const raw = base.query(...a);
-    if (!(raw instanceof Promise)) { settled(); return raw; }
-    // B36-1: whatever the driver rejects with is made safe here, where it enters: no later read of it can throw.
-    const r = raw.then((v) => v, (err: unknown) => { throw safeThrown(err); });
+    let promised = false;
+    try { promised = raw instanceof Promise; } catch { promised = false; } // a driver's return value: read once, in a try
+    if (!promised) { settled(); return raw; }
+    // B36-1, B37-2: whatever the driver rejects with is snapshotted here, where it enters: no later read touches the foreign value.
+    const r = (raw as Promise<unknown>).then((v) => v, (err: unknown) => { throw snapshot(err); });
     r.then(settled, (err: unknown) => {
       const code = codeOf(err);
       if (code === '55P03' && lockTimedOut === null) [lockTimedOut, lockHolder] = [err, watch.lastBlocker()]; // read before the wait ends
       else if (code === '57014' && !ending && statementTimedOut === null) [statementTimedOut, statementMs] = [err, Date.now() - sentAt];
-      else if (err instanceof Error && told(err) === 'Query read timeout' && lost === null) [lost, lostBy] = [err, 'timeout'];
+      else if (told(err) === 'Query read timeout' && lost === null) [lost, lostBy] = [err as Error, 'timeout'];
       settled();
     });
     return r;
@@ -168,12 +145,21 @@ export async function withToolSession<T>(
   /** A stall recorded by the request is what an error it caused is said as (R27-1), unless the error already says what happened. */
   const stallFirst = (err: unknown): unknown => { const s = stall(); return s !== null && !said(err) && lost === null ? s : err; };
   /** The request's own ROLLBACK: from here a 57014 may be the session's own cancel (rollbackError), never a stall. */
-  const rollBack = () => { ending = true; return rollbackError(client, 'sage-migration'); };
+  // B37-1: whatever its ROLLBACK does (rejects with anything, throws), it fails as a snapshot, and a failure marks the connection unusable.
+  const rollBack = async (): Promise<Error | null> => {
+    ending = true;
+    try { const e = await rollbackError(client, 'sage-migration'); return e === null ? null : snapshot(e); } catch (raw) { return snapshot(raw); }
+  };
   let fnStarted = false; // R25-6: only a request whose work ran can have writes still held
   let committed = false;
   let owned: RequestContext | null = null;
   let unusable = false; // set when a ROLLBACK fails: the connection may still be inside its transaction
   let rolledBack = false; // the dry request's own ROLLBACK ran: the catch does not run another
+  // Round 37 (part 1): the outcome of a committing request comes from its state, never from the error that surfaced: once its COMMIT was
+  // sent and before an OK answer, it is CommitUnconfirmedError (or the server's refusal, read from our own snapshot), decided first.
+  let commitSent = false;
+  let commitOutcome: Error | null = null;
+  let toolResult: unknown;
   try {
     await db.query('BEGIN');
     await db.query('SET LOCAL ROLE app_user');
@@ -207,7 +193,8 @@ export async function withToolSession<T>(
             await takeKeyLockNow(db as never, (typeof (pool as { query?: unknown }).query === 'function' ? pool : db) as never, idempotencyLockText(companyId, name, args.idempotency_key, PER_USER_TOOLS.has(name) ? userId : undefined), commit ? 'live' : 'dry', { runLockAt: o.runLockAt, appName });
           }
           r = await mcpRegistry.call(name, sent, { ...ctx, onIdempotentReplay: () => { replayed = true; } });
-        } catch (err) {
+        } catch (raw) {
+          const err = snapshot(raw); // what a tool or the registry threw: ours as it is, anything else its snapshot
           // A stall in the registry's own bookkeeping (outside the tool's savepoint) or the key lock rejects the call: said as the stall, so
           // the dry run stops at this batch and a live run at this batch (R27-1).
           throw stallFirst(err);
@@ -221,6 +208,7 @@ export async function withToolSession<T>(
     };
     fnStarted = true;
     const result = await runOwnedContext(txCtx, () => fn(session));
+    toolResult = result;
     if (!commit) {
       const rollback = await rollBack();
       [unusable, rolledBack] = [rollback !== null, true];
@@ -242,31 +230,38 @@ export async function withToolSession<T>(
     if (stalled !== null) throw stalled;
     if (txCtx.rollbackOnly) throw new Error(`the request transaction was marked rollback-only: ${txCtx.rollbackOnly}`);
     let commitTimer: ReturnType<typeof setTimeout> | undefined;
+    commitSent = true;
     try {
       // Bounded like the ROLLBACK: a connection that never answers must not hang the run. A timeout is "unconfirmed", never "failed".
       await Promise.race([
         db.query('COMMIT'),
         new Promise<never>((_, reject) => { commitTimer = setTimeout(() => reject(new Error(`COMMIT did not answer within ${commitBoundMs}ms`)), commitBoundMs); commitTimer.unref?.(); }),
       ]);
-    } catch (err) {
+    } catch (raw) {
+      const err = snapshot(raw);
       // A backend killed DURING the COMMIT rejects it with a FATAL (57P01-03) before the client emits 'error' (R20-2): lost too.
-      if (lost === null && connectionEnded(err)) [lost, lostBy] = [err as Error, 'ended'];
+      if (lost === null && connectionEnded(err)) [lost, lostBy] = [err, 'ended'];
       // The server ANSWERED it with an ERROR (57014, a deferred constraint...): rolled back, nothing written (B28-2). Not "may still land".
-      if (lost === null && commitRefusedByServer(err)) throw new CommitRefusedError(err);
-      throw new CommitUnconfirmedError(told(err), result, lost !== null); // B36-1: whatever it rejected with, unconfirmed
+      // Recorded as the request's state; the catch below throws it (round 37, part 1): whatever it rejected with, unconfirmed (B36-1).
+      commitOutcome = lost === null && commitRefusedByServer(err) ? new CommitRefusedError(err) : new CommitUnconfirmedError(told(err), result, lost !== null);
+      throw err;
     } finally {
       clearTimeout(commitTimer);
     }
     committed = true;
     drainAfterCommit(txCtx);
     return result;
-  } catch (err) {
+  } catch (raw) {
+    const err = snapshot(raw); // anything fn, a tool or the registry threw: ours as it is, else its snapshot (round 37, part 2)
+    // Part 1: sent and not answered OK, the outcome is decided here, first; the ROLLBACK and what follows can no longer replace it.
+    const decided = commitSent && !committed ? (commitOutcome ?? new CommitUnconfirmedError(told(err), toolResult, lost !== null)) : null;
     if (!rolledBack) {
       const rollback = await rollBack();
       unusable = rollback !== null;
       // R24-5: a dry run that ended on an error (a stop, a bug) and whose ROLLBACK is then not confirmed still says its writes may be held.
-      if (rollback !== null && o.wrote === true && fnStarted && (lost === null || lostBy === 'timeout') && !connectionEnded(rollback) && !connectionEnded(err)) throw new DryRollbackUnconfirmedError(rollback, pid, undefined, err);
+      if (decided === null && rollback !== null && o.wrote === true && fnStarted && (lost === null || lostBy === 'timeout') && !connectionEnded(rollback) && !connectionEnded(err)) throw new DryRollbackUnconfirmedError(rollback, pid, undefined, err);
     }
+    if (decided !== null) throw decided;
     // What the request already said of itself stands: a loss, an unconfirmed COMMIT or ROLLBACK, a stall (a read timeout in the dry run
     // is said as held writes, R26-1, never re-worded as "the server rolled it back"). An error after a stall the request recorded (any
     // statement: BEGIN, the membership query, the registry's bookkeeping) is that stall (R27-1); a loss is said as the loss.
@@ -275,9 +270,13 @@ export async function withToolSession<T>(
     if (!said(err) && (lost !== null || connectionEnded(err))) throw commit ? new LostBeforeCommitError(lost ?? err, lost !== null && lostBy === 'timeout' ? { pid } : undefined) : new ConnectionLostError(lost ?? err);
     throw err;
   } finally {
-    watch.stop();
-    client.off('error', onError);
-    client.release(unusable || lost !== null);
-    settleAfterRollback(owned, committed);
+    // Nothing here may replace the outcome above (round 37): each step on its own, a throw only logged.
+    const quietly = (what: string, step: () => void): void => {
+      try { step(); } catch (e) { log.error(`sage migration: ${what} failed after the request`, { message: told(e) }, 'sage-migration'); }
+    };
+    quietly('stopping the wait watch', () => watch.stop());
+    quietly('removing the error listener', () => { client.off('error', onError); });
+    try { client.release(unusable || lost !== null); } catch (e) { log.error('sage migration: releasing the connection failed after the request', { message: told(e) }, 'sage-migration'); }
+    quietly('settling the request context', () => settleAfterRollback(owned, committed));
   }
 }

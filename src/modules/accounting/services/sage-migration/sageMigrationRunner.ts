@@ -38,10 +38,10 @@ import { buildReconciliation } from './sageReconciliation';
 import { readSnapshot, type Snapshot } from './sageSnapshot';
 import { resolveSuppliers } from './sageSuppliers';
 import { withToolSession } from './sageToolSession';
-import { safeThrown, told } from './sageTold';
+import { safeThrown, told, OwnError } from './sageTold';
 
 /** The caller asked the run to stop (a signal): thrown where the run lock is checked, so the usual stop path reports it. */
-export class StopRequested extends Error {}
+export class StopRequested extends OwnError {}
 
 const emptyPhase = (): PhaseReport => ({ batches: [], failed: 0 });
 /** A phase that never started because an earlier one failed. */

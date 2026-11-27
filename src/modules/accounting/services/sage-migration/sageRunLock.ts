@@ -8,17 +8,17 @@ import { createHash } from 'node:crypto';
 import type { Pool, PoolClient } from 'pg';
 import { ConnectionLostError } from './sageSessionErrors';
 import { watchWaits } from './sageWaitWatch';
-import { asError, told } from './sageTold';
+import { asError, told, OwnError } from './sageTold';
 import { log } from '@/lib/logger';
 
-export class RunInProgressError extends Error {}
+export class RunInProgressError extends OwnError {}
 
 /**
  * Taking the run lock failed on its own connection (B28-6): its try-lock (or the session setting after it) did not answer or failed.
  * Nothing was written. On a half-open link the try-lock may still have been GRANTED server-side, so its backend (`pid`) may hold the run
  * lock until the server drops that connection; a re-run is then refused as running, naming that pid.
  */
-export class RunLockNotTakenError extends Error {
+export class RunLockNotTakenError extends OwnError {
   constructor(cause: Error, readonly pid: number | undefined) {
     super(`the run lock could not be taken (${told(cause)}): nothing was written; ${pid === undefined ? 'its backend pid is unknown' : `its backend pid ${pid} may hold the run lock until the server drops that connection: if a re-run is refused as running, SELECT pg_terminate_backend(${pid})`}`, { cause });
     this.name = 'RunLockNotTakenError';
@@ -37,7 +37,7 @@ export const KEEPALIVE_MS = 15_000;
 /** A probe of the lock connection that has not answered in this long counts as lost: a half-open connection never errors. */
 export const CHECK_TIMEOUT_MS = 10_000;
 
-export class LockLostError extends Error {}
+export class LockLostError extends OwnError {}
 
 export interface RunLock {
   /** Gives the lock up (call it in a `finally`). Returns a warning when its release was not confirmed (B25-3), else null. */

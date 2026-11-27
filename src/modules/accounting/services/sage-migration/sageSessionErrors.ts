@@ -9,12 +9,11 @@
  * did if the COMMIT landed, never falling back on the dry run's answer. `connectionLost`: the connection was lost DURING (or after) the
  * COMMIT (R20-2): the tool's answer stands, a refusal among them (B21-1). A loss seen before the COMMIT is LostBeforeCommitError instead.
  */
-export class CommitUnconfirmedError extends Error {
+export class CommitUnconfirmedError extends OwnError {
   constructor(message: string, readonly result: unknown, readonly connectionLost = false) { super(message); }
 }
 
-import pg from 'pg';
-import { codeOf, told } from './sageTold';
+import { causeOf, codeOf, fromServer, OwnError, severityOf, snapshot, told } from './sageTold';
 import { described, ownBackend, whoHolds, type LockHolder } from './sageLockHolder';
 
 export type { LockHolder } from './sageLockHolder';
@@ -25,7 +24,7 @@ const text = told;
  * The run's caller ended the run (R29-1: the CLI's terminate or its own exit): no request is started any more; nothing of this one was
  * sent (no BEGIN).
  */
-export class RunEndedError extends Error {
+export class RunEndedError extends OwnError {
   constructor(readonly why: string) {
     super(`the run had ended (${why}): this request was not started, nothing of it was sent`);
     this.name = 'RunEndedError';
@@ -38,7 +37,7 @@ export class RunEndedError extends Error {
  * cannot land later. Only an error that ends or may end the connection (class 08, 57P, 58, XX, a FATAL like 25P03) is not this: such a
  * COMMIT stays unconfirmed. `code` is the SQLSTATE.
  */
-export class CommitRefusedError extends Error {
+export class CommitRefusedError extends OwnError {
   readonly code: string;
   constructor(cause: unknown) {
     const code = told(codeOf(cause));
@@ -53,12 +52,11 @@ export class CommitRefusedError extends Error {
  * PANIC never counts (the English severity is checked; a translated one falls to the code rule, whose classes 08 / 57P / 58 / XX and
  * 25P03 are the ones that end a connection); 40003 (statement_completion_unknown) may have committed, so it never counts either.
  */
-export const commitRefusedByServer = (err: unknown): boolean => {
-  const ServerError = (pg as { DatabaseError?: abstract new (...a: never[]) => Error }).DatabaseError;
-  if (typeof ServerError !== 'function' || !(err instanceof ServerError)) return false;
+export const commitRefusedByServer = (raw: unknown): boolean => {
+  const err = snapshot(raw); // R37-3: read from our own snapshot, never from the value itself
+  if (!fromServer(err)) return false;
   const code = codeOf(err);
-  let severity: unknown;
-  try { severity = (err as { severity?: unknown }).severity; } catch { return false; } // a value that cannot be read is no server answer
+  const severity = severityOf(err);
   if (severity === 'FATAL' || severity === 'PANIC') return false;
   return typeof code === 'string' && /^[0-9A-Z]{5}$/.test(code) && !/^(08|57P|58|XX)/.test(code) && code !== '25P03' && code !== '40003';
 };
@@ -70,7 +68,7 @@ export const commitRefusedByServer = (err: unknown): boolean => {
  * a client read timeout, so the connection may still be open on the server (a half-open socket): its backend may still hold the
  * request's locks and the batch's key until it is ended, and a re-run meets them.
  */
-export class LostBeforeCommitError extends Error {
+export class LostBeforeCommitError extends OwnError {
   constructor(cause: unknown, readonly heldBy?: { pid: number | undefined }) {
     super(`the connection was lost before its COMMIT was sent (${text(cause)}); nothing of it was written${heldBy === undefined ? '' : `; its backend may still hold the request's locks and the batch's key (${ownBackend(heldBy.pid)})`}`, { cause });
     this.name = 'LostBeforeCommitError';
@@ -83,7 +81,7 @@ export class LostBeforeCommitError extends Error {
  * words name that request only (R21-3): after the live phase started, other batches may have committed. Before the live phase it is a
  * refused start (exit 2). `cause` is the error the loss came with.
  */
-export class ConnectionLostError extends Error {
+export class ConnectionLostError extends OwnError {
   constructor(cause: unknown, readonly how: 'lost' | 'no-connection' = 'lost') {
     super(how === 'no-connection'
       ? `no connection to the database could be had (${text(cause)}): nothing was sent, so nothing of it was written`
@@ -98,7 +96,7 @@ export class ConnectionLostError extends Error {
  * (the runner keeps a dry result with it as a warning when no live run follows, B24-1); the message adds that the live run was not started
  * (a refused start, exit 2), or follows `after`, the error the dry run itself ended with (R24-5). `result` is what the dry run returned.
  */
-export class DryRollbackUnconfirmedError extends Error {
+export class DryRollbackUnconfirmedError extends OwnError {
   readonly held: string;
   constructor(cause: Error, readonly pid: number | undefined, readonly result?: unknown, readonly after?: unknown) {
     const held = `the dry run's ROLLBACK was not confirmed (${told(cause)}); its writes may still be held (${ownBackend(pid)})`;
@@ -134,7 +132,7 @@ const liveKeyHolder = (h: LockHolder | undefined, unread: boolean): string => {
  * run's, cut off before or at its COMMIT), or another client using the same key: worded by what its holder is doing (R27-8), never
  * claiming an unconfirmed COMMIT. `unread`: the holder lookup failed (R27-7).
  */
-export class BatchKeyHeldError extends Error {
+export class BatchKeyHeldError extends OwnError {
   constructor(readonly holder: LockHolder | undefined, readonly phase: LockPhase = 'dry', readonly unread = false) {
     super(phase === 'dry'
       ? `another session holds this batch's lock: likely a previous run's dry transaction, or a different key with the same 32-bit hash (${who(holder, unread)}); then re-run`
@@ -149,7 +147,7 @@ export class BatchKeyHeldError extends Error {
  * who it is decides the advice (R26-4, R27-3: sageLockHolder.ts). The request wrote nothing (its tool rolled back); the run stops at it: every later batch would
  * queue on the same holder.
  */
-export class LockWaitError extends Error {
+export class LockWaitError extends OwnError {
   constructor(cause: unknown, readonly holder: LockHolder | undefined, readonly phase: LockPhase) {
     super(`a lock it needs is held by another session and the wait timed out (${text(cause)}); nothing of it was written (held by ${who(holder)}); then re-run`, { cause });
     this.name = 'LockWaitError';
@@ -162,7 +160,7 @@ export class LockWaitError extends Error {
  * the server is overloaded or stalled. One cancelled sooner was cancelled by someone else (pg_cancel_backend). The request wrote nothing
  * (its tool rolled back, or the request did); the run stops at it, as at a lock wait: every later batch would meet the same.
  */
-export class StatementTimeoutError extends Error {
+export class StatementTimeoutError extends OwnError {
   constructor(cause: unknown, readonly phase: LockPhase, timeoutMs: number, readonly elapsedMs: number = timeoutMs) {
     super(elapsedMs >= timeoutMs
       ? `a statement ran past the migration's ${timeoutMs / 1000} s statement_timeout (${text(cause)}); nothing of it was written: the database is overloaded or stalled; re-run once it answers`
@@ -176,7 +174,7 @@ export class StatementTimeoutError extends Error {
  * next to a list of committed batches, that sentence would read as said of them. Every typed error is worded from its cause.
  */
 export function causeWording(err: unknown): string {
-  const cause = (e: unknown): string => { let c: unknown; try { c = (e as { cause?: unknown }).cause; } catch { c = undefined; } return c === undefined ? text(e) : text(c); };
+  const cause = (e: unknown): string => { const c = causeOf(e); return c === undefined ? text(e) : text(c); };
   if (err instanceof ConnectionLostError) return `${err.how === 'no-connection' ? 'no connection could be had' : 'its connection was lost'}: ${cause(err)}`;
   if (err instanceof LostBeforeCommitError) return `its connection was lost: ${cause(err)}`;
   if (err instanceof StatementTimeoutError) return `a statement of it timed out or was cancelled: ${cause(err)}`;

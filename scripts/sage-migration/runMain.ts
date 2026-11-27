@@ -13,7 +13,7 @@ import { runSageMigration } from '../../src/modules/accounting/services/sage-mig
 import { SAGE_POOL_END_TIMEOUT_MS, sagePoolConfig } from '../../src/modules/accounting/services/sage-migration/sageTimeouts';
 import type { ParsedExport } from '../../src/modules/accounting/services/sage-migration/sageExportTypes';
 import { exitCodeForError, stopMessage } from '../../src/modules/accounting/services/sage-migration/sageStopMessage';
-import { safeThrown } from '../../src/modules/accounting/services/sage-migration/sageTold';
+import { OwnError, safeThrown } from '../../src/modules/accounting/services/sage-migration/sageTold';
 import { checkReportArgs, exitAfterReportFailure, OwnedReport, summarize } from './runReport';
 import { endConsole, exitAfterConsole, out, prepareConsole, say, told } from './runConsole';
 import { cli, installHandlers, leaveStopReport, shouldStop } from './runEnd';
@@ -28,7 +28,7 @@ const notCreated = () => {
   return cli.owned === null && cli.reportAsked !== undefined ? ` (nothing written; --report ${cli.reportAsked} was not created by this run)` : '';
 };
 /** A refused start: thrown, so every exit goes through main's one catch (the message, a stop report once --report exists, exit 2). */
-class RefusedStart extends Error {}
+class RefusedStart extends OwnError {}
 const fail: (s: string) => never = (s) => { throw new RefusedStart(s); };
 
 /** "80950000.00" -> 8095000000 cents, exactly (no float). */

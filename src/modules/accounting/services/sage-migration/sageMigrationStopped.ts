@@ -5,7 +5,7 @@
  * was written, and nothing says otherwise.
  */
 import type { BatchReport } from './sageMigrationTypes';
-import { told } from './sageTold';
+import { told, OwnError } from './sageTold';
 
 export interface StoppedBatches {
   /** Live batches that failed before the stop and wrote nothing (refused by the tool, or their request rolled back). */
@@ -14,7 +14,7 @@ export interface StoppedBatches {
   booksNotRechecked?: string;
 }
 
-export class MigrationStopped extends Error {
+export class MigrationStopped extends OwnError {
   constructor(readonly reason: unknown, readonly liveStarted: boolean, readonly committed: BatchReport[], readonly batches: StoppedBatches = { failed: [] }) {
     super(told(reason));
     this.name = 'MigrationStopped';

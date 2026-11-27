@@ -4,8 +4,9 @@
  * account, never reaches the budget check as the account the whole import is judged on. A header is an account with children.
  */
 import { sql } from '@/lib/neon';
+import { OwnError } from './sageTold';
 
-export class PoGlAccountError extends Error {}
+export class PoGlAccountError extends OwnError {}
 
 export async function assertPoGlAccount(companyId: string, accountId: string): Promise<void> {
   const rows = (await sql`
