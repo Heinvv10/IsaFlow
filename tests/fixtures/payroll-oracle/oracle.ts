@@ -40,6 +40,9 @@ export interface OracleComponent {
   taxable: boolean;
   uif: boolean;
   sdl: boolean;
+  /** W29 (wave 7 PRA): the row is a recurring assignment with this window, apportioned as a run apportions it. */
+  effectiveFrom?: string;
+  effectiveTo?: string | null;
 }
 
 export interface OracleCase {
@@ -56,6 +59,8 @@ export interface OracleCase {
     employee: {
       dateOfBirth: string | null;
       startDate: string;
+      /** W29: the leaver's last day (absent: still employed). */
+      endDate?: string;
       taxStatus: string;
       uifExcluded: boolean;
       medicalAidMainMember: boolean;

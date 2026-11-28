@@ -118,7 +118,8 @@ export async function changeAssignmentDates(
     }
     const rows = (await tx`
       SELECT id, effective_from, effective_to, is_recurring, superseded_at, supersede_inferred,
-             (SELECT end_date FROM payroll_employees WHERE id = employee_id) AS employee_end
+             (SELECT end_date FROM payroll_employees WHERE id = employee_id) AS employee_end,
+             (SELECT start_date FROM payroll_employees WHERE id = employee_id) AS employee_start
         FROM payroll_employee_components
       WHERE employee_id = ${target.employee_id}::uuid AND component_id = ${target.component_id}::uuid
       ORDER BY id FOR UPDATE

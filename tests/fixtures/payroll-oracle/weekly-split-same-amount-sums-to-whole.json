@@ -1,0 +1,57 @@
+{
+  "id": "weekly-split-same-amount-sums-to-whole",
+  "source": "sars-guide:SARS PAYE-GEN-01-G21 Guide for Employers iro Employees Tax 2027, Revision 1 p. 9-10 (annual equivalent of part-period pay; a part period as its share of days, 3 of 7 = 0.4285) and p. 13; apportionment basis: wave-7 ruling 13 (monthly working days, weekly calendar days), scope ruling 19",
+  "sourceRef": "https://www.sars.gov.za/wp-content/uploads/Ops/Guides/PAYE-GEN-01-G21-Guide-for-Employers-iro-Employees-Tax-for-2027-External-Guide.pdf",
+  "notes": "Review #1901 M1: a weekly row re-dated mid-week with the same amount pays the whole week. Weekly, Monday 6 - Sunday 12 July 2026, employed since 1 March 2020, age 40. Basic R1 000 to Wednesday 8 July (3 of 7 calendar days, exact ratio: 1 000 x 3 / 7 = 428.571 -> 428.57) and R1 000 from Thursday 9 July (4 of 7: 571.428 -> 571.43). Gross 1 000.00 (four-decimal shares would pay 428.50 + 571.40 = 999.90). PAYE R0; UIF 10.00 each side; SDL 10.00; net 990.00.",
+  "input": {
+    "period": {
+      "year": 2026,
+      "month": 7,
+      "frequency": "weekly",
+      "periodStart": "2026-07-06",
+      "periodEnd": "2026-07-12",
+      "runKind": "regular"
+    },
+    "taxYear": 2027,
+    "employee": {
+      "dateOfBirth": "1986-01-01",
+      "startDate": "2020-03-01",
+      "taxStatus": "statutory",
+      "uifExcluded": false,
+      "medicalAidMainMember": false,
+      "medicalAidDependantsCount": 0,
+      "s18aReceiptHeld": false
+    },
+    "employerAnnualRemuneration": 10000000,
+    "components": [
+      {
+        "code": "3601",
+        "name": "Basic salary",
+        "type": "earning",
+        "amount": 1000,
+        "taxable": true,
+        "uif": true,
+        "sdl": true,
+        "effectiveFrom": "2020-03-01",
+        "effectiveTo": "2026-07-08"
+      },
+      {
+        "code": "3601",
+        "name": "Basic salary",
+        "type": "earning",
+        "amount": 1000,
+        "taxable": true,
+        "uif": true,
+        "sdl": true,
+        "effectiveFrom": "2026-07-09"
+      }
+    ]
+  },
+  "expected": {
+    "paye": 0,
+    "uifEmployee": 10,
+    "uifEmployer": 10,
+    "sdl": 10,
+    "net": 990
+  }
+}
