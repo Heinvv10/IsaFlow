@@ -1,121 +1,21 @@
 /**
- * Customer Quotes — redesigned with modal form + elevated table
+ * Customer Quotes — the list and its New Quote modal (CreateQuoteModal: a VAT type per line) + elevated table
  */
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { useOpenOnAction } from '@/hooks/useOpenOnAction';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { Modal } from '@/components/ui/Modal';
 import { FileText, Plus, Search, Loader2, Send, Check, X, ArrowRight,
-  ExternalLink, ClipboardList, Trash2, Download } from 'lucide-react';
-import { StatusPill, PageHeader, DateField } from '@/components/ui';
+  ExternalLink, ClipboardList, Download } from 'lucide-react';
+import { StatusPill, PageHeader } from '@/components/ui';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
-import { localISODate } from '@/lib/dateUtils';
 import { formatMoney as fmt } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
-import { numberLines } from '@/lib/lineNumbers';
-import { useDateGate } from '@/hooks/useDateGate';
-import { useVatRegistrationOrDefault } from '@/hooks/useVatRegistration';
-import type { TaxMode } from '@/components/accounting/customer-invoices/taxMode';
-import { QuoteVatFields } from '@/components/accounting/customer-quotes/QuoteVatFields';
-import { initialQuoteTaxMode, quoteLinePayload, quoteLinesForModeChange, quoteLineTotal, quoteTotals } from '@/components/accounting/customer-quotes/quoteVat';
-import { AmountInput } from '@/components/ui/AmountInput';
+import { CreateQuoteModal, type CustomerOption } from '@/components/accounting/customer-quotes/CreateQuoteModal';
 
 interface Quote { id: string; quoteNumber: string; customerName: string; quoteDate: string; expiryDate: string | null; status: string; total: number; invoiceId?: string }
-interface CustomerOption { id: string; name: string }
-const inp = 'w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 transition-colors';
-const lbl = 'block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5';
 const TABS = ['all', 'draft', 'sent', 'accepted', 'declined', 'expired', 'converted'] as const;
-
-interface ModalProps { customers: CustomerOption[]; onClose: () => void; onCreated: () => void }
-function CreateQuoteModal({ customers, onClose, onCreated }: ModalProps) {
-  const [form, setForm] = useState({ clientId: '', customerName: '', quoteDate: localISODate(), expiryDate: '', notes: '' });
-  const [lines, setLines] = useState([{ desc: '', qty: 1, price: 0 }]);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState(''); const dates = useDateGate();
-  const vat = useVatRegistrationOrDefault(); const [tax, setTax] = useState<{ mode: TaxMode; rate: number }>({ mode: 'exclusive', rate: 15 });
-  const mode: TaxMode = initialQuoteTaxMode(vat) === 'none' ? 'none' : tax.mode; // a non-vendor quotes with no VAT
-  const pickMode = (to: TaxMode) => { setLines(ls => quoteLinesForModeChange(ls, mode, to, tax.rate)); setTax(t => ({ ...t, mode: to })); };
-
-  const handleCreate = async () => {
-    if (dates.blocked || !form.clientId || lines.every(l => !l.desc)) return;
-    setSaving(true);
-    setError('');
-    try {
-      const res = await apiFetch('/api/accounting/customer-quotes', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clientId: form.clientId, customerName: form.customerName, quoteDate: form.quoteDate, expiryDate: form.expiryDate, notes: form.notes, lines: numberLines(lines, l => !!l.desc).map(l => ({ description: l.desc, quantity: l.qty, ...quoteLinePayload(l, mode, tax.rate), lineNo: l.lineNo })) }),
-      });
-      await assertOk(res, 'Could not create the quote - try again');
-      onCreated();
-      onClose();
-    } catch (e) {
-      setError(apiErrorMessage(e, 'Could not create the quote - try again'));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <Modal open onClose={onClose} title="New Quote" size="xl">
-      <Modal.Body className="space-y-5">
-        <p className="text-xs text-slate-500 dark:text-slate-400">Fill in the quote details below</p>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="sm:col-span-3">
-              <label htmlFor="quote-customer" className={lbl}>Customer *</label>
-              <select id="quote-customer" value={form.clientId} onChange={e => { const s = customers.find(c => c.id === e.target.value); setForm(p => ({ ...p, clientId: e.target.value, customerName: s?.name ?? '' })); }} className={inp}>
-                <option value="">Select a customer…</option>
-                {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
-            </div>
-            <DateField label="Quote Date" name="quoteDate" value={form.quoteDate || null} onChange={dates.bind('quoteDate', iso => setForm(p => ({ ...p, quoteDate: iso })), form.quoteDate)} />
-            <DateField label="Expiry Date" name="expiryDate" value={form.expiryDate || null} onChange={dates.bind('expiryDate', iso => setForm(p => ({ ...p, expiryDate: iso })), form.expiryDate)} />
-            <div><label htmlFor="quote-notes" className={lbl}>Notes</label><input id="quote-notes" value={form.notes} onChange={e => setForm(p => ({ ...p, notes: e.target.value }))} placeholder="Optional" className={inp} /></div>
-          </div>
-
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <span className={lbl}>Line items</span>
-              <button type="button" onClick={() => setLines(l => [...l, { desc: '', qty: 1, price: 0 }])} className="text-xs text-amber-500 hover:text-amber-400 flex items-center gap-1 font-semibold transition-colors"><Plus className="w-3 h-3" />Add line</button>
-            </div>
-            <div className="rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden">
-              <table className="block md:table w-full text-sm" aria-label="Quote line items">
-                <thead className="hidden md:table-header-group bg-slate-50 dark:bg-slate-800/60"><tr>
-                  <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500 dark:text-slate-400">Description</th>
-                  <th className="px-3 py-2 text-right text-xs font-semibold text-slate-500 dark:text-slate-400 w-20">Qty</th>
-                  <th className="px-3 py-2 text-right text-xs font-semibold text-slate-500 dark:text-slate-400 w-28">Unit Price</th>
-                  <th className="px-3 py-2 text-right text-xs font-semibold text-slate-500 dark:text-slate-400 w-24">Total</th>
-                  <th className="w-8"><span className="sr-only">Remove line</span></th>
-                </tr></thead>
-                <tbody className="block md:table-row-group divide-y divide-slate-100 dark:divide-slate-800">
-                  {lines.map((l, i) => (
-                    <tr key={i} className="group grid grid-cols-3 gap-2 p-3 md:table-row md:p-0">
-                      <td className="col-span-3 md:table-cell px-0 md:px-2 py-0 md:py-2"><input aria-label={`Description, line ${i + 1}`} value={l.desc} onChange={e => { const n = [...lines]; n[i] = { ...l, desc: e.target.value }; setLines(n); }} placeholder="Item description" className={inp} /></td>
-                      <td className="md:table-cell px-0 md:px-2 py-0 md:py-2"><span className="md:hidden block text-xs text-slate-600 dark:text-slate-400 mb-1">Qty</span><AmountInput aria-label={`Quantity, line ${i + 1}`} value={l.qty} min={0.01} decimals={2} onValueChange={v => { const n = [...lines]; n[i] = { ...l, qty: v }; setLines(n); }} className={`${inp} text-right`} /></td>
-                      <td className="md:table-cell px-0 md:px-2 py-0 md:py-2"><span className="md:hidden block text-xs text-slate-600 dark:text-slate-400 mb-1">Unit price</span><AmountInput aria-label={`Unit price, line ${i + 1}`} value={l.price} min={0} onValueChange={v => { const n = [...lines]; n[i] = { ...l, price: v }; setLines(n); }} className={`${inp} text-right`} /></td>
-                      <td className="md:table-cell px-0 md:px-3 py-0 md:py-2 text-right tabular-nums text-xs font-semibold text-slate-700 dark:text-slate-300"><span className="md:hidden block text-xs font-normal text-slate-600 dark:text-slate-400 mb-1">Total</span>{fmt(quoteLineTotal(l, mode, tax.rate))}</td>
-                      <td className="col-span-3 flex justify-end md:table-cell px-0 md:px-2 py-0 md:py-2"><button type="button" aria-label={`Remove line ${i + 1}`} onClick={() => lines.length > 1 && setLines(lines.filter((_, j) => j !== i))} className="p-1 min-h-11 min-w-11 md:min-h-0 md:min-w-0 inline-flex items-center justify-center rounded text-slate-700 dark:text-slate-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"><Trash2 className="w-3.5 h-3.5" /></button></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <QuoteVatFields registration={vat} mode={mode} rate={tax.rate} totals={quoteTotals(lines, mode, tax.rate)} onModeChange={pickMode} onRateChange={rate => setTax(t => ({ ...t, rate }))} />
-          </div>
-
-        {error && <p role="alert" className="text-sm text-red-600 dark:text-red-400">{error}</p>}
-      </Modal.Body>
-      <Modal.Footer>
-        <button type="button" onClick={onClose} className="px-4 py-2 min-h-11 sm:min-h-0 text-sm text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors">Cancel</button>
-          <button type="button" onClick={handleCreate} disabled={saving || dates.blocked || !form.clientId || lines.every(l => !l.desc)} className="px-5 py-2 text-sm font-semibold bg-brand-600 hover:bg-brand-700 text-white rounded-lg transition-colors disabled:opacity-40 flex items-center gap-2">
-            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
-            {saving ? 'Creating…' : 'Create Quote'}
-          </button>
-      </Modal.Footer>
-    </Modal>
-  );
-}
 
 export default function CustomerQuotesPage() {
   const router = useRouter();
@@ -151,7 +51,7 @@ export default function CustomerQuotesPage() {
   useEffect(() => {
     apiFetch('/api/accounting/customers').then(async r => { await assertOk(r, 'Could not load customers - try again'); return r.json(); }).then((json: { data?: CustomerOption[] }) => {
       const list = Array.isArray(json.data) ? json.data : [];
-      setCustomers(list.map((c: CustomerOption) => ({ id: String(c.id), name: String(c.name) })));
+      setCustomers(list.map((c: CustomerOption) => ({ id: String(c.id), name: String(c.name), default_vat_type: c.default_vat_type ?? null })));
     }).catch(err => setLoadError(apiErrorMessage(err, 'Could not load customers - try again')));
   }, []);
 

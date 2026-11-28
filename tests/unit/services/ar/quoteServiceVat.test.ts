@@ -92,6 +92,13 @@ describe('createQuote: per-line VAT types', () => {
     expect(head()).toEqual({ subtotal: 250, tax: 30, total: 280, rate: 15, mode: 'exclusive' });
   });
 
+  it('the quote modal\'s No VAT body (taxRate 0, no vatType) on a company that IS registered stores zero-rated, not the customer default', async () => {
+    world.customerVat = 'standard';
+    await create([{ description: 'A', quantity: 1, unitPrice: 100, taxRate: 0 }]);
+    expect(lineVat(inserted('customer_quote_lines'))).toEqual([{ vat: 'zero_rated', tax: 0, rate: 0, amount: 100 }]);
+    expect(head()).toMatchObject({ total: 100, tax: 0 });
+  });
+
   it('refuses a legacy taxRate that is neither the standard rate nor 0, before any write', async () => {
     await expect(create([{ description: 'A', quantity: 1, unitPrice: 100, taxRate: 14 }])).rejects.toThrow(InvoiceLineVatRefusal);
     expect(wrote()).toBe(false);
