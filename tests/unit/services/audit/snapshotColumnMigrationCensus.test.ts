@@ -118,6 +118,9 @@ const READ_BY_HAND = new Set([
   // 1012 (2026-11-19, intercompany pairing): EXECUTE only as GRANT EXECUTE ON FUNCTION; "journal" is the read-only definer
   // intercompany_pairing_partner_loan_balance's SUM over gl_journal_entries / gl_journal_lines. No DDL on either table, no dynamic SQL.
   '1012_intercompany_pairing.sql',
+  // 1054 (2026-11-25, wave 7 RH): EXECUTE only as EXECUTE FUNCTION in CREATE TRIGGER and GRANT/REVOKE EXECUTE ON FUNCTION; "journal" is
+  // payroll_run_headers' journal_entry_id / posted_journal_entry_id (read by its backfill) and comments. No DDL on gl_journal_entries / gl_journal_lines, no dynamic SQL.
+  '1054_payroll_header_delete_and_employee_company_rules.sql',
   // 1025 (2026-11-23, intercompany P4-B allocation sender): EXECUTE only as GRANT EXECUTE ON FUNCTION and has_function_privilege(..., 'EXECUTE');
   // "journal" is the read-only definer intercompany_send_for_allocation's check that a payment's journal stands (intercompany_journal_chain_length)
   // and the message's source_journal_entry_id. No DDL on gl_journal_entries / gl_journal_lines, no dynamic SQL.

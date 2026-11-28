@@ -28,8 +28,13 @@ export async function deleteDraftPayrollRun(companyId: string, runId: string, ac
   await lockCompanyPayrollApprovals(runId, companyId);
   const run = await lockPayrollRunHeader(runId, companyId);
   if (!run) return false;
-  if (run.status !== 'draft' || run.approved_at != null) {
-    throw new RunNotDeletableError(run.approved_at != null ? 'it has been approved' : `it is ${String(run.status)}`);
+  // Migration 1054 refuses deleting a run with any past-approval evidence; judged here first so the answer is a 409.
+  // approval_history arrives as the multirange's text: '{}' when empty.
+  const approvedBefore = run.approved_at != null || run.approval_grandfathered_at != null
+    || run.approval_evidence_at != null || run.reopened_at != null
+    || (run.approval_history != null && String(run.approval_history) !== '{}');
+  if (run.status !== 'draft' || approvedBefore) {
+    throw new RunNotDeletableError(approvedBefore ? 'it has been approved' : `it is ${String(run.status)}`);
   }
   const used = (await sql`
     SELECT EXISTS (SELECT 1 FROM payroll_run_lines WHERE run_id = ${runId}::uuid) AS lines,

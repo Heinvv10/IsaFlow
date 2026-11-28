@@ -79,8 +79,14 @@ describe('deleting a draft pay run', () => {
       expect((await header(a, id))?.status, status).toBe(status);
     }
     expect(await audits(a, 'payroll_run')).toBe(before);
+    // Back to a draft with its stamp cleared: still a run that was approved before (1054's approval_evidence_at), so 409.
     await a.pool.query("UPDATE payroll_run_headers SET status = 'draft', approved_at = NULL WHERE id = $1", [id]);
-    expect((await del(a, id)).statusCode).toBe(200);
+    const back = await del(a, id);
+    expect([back.statusCode, back.body.error?.details?.reason, back.body.error?.message])
+      .toEqual([409, 'RUN_NOT_DELETABLE', expect.stringContaining('approved')]);
+    expect(await header(a, id)).toEqual({ status: 'draft', approved: false });
+    expect(await audits(a, 'payroll_run')).toBe(before);
+    await a.pool.query('DELETE FROM payroll_run_headers WHERE id = $1', [id]); // the fixture's superuser (exempt): frees the period
   });
 
   it('a viewer is 403 and another tenant is 404, with the run left as it was', async () => {

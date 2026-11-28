@@ -17,5 +17,9 @@ export const KNOWN_GRANTS = ['348_rls_and_auth_helpers.sql', '352_platform_admin
  * Matching only in their comments: 693 explains why ENABLE TRIGGER downgrades, 855 why it uses E'' under
  * standard_conforming_strings, 876 why TRUNCATE ... cascade.
  */
-export const KNOWN_IN_COMMENTS = ['693_oauth_apps_trust_flags_not_app_writable.sql', '855_retire_data_archiving.sql',
-  '876_supplier_bank_verification.sql'];
+export const KNOWN_IN_COMMENTS = [
+  // 1054 (wave 7 RH): its comments say the tables' owner can DISABLE TRIGGER and why TRUNCATE companies CASCADE is
+  // refused; its code only adds triggers with ENABLE ALWAYS (companies, payroll_employees and payroll_run_headers keep
+  // entity_change_capture untouched) and REVOKEs TRUNCATE.
+  '1054_payroll_header_delete_and_employee_company_rules.sql',
+  '693_oauth_apps_trust_flags_not_app_writable.sql', '855_retire_data_archiving.sql', '876_supplier_bank_verification.sql'];
