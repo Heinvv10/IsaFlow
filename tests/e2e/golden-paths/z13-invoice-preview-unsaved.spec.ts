@@ -17,6 +17,9 @@ import { Api } from './_api';
 import { findOrCreateSandbox, switchApiCompany, switchBrowserCompany } from './_migrationSandbox';
 import { expectNoSeriousA11yViolations } from './helpers/axe';
 import { seedTheme, settle, THEMES } from '../helpers/themeSpec';
+import { guardDevTarget } from '../helpers/devTarget';
+
+guardDevTarget(test);
 
 const NEW = '/accounting/customer-invoices/new';
 const EVIDENCE = process.env.INVOICE_EVIDENCE_DIR;

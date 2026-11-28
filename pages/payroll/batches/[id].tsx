@@ -260,9 +260,9 @@ export default function BatchGridPage() {
   return (
     <AppLayout>
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
-        <div className="border-b border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)] px-6 py-4 flex items-center justify-between">
+        <div className="border-b border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)] px-6 py-4 flex items-center justify-between max-lg:flex-wrap max-lg:gap-3">
           <div className="flex items-center gap-3">
-            <Link href="/payroll/batches" className="p-2 rounded-lg hover:bg-[var(--ff-bg-tertiary)]">
+            <Link href="/payroll/batches" className="p-2 rounded-lg hover:bg-[var(--ff-bg-tertiary)] max-lg:min-h-11 max-lg:min-w-11 max-lg:inline-flex max-lg:items-center max-lg:justify-center">
               <ArrowLeft className="h-5 w-5 text-[var(--ff-text-secondary)]" />
             </Link>
             <div className="p-2 rounded-lg bg-indigo-500/10">
@@ -278,16 +278,16 @@ export default function BatchGridPage() {
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 max-lg:flex-wrap">
             {isEditable && (
               <button onClick={runValidate} disabled={busy}
-                className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-[var(--ff-border-primary)] text-sm text-[var(--ff-text-primary)] hover:bg-[var(--ff-bg-tertiary)] disabled:opacity-50">
+                className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-[var(--ff-border-primary)] text-sm text-[var(--ff-text-primary)] hover:bg-[var(--ff-bg-tertiary)] disabled:opacity-50 max-lg:min-h-11">
                 <CheckCircle2 className="h-4 w-4" /> Validate
               </button>
             )}
             {batch.status === 'validated' && (
               <button onClick={runPost} disabled={busy}
-                className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-success-700 hover:bg-success-800 text-white text-sm font-medium disabled:opacity-50">
+                className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-success-700 hover:bg-success-800 text-white text-sm font-medium disabled:opacity-50 max-lg:min-h-11">
                 <Send className="h-4 w-4" /> Post
               </button>
             )}
@@ -299,7 +299,7 @@ export default function BatchGridPage() {
           {message && <div className="flex items-center gap-2 text-sm text-emerald-400 bg-emerald-500/10 rounded-lg p-3"><CheckCircle2 className="h-4 w-4" />{message}</div>}
 
           <div className="rounded-lg border border-[var(--ff-border-primary)] overflow-hidden bg-[var(--ff-surface-primary)]">
-            <table className="w-full text-sm">
+            <table className="w-full text-sm table-cards">
               <thead>
                 <tr className="border-b border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)] text-left">
                   <th className="py-2 px-3 font-medium text-[var(--ff-text-secondary)]">Employee</th>
@@ -320,24 +320,24 @@ export default function BatchGridPage() {
               <tbody>
                 {lines.map(l => (
                   <tr key={l.id} className="border-b border-[var(--ff-border-primary)] last:border-0">
-                    <td className="py-2 px-3 text-[var(--ff-text-primary)]">
+                    <td data-label="Employee" className="py-2 px-3 text-[var(--ff-text-primary)]">
                       {l.employeeNumber} — {l.employeeName}
                     </td>
                     {batch.batchType === 'reimbursive_travel' ? (
                       <>
-                        <td className="py-2 px-3 text-right tabular-nums">{l.km ?? '—'}</td>
-                        <td className="py-2 px-3 text-right tabular-nums">{l.ratePerKm ?? '—'}</td>
-                        <td className="py-2 px-3 text-right tabular-nums">{formatCurrency(l.nonTaxablePortion ?? 0)}</td>
-                        <td className="py-2 px-3 text-right tabular-nums">{formatCurrency(l.taxablePortion ?? 0)}</td>
+                        <td data-label="km" className="py-2 px-3 text-right tabular-nums">{l.km ?? '—'}</td>
+                        <td data-label="Rate/km" className="py-2 px-3 text-right tabular-nums">{l.ratePerKm ?? '—'}</td>
+                        <td data-label="3703 (non-tax)" className="py-2 px-3 text-right tabular-nums">{formatCurrency(l.nonTaxablePortion ?? 0)}</td>
+                        <td data-label="3702 (tax)" className="py-2 px-3 text-right tabular-nums">{formatCurrency(l.taxablePortion ?? 0)}</td>
                       </>
                     ) : (
-                      <td className="py-2 px-3 text-right tabular-nums">{formatCurrency(l.value)}</td>
+                      <td data-label="Amount" className="py-2 px-3 text-right tabular-nums">{formatCurrency(l.value)}</td>
                     )}
-                    <td className="py-2 px-3 text-xs text-red-400">{l.error ?? ''}</td>
-                    <td className="py-2 px-3 text-right">
+                    <td data-label="Error" className={`py-2 px-3 text-xs text-red-400${l.error ? '' : ' max-lg:!hidden'}`}>{l.error ?? ''}</td>
+                    <td className={`py-2 px-3 text-right${isEditable ? '' : ' max-lg:!hidden'}`}>
                       {isEditable && (
                         <button onClick={() => removeLine(l.id)} disabled={busy}
-                          className="p-1 rounded hover:bg-[var(--ff-bg-tertiary)]">
+                          className="p-1 rounded hover:bg-[var(--ff-bg-tertiary)] max-lg:min-h-11 max-lg:min-w-11 max-lg:inline-flex max-lg:items-center max-lg:justify-center">
                           <Trash2 className="h-4 w-4 text-red-400" />
                         </button>
                       )}
@@ -346,7 +346,7 @@ export default function BatchGridPage() {
                 ))}
                 {lines.length === 0 && (
                   <tr>
-                    <td colSpan={batch.batchType === 'reimbursive_travel' ? 6 : 3} className="py-6 text-center text-[var(--ff-text-secondary)] text-sm">
+                    <td colSpan={batch.batchType === 'reimbursive_travel' ? 6 : 3} className="py-6 text-center text-[var(--ff-text-secondary)] text-sm max-lg:!py-8 max-lg:!text-center">
                       No lines yet — add some below.
                     </td>
                   </tr>
@@ -359,14 +359,14 @@ export default function BatchGridPage() {
             <div className="rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-surface-primary)] p-4 space-y-3">
               <div className="flex items-center justify-between">
                 <div className="text-sm font-medium text-[var(--ff-text-primary)]">Add rows</div>
-                <button onClick={addDraftRow} className="inline-flex items-center gap-1 text-xs text-indigo-400 hover:text-indigo-300">
+                <button onClick={addDraftRow} className="inline-flex items-center gap-1 text-xs text-indigo-400 hover:text-indigo-300 max-lg:min-h-11">
                   <Plus className="h-3 w-3" /> Another row
                 </button>
               </div>
               {drafts.map((d, i) => (
-                <div key={i} className="grid gap-2" style={{ gridTemplateColumns: batch.batchType === 'reimbursive_travel' ? '2fr 1fr 1fr auto' : '2fr 1fr auto' }}>
+                <div key={i} className={`grid gap-2 max-lg:grid-cols-1 ${batch.batchType === 'reimbursive_travel' ? 'grid-cols-[2fr_1fr_1fr_auto]' : 'grid-cols-[2fr_1fr_auto]'}`}>
                   <select value={d.employeeId} onChange={e => updateDraft(i, { employeeId: e.target.value })}
-                    className="rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] text-sm px-2 py-1 text-[var(--ff-text-primary)]">
+                    className="rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] text-sm px-2 py-1 text-[var(--ff-text-primary)] max-lg:min-h-11">
                     <option value="">Select employee</option>
                     {availableEmployees.map(e => (
                       <option key={e.id} value={e.id}>{e.employeeNumber} — {e.firstName} {e.lastName}</option>
@@ -375,23 +375,23 @@ export default function BatchGridPage() {
                   {batch.batchType === 'reimbursive_travel' ? (
                     <>
                       <input type="number" step="0.01" placeholder="km" value={d.km} onChange={e => updateDraft(i, { km: e.target.value })}
-                        className="rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] text-sm px-2 py-1 text-[var(--ff-text-primary)]" />
+                        className="rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] text-sm px-2 py-1 text-[var(--ff-text-primary)] max-lg:min-h-11" />
                       <input type="number" step="0.01" placeholder="R/km" value={d.ratePerKm} onChange={e => updateDraft(i, { ratePerKm: e.target.value })}
-                        className="rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] text-sm px-2 py-1 text-[var(--ff-text-primary)]" />
+                        className="rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] text-sm px-2 py-1 text-[var(--ff-text-primary)] max-lg:min-h-11" />
                     </>
                   ) : (
                     <input type="number" step="0.01" placeholder="Amount" value={d.value} onChange={e => updateDraft(i, { value: e.target.value })}
-                      className="rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] text-sm px-2 py-1 text-[var(--ff-text-primary)]" />
+                      className="rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] text-sm px-2 py-1 text-[var(--ff-text-primary)] max-lg:min-h-11" />
                   )}
                   <button type="button" onClick={() => removeDraft(i)} disabled={drafts.length === 1}
-                    className="p-1 rounded hover:bg-[var(--ff-bg-tertiary)] disabled:opacity-30">
+                    className="p-1 rounded hover:bg-[var(--ff-bg-tertiary)] disabled:opacity-30 max-lg:min-h-11 max-lg:min-w-11 max-lg:inline-flex max-lg:items-center max-lg:justify-center max-lg:justify-self-start">
                     <Trash2 className="h-4 w-4 text-red-400" />
                   </button>
                 </div>
               ))}
               <div className="flex justify-end pt-1">
                 <button onClick={saveDrafts} disabled={busy}
-                  className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium disabled:opacity-50">
+                  className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium disabled:opacity-50 max-lg:min-h-11">
                   {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
                   Add to batch
                 </button>

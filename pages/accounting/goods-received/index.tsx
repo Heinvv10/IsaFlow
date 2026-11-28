@@ -17,6 +17,7 @@ interface GRN {
   supplier_name: string | null;
   received_date: string;
   received_by: string | null;
+  received_by_name?: string | null;
   notes: string | null;
   status: string | null;
   cancel_reason: string | null;
@@ -71,7 +72,7 @@ export default function GoodsReceivedPage() {
           actions={
             <button
               onClick={() => router.push('/accounting/goods-received/new')}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-medium transition-colors"
+              className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-medium transition-colors max-lg:min-h-11"
             >
               <Plus className="w-4 h-4" /> New GRN
             </button>
@@ -87,13 +88,13 @@ export default function GoodsReceivedPage() {
 
           {/* Search */}
           <div className="flex justify-end">
-            <div className="relative">
+            <div className="relative max-lg:w-full">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500 dark:text-slate-400" />
               <input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search GRNs..."
-                className="pl-9 pr-4 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 text-slate-900 dark:text-slate-100 transition-colors w-56"
+                className="pl-9 pr-4 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 text-slate-900 dark:text-slate-100 transition-colors w-56 max-lg:w-full max-lg:min-h-11"
               />
             </div>
           </div>
@@ -113,13 +114,13 @@ export default function GoodsReceivedPage() {
                 <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Record your first delivery</p>
                 <button
                   onClick={() => router.push('/accounting/goods-received/new')}
-                  className="mt-5 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-semibold rounded-lg transition-colors"
+                  className="mt-5 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-semibold rounded-lg transition-colors max-lg:min-h-11"
                 >
                   New GRN
                 </button>
               </div>
             ) : (
-              <table className="w-full text-sm">
+              <table className="w-full text-sm table-cards">
                 <thead className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-800">
                   <tr>
                     {['GRN #', 'PO Reference', 'Supplier', 'Received Date', 'Received By', 'Status', 'Notes'].map((h, i) => (
@@ -131,17 +132,19 @@ export default function GoodsReceivedPage() {
                   {filtered.map((g) => (
                     <tr key={g.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
                       <td className="px-5 py-3.5 font-mono text-amber-500 font-semibold">{g.grn_number}</td>
-                      <td className="px-5 py-3.5 text-slate-500 dark:text-slate-400">{g.po_number || '—'}</td>
-                      <td className="px-5 py-3.5 text-slate-900 dark:text-slate-100 font-medium">{g.supplier_name || '—'}</td>
-                      <td className="px-5 py-3.5 text-slate-500 dark:text-slate-400 text-xs">{dateStr(g.received_date)}</td>
-                      <td className="px-5 py-3.5 text-slate-500 dark:text-slate-400">{g.received_by || '—'}</td>
-                      <td className="px-5 py-3.5">
-                        <StatusPill status={g.status || 'received'} />
-                        {g.status === 'cancelled' && g.cancel_reason && (
-                          <div className="mt-1 text-xs text-ink-muted">{g.cancel_reason}</div>
-                        )}
+                      <td data-label="PO Reference" className="px-5 py-3.5 text-slate-500 dark:text-slate-400">{g.po_number || '—'}</td>
+                      <td data-label="Supplier" className="px-5 py-3.5 text-slate-900 dark:text-slate-100 font-medium">{g.supplier_name || '—'}</td>
+                      <td data-label="Received Date" className="px-5 py-3.5 text-slate-500 dark:text-slate-400 text-xs">{dateStr(g.received_date)}</td>
+                      <td data-label="Received By" className="px-5 py-3.5 text-slate-500 dark:text-slate-400">{g.received_by_name || g.received_by || '—'}</td>
+                      <td data-label="Status" className="px-5 py-3.5">
+                        <div className="max-lg:text-right">
+                          <StatusPill status={g.status || 'received'} />
+                          {g.status === 'cancelled' && g.cancel_reason && (
+                            <div className="mt-1 text-xs text-ink-muted">{g.cancel_reason}</div>
+                          )}
+                        </div>
                       </td>
-                      <td className="px-5 py-3.5 text-slate-500 dark:text-slate-400">{g.notes || '—'}</td>
+                      <td data-label="Notes" className="px-5 py-3.5 text-slate-500 dark:text-slate-400">{g.notes || '—'}</td>
                     </tr>
                   ))}
                 </tbody>

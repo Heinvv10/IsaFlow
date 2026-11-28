@@ -104,11 +104,11 @@ export default function SupplierLedgerPage() {
         <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-6 py-4">
           <Link
             href="/accounting/reports"
-            className="inline-flex items-center gap-1 text-sm text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] mb-2"
+            className="inline-flex items-center gap-1 text-sm text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] mb-2 max-lg:min-h-11"
           >
             <ArrowLeft className="h-4 w-4" /> Back to Reports
           </Link>
-          <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center justify-between gap-3 max-lg:flex-wrap">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-orange-500/10">
                 <BookOpen className="h-6 w-6 text-orange-500" />
@@ -120,7 +120,7 @@ export default function SupplierLedgerPage() {
             <button
               onClick={() => ledger && exportCsv(ledger, ranOn.dateFrom, ranOn.dateTo)}
               disabled={!ledger || ledger.transactions.length === 0 || dates.blocked}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 text-sm font-medium disabled:opacity-50"
+              className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 text-sm font-medium disabled:opacity-50 max-lg:min-h-11"
             >
               <Download className="h-4 w-4" /> Export CSV
             </button>
@@ -132,7 +132,7 @@ export default function SupplierLedgerPage() {
           <div className="grid grid-cols-2 items-start gap-4 lg:grid-cols-[minmax(200px,1fr)_auto_auto_auto]">
             <div className="col-span-2 flex flex-col gap-1 lg:col-span-1">
               <label htmlFor="supplier-ledger-supplier" className="text-sm font-medium text-gray-700 dark:text-gray-300">Supplier</label>
-              <SupplierSelect id="supplier-ledger-supplier" value={supplierId} onChange={setSupplierId} inputClassName={inputVariants()} />
+              <SupplierSelect id="supplier-ledger-supplier" value={supplierId} onChange={setSupplierId} inputClassName={`${inputVariants()} max-lg:min-h-11`} />
             </div>
             <div>
               <DateField label="From" value={dateFrom || null} onChange={onFromChange} />
@@ -143,7 +143,7 @@ export default function SupplierLedgerPage() {
             <button
               onClick={runReport}
               disabled={loading || !supplierId || dates.blocked}
-              className="col-span-2 justify-self-start lg:col-span-1 lg:mt-6 inline-flex items-center gap-2 px-5 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 text-sm font-medium disabled:opacity-50"
+              className="col-span-2 justify-self-start lg:col-span-1 lg:mt-6 inline-flex items-center gap-2 px-5 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 text-sm font-medium disabled:opacity-50 max-lg:min-h-11"
             >
               {loading && <Loader2 className="h-4 w-4 animate-spin" />}
               Run Report

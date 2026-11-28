@@ -23,6 +23,10 @@ const { mockTx } = vi.hoisted(() => ({
     client: { query: (t: string) => { mockTx.queries.push(t); return Promise.resolve(undefined); } },
   },
 }));
+// intercompany P4-E (j).4: the payer undo gate asks its own queries (tested in the intercompany suites); off here
+vi.mock('@/modules/accounting/services/intercompany/allocationUndoGate', () => ({
+  PARTNER_CLEARED_SENTENCE: 'refused', partnerClearedRefusal: vi.fn(async () => null), partnerClearedJournalRefusal: vi.fn(async () => null),
+}));
 vi.mock('@/lib/als', async () => {
   const actual = await vi.importActual<typeof import('@/lib/als')>('@/lib/als');
   return { ...actual, als: { ...actual.als, getStore: () => ({ client: mockTx.client }) } };
@@ -70,6 +74,7 @@ vi.mock('@/modules/accounting/services/ap/paymentJournalReversal', async (import
 }));
 
 import { sql, withSavepoint } from '@/lib/neon';
+import { log } from '@/lib/logger';
 import { reverseJournalEntry } from '@/modules/accounting/services/gl/journalEntryService';
 import { getSupplierPaymentById } from '@/modules/accounting/services/ap/supplierPaymentService';
 import {
@@ -120,6 +125,7 @@ describe('voidSupplierPayment (P2.1 / audit W4)', () => {
     mockSql.mockImplementation((strings: TemplateStringsArray, ...values: unknown[]) => {
       const text = (strings as unknown as string[]).join('?');
       calls.push({ text, values });
+      if (/SELECT amount_paid FROM supplier_invoices/i.test(text)) return Promise.resolve([{ amount_paid: '115.00' }]); // the bill holds it
       if (/SELECT status, reversed_at/i.test(text)) {
         return Promise.resolve([{ status: 'posted', reversed_at: null }]);
       }
@@ -131,9 +137,9 @@ describe('voidSupplierPayment (P2.1 / audit W4)', () => {
     expect(mockReverse).toHaveBeenCalledWith(COMPANY_ID, JOURNAL_ID, USER_ID);
     const allocUpdate = calls.find((c) => /UPDATE supplier_invoices/i.test(c.text));
     expect(allocUpdate, 'allocations must be un-applied').toBeTruthy();
-    // moveSupplierBillPaid (#1728 review L1): the allocation comes off as a negative delta, floored at itself
+    // moveSupplierBillPaid (#1728 review L1): the allocation comes off as a negative delta (a bill holding all of it)
     expect(allocUpdate!.text).toMatch(/amount_paid = COALESCE\(amount_paid, 0\) \+ /);
-    expect(allocUpdate!.values[0]).toBeLessThan(0);
+    expect(allocUpdate!.values[0]).toBe(-115);
     const payUpdate = calls.find((c) => /UPDATE supplier_payments/i.test(c.text));
     expect(payUpdate!.text).toMatch(/'cancelled'/);
     expect(payUpdate!.text).toMatch(/status IN \('processed', 'reconciled'\)/); // guarded flip
@@ -268,5 +274,46 @@ describe('voidSupplierPayment (P2.1 / audit W4)', () => {
     await voidSupplierPayment(COMPANY_ID, PAYMENT_ID, USER_ID);
 
     expect(mockReverse).not.toHaveBeenCalled();
+  });
+
+  // #1728 follow-up: a bill holding less than the allocation (dev Demo's 2026-04-27 rewrite) is clamped at 0 and warned
+  describe('a bill holding less than the allocation', () => {
+    const run = async (billRows: unknown[]) => {
+      mockGetPayment.mockResolvedValue(payment());
+      const moves: unknown[][] = [];
+      mockSql.mockImplementation((strings: TemplateStringsArray, ...values: unknown[]) => {
+        const text = (strings as unknown as string[]).join('?');
+        if (/SELECT amount_paid FROM supplier_invoices/i.test(text)) return Promise.resolve(billRows);
+        if (/UPDATE supplier_invoices/i.test(text)) moves.push(values);
+        if (/SELECT status, reversed_at/i.test(text)) return Promise.resolve([{ status: 'posted', reversed_at: null }]);
+        return Promise.resolve([{ id: PAYMENT_ID, status: 'cancelled' }]);
+      });
+      return { moves, out: voidSupplierPayment(COMPANY_ID, PAYMENT_ID, USER_ID) };
+    };
+
+    it('moves only what the bill holds and warns with the company, bill, payment and shortfall', async () => {
+      const { moves, out } = await run([{ amount_paid: '60.40' }]);
+      await out;
+      expect(moves).toHaveLength(1);
+      expect(moves[0]![0]).toBe(-60.4); // the delta: what the bill holds, not the 115 allocated
+      expect(vi.mocked(log.warn)).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(log.warn).mock.calls[0]![1]).toEqual({
+        companyId: COMPANY_ID, paymentId: PAYMENT_ID, billId: INVOICE_ID, allocated: 115, held: 60.4, shortfall: 54.6,
+      });
+    });
+
+    it('a bill that holds all of it moves the allocation and does not warn', async () => {
+      const { moves, out } = await run([{ amount_paid: '115.00' }]);
+      await out;
+      expect(moves[0]![0]).toBe(-115);
+      expect(vi.mocked(log.warn)).not.toHaveBeenCalled();
+    });
+
+    it('a missing bill is refused before the move, with no clamp warning', async () => {
+      const { moves, out } = await run([]);
+      await expect(out).rejects.toThrow(/bill bbbbbbbb-0000-4000-8000-bbbbbbbbbbbb not found/);
+      expect(moves).toHaveLength(0);
+      expect(vi.mocked(log.warn)).not.toHaveBeenCalled();
+    });
   });
 });

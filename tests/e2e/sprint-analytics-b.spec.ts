@@ -2,6 +2,9 @@
  * Sprint B: Waterfall Charts & Trend Analysis E2E Tests
  */
 import { test, expect } from '@playwright/test';
+import { guardDevTarget } from './helpers/devTarget';
+
+guardDevTarget(test);
 
 test.describe('Waterfall API', () => {
   test('GET /api/accounting/reports-waterfall?type=profit responds', async ({ request }) => {

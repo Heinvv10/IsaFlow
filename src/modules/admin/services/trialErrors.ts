@@ -6,7 +6,9 @@
 
 export type TrialConvertErrorCode =
   | 'company_not_found' | 'company_not_convertible' | 'plan_not_found' | 'plan_not_convertible'
-  | 'already_paid' | 'subscription_paused';
+  | 'already_paid' | 'subscription_paused'
+  // Self-serve upgrade only (trialConvertCore options requireTrial / requireActiveMandate).
+  | 'not_on_trial' | 'mandate_required' | 'mandate_plan_mismatch';
 
 export class TrialConvertError extends Error {
   constructor(readonly code: TrialConvertErrorCode, message: string) {

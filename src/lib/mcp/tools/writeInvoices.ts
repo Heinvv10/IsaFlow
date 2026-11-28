@@ -30,6 +30,8 @@ interface LineIn {
   quantity?: number;
   unitPrice: number;
   itemId?: string | null;
+  /** The line's VAT type as sent (`vat_type`); the service holds it to the contract (quoteLineTax). */
+  vatType?: unknown;
 }
 
 function parseLines(raw: unknown): LineIn[] | null {
@@ -43,7 +45,7 @@ function parseLines(raw: unknown): LineIn[] | null {
     if (!description || !Number.isFinite(unitPrice)) return null;
     const qtyRaw = o.quantity === undefined ? 1 : Number(o.quantity);
     if (!Number.isFinite(qtyRaw)) return null;
-    lines.push({ description, unitPrice, quantity: qtyRaw });
+    lines.push({ description, unitPrice, quantity: qtyRaw, ...(o.vat_type === undefined ? {} : { vatType: o.vat_type }) });
   }
   return lines;
 }
@@ -58,6 +60,11 @@ const LINE_ITEMS_SCHEMA = {
       quantity: { type: 'number', exclusiveMinimum: 0 },
       unit_price: { type: 'number', minimum: 0 },
       item_id: { type: 'string', description: 'Catalogue item (list_items). With no account of its own the line takes the item\'s sales account. An inactive item is refused.' },
+      vat_type: {
+        type: 'string', enum: ['standard', 'zero_rated', 'exempt'],
+        description: 'The line\'s VAT type; its rate comes from the type and the quote date. Omitted: the customer\'s default VAT type '
+          + 'if zero-rated or exempt, else the item\'s, else standard. A company not registered for VAT gets no VAT on any line.',
+      },
       // The FNO defaults from the customer; a project under another FNO is refused.
       ...DIMENSION_LINE_PROPERTIES,
     },
@@ -139,7 +146,8 @@ export const createDraftInvoiceTool: McpTool = {
 
 export const createDraftQuoteTool: McpTool = {
   name: 'create_draft_quote',
-  description: 'Create a customer quote in DRAFT status.',
+  description: 'Create a customer quote in DRAFT status. VAT is set per line by items[].vat_type (standard, zero_rated or exempt), '
+    + 'its rate taken from the type and the quote date, as on an invoice; the quote converts to an invoice of the same types and figures.',
   scope: 'write:invoices',
   write: true,
   inputSchema: {
@@ -150,6 +158,7 @@ export const createDraftQuoteTool: McpTool = {
       items: LINE_ITEMS_SCHEMA,
       quote_date: { type: 'string', format: 'date' },
       expiry_date: { type: 'string', format: 'date' },
+      amounts_are: AMOUNTS_ARE_SCHEMA,
       notes: { type: 'string' },
       idempotency_key: { type: 'string' },
     },
@@ -166,6 +175,8 @@ export const createDraftQuoteTool: McpTool = {
     if (!customerName) return toolError('customer_name is required');
     const items = parseLines(args.items);
     if (!items) return toolError('items must be a non-empty array of {description, unit_price, quantity?}');
+    const amountsAre = args.amounts_are ?? undefined;
+    if (amountsAre !== undefined && amountsAre !== 'exclusive' && amountsAre !== 'inclusive') return toolError('amounts_are must be "exclusive" or "inclusive"');
     for (const [i, line] of (args.items as Record<string, unknown>[]).entries()) {
       const item = itemIdArg(line.item_id, `items[${i}]`);
       if (typeof item === 'string') return toolError(item);
@@ -180,18 +191,21 @@ export const createDraftQuoteTool: McpTool = {
           quoteDate: strArg(args, 'quote_date'),
           expiryDate: strArg(args, 'expiry_date'),
           notes: strArg(args, 'notes'),
+          amountsAre,
           lines: items.map((l) => ({
             description: l.description,
             quantity: l.quantity ?? 1,
             unitPrice: l.unitPrice,
             ...(l.itemId ? { itemId: l.itemId } : {}),
+            ...(l.vatType === undefined ? {} : { vatType: l.vatType }),
           })),
         },
         ctx.userId,
       );
       return ok(quote);
     } catch (err) {
-      // Pre-write only, same reasoning as create_draft_invoice above.
+      // Pre-write only, same reasoning as create_draft_invoice above. The VAT refusals (quoteLineTax, also pre-write) are
+      // registered refusal codes and reach the agent through the registry with their wording.
       // createQuote INSERTs the quote header and then loops the lines with no
       // transaction and no savepoint at all, so a failing line leaves a
       // committed header with partial lines unless this throw reaches the

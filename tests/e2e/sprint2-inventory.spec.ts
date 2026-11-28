@@ -1,4 +1,7 @@
 import { test, expect } from '@playwright/test';
+import { guardDevTarget } from './helpers/devTarget';
+
+guardDevTarget(test);
 
 const INVENTORY_ROUTES = ['/accounting/products', '/accounting/products/new', '/accounting/stock-levels'];
 

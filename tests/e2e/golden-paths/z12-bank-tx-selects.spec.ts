@@ -20,6 +20,9 @@ import { Api, gpRef, today } from './_api';
 import { findOrCreateSandbox, switchApiCompany, switchBrowserCompany } from './_migrationSandbox';
 import { expectNoSeriousA11yViolations } from './helpers/axe';
 import { THEMES, seedTheme } from '../helpers/themeSpec';
+import { guardDevTarget } from '../helpers/devTarget';
+
+guardDevTarget(test);
 
 const BANK = '/accounting/bank-transactions';
 const ROWS = '[data-testid="bank-tx-table"] tbody tr';

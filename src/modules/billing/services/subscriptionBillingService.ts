@@ -5,6 +5,12 @@
  *                           current_period_end has passed and that has no
  *                           unsettled charge for the next period, then close
  *                           out subscriptions flagged cancel_at_period_end.
+ *                           The reads are planDueCharges (subscriptionChargePlan);
+ *                           a paid subscription with no active mandate is
+ *                           counted and listed as unbilledNoMandate, never
+ *                           folded into skipped. A lapsed subscription is
+ *                           charged once for a period starting today, never
+ *                           back-billed, and listed as resetLapsed.
  *
  *   runQueuedCharges()    — claim each retry-eligible charge, call Paystack
  *                           chargeAuthorization() against the company's active
@@ -16,6 +22,11 @@
  * subscription 'past_due'. All writes are company-scoped and keyed on the
  * charge's subscription_id. The mandate must be 'active' AND have a
  * paystack_authorization_code, or the charge fails with 'no_mandate'.
+ * A charge above the mandate's max_amount_cents (the most the payer
+ * authorised per debit) is never sent to Paystack: it is skipped before the
+ * attempt is claimed, left queued, and logged as an error with the stable key
+ * `billing.charge_above_mandate_ceiling` on every run until the payer
+ * re-authorises or an admin voids it.
  *
  * Every write to subscription_charges, and the one read of the mandate's card
  * codes, runs on the migration_admin pool (S-07e, migration 945): app roles
@@ -25,15 +36,14 @@
  */
 
 import { randomBytes } from 'crypto';
-import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { migrationAdminSqlTx } from '@/lib/auth/migrationAdminPool';
 import { recordChargePaymentRequest } from './subscriptionChargeRequest';
 import { recordChargeFailed, recordChargeSubmitted } from './subscriptionChargeOutcome';
 import { chargeAuthorization } from './paystackClient';
 import { warnUnattributedLiveCharges } from './subscriptionChargeVerify';
+import { planDueCharges, selectChargeableCharges } from './subscriptionChargePlan';
 import {
-  MAX_ATTEMPTS,
   advancePeriodForSettledCharge,
   claimChargeAttempt,
   closeOutCancelledSubscriptions,
@@ -41,11 +51,41 @@ import {
   voidChargesForCancellingSubscriptions,
 } from './subscriptionPeriod';
 
-const RETRY_BACKOFF_HOURS = 24;
+/** Most unbilled (or reset) subscriptions listed in one result; the counts are never capped. */
+export const UNBILLED_LIST_CAP = 50;
+
+/** A lapsed subscription charged once for a new period from today; the missed cycles are not billed. */
+export interface ResetLapsedSubscription {
+  companyId: string;
+  subscriptionId: string;
+  cyclesSkipped: number;
+  previousPeriodEnd: string;
+  periodStart: string;
+  periodEnd: string;
+}
+
+export interface UnbilledSubscription {
+  companyId: string;
+  subscriptionId: string;
+  currentPeriodEnd: string;
+  daysOverdue: number;
+}
 
 export interface GenerateResult {
   created: number;
+  /** Free plans and periods that already have a charge. */
   skipped: number;
+  /**
+   * Paid subscriptions past their period end with no active Paystack mandate:
+   * no charge is raised, so they are never billed until a mandate exists.
+   */
+  unbilledNoMandate: number;
+  /** The first UNBILLED_LIST_CAP of them. */
+  unbilled: UnbilledSubscription[];
+  /** Lapsed subscriptions charged once for a period from today (see subscriptionChargePlan). */
+  resetLapsedCount: number;
+  /** The first UNBILLED_LIST_CAP of them. */
+  resetLapsed: ResetLapsedSubscription[];
   /** Subscriptions closed out because their scheduled cancellation came due. */
   cancelled: number;
   /** Queued debits voided because the customer scheduled a cancellation. */
@@ -53,88 +93,44 @@ export interface GenerateResult {
 }
 
 export async function generateDueCharges(now = new Date()): Promise<GenerateResult> {
-  const dueSubs = await sql<{
-    company_id: string;
-    subscription_id: string;
-    plan_id: string;
-    billing_cycle: 'monthly' | 'annual';
-    current_period_start: Date | string;
-    current_period_end: Date | string;
-    discount_percent: number | null;
-    monthly_price_cents: number;
-    annual_price_cents: number;
-  }>`
-    SELECT s.company_id, s.id AS subscription_id, s.plan_id, s.billing_cycle,
-           s.current_period_start, s.current_period_end, s.discount_percent,
-           p.monthly_price_cents, p.annual_price_cents
-    FROM subscriptions s
-    JOIN plans p ON p.id = s.plan_id
-    JOIN companies co ON co.id = s.company_id AND co.status IS DISTINCT FROM 'deleted'
-    WHERE s.status IN ('active','past_due')
-      AND COALESCE(s.cancel_at_period_end, false) = false
-      AND s.current_period_end IS NOT NULL
-      AND s.current_period_end <= ${now}
-  `;
+  const plan = await planDueCharges(now);
 
   let created = 0;
   let skipped = 0;
+  let unbilledNoMandate = 0;
+  const unbilled: UnbilledSubscription[] = [];
+  let resetLapsedCount = 0;
+  const resetLapsed: ResetLapsedSubscription[] = [];
 
-  for (const sub of dueSubs) {
-    const periodEnd = new Date(sub.current_period_end);
-    const nextStart = new Date(periodEnd);
-    const nextEnd = new Date(periodEnd);
-    if (sub.billing_cycle === 'annual') {
-      nextEnd.setFullYear(nextEnd.getFullYear() + 1);
-    } else {
-      nextEnd.setMonth(nextEnd.getMonth() + 1);
-    }
-
-    const grossCents = sub.billing_cycle === 'annual'
-      ? sub.annual_price_cents
-      : sub.monthly_price_cents;
-    const discount = sub.discount_percent ?? 0;
-    const amountCents = Math.round(grossCents * (100 - discount) / 100);
-
-    if (amountCents <= 0) {
-      skipped++;
-      continue;
-    }
-
-    const existing = await sql<{ id: string }>`
-      SELECT id FROM subscription_charges
-      WHERE company_id = ${sub.company_id}
-        -- A row predating migration 624 names no subscription. Treating it as
-        -- someone else's would queue a replacement, and both would settle.
-        AND (subscription_id = ${sub.subscription_id} OR subscription_id IS NULL)
-        AND period_start = ${nextStart.toISOString().slice(0, 10)}
-        AND period_end = ${nextEnd.toISOString().slice(0, 10)}
-        AND status <> 'cancelled'
-      LIMIT 1
-    `;
-    if (existing[0]) {
-      skipped++;
-      continue;
-    }
-
-    const mandate = await sql<{ id: string }>`
-      SELECT id FROM subscription_mandates
-      WHERE company_id = ${sub.company_id}
-        AND gateway = 'paystack'
-        AND status = 'active'
-      LIMIT 1
-    `;
-    if (!mandate[0]) {
-      skipped++;
+  for (const item of plan) {
+    if (item.outcome === 'unbilled_no_mandate') {
+      unbilledNoMandate++;
+      if (unbilled.length < UNBILLED_LIST_CAP) {
+        unbilled.push({
+          companyId: item.companyId,
+          subscriptionId: item.subscriptionId,
+          currentPeriodEnd: item.currentPeriodEnd,
+          daysOverdue: item.daysOverdue,
+        });
+      }
       log.warn(
-        'Skipping charge generation — no active Paystack mandate',
-        { companyId: sub.company_id, subscriptionId: sub.subscription_id },
+        'Paid subscription not billed: no active Paystack mandate',
+        {
+          reason: 'unbilled_no_mandate',
+          companyId: item.companyId,
+          subscriptionId: item.subscriptionId,
+          daysOverdue: item.daysOverdue,
+        },
         'BillingCron',
       );
       continue;
     }
+    if (item.outcome !== 'create' || !item.mandateId) {
+      skipped++;
+      continue;
+    }
 
-    const mandateId = mandate[0].id;
-    const reference = `sub_${sub.company_id.replace(/-/g, '').slice(0, 12)}_${nextStart.toISOString().slice(0, 7)}_${randomBytes(4).toString('hex')}`;
+    const reference = `sub_${item.companyId.replace(/-/g, '').slice(0, 12)}_${item.periodStart.slice(0, 7)}_${randomBytes(4).toString('hex')}`;
 
     await migrationAdminSqlTx('subscription_queue_charge', (tx) => tx`
       INSERT INTO subscription_charges (
@@ -142,15 +138,30 @@ export async function generateDueCharges(now = new Date()): Promise<GenerateResu
         amount_cents, currency, gateway,
         external_reference, paystack_reference, status
       ) VALUES (
-        ${sub.company_id}, ${sub.subscription_id}, ${mandateId},
-        ${nextStart.toISOString().slice(0, 10)},
-        ${nextEnd.toISOString().slice(0, 10)},
-        ${amountCents}, 'ZAR', 'paystack',
+        ${item.companyId}, ${item.subscriptionId}, ${item.mandateId},
+        ${item.periodStart},
+        ${item.periodEnd},
+        ${item.amountCents}, 'ZAR', 'paystack',
         ${reference}, ${reference}, 'queued'
       )
     `);
 
     created++;
+
+    if (item.cyclesSkipped > 0) {
+      const reset: ResetLapsedSubscription = {
+        companyId: item.companyId,
+        subscriptionId: item.subscriptionId,
+        cyclesSkipped: item.cyclesSkipped,
+        previousPeriodEnd: item.currentPeriodEnd,
+        periodStart: item.periodStart,
+        periodEnd: item.periodEnd,
+      };
+      resetLapsedCount++;
+      if (resetLapsed.length < UNBILLED_LIST_CAP) resetLapsed.push(reset);
+      log.info('Lapsed subscription reset: one charge for a period from today, missed cycles not billed',
+        { reason: 'reset_lapsed', ...reset }, 'BillingCron');
+    }
   }
 
   // A charge already queued for a subscription the customer has flagged to
@@ -159,7 +170,7 @@ export async function generateDueCharges(now = new Date()): Promise<GenerateResu
   const voided = await voidChargesForCancellingSubscriptions();
   const cancelled = await closeOutCancelledSubscriptions(now);
 
-  return { created, skipped, cancelled, voided };
+  return { created, skipped, unbilledNoMandate, unbilled, resetLapsedCount, resetLapsed, cancelled, voided };
 }
 
 export interface RunChargesResult {
@@ -171,47 +182,7 @@ export interface RunChargesResult {
 }
 
 export async function runQueuedCharges(now = new Date()): Promise<RunChargesResult> {
-  const cutoff = new Date(now.getTime() - RETRY_BACKOFF_HOURS * 3600_000);
-
-  const charges = (await migrationAdminSqlTx('subscription_due_charges', (tx) => tx`
-    SELECT c.id, c.company_id, c.mandate_id, c.amount_cents,
-           c.paystack_reference, c.external_reference, c.attempt_count, c.status,
-           c.period_start, c.period_end,
-           m.paystack_authorization_code,
-           m.status AS mandate_status,
-           u.email AS user_email
-    FROM subscription_charges c
-    JOIN subscription_mandates m ON m.id = c.mandate_id
-    JOIN companies co ON co.id = c.company_id AND co.status IS DISTINCT FROM 'deleted'
-    -- Never debit a period the subscription is not owed (cancelled, paused); a
-    -- debt for a period already granted stays collectible.
-    JOIN subscriptions s ON s.id = c.subscription_id AND s.company_id = c.company_id
-      AND (s.status IN ('active','trial','past_due')
-           OR c.period_start < (s.current_period_end AT TIME ZONE 'UTC')::date)
-    LEFT JOIN users u ON u.id = m.authorised_by::text
-    WHERE c.gateway = 'paystack'
-      -- Unattributed charges cannot be settled (624's CHECK) and the rejection
-      -- would land after the money moved — skip them before Paystack, not after.
-      AND c.subscription_id IS NOT NULL
-      AND (c.status = 'queued'
-           OR (c.status = 'failed' AND c.last_attempt_at < ${cutoff.toISOString()}))
-      AND c.attempt_count < ${MAX_ATTEMPTS}
-    LIMIT 100
-  `)) as Array<{
-    id: string;
-    company_id: string;
-    mandate_id: string;
-    amount_cents: string;
-    paystack_reference: string | null;
-    external_reference: string;
-    attempt_count: number;
-    status: 'queued' | 'failed';
-    paystack_authorization_code: string | null;
-    mandate_status: string;
-    user_email: string | null;
-    period_start: Date | string;
-    period_end: Date | string;
-  }>;
+  const charges = await selectChargeableCharges(now);
 
   await warnUnattributedLiveCharges();
 
@@ -221,6 +192,23 @@ export async function runQueuedCharges(now = new Date()): Promise<RunChargesResu
   let skipped = 0;
 
   for (const c of charges) {
+    // Hard stop: never debit more than the payer authorised. Checked before the
+    // claim, so no attempt is spent and the subscription is not made past_due.
+    // Compared in Postgres (exact bigint); unknown (NULL) fails closed.
+    if (c.above_mandate_ceiling !== false) {
+      log.error(
+        'Subscription charge above the mandate ceiling: not sent to Paystack',
+        {
+          key: 'billing.charge_above_mandate_ceiling',
+          chargeId: c.id, companyId: c.company_id, mandateId: c.mandate_id,
+          amountCents: Number(c.amount_cents), maxAmountCents: c.mandate_max_amount_cents,
+        },
+        'BillingCron',
+      );
+      skipped++;
+      continue;
+    }
+
     // Claim the attempt before spending it, so a concurrent run that read the
     // same snapshot cannot also charge this card.
     const attemptCount = await claimChargeAttempt(c.id, c.company_id, c.status, c.attempt_count);

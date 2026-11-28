@@ -164,7 +164,7 @@ describe('switching auto-accept on and a leave at the same moment', () => {
 describe('accepting a message and a leave at the same moment', () => {
   it('the leave waits for the accepting transaction, then revokes the connection; the accepted message stays accepted', async () => {
     const id = await plantConnection(pool, co.A, co.B);
-    const m = await plantMessage(pool, id, co.A, co.B, { kind: 'payment' });
+    const m = await plantMessage(pool, id, co.A, co.B, { kind: 'reject' });
     const r = await serialised(inFlight(U.b, co.B, "UPDATE intercompany_messages SET status = 'accepted' WHERE id = $1", [m]), leave(co.B, co.G));
     expect(r).toEqual({ waited: 'poll', firstEnd: 'ok', second: 'ok' });
     expect((await connection(id)).status).toBe('revoked');

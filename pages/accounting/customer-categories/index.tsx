@@ -85,7 +85,7 @@ export default function CustomerCategoriesPage() {
     <AppLayout>
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
         <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-6 py-4">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between max-lg:flex-wrap max-lg:gap-3">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-blue-500/10"><Tag className="h-6 w-6 text-blue-600 dark:text-blue-400" /></div>
               <div>
@@ -95,7 +95,7 @@ export default function CustomerCategoriesPage() {
             </div>
             {!adding && !editing && (
               <button onClick={() => { setAdding(true); setForm({ name: '', description: '' }); }}
-                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium">
+                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium max-lg:min-h-11">
                 <Plus className="h-4 w-4" /> Add Category
               </button>
             )}
@@ -105,7 +105,7 @@ export default function CustomerCategoriesPage() {
         <div className="p-6">
           {error && <div className="mb-4 p-3 rounded-lg text-sm bg-red-500/10 text-red-400">{error}</div>}
           <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-hidden">
-            <table className="w-full text-sm">
+            <table className="w-full text-sm table-cards">
               <thead><tr className="border-b border-[var(--ff-border-light)] text-left text-[var(--ff-text-secondary)]">
                 <th className="px-4 py-3">Name</th><th className="px-4 py-3">Description</th>
                 <th className="px-4 py-3 text-right">Customers</th><th className="px-4 py-3 w-24">Actions</th>
@@ -115,38 +115,38 @@ export default function CustomerCategoriesPage() {
                   <tr className="border-b border-[var(--ff-border-light)] bg-blue-500/5">
                     <td className="px-4 py-2">
                       <input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })}
-                        placeholder="Category name" className="w-full px-2 py-1 bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] rounded text-[var(--ff-text-primary)] text-sm" />
+                        placeholder="Category name" className="w-full px-2 py-1 bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] rounded text-[var(--ff-text-primary)] text-sm max-lg:min-h-11" />
                     </td>
                     <td className="px-4 py-2">
                       <input value={form.description} onChange={e => setForm({ ...form, description: e.target.value })}
-                        placeholder="Description" className="w-full px-2 py-1 bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] rounded text-[var(--ff-text-primary)] text-sm" />
+                        placeholder="Description" className="w-full px-2 py-1 bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] rounded text-[var(--ff-text-primary)] text-sm max-lg:min-h-11" />
                     </td>
-                    <td />
+                    <td className="max-lg:!hidden" />
                     <td className="px-4 py-2">
                       <div className="flex items-center gap-1">
-                        <button onClick={save} disabled={busy} className="p-1 text-teal-400 hover:text-teal-300">
+                        <button onClick={save} disabled={busy} aria-label="Save category" className="p-1 text-teal-400 hover:text-teal-300 max-lg:min-h-11 max-lg:min-w-11 max-lg:inline-flex max-lg:items-center max-lg:justify-center">
                           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
                         </button>
-                        <button onClick={() => { setAdding(false); setEditing(null); }} className="p-1 text-red-400 hover:text-red-300">
+                        <button onClick={() => { setAdding(false); setEditing(null); }} aria-label="Cancel" className="p-1 text-red-400 hover:text-red-300 max-lg:min-h-11 max-lg:min-w-11 max-lg:inline-flex max-lg:items-center max-lg:justify-center">
                           <X className="h-4 w-4" />
                         </button>
                       </div>
                     </td>
                   </tr>
                 )}
-                {loading && <tr><td colSpan={4} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)]">Loading...</td></tr>}
+                {loading && <tr><td colSpan={4} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)] max-lg:!py-8 max-lg:!text-center">Loading...</td></tr>}
                 {!loading && items.length === 0 && !adding && (
-                  <tr><td colSpan={4} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)]">No categories yet</td></tr>
+                  <tr><td colSpan={4} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)] max-lg:!py-8 max-lg:!text-center">No categories yet</td></tr>
                 )}
                 {items.map(cat => editing === cat.id ? null : (
                   <tr key={cat.id} className="border-b border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-primary)]/50">
                     <td className="px-4 py-3 text-[var(--ff-text-primary)] font-medium">{cat.name}</td>
-                    <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{cat.description || '-'}</td>
-                    <td className="px-4 py-3 text-right text-[var(--ff-text-secondary)]">{cat.clientCount}</td>
+                    <td data-label="Description" className="px-4 py-3 text-[var(--ff-text-secondary)]">{cat.description || '-'}</td>
+                    <td data-label="Customers" className="px-4 py-3 text-right text-[var(--ff-text-secondary)]">{cat.clientCount}</td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1">
-                        <button onClick={() => startEdit(cat)} className="p-1 text-blue-400 hover:text-blue-300"><Pencil className="h-4 w-4" /></button>
-                        <button onClick={() => remove(cat.id)} className="p-1 text-red-400 hover:text-red-300"><Trash2 className="h-4 w-4" /></button>
+                        <button onClick={() => startEdit(cat)} aria-label={`Edit ${cat.name}`} className="p-1 text-blue-400 hover:text-blue-300 max-lg:min-h-11 max-lg:min-w-11 max-lg:inline-flex max-lg:items-center max-lg:justify-center"><Pencil className="h-4 w-4" /></button>
+                        <button onClick={() => remove(cat.id)} aria-label={`Delete ${cat.name}`} className="p-1 text-red-400 hover:text-red-300 max-lg:min-h-11 max-lg:min-w-11 max-lg:inline-flex max-lg:items-center max-lg:justify-center"><Trash2 className="h-4 w-4" /></button>
                       </div>
                     </td>
                   </tr>

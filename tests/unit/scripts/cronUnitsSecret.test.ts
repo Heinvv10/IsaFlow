@@ -33,7 +33,7 @@ describe('IsaFlow cron units keep CRON_SECRET out of the unit file and out of ar
   it('finds the cron units (management-packs and its siblings)', () => {
     expect(UNITS).toEqual(expect.arrayContaining(['isaflow-management-packs.service', 'isaflow-dunning-send.service',
       'isaflow-ar-matview-refresh.service', 'isaflow-fraud-scan.service', 'isaflow-mirror-scan.service',
-      'isaflow-sent-mirror-scan.service']));
+      'isaflow-sent-mirror-scan.service', 'isaflow-subscription-charges.service']));
   });
 
   it.each(UNITS)('%s reads the secret from the env file, not from the unit', (unit) => {

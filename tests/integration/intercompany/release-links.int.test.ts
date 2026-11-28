@@ -17,6 +17,15 @@ assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
 let id = '';
 const MIGRATION = readFileSync(resolve(__dirname, '../../../scripts/migrations/sql/1002_intercompany_round2.sql'), 'utf8');
+// 1019 replaces functions 1002 defines (the messages guard): applying 1002 again COMMITS 1002's bodies over the database, so the later migration is applied after it, as a deploy would, or every later suite of the shard would run on 1002's guard.
+const MIGRATION_1019 = readFileSync(resolve(__dirname, '../../../scripts/migrations/sql/1019_intercompany_p2_mirror.sql'), 'utf8');
+// 1025 redefines two functions 1019 defines (the messages guard, the message-document check): replayed after it, so the committed replay leaves the newest bodies
+const MIGRATION_1025 = readFileSync(resolve(__dirname, '../../../scripts/migrations/sql/1025_intercompany_p4b_allocation_sender.sql'), 'utf8');
+// 1027 redefines the messages guard again (P4-D: the allocation target): replayed last, so the committed replay leaves the newest body
+const MIGRATION_1027 = readFileSync(resolve(__dirname, '../../../scripts/migrations/sql/1027_intercompany_p4d_allocation_clearing.sql'), 'utf8');
+// 1031 (intercompany F) redefines the messages guard, the message-document check, the allocation sender, the cap lock and the target index:
+// replayed last, so the committed replay leaves the newest bodies
+const MIGRATION_1031 = readFileSync(resolve(__dirname, '../../../scripts/migrations/sql/1031_intercompany_p6f_payment_messages.sql'), 'utf8');
 
 beforeAll(() => setup(pool), 60000);
 afterAll(() => cleanup(pool));
@@ -70,7 +79,7 @@ describe('a revoked connection releases the links', () => {
     await plantSide(pool, id, co.B, co.A, { auto_accept: true }, U.b);
     await api.revoke(U.a, co.A, id);
     await api.create(U.ab, co.A, { partnerCompanyId: co.B });
-    const m = await plantMessage(pool, id, co.A, co.B, { kind: 'payment' });
+    const m = await plantMessage(pool, id, co.A, co.B, { kind: 'reject' });
     await asAppUser(pool, U.b, co.B, async (q) => {
       await q.query("SELECT set_config('app.intercompany_handled_via', 'auto', true)");
       await q.query("UPDATE intercompany_messages SET status = 'accepted' WHERE id = $1", [m]);
@@ -264,6 +273,10 @@ describe('1002 on a database that already holds rows', () => {
     try {
       await client.query('BEGIN');
       await client.query(MIGRATION);
+      await client.query(MIGRATION_1019);
+      await client.query(MIGRATION_1025);
+      await client.query(MIGRATION_1027);
+      await client.query(MIGRATION_1031);
       await client.query('COMMIT');
     } finally {
       client.release();

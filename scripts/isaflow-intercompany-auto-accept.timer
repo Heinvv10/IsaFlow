@@ -1,0 +1,14 @@
+[Unit]
+Description=Trigger for the IsaFlow intercompany auto-accept (P2)
+
+[Timer]
+# Every 10 minutes, all day: an invoice sent between group companies is a draft in the
+# receiver's books within minutes, whatever the hour. The worker is idempotent (one message,
+# one draft: the message is locked, handled messages are skipped, a duplicate number is
+# refused), so a retry on timer jitter is safe. Randomised 0-60 s delay, as the sibling timers.
+OnCalendar=*:0/10
+RandomizedDelaySec=60
+Persistent=true
+
+[Install]
+WantedBy=timers.target

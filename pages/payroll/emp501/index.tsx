@@ -146,14 +146,14 @@ export default function Emp501Page() {
                 aria-label="Tax year"
                 value={taxYear}
                 onChange={e => { const y = Number(e.target.value); setTaxYear(y); setKind(defaultEmp501Kind(y)); }}
-                className="px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-primary)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:ring-1 focus:ring-teal-500"
+                className="px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-primary)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:ring-1 focus:ring-teal-500 max-lg:min-h-11"
               >
                 {yearOptions.map(y => <option key={y} value={y}>{taxYearLabel(y)}</option>)}
               </select>
               <button
                 onClick={handleExport}
                 disabled={isExporting || !summary}
-                className="flex items-center gap-2 px-4 py-2 rounded-lg border border-[var(--ff-border-primary)] text-sm text-[var(--ff-text-secondary)] hover:bg-[var(--ff-bg-tertiary)] disabled:opacity-50"
+                className="flex items-center gap-2 px-4 py-2 rounded-lg border border-[var(--ff-border-primary)] text-sm text-[var(--ff-text-secondary)] hover:bg-[var(--ff-bg-tertiary)] disabled:opacity-50 max-lg:min-h-11"
               >
                 {isExporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
                 Export e@syFile CSV
@@ -173,7 +173,7 @@ export default function Emp501Page() {
             <div role="alert" className="flex flex-col sm:flex-row sm:items-center gap-3 p-3 rounded-lg bg-amber-500/10 text-amber-700 dark:text-amber-300 text-sm">
               <div className="flex items-start gap-2 flex-1 min-w-0"><AlertCircle className="h-5 w-5 shrink-0" /><span>{blocked}</span></div>
               <button type="button" onClick={() => setKind('interim')}
-                className="self-start sm:self-auto shrink-0 px-3 py-1.5 rounded-lg border border-[var(--ff-border-primary)] text-[var(--ff-text-primary)] hover:bg-[var(--ff-bg-tertiary)]">
+                className="self-start sm:self-auto shrink-0 px-3 py-1.5 rounded-lg border border-[var(--ff-border-primary)] text-[var(--ff-text-primary)] hover:bg-[var(--ff-bg-tertiary)] max-lg:min-h-11">
                 Show the interim
               </button>
             </div>
@@ -195,7 +195,7 @@ export default function Emp501Page() {
                 </div>
               ))}
               <div className="rounded-lg border border-[var(--ff-border-primary)] overflow-hidden bg-[var(--ff-surface-primary)]">
-                <table className="w-full text-sm">
+                <table className="w-full text-sm table-cards">
                   <thead>
                     <tr className="border-b border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)]">
                       <th className="text-left py-3 px-4 text-[var(--ff-text-secondary)] font-medium">Period</th>
@@ -208,15 +208,15 @@ export default function Emp501Page() {
                   <tbody>
                     {summary.rows.map(r => (
                       <tr key={`${r.year}-${r.month}`} className="border-b border-[var(--ff-border-primary)] last:border-0 hover:bg-[var(--ff-bg-tertiary)]">
-                        <td className="py-3 px-4 text-[var(--ff-text-primary)] font-medium">{r.monthLabel}</td>
-                        <td className="py-3 px-4 text-right text-[var(--ff-text-primary)]">{r.status === 'no_data' ? '—' : formatCurrency(r.emp201Paye)}</td>
-                        <td className="py-3 px-4 text-right text-[var(--ff-text-primary)]">{r.status === 'no_data' ? '—' : formatCurrency(r.irp5Paye)}</td>
-                        <td className={`py-3 px-4 text-right font-medium ${r.variance !== 0 && r.status !== 'no_data' ? 'text-red-400' : 'text-[var(--ff-text-secondary)]'}`}>
+                        <td data-label="Period" className="py-3 px-4 text-[var(--ff-text-primary)] font-medium">{r.monthLabel}</td>
+                        <td data-label="EMP201 PAYE" className="py-3 px-4 text-right text-[var(--ff-text-primary)]">{r.status === 'no_data' ? '—' : formatCurrency(r.emp201Paye)}</td>
+                        <td data-label="IRP5 PAYE" className="py-3 px-4 text-right text-[var(--ff-text-primary)]">{r.status === 'no_data' ? '—' : formatCurrency(r.irp5Paye)}</td>
+                        <td data-label="Variance" className={`py-3 px-4 text-right font-medium ${r.variance !== 0 && r.status !== 'no_data' ? 'text-red-400' : 'text-[var(--ff-text-secondary)]'}`}>
                           {r.status === 'no_data' ? '—' : formatCurrency(Math.abs(r.variance))}
                           {r.variance < 0 && r.status !== 'no_data' && ' ↑'}
                           {r.variance > 0 && r.status !== 'no_data' && ' ↓'}
                         </td>
-                        <td className="py-3 px-4">
+                        <td data-label="Status" className="py-3 px-4">
                           <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_STYLES[r.status]}`}>
                             {STATUS_LABELS[r.status]}
                           </span>
@@ -226,12 +226,12 @@ export default function Emp501Page() {
                     {/* Totals row */}
                     <tr className="border-t-2 border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)]">
                       <td className="py-3 px-4 font-semibold text-[var(--ff-text-primary)]">Total</td>
-                      <td className="py-3 px-4 text-right font-semibold text-[var(--ff-text-primary)]">{formatCurrency(summary.totalEmp201)}</td>
-                      <td className="py-3 px-4 text-right font-semibold text-[var(--ff-text-primary)]">{formatCurrency(summary.totalIrp5)}</td>
-                      <td className={`py-3 px-4 text-right font-semibold ${Math.abs(summary.totalVariance) > 0.01 ? 'text-red-400' : 'text-teal-400'}`}>
+                      <td data-label="EMP201 PAYE" className="py-3 px-4 text-right font-semibold text-[var(--ff-text-primary)]">{formatCurrency(summary.totalEmp201)}</td>
+                      <td data-label="IRP5 PAYE" className="py-3 px-4 text-right font-semibold text-[var(--ff-text-primary)]">{formatCurrency(summary.totalIrp5)}</td>
+                      <td data-label="Variance" className={`py-3 px-4 text-right font-semibold ${Math.abs(summary.totalVariance) > 0.01 ? 'text-red-400' : 'text-teal-400'}`}>
                         {formatCurrency(Math.abs(summary.totalVariance))}
                       </td>
-                      <td className="py-3 px-4">
+                      <td data-label="Status" className="py-3 px-4">
                         <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_STYLES[totalStatus]}`}>
                           {STATUS_LABELS[totalStatus]}
                         </span>

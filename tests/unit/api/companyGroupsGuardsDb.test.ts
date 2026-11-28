@@ -43,11 +43,16 @@ async function withGroups(run: () => Promise<void>) {
         financial_year_start int, is_active boolean, created_by uuid, created_at timestamptz DEFAULT now(), updated_at timestamptz) ON COMMIT DROP`;
       await sql`CREATE TEMP TABLE company_group_members (id uuid DEFAULT gen_random_uuid(), group_id uuid, company_id uuid,
         ownership_pct numeric, consolidation_method text, is_holding boolean DEFAULT false, joined_date date, left_date date,
-        created_at timestamptz DEFAULT now()) ON COMMIT DROP`;
+        created_at timestamptz DEFAULT now(), UNIQUE (group_id, company_id)) ON COMMIT DROP`; // 999r: a row is never duplicated
       await sql`CREATE TEMP TABLE company_users (company_id uuid, user_id text, role text) ON COMMIT DROP`;
+      // The access guards JOIN companies to refuse suspended / deleted tenants (#1656), so every company
+      // the fixture uses needs a live row there (a company with no row has no access to anything).
+      await sql`CREATE TEMP TABLE companies (id uuid, status text, suspended_at timestamptz) ON COMMIT DROP`;
+      await sql`INSERT INTO companies (id, status) VALUES (${MINE}::uuid, 'active'), (${VIEWED}::uuid, 'active'),
+        (${OUTSIDE}::uuid, 'active'), (${VICTIM}::uuid, 'active')`;
       await sql`CREATE TEMP TABLE gl_accounts (id uuid, company_id uuid, account_code text, account_name text,
         account_type text, is_active boolean DEFAULT true) ON COMMIT DROP`;
-      await sql`CREATE TEMP TABLE group_accounts (id uuid, group_id uuid, account_code text, account_name text, account_type text,
+      await sql`CREATE TEMP TABLE group_accounts (id uuid DEFAULT gen_random_uuid(), group_id uuid, account_code text, account_name text, account_type text,
         account_subtype text, parent_account_id uuid, normal_balance text, level int, display_order int,
         is_active boolean DEFAULT true, created_at timestamptz DEFAULT now()) ON COMMIT DROP`;
       await sql`CREATE TEMP TABLE group_coa_mappings (id uuid DEFAULT gen_random_uuid(), group_id uuid, group_account_id uuid,
@@ -73,12 +78,12 @@ async function withGroups(run: () => Promise<void>) {
   }
 }
 
-async function call(method: string, user: string, body: Record<string, unknown> = {}, query: Record<string, unknown> = {}) {
+async function call(method: string, user: string, body: Record<string, unknown> = {}, query: Record<string, unknown> = {}, activeCompanyId?: string) {
   const res = { statusCode: 0, sent: undefined as unknown,
     setHeader() { return this; }, status(c: number) { this.statusCode = c; return this; },
     json(p: unknown) { this.sent = p; return this; }, end() { return this; } };
   await (handler as (rq: NextApiRequest, rs: NextApiResponse) => Promise<unknown>)(
-    { method, query, body, user: { id: user } } as unknown as NextApiRequest, res as unknown as NextApiResponse);
+    { method, query, body, user: { id: user }, companyId: activeCompanyId } as unknown as NextApiRequest, res as unknown as NextApiResponse);
   return res;
 }
 
@@ -113,6 +118,78 @@ describe('company-groups guards (Postgres)', async () => {
       // GET mappings / unmapped for a company outside the group → 400.
       expect((await call('GET', 'attacker', {}, { action: 'mappings', group_id: G, company_id: OUTSIDE })).statusCode).toBe(400);
       expect((await call('GET', 'attacker', {}, { action: 'unmapped', group_id: G, company_id: OUTSIDE })).statusCode).toBe(400);
+    });
+  });
+
+  // #1656: a suspended or deleted company's users lose group access (the guards JOIN companies).
+  it.skipIf(!reachable)('a suspended or deleted member company grants no group access', async () => {
+    await withGroups(async () => {
+      const read = () => call('GET', 'attacker', {}, { action: 'accounts', group_id: G });
+      expect((await read()).statusCode).toBe(200);
+      await sql`UPDATE companies SET status = 'suspended' WHERE id = ${MINE}::uuid`;
+      await sql`UPDATE companies SET status = 'deleted' WHERE id = ${VIEWED}::uuid`;
+      expect((await read()).statusCode).toBe(403);
+    });
+  });
+
+  // userCanWriteGroup's own company-state predicates: the admin company is suspended / deleted, the viewer one is live,
+  // so the user still READS the group (userBelongsToGroup passes) but must not WRITE.
+  for (const [label, set] of [
+    ['status suspended', (id: string) => sql`UPDATE companies SET status = 'suspended' WHERE id = ${id}::uuid`],
+    ['status deleted', (id: string) => sql`UPDATE companies SET status = 'deleted' WHERE id = ${id}::uuid`],
+    ['suspended_at set', (id: string) => sql`UPDATE companies SET suspended_at = now() WHERE id = ${id}::uuid`],
+  ] as const) {
+    it.skipIf(!reachable)(`a write role in a company with ${label} does not allow group writes`, async () => {
+      await withGroups(async () => {
+        await set(MINE);
+        expect((await call('GET', 'attacker', {}, { action: 'accounts', group_id: G })).statusCode).toBe(200);
+        const write = await call('POST', 'attacker', { action: 'create-group-account', groupId: G, accountCode: 'G2000', accountName: 'X', accountType: 'asset' });
+        expect([write.statusCode, JSON.stringify(write.sent)]).toEqual([403, expect.stringContaining('does not allow this change')]);
+      });
+    });
+  }
+
+  // A user whose companies all LEFT the group has no access: read or write (left_date IS NULL in both guards).
+  it.skipIf(!reachable)('a user who belongs only to departed companies is refused read and write', async () => {
+    await withGroups(async () => {
+      await sql`UPDATE company_group_members SET left_date = CURRENT_DATE WHERE group_id = ${G}::uuid`;
+      expect((await call('GET', 'attacker', {}, { action: 'accounts', group_id: G })).statusCode).toBe(403);
+      const write = await call('POST', 'attacker', { action: 'create-group-account', groupId: G, accountCode: 'G2000', accountName: 'X', accountType: 'asset' });
+      expect(write.statusCode).toBe(403);
+    });
+  });
+
+  // Write role only through a departed company: still a reader (viewer in a current one), but no writer.
+  it.skipIf(!reachable)('a write role held only in a departed company does not allow group writes', async () => {
+    await withGroups(async () => {
+      await sql`UPDATE company_group_members SET left_date = CURRENT_DATE WHERE group_id = ${G}::uuid AND company_id = ${MINE}::uuid`;
+      expect((await call('GET', 'attacker', {}, { action: 'accounts', group_id: G })).statusCode).toBe(200);
+      const write = await call('POST', 'attacker', { action: 'create-group-account', groupId: G, accountCode: 'G2000', accountName: 'X', accountType: 'asset' });
+      expect([write.statusCode, JSON.stringify(write.sent)]).toEqual([403, expect.stringContaining('does not allow this change')]);
+    });
+  });
+
+  it.skipIf(!reachable)('a company with suspended_at set grants no group access', async () => {
+    await withGroups(async () => {
+      await sql`UPDATE companies SET suspended_at = now() WHERE id = ANY(${[MINE, VIEWED]}::uuid[])`;
+      expect((await call('GET', 'attacker', {}, { action: 'accounts', group_id: G })).statusCode).toBe(403);
+    });
+  });
+
+  // addMember (999r): a current member is a 409; a departed one rejoins on its own row and left_date clears.
+  it.skipIf(!reachable)('add-member: a current member is a 409, a departed one rejoins with left_date cleared', async () => {
+    await withGroups(async () => {
+      const add = (co: string) => call('POST', 'attacker', { action: 'add-member', groupId: G, companyId: co }, {}, co);
+      const dup = await add(MINE);
+      expect([dup.statusCode, JSON.stringify(dup.sent)]).toEqual([409, expect.stringContaining('already a member')]);
+      await sql`INSERT INTO company_group_members (group_id, company_id, ownership_pct, consolidation_method, joined_date, left_date)
+        VALUES (${G}::uuid, ${OUTSIDE}::uuid, 100, 'full', '2020-01-01', '2026-01-31')`;
+      const rejoin = await call('POST', 'attacker', { action: 'add-member', groupId: G, companyId: OUTSIDE, ownershipPct: 40, consolidationMethod: 'equity' }, {}, OUTSIDE);
+      expect(rejoin.statusCode).toBe(200);
+      expect(await sql`SELECT left_date, joined_date = CURRENT_DATE AS joined_reset, ownership_pct::float AS pct, consolidation_method AS method
+        FROM company_group_members WHERE group_id = ${G}::uuid AND company_id = ${OUTSIDE}::uuid`)
+        .toEqual([{ left_date: null, joined_reset: true, pct: 40, method: 'equity' }]);
+      expect(await sql`SELECT count(*)::int AS n FROM company_group_members WHERE group_id = ${G}::uuid AND company_id = ${OUTSIDE}::uuid`).toEqual([{ n: 1 }]);
     });
   });
 
@@ -189,9 +266,11 @@ describe('company-groups guards (Postgres)', async () => {
     await withGroups(async () => {
       const CREATOR = '90000000-0000-4000-8000-000000000001';
       const NEW_CO = '10000000-0000-4000-8000-0000000000b1';
+      await sql`INSERT INTO companies (id, status) VALUES (${NEW_CO}::uuid, 'active')`;
       await sql`INSERT INTO company_users VALUES (${NEW_CO}::uuid, ${CREATOR}, 'owner'), (${MINE}::uuid, ${CREATOR}, 'viewer'),
         (${VIEWED}::uuid, ${CREATOR}, 'viewer')`;
-      const add = (group: string, co: string) => call('POST', CREATOR, { action: 'add-member', groupId: group, companyId: co });
+      // Membership is changed with that company as the ACTIVE company (999r round 3), as withAuth sets it.
+      const add = (group: string, co: string) => call('POST', CREATOR, { action: 'add-member', groupId: group, companyId: co }, {}, co);
       // P1: the creator is only a VIEWER of every member company → 403, nothing added.
       const demoted = await add(G, NEW_CO);
       expect([demoted.statusCode, JSON.stringify(demoted.sent)]).toEqual([403, expect.stringContaining('does not allow this change')]);
@@ -204,15 +283,21 @@ describe('company-groups guards (Postgres)', async () => {
       expect((await add(G, NEW_CO)).statusCode).toBe(403);
       expect((await accounts()).statusCode).toBe(403);
       expect(await sql`SELECT count(*)::int AS n FROM company_group_members WHERE company_id = ${NEW_CO}::uuid`).toEqual([{ n: 0 }]);
+      // With another company as the active one the same add is refused, and nothing is stored (999r round 3).
+      const wrongActive = await call('POST', CREATOR, { action: 'add-member', groupId: G3, companyId: NEW_CO }, {}, MINE);
+      expect([wrongActive.statusCode, JSON.stringify(wrongActive.sent)]).toEqual([403, expect.stringContaining('active company')]);
+      expect(await sql`SELECT count(*)::int AS n FROM company_group_members WHERE group_id = ${G3}::uuid`).toEqual([{ n: 0 }]);
       // A group that never had a member: the creator bootstraps it.
       expect((await add(G3, NEW_CO)).statusCode).toBe(200);
       // Now a member exists. The creator owns it, so they pass as an ordinary group writer...
       const OWN2 = '10000000-0000-4000-8000-0000000000b2';
+      await sql`INSERT INTO companies (id, status) VALUES (${OWN2}::uuid, 'active')`;
       await sql`INSERT INTO company_users VALUES (${OWN2}::uuid, ${CREATOR}, 'owner')`;
       expect((await add(G3, OWN2)).statusCode).toBe(200);
       // ...and once demoted to viewer in every member, they can add nothing more.
       await sql`UPDATE company_users SET role = 'viewer' WHERE user_id = ${CREATOR} AND company_id = ANY(${[NEW_CO, OWN2]}::uuid[])`;
       const OWN3 = '10000000-0000-4000-8000-0000000000b3';
+      await sql`INSERT INTO companies (id, status) VALUES (${OWN3}::uuid, 'active')`;
       await sql`INSERT INTO company_users VALUES (${OWN3}::uuid, ${CREATOR}, 'owner')`;
       expect((await add(G3, OWN3)).statusCode).toBe(403);
     });

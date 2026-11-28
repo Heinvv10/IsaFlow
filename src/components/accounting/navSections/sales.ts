@@ -38,6 +38,7 @@ export const salesTab: Tab = {
         { label: 'Write-Offs', href: '/accounting/write-offs' },
         { label: 'Allocate Receipts', href: '/accounting/customer-allocations' },
         { label: 'Receipt Auto-Match', href: '/accounting/ar/receipt-match' },
+        { label: 'Intercompany Payments', href: '/accounting/customer-payments/intercompany' },
         { label: 'Adjustments', href: '/accounting/adjustments?type=customer' },
       ],
     },

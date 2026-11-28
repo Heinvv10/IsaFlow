@@ -1,4 +1,7 @@
 import { test, expect } from '@playwright/test';
+import { guardDevTarget } from './helpers/devTarget';
+
+guardDevTarget(test);
 
 /**
  * IsaFlow — New Features E2E Tests

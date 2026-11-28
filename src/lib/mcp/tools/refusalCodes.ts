@@ -122,6 +122,8 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'COMPANY_SETTINGS_STALE',
   // A customer credit note's header job / CC1 / CC2 / BU refused (ar/creditNoteHeaderTags): set on a
   // linked note, or a job not this company's / cancelled. Names only the caller's own job; pre-write.
+  // core/contraSettlementService: a contra account or document the settlement guards refuse; read-only, pre-write.
+  'CONTRA_SETTLEMENT_REFUSED',
   'CREDIT_NOTE_DIMENSIONS_REFUSED',
   'CREDIT_NOTE_LOCK_TIMEOUT',
   // FX PR0 (shared/documentCurrency): a currency code that is not three letters. Fixed sentence; pre-write.
@@ -154,6 +156,8 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   // R-035 review HIGH-1, invoices and bills since FX PR0 (shared/documentCurrency):
   // names the currency and the rate the caller sent; raised before any write.
   'EXCHANGE_RATE_INVALID',
+  // An expectation recompute for a supplier merged away or deleted (capture/expectationEngineService); names only its id, pre-write.
+  'EXPECTATION_SUPPLIER_NOT_LIVE',
   // R-035: approve without the digest the approver was shown. Names only the request id.
   'EXPECTED_DIGEST_REQUIRED',
   // FX PR0 (shared/documentCurrency): a foreign-currency document while the company has not
@@ -294,8 +298,12 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'SUPPLIER_INVOICE_PO_LINK_REFUSED',
   // Review M1 (ap/billGoodsReceivedLink): a bill's goods received note malformed / not this company's / cancelled; fixed wording, pre-write.
   'SUPPLIER_INVOICE_GRN_REFUSED',
+  // A draft bill edit whose bill moved to another supplier meanwhile (ap/billSupplierLive, #1882 L-a): reload and save again.
+  'SUPPLIER_INVOICE_CHANGED',
   // A bill onto a supplier merged or deleted meanwhile (ap/billSupplierLive, migration 1021's supplier-live trigger).
   'SUPPLIER_INVOICE_SUPPLIER_DELETED',
+  // A payment onto a supplier merged or deleted meanwhile (ap/billSupplierLive, migration 1023's supplier-live trigger).
+  'SUPPLIER_PAYMENT_SUPPLIER_DELETED',
   'SUPPLIER_NOT_FOUND',
   'SUPPLIER_PAYMENT_NOT_FOUND',
   'SUPPLIER_PAYMENT_NOT_PROCESSABLE',

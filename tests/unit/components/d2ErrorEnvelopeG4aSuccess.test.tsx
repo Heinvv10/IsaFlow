@@ -105,7 +105,7 @@ describe('load-on-mount admin screens render the data they received', () => {
   it('success: SARS codes list renders the data it received', async () => {
     serve({ '/api/admin/payroll/sars-codes': { taxYear: 2027, releases: [{ effective_year: 2027, brs_version: 'v25.2.0', released_at: D, is_current: false, notes: null, code_count: 1 }],
       codes: [{ code: '3601', effective_year: 2027, category: 'income', description: 'Axolotl allowance', status: 'active', foreign_code: null, code_pair: null,
-        applicability_note: null, source_document: null, source_url: null, official_excerpt: null, brs_version: 'v25.2.0', imported_at: D, used_by_companies: 0 }] } });
+        applicability_note: null, source_document: null, source_url: null, brs_version: 'v25.2.0', imported_at: D, used_by_companies: 0 }] } });
     render(<SarsCodesPage />);
     expect(await screen.findByText('Axolotl allowance')).toBeTruthy();
   });

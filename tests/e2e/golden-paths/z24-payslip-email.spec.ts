@@ -22,6 +22,9 @@ import { clearPayRunApproval } from './helpers/payRunApproval';
 import { findOrCreateSandbox, switchApiCompany, switchBrowserCompany } from './_migrationSandbox';
 import { seedTheme, settle, THEMES } from '../helpers/themeSpec';
 import { settleAnimations } from './helpers/settleAnimations';
+import { guardDevTarget } from '../helpers/devTarget';
+
+guardDevTarget(test);
 
 const EVIDENCE_DIR = process.env.EVIDENCE_DIR;
 const SANDBOX_NAME = '0GP Golden Payslip Email Sandbox';
@@ -66,7 +69,6 @@ async function sandboxRun(api: Api): Promise<{ runId: string; employeeId: string
 }
 
 async function sandbox(context: BrowserContext, baseURL: string) {
-  expect(new URL(baseURL).hostname, 'z24 writes payroll data: dev/CI localhost only').toBe('localhost');
   const api = await Api.login(baseURL);
   const sandboxId = await findOrCreateSandbox(api, { name: SANDBOX_NAME, onboardingId: SANDBOX_ONBOARDING_ID });
   await switchApiCompany(api, sandboxId);
@@ -147,7 +149,9 @@ async function flow(page: Page, runId: string, employeeId: string, theme: string
   if (await on.isVisible()) await on.click();
   await card.getByRole('button', { name: 'Email payslips' }).click();
   const dialog = page.getByRole('dialog', { name: 'Email payslips?' });
-  await expect(dialog).toContainText('40-bit RC4');
+  await expect(dialog).toContainText('AES-256'); // wave 7 PX (W15)
+  await expect(dialog).toContainText('can guess the employee\'s date of birth'); // ruling 21: the truth about the password
+  await expect(dialog).toContainText('cracked in hours');
   await settleAnimations(page); // axe mid-fade-in reads blended colours (the Cancel button at 1.12:1)
   if (EVIDENCE_DIR) await page.screenshot({ path: `${EVIDENCE_DIR}/payslip-email-confirm-${theme}.png` });
   expect(await seriousAxe(page), `axe ${theme} confirm`).toEqual([]);

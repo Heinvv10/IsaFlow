@@ -5,6 +5,7 @@ export const OPTIONS: SideOptions = {
   customers: [{ id: 'cust-1', label: 'Velocity Fibre (customer)' }, { id: 'cust-2', label: 'Another customer' }],
   suppliers: [{ id: 'supp-1', label: 'Velocity Fibre (supplier)' }],
   accounts: [{ id: 'acc-1', label: '2800 Intercompany loan' }, { id: 'acc-2', label: '6100 Cost of sales' }],
+  loanAccounts: [{ id: 'acc-1', label: '2800 Intercompany loan' }],
   truncated: false,
 };
 

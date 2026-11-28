@@ -3,7 +3,7 @@
  * /pay-day) and the expected items already added (DELETE /items). Writers change them; viewers read them.
  * One submit at a time; a refusal shows the server's message.
  */
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Button, Input } from '@/components/ui';
 import type { ApiResult } from '@/components/accounting/budgets/workspace/types';
 import { formatStatementFigure } from '@/lib/format/money';
@@ -30,14 +30,17 @@ export function PayDayControl({ setting, canEdit, onSave }: {
   const { busy, error, submit } = useGuardedSubmit();
 
   // Reset the form only when the stored VALUE changes: every write reloads the setting as a new object, and that
-  // must not wipe a half-edited pay day.
-  const storedKind = setting?.payDay.kind;
-  const storedDay = setting?.day;
-  useEffect(() => {
-    if (storedKind === undefined || storedDay === undefined) return;
-    setKind(storedKind);
-    setDay(String(storedDay));
-  }, [storedKind, storedDay]);
+  // must not wipe a half-edited pay day. Done during render, not in an effect: an effect runs after the form is on
+  // screen and overwrites a choice made before it.
+  const stored = setting ? `${setting.payDay.kind}:${setting.day}` : null;
+  const [synced, setSynced] = useState<string | null>(null);
+  if (stored !== synced) {
+    setSynced(stored);
+    if (setting) {
+      setKind(setting.payDay.kind);
+      setDay(String(setting.day));
+    }
+  }
 
   const save = async () => {
     const n = Number(day);

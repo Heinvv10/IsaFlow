@@ -15,6 +15,7 @@ import { computeFingerprint } from '../capture/captureDeduplicationService';
 import { assertMayImportOpenBills, withApprovalGateExempt } from '../gl/approvalGateExempt';
 import { checkTakeOnAmounts } from './migrationApRowAmounts';
 import { lockLiveSurvivor } from '../core/supplierLiveLock';
+import { itemFailureMessage } from '@/lib/apiDocumentLock';
 type Row = DbRow;
 
 
@@ -252,7 +253,9 @@ export async function importAPInvoices(
       });
       if (rowImported) imported++; else skipped++;
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+      // A held row or a deadlock victim (a supplier merge of this row's supplier, say) was rolled back with the row's savepoint:
+      // retryable, said so in the typed lock error's wording or the neutral one, never the driver's text (breaker L5).
+      const msg = itemFailureMessage(err, String(err));
       errors.push({ step: 'ap_invoices', row: fileRow(i), message: msg });
       skipped++;
     }

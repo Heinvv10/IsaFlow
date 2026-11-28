@@ -30,6 +30,8 @@ import { BudgetApproveDialog } from '@/components/accounting/ap/BudgetApproveDia
 import { DueDateEditor } from '@/components/accounting/terms/DueDateEditor';
 import { useBudgetApprove } from '@/components/accounting/ap/useBudgetApprove';
 import { CommentsPanel } from '@/components/accounting/comments/CommentsPanel';
+import { LoanClearingPanel } from '@/components/accounting/intercompany/LoanClearingPanel';
+import type { LoanClearResult } from '@/modules/accounting/services/intercompany/payerLoanClearTypes';
 
 function StatusBadge({ status }: { status: string }) {
   const colors: Record<string, string> = {
@@ -61,6 +63,9 @@ export default function SupplierInvoiceDetailPage() {
   const dates = useDateGate();
   const [editForm, setEditForm] = useState({ invoiceNumber: '', dueDate: '', paymentTerms: '', notes: '' });
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  // P4-E: a loan clearing's confirmation outlives the reload behind the spinner (it unmounts the panel). Kept WITH the bill it cleared and
+  // shown only on that bill (round 3: another bill never gets it, not even for the render before an effect); an in-page action drops it.
+  const [loanCleared, setLoanCleared] = useState<{ billId: string; result: LoanClearResult } | null>(null);
 
   const loadInvoice = useCallback(async () => {
     setIsLoading(true);
@@ -87,6 +92,7 @@ export default function SupplierInvoiceDetailPage() {
     if (!invoiceId) return;
     setActionLoading(action);
     setError('');
+    setLoanCleared(null);
     try {
       const res = await apiFetch('/api/accounting/supplier-invoices-action', {
         method: 'POST',
@@ -226,6 +232,9 @@ export default function SupplierInvoiceDetailPage() {
           />
 
           <ThreeWayMatchPanel invoiceId={invoiceId as string} />
+          {/* intercompany P4-E: only for a bill linked on a loan connection, with the dark flag on */}
+          <LoanClearingPanel billId={invoiceId as string} cleared={loanCleared && loanCleared.billId === invoiceId ? loanCleared.result : null}
+            onCleared={(out) => { setLoanCleared({ billId: invoiceId as string, result: out }); void loadInvoice(); }} />
 
           <AccountingDocumentPanel
             entityType="supplier_invoice"

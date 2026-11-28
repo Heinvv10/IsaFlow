@@ -110,7 +110,7 @@ export default function PayComponentsPage() {
     }
   };
 
-  const field = 'w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-primary)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:ring-1 focus:ring-teal-500';
+  const field = 'w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-primary)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:ring-1 focus:ring-teal-500 max-lg:min-h-11';
   const label = 'block text-xs font-medium text-[var(--ff-text-secondary)] mb-1';
 
   return (
@@ -159,42 +159,42 @@ export default function PayComponentsPage() {
                 </div>
               </div>
               <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
-                <label className="flex items-center gap-2 text-sm text-[var(--ff-text-primary)]"
+                <label className="flex items-center gap-2 text-sm text-[var(--ff-text-primary)] max-lg:min-h-11"
                   title={type === 'deduction' ? 'Only retirement fund contributions (4001, 4003, 4006) and s18A donations (4030) reduce PAYE. Any other taxable deduction is paid from taxed pay, and the pay run warns about it.' : undefined}>
                   <input type="checkbox" checked={isTaxable} onChange={e => setIsTaxable(e.target.checked)} />
                   Taxable
                 </label>
-                <label className="flex items-center gap-2 text-sm text-[var(--ff-text-primary)]">
+                <label className="flex items-center gap-2 text-sm text-[var(--ff-text-primary)] max-lg:min-h-11">
                   <input type="checkbox" checked={isUifApplicable} onChange={e => setIsUifApplicable(e.target.checked)} />
                   UIF applicable
                 </label>
-                <label className="flex items-center gap-2 text-sm text-[var(--ff-text-primary)]">
+                <label className="flex items-center gap-2 text-sm text-[var(--ff-text-primary)] max-lg:min-h-11">
                   <input type="checkbox" checked={isSdlApplicable} onChange={e => setIsSdlApplicable(e.target.checked)} />
                   SDL applicable
                 </label>
                 {canBePaidOutside && (
-                  <label className="flex items-center gap-2 text-sm text-[var(--ff-text-primary)]"
+                  <label className="flex items-center gap-2 text-sm text-[var(--ff-text-primary)] max-lg:min-h-11"
                     title="The employee pays the fund directly (e.g. a private retirement annuity): it reduces PAYE and is on the IRP5, but is not deducted from pay.">
                     <input type="checkbox" checked={paidOutsidePayroll} onChange={e => setPaidOutsidePayroll(e.target.checked)} />
                     Paid outside payroll
                   </label>
                 )}
                 {canCountAsRfi && (
-                  <label className="flex items-center gap-2 text-sm text-[var(--ff-text-primary)]"
+                  <label className="flex items-center gap-2 text-sm text-[var(--ff-text-primary)] max-lg:min-h-11"
                     title="The fund's contribution base. A pension, provident or RA contribution set as a % of RFI is costed on the earnings ticked here. It is not a tax limit.">
                     <input type="checkbox" checked={countsAsRfi} onChange={e => setCountsAsRfi(e.target.checked)} />
                     Counts as retirement-funding income
                   </label>
                 )}
                 {employerFund && (
-                  <label className="flex items-center gap-2 text-sm text-[var(--ff-text-primary)]"
+                  <label className="flex items-center gap-2 text-sm text-[var(--ff-text-primary)] max-lg:min-h-11"
                     title="Records the fund type only; it does not set the value. Either way the contribution is a non-cash taxable benefit, deemed paid by the employee for the s11F deduction. Each employee's assignment sets the value: an amount or a % of RFI is the employer's contribution itself (a defined-contribution fund, para 12D(2)); a fund member category factor from the fund's certificate is valued per para 12D(3) (a defined-benefit or mixed fund, set on the employee's Defined-benefit fund contributions card)">
                     <input type="checkbox" checked={definedContribution} onChange={e => setDefinedContribution(e.target.checked)} />
                     Defined-contribution (money purchase) fund
                   </label>
                 )}
                 <button type="submit" disabled={creating || !name}
-                  className="ml-auto flex items-center gap-2 px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-sm font-medium">
+                  className="ml-auto flex items-center gap-2 px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-sm font-medium max-lg:min-h-11">
                   {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
                   Add component
                 </button>
@@ -212,7 +212,7 @@ export default function PayComponentsPage() {
             </div>
           ) : (
             <div className="rounded-lg border border-[var(--ff-border-primary)] overflow-hidden bg-[var(--ff-surface-primary)]">
-              <table className="w-full text-sm">
+              <table className="w-full text-sm table-cards">
                 <thead>
                   <tr className="border-b border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)] text-left">
                     <th className="py-3 px-4 text-[var(--ff-text-secondary)] font-medium">Name</th>
@@ -227,16 +227,18 @@ export default function PayComponentsPage() {
                 <tbody>
                   {components.map(c => (
                     <tr key={c.id} className="border-b border-[var(--ff-border-primary)] last:border-0">
-                      <td className="py-3 px-4 text-[var(--ff-text-primary)]">{c.name}</td>
-                      <td className="py-3 px-4 font-id text-xs text-[var(--ff-text-secondary)]">{c.sarsSourceCode}</td>
-                      <td className="py-3 px-4 text-[var(--ff-text-secondary)]">
-                        <span className="capitalize">{c.componentType.replace('_', ' ')}</span>
-                        {c.paidOutsidePayroll && <span className="ml-2 text-xs text-[var(--ff-text-tertiary)]">paid outside payroll</span>}
+                      <td data-label="Name" className="py-3 px-4 text-[var(--ff-text-primary)]">{c.name}</td>
+                      <td data-label="SARS" className="py-3 px-4 font-id text-xs text-[var(--ff-text-secondary)]">{c.sarsSourceCode}</td>
+                      <td data-label="Type" className="py-3 px-4 text-[var(--ff-text-secondary)]">
+                        <span className="max-lg:text-right">
+                          <span className="capitalize">{c.componentType.replace('_', ' ')}</span>
+                          {c.paidOutsidePayroll && <span className="ml-2 text-xs text-[var(--ff-text-tertiary)] max-lg:block max-lg:ml-0">paid outside payroll</span>}
+                        </span>
                       </td>
-                      <td className="py-3 px-4 text-[var(--ff-text-secondary)]">{c.isTaxable ? 'Y' : 'N'}</td>
-                      <td className="py-3 px-4 text-[var(--ff-text-secondary)]">{c.isUifApplicable ? 'Y' : 'N'}</td>
-                      <td className="py-3 px-4 text-[var(--ff-text-secondary)]">{c.isSdlApplicable ? 'Y' : 'N'}</td>
-                      <td className="py-3 px-4 text-[var(--ff-text-secondary)]">
+                      <td data-label="Tax" className="py-3 px-4 text-[var(--ff-text-secondary)]">{c.isTaxable ? 'Y' : 'N'}</td>
+                      <td data-label="UIF" className="py-3 px-4 text-[var(--ff-text-secondary)]">{c.isUifApplicable ? 'Y' : 'N'}</td>
+                      <td data-label="SDL" className="py-3 px-4 text-[var(--ff-text-secondary)]">{c.isSdlApplicable ? 'Y' : 'N'}</td>
+                      <td data-label="RFI" className="py-3 px-4 text-[var(--ff-text-secondary)]">
                         <ComponentRfiSwitch component={c} employerFund={EMPLOYER_FUND_CODES.has(c.sarsSourceCode.trim())} onChanged={load} onError={setError} />
                       </td>
                     </tr>

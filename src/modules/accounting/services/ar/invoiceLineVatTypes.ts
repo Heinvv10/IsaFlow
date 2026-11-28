@@ -20,6 +20,8 @@
  * legacy shape of a zero-VAT invoice: such a company files no VAT201 (the VAT routes are withVatVendor-gated) and the
  * legacy poster posts no VAT leg for it. A request for VAT (a standard line, a header or line taxRate above 0) is
  * refused; zero_rated / exempt lines are accepted and written untyped (no VAT either way).
+ *
+ * A quote's lines are written to the same contract (quoteLineTax): `document: 'quote'` words the refusals for it.
  */
 import { standardVatRatePctOn, VatRateDateError } from '@/lib/vat/standardRate';
 import { DOCUMENT_LINE_VAT_TYPES, normaliseVatType, vatRatePctOn } from '../shared/vatTypes';
@@ -61,6 +63,8 @@ export interface ResolveLineVatInput {
   /** Draft edit only: per line, the type of the identical stored line (storedLineVatType), or null. */
   kept?: readonly (DocumentLineVatType | null)[];
   label?: (i: number) => string;
+  /** The document the refusals name; default 'invoice'. */
+  document?: 'invoice' | 'quote';
 }
 
 export type ResolvedLineVat = { typed: true; types: DocumentLineVatType[] } | { typed: false };
@@ -95,7 +99,9 @@ function finiteRate(v: unknown, name: string): number {
   return v;
 }
 
-function lineType(v: unknown, label: string): DocumentLineVatType {
+const LINE_OF = { invoice: 'a customer invoice line', quote: 'a quote line' } as const;
+
+function lineType(v: unknown, label: string, doc: 'invoice' | 'quote'): DocumentLineVatType {
   const t = normaliseVatType(v);
   if (t === null) {
     // Echoed bounded: the value is the caller's, of any length.
@@ -103,7 +109,7 @@ function lineType(v: unknown, label: string): DocumentLineVatType {
     throw new InvoiceLineVatRefusal(`${label}: ${shown.length > 48 ? `${shown.slice(0, 48)}…` : shown} is not a VAT type; a line is standard, zero_rated or exempt`);
   }
   if (!isDocumentType(t)) {
-    throw new InvoiceLineVatRefusal(`${label} cannot be ${t}: a customer invoice line is standard, zero_rated or exempt`);
+    throw new InvoiceLineVatRefusal(`${label} cannot be ${t}: ${LINE_OF[doc]} is standard, zero_rated or exempt`);
   }
   return t;
 }
@@ -111,11 +117,11 @@ function lineType(v: unknown, label: string): DocumentLineVatType {
 const day = (d: string | Date): string => (typeof d === 'string' ? d.slice(0, 10)
   : `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`);
 
-function standardRate(date: string | Date): number {
+function standardRate(date: string | Date, doc: 'invoice' | 'quote'): number {
   try {
     return standardVatRatePctOn(date);
   } catch (err) {
-    if (err instanceof VatRateDateError) throw new InvoiceLineVatRefusal(`The invoice date has no VAT rate: ${err.message}`);
+    if (err instanceof VatRateDateError) throw new InvoiceLineVatRefusal(`The ${doc} date has no VAT rate: ${err.message}`);
     throw err;
   }
 }
@@ -123,18 +129,19 @@ function standardRate(date: string | Date): number {
 /** Each line's VAT type, or `typed: false` for a non-vendor. Throws InvoiceLineVatRefusal / InvoiceVatNotRegisteredRefusal. */
 export function resolveInvoiceLineVat(input: ResolveLineVatInput): ResolvedLineVat {
   const label = input.label ?? ((i: number) => `items[${i}]`);
+  const doc = input.document ?? 'invoice';
   const headerGiven = given(input.headerTaxRate);
   if (headerGiven && input.lines.some((l) => given(l.vatType))) {
-    throw new InvoiceLineVatRefusal('Send a vatType on each line or the invoice\'s taxRate, not both: the rate comes from the VAT type.');
+    throw new InvoiceLineVatRefusal(`Send a vatType on each line or the ${doc}'s taxRate, not both: the rate comes from the VAT type.`);
   }
   const header = headerGiven ? finiteRate(input.headerTaxRate, 'taxRate') : null;
-  const named = input.lines.map((l, i) => (given(l.vatType) ? lineType(l.vatType, label(i)) : null));
+  const named = input.lines.map((l, i) => (given(l.vatType) ? lineType(l.vatType, label(i), doc) : null));
   const lineRates = input.lines.map((l, i) => (given(l.taxRate) ? finiteRate(l.taxRate, `${label(i)}.taxRate`) : null));
 
   if (!input.registered) {
-    const NOT_REGISTERED = 'this company is not registered for VAT, so its invoices carry no VAT';
+    const NOT_REGISTERED = `this company is not registered for VAT, so its ${doc}s carry no VAT`;
     if (header !== null && header !== 0) {
-      throw new InvoiceVatNotRegisteredRefusal('This company is not registered for VAT, so its invoices carry no VAT: leave taxRate out (or send 0).');
+      throw new InvoiceVatNotRegisteredRefusal(`This company is not registered for VAT, so its ${doc}s carry no VAT: leave taxRate out (or send 0).`);
     }
     const standard = named.findIndex((t) => t === 'standard');
     if (standard >= 0) throw new InvoiceVatNotRegisteredRefusal(`${label(standard)} is standard-rated, but ${NOT_REGISTERED}: leave vatType out.`);
@@ -143,7 +150,7 @@ export function resolveInvoiceLineVat(input: ResolveLineVatInput): ResolvedLineV
     return { typed: false };
   }
 
-  const s = standardRate(input.invoiceDate);
+  const s = standardRate(input.invoiceDate, doc);
   let fromHeader: DocumentLineVatType | null = null;
   if (header !== null) {
     if (header === s) fromHeader = 'standard';

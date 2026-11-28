@@ -24,6 +24,7 @@ import {
   InvoiceNotApprovableError,
   InvoiceStaleViewError,
 } from '@/modules/accounting/services/ar/customerInvoiceApprovalService';
+import { InvoicePeriodClosedError } from '@/modules/accounting/services/ar/customerInvoiceGlPosting';
 import { ClosedFiscalPeriodError } from '@/modules/accounting/services/gl/journalEntryService';
 import { ReversalBeforeOriginalError } from '@/modules/accounting/services/gl/journalEntryReversalDate';
 import { VatPeriodLockedError } from '@/modules/accounting/services/gl/journalVatLockGuard';
@@ -208,6 +209,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         if (err instanceof DocumentCurrencyError) return apiResponse.badRequest(res, err.message);
         // A dimension posting would add or contradict (dimensionStoredPosting), refused before the journal.
         if (isDimensionRefusal(err)) return apiResponse.badRequest(res, err.message);
+        // The invoice's period is not open (refused before the journal; the savepoint above rolled the approve back).
+        // The date field only warns on this form, so this is the answer the user sees.
+        if (err instanceof InvoicePeriodClosedError) return apiResponse.badRequest(res, err.message);
         throw err;
       }
     }

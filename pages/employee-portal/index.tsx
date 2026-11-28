@@ -14,10 +14,9 @@ import { apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 
 interface Me { employeeName: string; employeeNumber: string; employer: string }
-interface Slip { runId: string; periodYear: number; periodMonth: number; runDate: string | null; netPay: number }
+interface Slip { runId: string; periodLabel: string; runDate: string | null; netPay: number }
 interface Leave { leaveType: string; year: number; accrued: number; taken: number; pending: number; balance: number }
 
-const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const cell = 'border-b border-gray-200 px-3 py-2 dark:border-gray-800';
 
 export default function EmployeePortalHome() {
@@ -51,7 +50,7 @@ export default function EmployeePortalHome() {
   const loading = !error && (slips === null || leave === null);
   return (
     <PortalShell title={me ? `Hello, ${me.employeeName}` : 'Your payslips'} employer={me?.employer}
-      actions={<Button variant="secondary" size="sm" onClick={() => void signOut()}>Sign out</Button>}>
+      actions={<Button variant="secondary" size="sm" className="max-lg:h-11" onClick={() => void signOut()}>Sign out</Button>}>
       {error && <p role="alert" className="mb-4 text-sm text-red-700 dark:text-red-400">{error}</p>}
       {loading && <p role="status" className="mb-4 text-sm text-gray-600 dark:text-gray-300">Loading your payslips and leave…</p>}
       <section aria-labelledby="slips" className="mb-8">
@@ -67,7 +66,7 @@ export default function EmployeePortalHome() {
             <caption className="sr-only">Your payslips, newest first</caption>
             <thead>
               <tr>
-                <th scope="col" className={cell}>Month</th>
+                <th scope="col" className={cell}>Pay period</th>
                 <th scope="col" className={`${cell} text-right`}>Net pay</th>
                 <th scope="col" className={cell}><span className="sr-only">Download</span></th>
               </tr>
@@ -75,11 +74,11 @@ export default function EmployeePortalHome() {
             <tbody>
               {slips.map((s) => (
                 <tr key={s.runId}>
-                  <td className={cell}>{MONTHS[s.periodMonth - 1]} {s.periodYear}</td>
+                  <td className={cell}>{s.periodLabel}</td>
                   <td className={`${cell} text-right`}><Money amount={s.netPay} /></td>
                   <td className={`${cell} text-right`}>
-                    <a className="font-medium text-teal-700 underline dark:text-teal-400" href={`/api/employee-portal/payslips/${s.runId}`}>
-                      Download PDF<span className="sr-only"> for {MONTHS[s.periodMonth - 1]} {s.periodYear}</span>
+                    <a className="font-medium text-teal-700 underline dark:text-teal-400 max-lg:inline-flex max-lg:items-center max-lg:min-h-11" href={`/api/employee-portal/payslips/${s.runId}`}>
+                      Download PDF<span className="sr-only"> for {s.periodLabel}</span>
                     </a>
                   </td>
                 </tr>

@@ -18,6 +18,9 @@ import { loadavg } from 'os';
 import { test, expect, type CDPSession, type Page } from '@playwright/test';
 import { Api, ApiError } from './golden-paths/_api';
 import { LINES, WORKSPACE, pickYearAndVersion, rowCell, waitForGrid, type BudgetYearsAnswer } from './helpers/budgetWorkspace';
+import { guardDevTarget } from './helpers/devTarget';
+
+guardDevTarget(test);
 
 const MIN_LINES = 250;
 const MONTHS = 15;

@@ -19,6 +19,7 @@ import { apiFetch } from '@/lib/apiFetch';
 import CompanyDetailPage from '../../../pages/admin/companies/[id]';
 import CompaniesPage from '../../../pages/admin/companies/index';
 import { useCpuBoundTimeout } from '../../helpers/loadAwareTiming';
+import { companiesListSettled } from '../helpers/companiesListSettled';
 
 useCpuBoundTimeout();
 
@@ -72,7 +73,11 @@ describe('Suspend needs a reason', () => {
 
   it('company list, bulk', async () => {
     render(<CompaniesPage />);
-    fireEvent.click(await screen.findByLabelText('Select all'));
+    // The select-all box is in the table head from the first render, and the page reloads (clearing ticked rows) 300 ms after mount:
+    // tick only once the rows are on screen and both list loads have been made.
+    await screen.findByText('Alpha Ltd');
+    await companiesListSettled(apiFetch);
+    fireEvent.click(screen.getByLabelText('Select all'));
     fireEvent.click(await screen.findByRole('button', { name: /bulk suspend/i }));
     const dialog = await screen.findByRole('dialog');
     await waitFor(() => expect(within(dialog).getByLabelText(/reason/i)).toBeTruthy());

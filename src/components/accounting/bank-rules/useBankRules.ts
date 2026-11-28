@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { notify } from '@/utils/toast';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
-import { emitApplyToast, isHeldForApproval, notifyHeld, reportCreated } from './applyToast';
+import { emitApplyToast, isHeldForApproval, notifyHeld, reportCreated, type ApplyResultParts } from './applyToast';
 import type { BankRuleFormState } from './BankRuleForm';
 import type { BankRuleRowData, VatCode } from './BankRuleRow';
 
@@ -41,7 +41,7 @@ export interface UseBankRulesResult {
   loading: boolean;
   busy: string;
   error: string;
-  applyResult: { applied: number; skipped: number; autoPostRulesSkippedNoBankGl?: number; autoPostSkippedClosedPeriod?: number; autoPostSkippedNoPeriod?: number; autoPostSkippedRaced?: number; autoPostSkippedLocked?: number; autoPostTruncatedRules?: number } | null;
+  applyResult: { applied: number; skipped: number; autoPostRulesSkippedNoBankGl?: number; autoPostSkippedClosedPeriod?: number; autoPostSkippedNoPeriod?: number; autoPostSkippedRaced?: number; autoPostSkippedLocked?: number; autoPostTruncatedRules?: number; autoPostSkippedSupplierMerged?: number; autoPostSupplierMergedRules?: ApplyResultParts['autoPostSupplierMergedRules'] } | null;
   selected: Set<string>;
   setSelected: React.Dispatch<React.SetStateAction<Set<string>>>;
   bulkDeleting: boolean;
@@ -84,7 +84,7 @@ export function useBankRules({ defaultBankId, fetchPreview, onChanged }: UseBank
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const [applyResult, setApplyResult] = useState<
-    { applied: number; skipped: number; autoPostRulesSkippedNoBankGl?: number; autoPostSkippedClosedPeriod?: number; autoPostSkippedNoPeriod?: number; autoPostSkippedRaced?: number; autoPostSkippedLocked?: number; autoPostTruncatedRules?: number } | null
+    { applied: number; skipped: number; autoPostRulesSkippedNoBankGl?: number; autoPostSkippedClosedPeriod?: number; autoPostSkippedNoPeriod?: number; autoPostSkippedRaced?: number; autoPostSkippedLocked?: number; autoPostTruncatedRules?: number; autoPostSkippedSupplierMerged?: number; autoPostSupplierMergedRules?: ApplyResultParts['autoPostSupplierMergedRules'] } | null
   >(null);
   const [editingRule, setEditingRule] = useState<BankRule | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());

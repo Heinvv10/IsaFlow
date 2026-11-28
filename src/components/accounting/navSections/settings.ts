@@ -12,6 +12,12 @@ export const settingsTab: Tab = {
       ],
     },
     {
+      section: 'Billing',
+      items: [
+        { label: 'Upgrade from trial', href: '/accounting/settings/billing/upgrade', isSetting: true },
+      ],
+    },
+    {
       section: 'Documents & Workflows',
       items: [
         { label: 'Document Capture', href: '/accounting/document-capture' },
@@ -57,6 +63,7 @@ export const settingsTab: Tab = {
       items: [
         { label: 'Intercompany connections', href: '/accounting/settings/intercompany' },
         { label: 'Intercompany pairing', href: '/accounting/settings/intercompany/pairing' },
+        { label: 'Loan reconciliation', href: '/accounting/settings/intercompany/loan-reconciliation' },
       ],
     },
     {

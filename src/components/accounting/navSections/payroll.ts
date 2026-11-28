@@ -4,7 +4,7 @@ import type { Tab } from './types';
  * VIP-style mental model:
  *   • "Current Period" — daily payroll work for the open run.
  *   • "Employees" — the master roster + bulk admin actions.
- *   • "Statutory": the SARS and UIF outputs (IRP5, EMP501, UIF, directives, year-end).
+ *   • "Statutory": the SARS and UIF outputs (IRP5, EMP501, UIF, directives).
  *   • "Reports": operational and equity read-only outputs.
  *   • "Setup" — rare configuration (components, leave types, period roll).
  *
@@ -50,7 +50,6 @@ export const payrollTab: Tab = {
         { label: 'EMP501 Reconciliation',  href: '/payroll/emp501' },
         { label: 'UIF Declarations',       href: '/payroll/uif' },
         { label: 'Tax Directives',         href: '/payroll/tax-directives' },
-        { label: 'Year-End Workflow',      href: '/payroll/year-end' },
       ],
     },
     {

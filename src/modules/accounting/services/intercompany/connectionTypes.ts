@@ -93,13 +93,19 @@ export interface SideOptions {
   customers: NamedRef[];
   suppliers: NamedRef[];
   accounts: NamedRef[];
+  /** P4-D: the accounts the loan account may be (a loan class: `intercompany_is_loan_class`). */
+  loanAccounts: NamedRef[];
   /** True when a list was cut at its limit: the person is told, not left to wonder where a name went. */
   truncated: boolean;
 }
 
 /** A refusal the route answers with its status: nothing was written. */
 export class ConnectionRefusal extends Error {
-  constructor(readonly status: 400 | 403 | 404 | 409, message: string) {
+  /**
+   * `safeForSender`: the sentence is fixed text (it names nothing of the receiver's books), so the auto-accept worker may store it in
+   * the message's `error`, which the SENDER can read. Any other refusal is stored as a generic sentence and its detail is logged.
+   */
+  constructor(readonly status: 400 | 403 | 404 | 409, message: string, readonly safeForSender = false) {
     super(message);
     this.name = 'ConnectionRefusal';
   }

@@ -135,7 +135,7 @@ export default function NewSupplierPaymentPage() {
                     <SupplierSelect id="supplier-payments-new-supplier" required value={form.supplierId} inputClassName={inp} onChange={id => { notePick(); setForm(f => ({ ...f, supplierId: id })); }} />
                   </div>
                   <div>
-                    <DateField label="Payment Date" required name="paymentDate" value={form.paymentDate || null}
+                    <DateField label="Payment Date" required postingDate name="paymentDate" value={form.paymentDate || null}
                       resetKey={dates.resetKey('paymentDate')} className={PHONE_TAP}
                       onChange={dates.bind('paymentDate', iso => setForm(f => ({ ...f, paymentDate: iso })), form.paymentDate)} />
                   </div>

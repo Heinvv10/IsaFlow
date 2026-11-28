@@ -10,6 +10,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { assertSupplierInCompany } from '../core/contactDirectoryService';
+import { lockSupplierIfLive, SUPPLIER_NOT_LIVE_REFUSAL } from '../core/supplierLiveLock';
 import { assertDocumentLineAccounts } from '../gl/documentLineAccountGuard';
 import type { DimensionIds } from '../gl/dimensions/dimensionTypes';
 import { poSupplierChangeBlocked } from './billPurchaseOrderLinks';
@@ -49,6 +50,9 @@ export async function validatePoEdit<T extends PoEditLine>(
   companyId: string, poId: string, supplierId: string | null | undefined, sentItems: readonly T[] | undefined,
 ): Promise<ValidatedPoEdit<T>> {
   await assertSupplierInCompany(companyId, supplierId);
+  // The new supplier FIRST, FOR KEY SHARE and live, before the PO row the update locks (supplierLiveLock: the merge takes supplier
+  // rows, then POs): a PO is never moved onto a merged-away supplier, and no merge of it runs until the edit commits (breaker M2).
+  if (supplierId && !(await lockSupplierIfLive(companyId, supplierId))) throw new PurchaseOrderEditRefusal(SUPPLIER_NOT_LIVE_REFUSAL);
   const blocked = supplierId ? await poSupplierChangeBlocked(companyId, poId, supplierId) : null;
   if (blocked) throw new PurchaseOrderEditRefusal(blocked);
   // Any goods received note, cancelled included, keeps the PO's supplier (Codex gate at 42de08b3, 3).

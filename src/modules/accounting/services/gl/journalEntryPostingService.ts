@@ -22,6 +22,7 @@ import { refuseReversingCompletedCash } from '../bank/reconciledCash';
 import { refuseReversalAgainstPayRun } from '../payroll/payrollJournalReversalGuard';
 import { recordPayRunApprovalAudit } from '../payroll/payRunApprovalAudit';
 import { postJournalEntry } from './journalEntryPostService';
+import { journalChainChanged } from '../intercompany/mirrorHooks';
 import { cleanUpAfter } from './reversalCleanup';
 import { bookEtiAfterDirectiveReversal } from '../payroll/etiRebook';
 import { assertNoLiveUndoShares } from './shareUndoReversalGuard';
@@ -42,9 +43,8 @@ type Row = DbRow;
 type ReverseOpts = PostingActorOpts & {
   reversalDate?: string; lateClaimCascade?: boolean; cashLinesLocked?: readonly string[];
   /** The bank line's own undo (bank/liveBankLineReversal): it resets the line itself, so a live line is not refused. */
-  bankLinesHandled?: boolean;
+  bankLinesHandled?: boolean; voidingReceiptId?: string; // the receipt cancel reversing its own journal (intercompany/clearingReversalGuard)
 };
-
 
 import {
   ClosedFiscalPeriodError,
@@ -57,8 +57,7 @@ import {
 export { ClosedFiscalPeriodError, InactiveAccountError, assertNoInactiveAccountLines };
 
 export type { PostJournalOpts } from './vatLateClaimPlan';
-// Split out to hold this file under 300 lines; re-exported because every
-// caller — and every test that mocks this module — reaches it through here.
+// Split out to hold this file under 300 lines; re-exported: every caller and every test that mocks this module reaches it here.
 export { postJournalEntry } from './journalEntryPostService';
 
 /**
@@ -144,7 +143,7 @@ async function reverseJournalEntryInner(
     // reversed — and a release UPDATE would still bump updated_at (#1518 brk L1).
     await withSavepoint('journal_reversal_claim', async () => {
       if (!await claimJournalReversal(companyId, id, userId)) throw new Error('Journal entry already reversed');
-      await refuseReversingSettlementJournal(companyId, entry);
+      await refuseReversingSettlementJournal(companyId, entry, opts?.voidingReceiptId);
       // D12 round 3: statement cash a COMPLETED reconciliation signed off — asked under the claim, read-only.
       // ...and a LIVE statement line still booking it (bank/liveBankLineReversal): undo it from Bank Transactions.
       await refuseReversingCompletedCash(companyId, id, opts?.cashLinesLocked, { bankLinesHandled: opts?.bankLinesHandled });
@@ -260,6 +259,7 @@ async function reverseJournalEntryInner(
       if (refusal) throw refusal;
       throw err;
     }
+    await journalChainChanged(companyId, id);   // Intercompany P2: a message / group row that records this journal follows the ledger (a direct reversal, not a cancel, is no hook)
     // A companion's contra carries each claim's base negated (vatLateClaimBasis).
     if (entry.source === 'auto_vat_late_claim') await copyLateClaimBaseToReversal(companyId, id, reversalEntry.id);
 
