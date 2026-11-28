@@ -40,8 +40,22 @@ const COMPANY = randomUUID();
 const USER = randomUUID();
 const TAG = `D7VAT-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
 
+/**
+ * Every date is a day offset from ANCHOR. ANCHOR is today unless the window
+ * DOC_DATE (-120) .. LATER (+35) would straddle a year boundary. In that case it
+ * moves back so LATER lands on 31 December of DOC_DATE's year, and the window
+ * stays in one year whatever day the suite runs.
+ */
+const ANCHOR = (() => {
+  const at = (days: number) => { const d = new Date(); d.setDate(d.getDate() + days); return d; };
+  const later = at(35);
+  if (at(-120).getFullYear() === later.getFullYear()) return new Date();
+  const back = new Date(later.getFullYear() - 1, 11, 31, 12); // 31 Dec of DOC_DATE's year, midday (no DST edge)
+  back.setDate(back.getDate() - 35);
+  return back;
+})();
 function shift(days: number): string {
-  const d = new Date();
+  const d = new Date(ANCHOR);
   d.setDate(d.getDate() + days);
   return fmtDate(d);
 }
