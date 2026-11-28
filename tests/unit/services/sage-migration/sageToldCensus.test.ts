@@ -10,10 +10,13 @@
  *     (also through a cast, a `?.`, spaces), destructuring, bracket access, JSON.stringify, Reflect.get, Object.prototype.toString.call,
  *     string concatenation, a template literal of it;
  *   - the allowlist names our own typed errors, each by its exact code line, with why; an entry that matches nothing fails too.
- * Named limits (round 37): an alias (`const ex = err; ex.message`), a read split across lines, util.inspect. Round 38 (R38-5): whole-object
- * reads (Object.keys / spread / Object.assign / structuredClone), prototype reads (instanceof, Object.getPrototypeOf), a thrown value handed
+ * Named limits (round 37): an alias (`const ex = err; ex.message`), a read split across lines, util.inspect / util.format. Round 38 (R38-5):
+ * whole-object reads (Object.keys / entries / getOwnPropertyDescriptor, spread, Object.assign, structuredClone), prototype reads (instanceof, Object.getPrototypeOf), a thrown value handed
  * to the logger as meta (`log.error('x', { err })`: the logger serializes it), and a regex literal right after `)` or an identifier (read
- * as a division). With every foreign value snapshotted where it enters (part 2), the census guards the boundary; it is not the only defence.
+ * as a division). Round 39 (R39-1) refuses coercing built-ins (Number, parseInt, encodeURIComponent...), .concat / a replacement argument,
+ * a loose ==/!= with a primitive (=== never coerces, nor == null), a computed key or index, `${[err]}` and [err].toString(); named limit: a
+ * handler bound by name and passed on (`const h = (x) => x.message; p.catch(h)`: x is never learnt as a thrown name). With every foreign
+ * value snapshotted where it enters (part 2), the census guards the boundary; it is not the only defence.
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
@@ -21,10 +24,11 @@ import { describe, expect, it } from 'vitest';
 
 const ROOT = join(__dirname, '../../../..');
 const DIRS = ['src/modules/accounting/services/sage-migration', 'scripts/sage-migration'];
-const FILES = ['src/lib/rollbackFailed.ts', 'src/lib/mcp/registry.ts', 'src/lib/afterCommit.ts']; // the last two get the driver's rejection (B38 (c))
+// registry.ts and afterCommit.ts get the driver's rejection (B38 (c)); thrownValue.ts is the generic reader (R39r-5)
+const FILES = ['src/lib/rollbackFailed.ts', 'src/lib/mcp/registry.ts', 'src/lib/afterCommit.ts', 'src/lib/thrownValue.ts'];
 const FIXED = ['err', 'e', 'error', 'reason', 'cause', 'raw', 'lost', 'failure', 'waited', 'lookupFailure', 'unlockFailure', 'rollback'];
 /** Where a census is allowed to read a thrown value bare: the readers themselves. */
-const READERS = new Set(['src/modules/accounting/services/sage-migration/sageTold.ts']);
+const READERS = new Set(['src/lib/thrownValue.ts', 'src/modules/accounting/services/sage-migration/sageTold.ts']);
 /** [file, the exact code line (trimmed, comment-free), why it is safe]. */
 const ALLOW: Array<[string, string, string]> = [
   ['scripts/sage-migration/runMain.ts', 'say(`${err instanceof RefusedStart ? err.message : stopMessage(err)}${notCreated()}`);', 'RefusedStart: ours (OwnError), its message a string we built; err is a snapshot'],
@@ -108,14 +112,20 @@ export function thrownNames(code: string): string[] {
 /** What a line does with a thrown name that is refused (round 37's forms), or null. */
 export function refused(line: string, names: string[]): string | null {
   const T = `(?:${names.join('|')})`;
-  const props = '(?:message|code|errno|severity|cause|stack|name|toString|detail|constraint|where|hint|table|column|schema|routine)';
+  const props = '(?:message|code|errno|severity|cause|stack|name|toString|detail|constraint|where|hint|table|column|schema|routine|length)';
   const forms: Array<[string, RegExp]> = [
     ['String() of it', new RegExp(`\\bString\\(\\s*\\(*\\s*${T}\\b`)],
     ['a property read of it', new RegExp(`\\b${T}\\s*!?\\s*\\??\\s*\\.\\s*${props}\\b`)],
     ['a property read through a cast', new RegExp(`\\(+\\s*(?:<[^>]*>\\s*)?${T}\\s*(?:as\\s+[^)]*)?\\)+\\s*!?\\s*\\??\\s*\\.\\s*${props}\\b`)],
     ['destructuring a caught value', /\bcatch\s*\(\s*[{[]/],
     ['a built-in Error made of it', new RegExp(`\\bnew\\s+(?:Type|Range|Syntax|Reference|Eval|URI)?Error\\(\\s*\\(*\\s*${T}\\b(?!\\s*(?:\\?\\.|\\.|\\(|\\[))`)],
-    ['an array of it joined', new RegExp(`\\[[^\\]]*\\b${T}\\b[^\\]]*\\]\\s*\\.\\s*join\\b`)],
+    ['an array of it joined', new RegExp(`\\[[^\\]]*\\b${T}\\b[^\\]]*\\]\\s*\\.\\s*(?:join|toString|toLocaleString)\\b`)],
+    // R39-1: a built-in that coerces its argument, a loose comparison with a primitive, a computed key, an array in a template
+    ['a coercing built-in of it', new RegExp(`(?<![.\\w])(?:Number|parseInt|parseFloat|BigInt|encodeURIComponent|encodeURI|decodeURIComponent|escape|isNaN|isFinite)\\(\\s*\\(*\\s*${T}\\b(?!\\s*(?:\\?\\.|\\.|\\[|\\())`)],
+    ['concat or a replacement of it', new RegExp(`\\.concat\\([^)]*\\b${T}\\b|\\.replace(?:All)?\\([^,]*,\\s*\\(*\\s*${T}\\b`)],
+    ['a loose comparison of it', new RegExp(`\\b${T}\\s*[!=]=(?!=)\\s*(?![\\s=]|null\\b|undefined\\b)|(?<![!=])[!=]=\\s*\\(*\\s*${T}\\b`)],
+    ['a computed key or index of it', new RegExp(`[\\w\\])]\\??\\.?\\[\\s*\\(*\\s*${T}\\b|\\[\\s*${T}\\s*\\]\\s*:`)],
+    ['an array of it in a template', new RegExp(`\\$\\{\\s*\\[[^\\]]*\\b${T}\\b`)],
     ['destructuring it', new RegExp(`\\}\\s*=\\s*\\(?\\s*${T}\\b(?!\\s*=)`)],
     ['bracket access of it', new RegExp(`\\b${T}\\s*\\??\\.?\\[\\s*['"\`]`)],
     ['JSON.stringify of it', new RegExp(`JSON\\.stringify\\(\\s*${T}\\b`)],
@@ -133,7 +143,8 @@ describe('rounds 36-37: every thrown value the code does not own is read through
     expect(files.filter((f) => f.startsWith('src/modules')).length).toBeGreaterThan(30);
     expect(files.filter((f) => f.startsWith('scripts')).length).toBeGreaterThanOrEqual(8);
     expect(files).toContain('src/lib/rollbackFailed.ts');
-    expect(files).toEqual(expect.arrayContaining(['src/lib/mcp/registry.ts', 'src/lib/afterCommit.ts'])); // B38 (c)
+    expect(files).toEqual(expect.arrayContaining(['src/lib/mcp/registry.ts', 'src/lib/afterCommit.ts', 'src/lib/thrownValue.ts'])); // B38 (c), R39r-5
+    expect([...READERS].every((f) => files.includes(f))).toBe(true); // every reader is a file the census knows (it is skipped as the reader)
   });
   it('no refused read of a thrown value outside the readers and the allowlist; no stale allowlist entry', () => {
     const hits: string[] = [];
@@ -172,10 +183,15 @@ describe('the census itself (R37-4): its forms and its comment stripping', () =>
     'const m = (<Error>err).message;', 'const m = ((err as Error)).message;', 'const m = `${err as unknown}`;', 'const m = `${(err)}`;',
     'throw new Error(err as string);', 'const m = prefix + err;', 'const m = err + suffix;', 'text += err;', "const m = [err].join(' ');",
     '} catch ({ message }) {',
+    // R39-1
+    'const n = Number(err);', 'const n = parseInt(err, 10);', 'const u = encodeURIComponent(err);', "const s = 'a'.concat(err);",
+    "const s = 'x'.replace('y', err);", "if (err == 'x') return;", "if ('x' != err) return;", 'const o = { [err]: 1 };', 'const v = table[err];',
+    'const s = `${[err]}`;', 'const s = [err].toString();', 'const n = (err as string).length;',
   ];
   for (const line of caught) it(`refuses: ${line}`, () => { expect(refused(line, names)).not.toBeNull(); });
   const allowed = ['const m = told(err);', 'throw new ConnectionLostError(err, \'no-connection\');', 'const n = items.length + 1;', 'i++;',
-    'const err = snapshot(raw);', 'throw new Error(told(err));', 'if (err === noAnswer) return;'];
+    'const err = snapshot(raw);', 'throw new Error(told(err));', 'if (err === noAnswer) return;', 'if (err == null) return;',
+    "if (err !== 'x') return;", 'const [a, b] = [err, 1];', 'xs.push(err);', 'if (x) [lost, by] = [err, 1];', 'const ok = Number.isFinite(raw.Total);'];
   for (const line of allowed) it(`lets pass: ${line}`, () => { expect(refused(line, names)).toBeNull(); });
   it('learns the names a file binds (R38-5): async and function handlers, double quotes, once, process events', () => {
     const learnt = thrownNames([
