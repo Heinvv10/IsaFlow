@@ -68,6 +68,7 @@ const DEV_ONLY_SPECS = [
   'z32-bank-tx-layout',
   'z33-off-cycle-run',
   'z34-settings-dirty-state',
+  'z35-mark-paid',
   'z38-portal-payslip-periods',
   'z4-employee-pay-on-create',
   'z5-employee-bank-details',

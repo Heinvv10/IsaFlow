@@ -20,7 +20,7 @@ import { formatDisplayDate } from '@/utils/dateFormat';
 import { payRunFinalSql } from './payRunFinalSql';
 import { runOrderKeySql, runPayDateSql } from './payrollRunOrder';
 import { dateColumnOf } from './payrollFrequency';
-import { emp201FiledForMonth } from './payrollOffCycleCorrection';
+import { emp201FilingFor, emp201FilingText } from './payrollOffCycleCorrection';
 import { approvalCoveredPayday } from './payrollPaydayCover';
 
 /**
@@ -37,12 +37,13 @@ export async function offCyclePaidReopenRefusal(
   if (run.run_kind !== 'off_cycle') return null;
   const year = Number(run.period_year);
   const month = Number(run.period_month);
-  const filed = await emp201FiledForMonth(companyId, year, month);
-  if (!filed) return null;
+  const filing = await emp201FilingFor(companyId, year, month);
+  if (!filing) return null;
   const payDate = dateColumnOf(run.run_date);
   const when = payDate === null ? '' : ` (pay date ${formatDisplayDate(payDate)})`;
-  return `This off-cycle run${when}: its month's EMP201 is filed, so it is not reopened: `
-    + 'the filed declaration stands. A correction after filing is made outside payroll for now.';
+  // Wave 7 EL: the refusal names the EMP201 that covers the month (its PRN, or its version while not filed yet).
+  return `This off-cycle run${when}: the EMP201 for ${year}-${String(month).padStart(2, '0')} ${emp201FilingText(filing)}, `
+    + 'so it is not reopened: the filed declaration stands. A correction after filing is made outside payroll for now.';
 }
 
 

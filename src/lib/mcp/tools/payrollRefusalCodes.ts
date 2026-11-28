@@ -18,4 +18,7 @@ export const PAYROLL_REFUSAL_CODES = [
   'FREQUENCY_CHANGE_STRADDLE', // FQd payrollFrequencyStraddle: a first run at a new pay frequency pays days twice or leaves days unpaid, until acknowledged.
   'FREQUENCY_STRADDLE_ACK_REFUSED', // FQd payrollFrequencyStraddleAck: nothing to acknowledge, or the run is past calculation.
   'PSP_REGISTRATION_NOT_FOR_ENTITY', // PSP-H: a PSP's entity moved and the stored registration number (3066) is not for the new one, before any write.
+  'EMP201_FILED', // wave 7 EL payrollReopenFiledMonth: a reopen of a run whose month's EMP201 is filed, naming the EMP201's reference; before any write.
+  'PAYROLL_MARK_PAID_REFUSED', // W7 MP payrollRunMarkPaidJudge: mark paid refused before any write (status, journal, bank file, reference or date); names the run's own figures and dates.
+  'RUN_PAID', // W7 MP payrollRunReopen: a paid run is not reopened; names its payment date and the correction path.
 ] as const;

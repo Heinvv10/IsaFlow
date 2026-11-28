@@ -236,7 +236,7 @@ describe('correcting a paid, over-paid bonus run', () => {
     [a.company, a.admin]);
     const refused = await a.api.reopen(run);
     expect(refused.statusCode).toBe(409);
-    expect(a.msg(refused)).toMatch(/its month's EMP201 is filed, so it is not reopened/);
+    expect(a.msg(refused)).toMatch(/the EMP201 for 2026-11 is filed \(no reference recorded\), so it is not reopened/);
     expect((await a.header(run)).status).toBe('approved');
     // The 999x guard holds the same rule below the service: an approved run's amount does not change.
     await expect(a.pool.query('UPDATE payroll_off_cycle_employees SET amount = 1 WHERE run_id = $1', [run]))

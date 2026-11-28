@@ -21,6 +21,8 @@ import { laterMonthFinalRefusal } from './payrollOffCycleOrder';
 import { bankFileReopenWarnings } from './payrollBankFileStatus';
 import { clearPayslipDetails } from './payslipSnapshot';
 import { restoreRunGarnishees } from './payrollGarnisheeRun';
+import { Emp201FiledReopenError, regularReopenFiledRefusal } from './payrollReopenFiledMonth';
+import { PAYROLL_REFUSAL } from './payrollRefusalCodes';
 
 /**
  * A refusal raised before reopenPayrollRun writes anything. The route answers
@@ -30,6 +32,19 @@ export class PayrollRunReopenRefusedError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'PayrollRunReopenRefusedError';
+  }
+}
+
+/** Wave 7 MP: the run is marked paid. A 409 RUN_PAID (the route answers it before the generic 400). */
+export class PayrollRunPaidReopenError extends PayrollRunReopenRefusedError {
+  readonly code = PAYROLL_REFUSAL.RUN_PAID;
+  readonly status = 409;
+  constructor(paidOn: string | null, offCycle = false) {
+    super(`Paid runs cannot be reopened: this run was marked paid${paidOn ? ` on ${paidOn}` : ''} and its payments were issued. `
+      + (offCycle
+        ? 'Pay any difference with a new off-cycle run of its month.'
+        : 'Correct it with an off-cycle run.'));
+    this.name = 'PayrollRunPaidReopenError';
   }
 }
 
@@ -50,14 +65,15 @@ export async function reopenPayrollRun(opts: {
   await lockCompanyPayrollApprovals(opts.runId, opts.companyId);
   const run = await lockPayrollRunHeader(opts.runId, opts.companyId);
   if (!run) throw new PayrollRunReopenRefusedError('Payroll run not found');
+  const previousStatus = String(run.status);
+  // Wave 7 MP: a paid run of any kind is answered first (409 RUN_PAID, naming the correction path for its kind).
+  if (previousStatus === 'paid') {
+    throw new PayrollRunPaidReopenError(run.paid_on == null ? null : String(run.paid_on), run.run_kind === 'off_cycle'); // DATE reads as text (pgTypes)
+  }
   // Wave 6 FQa: an off-cycle or non-monthly run is not reopened by this release (GA lifted the garnishee clause).
   await assertRunKindSupported(opts.companyId, opts.runId, 'reopen');
 
-  const previousStatus = String(run.status);
   if (!REOPENABLE_STATUSES.has(previousStatus)) {
-    if (previousStatus === 'paid') {
-      throw new PayrollRunReopenRefusedError('Paid runs cannot be reopened — payments have been issued. Reverse via a new run.');
-    }
     if (previousStatus === 'cancelled') {
       throw new PayrollRunReopenRefusedError('Cancelled runs cannot be reopened — create a new run for this period.');
     }
@@ -65,7 +81,11 @@ export async function reopenPayrollRun(opts: {
   }
   // Wave 6 OC: an off-cycle run is reopened only while its month's EMP201 is not filed, before or after payday (409, #1679 M4).
   const paid = await offCyclePaidReopenRefusal(opts.companyId, run);
-  if (paid) throw new OffCycleRunRefusedError(paid, 409);
+  if (paid) throw new OffCycleRunRefusedError(paid, 409, PAYROLL_REFUSAL.EMP201_FILED);
+  // Wave 7 EL (W25): nor a regular run whose month's EMP201 is filed (409 EMP201_FILED, naming its reference). A plain
+  // read under the approval lock taken above, which a filing takes before its drift check (lock order: payrollReopenFiledMonth).
+  const filed = await regularReopenFiledRefusal(opts.companyId, run);
+  if (filed) throw new Emp201FiledReopenError(filed);
   // Nor while a later month of its tax year is final (gate ruling 3 on 7630d9379f): the later-month guard would refuse
   // its recalculation and approval, stranding it outside the month's totals. Judged before any change.
   if (run.run_kind === 'off_cycle') {

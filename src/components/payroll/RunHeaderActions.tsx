@@ -8,11 +8,12 @@ import { payslipUrl } from '@/components/payroll/PayslipDrawer';
 import { PayrollRunStatusBadge as StatusBadge } from '@/components/payroll/PayrollRunStatusBadge';
 import { canWrite } from '@/lib/auth/writeRoles';
 import { DeleteDraftRunButton } from '@/components/payroll/DeleteDraftRunButton';
+import { MarkRunPaidButton, type PaidRun } from '@/components/payroll/MarkRunPaid';
 
 interface Props {
   runId: string;
   period: string;
-  run: { status: string; journalEntryId: string | null; lines: unknown[] };
+  run: PaidRun & { lines: unknown[] };
   companyRole: string | null | undefined;
   locked: boolean;
   canCalculate: boolean;
@@ -23,10 +24,12 @@ interface Props {
   calculate: () => void;
   reopen: () => void;
   openApprove: () => void;
+  /** Wave 7 MP: the run was marked paid (re-read it). */
+  onPaid: () => void;
 }
 
 export function RunHeaderActions({
-  runId, period, run, companyRole, locked, canCalculate, canReopen, canApprove, calculating, reopening, calculate, reopen, openApprove,
+  runId, period, run, companyRole, locked, canCalculate, canReopen, canApprove, calculating, reopening, calculate, reopen, openApprove, onPaid,
 }: Props) {
   return (
     <div className="border-b border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)]">
@@ -82,6 +85,7 @@ export function RunHeaderActions({
               Reopen Period
             </button>
           )}
+          <MarkRunPaidButton runId={runId} run={run} companyRole={companyRole} onPaid={onPaid} />
           {/* A draft never calculated can be deleted (wave 6 FQd), next to the run's other actions (review #1622 UI L5). */}
           {run.status === 'draft' && run.lines.length === 0 && canWrite(companyRole) && <DeleteDraftRunButton runId={runId} />}
           {/* The calculate route is withWriteAccess: a viewer would only get a 403. */}
