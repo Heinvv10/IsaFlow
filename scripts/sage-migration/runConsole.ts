@@ -67,11 +67,11 @@ const tailBytes = (b: Buffer, n: number): Buffer => {
  * last bytes, said as such, and the rest of the line (the claim) is kept whole. Cut by index, never by String.replace (B38-3: a `$&` in
  * the path is not a pattern here).
  */
-const fitted = (line: string, part: string, what: 'path' | 'text'): string => {
+const fitted = (line: string, at: number, part: string, what: 'path' | 'text'): string => {
   const room = PIPE_BUF - 2;
   if (Buffer.byteLength(line) <= room) return line;
-  const at = part === '' ? -1 : line.indexOf(part);
-  if (at < 0) return headBytes(Buffer.from(line), room).toString('utf8');
+  // R39r-3: the part is cut where the line's maker put it (`at`), never at its first occurrence; a line that does not hold it there is cut.
+  if (part === '' || at < 0 || line.slice(at, at + part.length) !== part) return headBytes(Buffer.from(line), room).toString('utf8');
   const [before, after] = [line.slice(0, at), line.slice(at + part.length)];
   const note = ` (its ${what} shortened: ${Buffer.byteLength(part)} bytes)`;
   const keep = room - Buffer.byteLength(`${before}...${note}${after}`);
@@ -123,10 +123,11 @@ export function consoleApi(c: Console, sys: ConsoleSys = realSys) {
     try {
       const r = report();
       if (r === null) return;
-      line = fitted(r.finalWord(), r.path, 'path');
+      line = fitted(r.finalWord(), '--report '.length, r.path, 'path'); // where OwnedReport.finalWord puts it (fitted checks it is there)
     } catch (err) {
       const why = told(err); // read once: a value may tell differently each time
-      line = fitted(`--report: what it holds could not be told (${why}): check the books`, why, 'text');
+      const lead = '--report: what it holds could not be told (';
+      line = fitted(`${lead}${why}): check the books`, lead.length, why, 'text');
     }
     // R35-2: with 2>&1 the lane is shared, so what either stream queued counts.
     const queued = (st: Stream): number => (c.shared ? c.queuedBytes('stdout') + c.queuedBytes('stderr') : c.queuedBytes(st));

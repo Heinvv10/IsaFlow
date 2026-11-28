@@ -238,3 +238,18 @@ describe('B38-3 / R38-1: the PIPE_BUF fit cuts by index, on a character, and fit
     expect(text).toMatch(/^--report: what it holds could not be told \(\.\.\.x+END \(its text shortened: 5006 bytes\)\): check the books\n$/);
   });
 });
+
+describe('R39r-3: the path is cut where the final word put it, not where it first occurs', () => {
+  it('a path that also occurs earlier in the line ("--report report report ...") is shortened in its own place; the claim whole', async () => {
+    const path = 'report '.repeat(640).trimEnd(); // "--report " + path holds path again at offset 2
+    const r = rig(() => 1000);
+    const api = consoleApi(r.c, sys());
+    api.prepareConsole(() => ({ path, finalWord: () => `--report ${path} holds the run's report` }));
+    await api.exitAfterConsole(4);
+    const [[, text]] = nowWrites.filter(([fd]) => fd === 2);
+    expect(Buffer.byteLength(text!)).toBeLessThanOrEqual(4096);
+    const m = /^--report \.\.\.(.*) \(its path shortened: 4479 bytes\) holds the run's report\n$/.exec(text!);
+    expect(m).not.toBeNull();
+    expect(path.endsWith(m![1]!)).toBe(true);
+  });
+});
