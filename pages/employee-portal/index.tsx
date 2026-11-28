@@ -1,6 +1,6 @@
 /**
  * /employee-portal (wave 6 SS): the signed-in employee's own final payslips (download as PDF), IRP5 certificates from
- * filed EMP501 versions (SS-c, Irp5Section) and leave balances.
+ * filed EMP501 versions (SS-c, Irp5Section), leave balances, and the address and bank account on record (wave 7 EA1).
  * Read-only. A 401 from any read means the session ended: back to sign in.
  */
 import { useEffect, useState } from 'react';
@@ -9,11 +9,13 @@ import { Button } from '@/components/ui/Button';
 import { Money } from '@/components/ui/Money';
 import { PortalShell } from '@/components/employeePortal/PortalShell';
 import { Irp5Section } from '@/components/employeePortal/Irp5Section';
+import { DetailsSection } from '@/components/employeePortal/DetailsSection';
+import type { PortalDetails } from '@/modules/accounting/services/payroll/employeePortalDetails';
 import { portalCall, PortalCallError } from '@/components/employeePortal/portalFetch';
 import { apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 
-interface Me { employeeName: string; employeeNumber: string; employer: string }
+type Me = PortalDetails;
 interface Slip { runId: string; periodLabel: string; runDate: string | null; netPay: number }
 interface Leave { leaveType: string; year: number; accrued: number; taken: number; pending: number; balance: number }
 
@@ -88,6 +90,7 @@ export default function EmployeePortalHome() {
         )}
       </section>
       <Irp5Section />
+      {me && <DetailsSection address={me.address ?? null} bank={me.bank ?? null} bankUnavailable={me.bankUnavailable === true} />}
       <section aria-labelledby="leave">
         <h2 id="leave" className="mb-2 text-lg font-semibold">Leave balances</h2>
         {leave?.length === 0 && <p className="text-sm text-gray-600 dark:text-gray-300">No leave balances recorded for this year.</p>}
