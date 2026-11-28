@@ -151,6 +151,7 @@ export const entries: Array<[string, Category, string?]> = [
 export const COMPOSED: Array<[string, Category]> = [
   ['bank/bankTxQueryFragments.ts', 'BANK'],
   ['bank/settledDocumentSql.ts', 'BANK'],
+  ['core/supplierMergePosted.ts', 'SUBLEDGER'], // the merge gate's once-posted test: EXISTS (a journal sourced from the document), no figure
   ['gl/dimensions/journalDimensionSetSql.ts', 'FRAGMENT'],
   ['gl/journalVatLockGuard.ts', 'VAT'],
   ['gl/vatLockLineClassification.ts', 'VAT'],

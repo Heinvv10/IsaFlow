@@ -71,9 +71,12 @@ describeIfDb('supplier-merge route — DRC flags must agree', () => {
       INSERT INTO users (id, email, role, is_active, account_type)
       VALUES (${fx.userId}::UUID, ${`${fx.userId}@smr.test.local`}, 'admin', true, 'direct')
       ON CONFLICT (id) DO NOTHING RETURNING id`) as unknown[]).length > 0;
+    // A member, as every real request's user is: a merge moving posted documents asks the merger's Suppliers Approve (ruling 2026-11-25).
+    await sql`INSERT INTO company_users (company_id, user_id, role) VALUES (${fx.companyId}::UUID, ${fx.userId}::TEXT, 'owner') ON CONFLICT DO NOTHING`;
   }, 120000);
   afterAll(async () => {
     await sql`DELETE FROM audit_log WHERE company_id = ${fx.companyId}::UUID`;
+    await sql`DELETE FROM company_users WHERE company_id = ${fx.companyId}::UUID AND user_id = ${fx.userId}::TEXT`;
     if (userRowAdded) await sql`DELETE FROM users WHERE id = ${fx.userId}::TEXT`;
     await dropFixture(fx);
   }, 120000);

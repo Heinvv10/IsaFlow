@@ -16,6 +16,7 @@ import { lockBatchesPayingSupplier, stampBatchesOfMovedPayments } from '../ap/su
 import { lockBatchesBeforeSuppliers } from '../ap/batchBeforeSupplierLock';
 import { RowLockTimeoutError, withRowLockBudget } from './rowLockBudget';
 import { lockMovablePurchaseOrders, movePurchaseOrders } from './supplierMergePurchaseOrders';
+import { assertMayMergePostedSupplierDocuments, mayMergePostedSupplierDocuments, postedSql, refuseIfMovedPosted } from './supplierMergePosted';
 import { moveExpectationsAndAlerts, moveIntercompanySide, sideRefusal } from './supplierMergeOpenWork';
 
 export interface MergeResult {
@@ -118,6 +119,9 @@ async function mergeSuppliers(
   const pos = await lockMovablePurchaseOrders(companyId, duplicateId, companyRole);
   const sideBlock = await sideRefusal(companyId, duplicateId, primaryId);
   if (sideBlock) throw new SupplierMergeRefusal(sideBlock);
+  // Posted documents move only with Suppliers Approve, decided under the locks held now (supplierMergePosted, ruling 2026-11-25).
+  const mayMovePosted = await mayMergePostedSupplierDocuments(companyId, userId);
+  await assertMayMergePostedSupplierDocuments(companyId, duplicateId, mayMovePosted, pos);
 
   // One savepoint for the moves: the side's guard and the bill UPDATE's RETURNING (refuseIfMovedNotedBills) can still refuse, and a
   // 4xx answer is committed by withAuth, so the refusal must take back what was moved before it.
@@ -136,8 +140,9 @@ async function mergeSuppliers(
     UPDATE supplier_payments SET supplier_id = ${primaryId}::UUID,
       content_authors = approval_add_author(content_authors, ${userId}::UUID), content_edited_at = NOW()
     WHERE company_id = ${companyId}::UUID AND supplier_id = ${duplicateId}::UUID
-    RETURNING id
+    RETURNING id, ${postedSql('payment')} AS posted
   `;
+  refuseIfMovedPosted(r1 as Array<Record<string, unknown>>, 'payment', mayMovePosted); // processed while the merge waited on it
   count += r1.length;
   await stampBatchesOfMovedPayments(companyId, batchIds, userId);
 
@@ -146,10 +151,11 @@ async function mergeSuppliers(
     UPDATE supplier_invoices SET supplier_id = ${primaryId}::UUID,
       content_authors = approval_add_author(content_authors, ${userId}::UUID), content_edited_at = NOW()
     WHERE company_id = ${companyId}::UUID AND supplier_id = ${duplicateId}::UUID
-    RETURNING id, invoice_number, grn_id, deleted_at, status
+    RETURNING id, invoice_number, grn_id, deleted_at, status, ${postedSql('bill')} AS posted
   `;
   // A bill made live and noted while this ran, without the supplier lock, is moved by this UPDATE after it waited on the row.
   refuseIfMovedNotedBills(r2 as Array<Record<string, unknown>>);
+  refuseIfMovedPosted(r2 as Array<Record<string, unknown>>, 'bill', mayMovePosted); // approved while the merge waited on it
   count += r2.length;
 
   // supplier_purchase_orders is retired (migration 1022, PR #1703): every row was copied into purchase_orders under the same id,
@@ -164,8 +170,9 @@ async function mergeSuppliers(
     UPDATE credit_notes SET supplier_id = ${primaryId}::UUID,
       content_authors = approval_add_author(content_authors, ${userId}::UUID), content_edited_at = NOW()
     WHERE company_id = ${companyId}::UUID AND supplier_id = ${duplicateId}::UUID
-    RETURNING id
+    RETURNING id, ${postedSql('credit_note')} AS posted
   `;
+  refuseIfMovedPosted(r5 as Array<Record<string, unknown>>, 'credit_note', mayMovePosted);
   count += r5.length;
 
   // Not moved transactions, so not counted: the side and the expectation / alert / opt-out work.

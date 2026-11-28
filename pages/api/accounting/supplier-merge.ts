@@ -19,6 +19,10 @@ import {
   SupplierMergeRefusal, assertSupplierMergeKeepsDrcFlag, assertSupplierMergeMovesNoNotedBill, refuseIfMovedNotedBills,
 } from '@/modules/accounting/services/core/duplicateMergeService';
 import { lockMovablePurchaseOrders, movePurchaseOrders } from '@/modules/accounting/services/core/supplierMergePurchaseOrders';
+import {
+  assertMayMergePostedSupplierDocuments, mayMergePostedSupplierDocuments, postedSql, refuseIfMovedPosted,
+} from '@/modules/accounting/services/core/supplierMergePosted';
+import { respondIfApprovePermissionRefused } from '@/modules/accounting/services/core/approvePermissionResponse';
 import { moveExpectationsAndAlerts, moveIntercompanySide, sideRefusal } from '@/modules/accounting/services/core/supplierMergeOpenWork';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { lockBatchesPayingSupplier, stampBatchesOfMovedPayments } from '@/modules/accounting/services/ap/supplierPaymentAuthors';
@@ -66,6 +70,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       const pos = await lockMovablePurchaseOrders(companyId, source_id, companyRole);
       const sideBlock = await sideRefusal(companyId, source_id, target_id);
       if (sideBlock) throw new SupplierMergeRefusal(sideBlock);
+      // Posted documents move only with Suppliers Approve, decided under the locks held now (supplierMergePosted, ruling 2026-11-25).
+      const mayMovePosted = await mayMergePostedSupplierDocuments(companyId, user.id);
+      await assertMayMergePostedSupplierDocuments(companyId, source_id, mayMovePosted, pos);
       const side = await moveIntercompanySide(companyId, source_id, target_id);
       if (side.refusal) throw new SupplierMergeRefusal(side.refusal);
 
@@ -75,13 +82,15 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       // Their batches are locked first: batch before members, the order
       // approveBatch / processBatch take (bank/.claude.md lock order).
       const batchIds = await lockBatchesPayingSupplier(companyId, source_id, null);
-      await tx`
+      const movedPayments = await tx`
         UPDATE supplier_payments
         SET supplier_id = ${target_id},
             content_authors = approval_add_author(content_authors, ${user.id}::UUID), content_edited_at = NOW()
         WHERE supplier_id = ${source_id}
           AND company_id = ${companyId}
+        RETURNING ${postedSql('payment')} AS posted
       `;
+      refuseIfMovedPosted(movedPayments as Array<Record<string, unknown>>, 'payment', mayMovePosted); // processed while the merge waited
       await stampBatchesOfMovedPayments(companyId, batchIds, user.id);
 
       // 3. Re-parent supplier_invoices — AFTER the payments, as every payment
@@ -95,11 +104,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
             content_authors = approval_add_author(content_authors, ${user.id}::UUID), content_edited_at = NOW()
         WHERE supplier_id = ${source_id}
           AND company_id = ${companyId}
-        RETURNING invoice_number, grn_id, deleted_at, status
+        RETURNING invoice_number, grn_id, deleted_at, status, ${postedSql('bill')} AS posted
       `;
       // A bill made live and noted while this ran, without the supplier lock, is moved here after it waited on the row (#1708):
       // refused, and this transaction's savepoint takes the whole merge back.
       refuseIfMovedNotedBills(movedBills as Array<Record<string, unknown>>);
+      refuseIfMovedPosted(movedBills as Array<Record<string, unknown>>, 'bill', mayMovePosted); // approved while the merge waited
 
       // 4. supplier_purchase_orders is retired (migration 1022, PR #1703): its rows were copied into purchase_orders under the
       // same ids and the legacy table refuses UPDATE, so step 5's canonical move is the only PO move.
@@ -109,13 +119,15 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       // customer and supplier notes; supplier_id is approval content, as on a bill). Then the intercompany side and the open
       // expectations / alerts. The supplier_id tables that stay behind, and why: the comment in supplierMergeOpenWork.
       await movePurchaseOrders(companyId, pos, source_id, target_id, { userId: user.id, role: companyRole, via: 'supplier-merge' });
-      await tx`
+      const movedNotes = await tx`
         UPDATE credit_notes
         SET supplier_id = ${target_id},
             content_authors = approval_add_author(content_authors, ${user.id}::UUID), content_edited_at = NOW()
         WHERE supplier_id = ${source_id}
           AND company_id = ${companyId}
+        RETURNING ${postedSql('credit_note')} AS posted
       `;
+      refuseIfMovedPosted(movedNotes as Array<Record<string, unknown>>, 'credit_note', mayMovePosted);
       await moveExpectationsAndAlerts(companyId, source_id, target_id, { userId: user.id, via: 'supplier-merge' });
 
       // 6. Soft-delete the source supplier, recording its survivor (merged_into_id, migration 1020):
@@ -146,6 +158,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   } catch (err: unknown) {
     // A held row or a deadlock victim: 503 + Retry-After (the supplier lock helper's own timeout included).
     if (respondIfLockTimeout(res, err)) return;
+    // Posted documents without Suppliers Approve (supplierMergePosted): 403, nothing moved.
+    if (respondIfApprovePermissionRefused(res, err)) return;
     const message = err instanceof Error ? err.message : String(err);
     log.error('supplier-merge POST failed', { error: message, module: 'accounting' });
 
