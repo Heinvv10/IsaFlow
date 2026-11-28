@@ -18,9 +18,8 @@ import type { McpToolContext } from '@/lib/mcp/types';
 import { CommitRefusedError, CommitUnconfirmedError, RunEndedError, commitRefusedByServer, ConnectionLostError, DryRollbackUnconfirmedError, LockWaitError, LostBeforeCommitError, StatementTimeoutError, type LockHolder } from './sageSessionErrors';
 import { idempotencyLockText, takeKeyLockNow } from './sageKeyLock';
 import { watchWaits } from './sageWaitWatch';
-import { codeOf, snapshot, told, OwnError } from './sageTold';
-import { connectionEnded, said, toolOutcome } from './sageSessionRead';
-import { log } from '@/lib/logger';
+import { codeOf, commandOf, snapshot, told, OwnError } from './sageTold';
+import { connectionEnded, safeLog, said, toolOutcome } from './sageSessionRead';
 
 export { toolOutcome } from './sageSessionRead';
 import { SAGE_COMMIT_TIMEOUT_MS, SAGE_LOCK_TIMEOUT_MS, SAGE_STATEMENT_TIMEOUT_MS, sageAppName } from './sageTimeouts';
@@ -48,7 +47,6 @@ export interface ToolSession {
 }
 
 export class NotAMemberError extends OwnError {}
-
 
 /** How long a COMMIT may take to answer (sageTimeouts.ts SAGE_COMMIT_TIMEOUT_MS: between the statement and the client query timeouts). */
 export const COMMIT_TIMEOUT_MS = SAGE_COMMIT_TIMEOUT_MS;
@@ -231,12 +229,14 @@ export async function withToolSession<T>(
     // A lock or statement timeout in a committing request (its tool answered a failure): nothing of it is written, the run stops there.
     const stalled = stall();
     if (stalled !== null) throw stalled;
-    if (txCtx.rollbackOnly) throw new Error(`the request transaction was marked rollback-only: ${txCtx.rollbackOnly}`);
+    // B38-1: a savepoint whose ROLLBACK TO SAVEPOINT failed leaves the transaction unusable (als.markTxUnusable): never committed either.
+    if (txCtx.rollbackOnly || txCtx.txUnusable) throw new Error(`the request transaction was not committed: ${txCtx.rollbackOnly ?? txCtx.txUnusable}`);
     let commitTimer: ReturnType<typeof setTimeout> | undefined;
     commitSent = true;
+    let answer: unknown;
     try {
       // Bounded like the ROLLBACK: a connection that never answers must not hang the run. A timeout is "unconfirmed", never "failed".
-      await Promise.race([
+      answer = await Promise.race([
         db.query('COMMIT'),
         new Promise<never>((_, reject) => { commitTimer = setTimeout(() => reject(new Error(`COMMIT did not answer within ${commitBoundMs}ms`)), commitBoundMs); commitTimer.unref?.(); }),
       ]);
@@ -251,8 +251,14 @@ export async function withToolSession<T>(
     } finally {
       clearTimeout(commitTimer);
     }
+    // B38-1: a COMMIT the server answers with the ROLLBACK tag (the transaction had already been aborted) wrote nothing: refused.
+    if (commandOf(answer) === 'ROLLBACK') {
+      commitOutcome = new CommitRefusedError(Object.assign(new Error('the COMMIT was answered ROLLBACK: the transaction had already been aborted'), { code: '25P02' }));
+      throw commitOutcome;
+    }
+    // R38-2: an OK COMMIT is decided too: nothing after it (the after-commit hooks, a later loss) can make it "nothing written".
     committed = true;
-    drainAfterCommit(txCtx);
+    try { drainAfterCommit(txCtx); } catch (e) { safeLog('the after-commit hooks failed after the COMMIT', e); }
     return result;
   } catch (raw) {
     const err = snapshot(raw); // anything fn, a tool or the registry threw: ours as it is, else its snapshot (round 37, part 2)
@@ -273,13 +279,18 @@ export async function withToolSession<T>(
     if (!said(err) && (lost !== null || connectionEnded(err))) throw commit ? new LostBeforeCommitError(lost ?? err, lost !== null && lostBy === 'timeout' ? { pid } : undefined) : new ConnectionLostError(lost ?? err);
     throw err;
   } finally {
-    // Nothing here may replace the outcome above (round 37): each step on its own, a throw only logged.
-    const quietly = (what: string, step: () => void): void => {
-      try { step(); } catch (e) { log.error(`sage migration: ${what} failed after the request`, { message: told(e) }, 'sage-migration'); }
-    };
+    // Nothing here may replace the outcome above (round 37): each step on its own, a throw only logged (and the logging guarded too).
+    const quietly = (what: string, step: () => void): void => { try { step(); } catch (e) { safeLog(`${what} failed after the request`, e); } };
     quietly('stopping the wait watch', () => watch.stop());
     quietly('removing the error listener', () => { client.off('error', onError); });
-    try { client.release(unusable || lost !== null); } catch (e) { log.error('sage migration: releasing the connection failed after the request', { message: told(e) }, 'sage-migration'); }
+    try {
+      client.release(unusable || lost !== null);
+    } catch (e) {
+      // R38-4: a release that throws is a connection in doubt: destroyed, never back in the pool by a second, plain release.
+      safeLog('releasing the connection failed after the request', e);
+      unusable = true;
+      try { client.release(unusable); } catch (again) { safeLog('destroying the connection failed after the request', again); }
+    }
     quietly('settling the request context', () => settleAfterRollback(owned, committed));
   }
 }

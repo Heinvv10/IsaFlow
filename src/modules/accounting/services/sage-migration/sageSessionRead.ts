@@ -5,6 +5,16 @@
 import { CommitRefusedError, CommitUnconfirmedError, ConnectionLostError, DryRollbackUnconfirmedError, LockWaitError, LostBeforeCommitError, StatementTimeoutError } from './sageSessionErrors';
 import { codeOf, told } from './sageTold';
 import type { ToolOutcome } from './sageToolSession';
+import { log } from '@/lib/logger';
+
+/** A log line that cannot throw (R38-4): the logger failing, or the value's telling, is swallowed here and nowhere else. */
+export const safeLog = (what: string, e: unknown): void => {
+  try {
+    log.error(`sage migration: ${what}`, { message: told(e) }, 'sage-migration');
+  } catch {
+    // The logger itself threw: there is nothing left to tell it with, and a cleanup step must not throw.
+  }
+};
 
 /**
  * The error of a connection that ended: the server terminated the backend (57P01-03), or pg's own client error (no code) for a

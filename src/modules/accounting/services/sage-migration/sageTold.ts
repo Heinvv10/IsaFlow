@@ -43,6 +43,9 @@ export const codeOf = (err: unknown): unknown => {
   try { return isObject(err) ? (err as { code?: unknown }).code : undefined; } catch { return undefined; }
 };
 
+/** What a query answered as its command tag (pg's `command`: 'COMMIT', 'ROLLBACK'), read inside a try: undefined when unreadable. */
+export const commandOf = (answer: unknown): unknown => once(() => (isObject(answer) ? (answer as { command?: unknown }).command : undefined));
+
 /** A thrown value's `severity` and `cause`, each read inside a try: undefined when absent or unreadable. */
 export const severityOf = (err: unknown): unknown => once(() => (isObject(err) ? (err as { severity?: unknown }).severity : undefined));
 export const causeOf = (err: unknown): unknown => once(() => (isObject(err) ? (err as { cause?: unknown }).cause : undefined));
@@ -66,6 +69,11 @@ export const snapshot = (raw: unknown): Error => {
   const ServerError = (pg as { DatabaseError?: abstract new (...a: never[]) => Error }).DatabaseError;
   const server = typeof ServerError === 'function' && once(() => raw instanceof ServerError) === true;
   const e = new Error(message);
+  // R38-3: a programming error's name and stack survive, as strings read in a try (never its getters again).
+  const name = once(() => { const v = isError ? (raw as Error).name : undefined; return typeof v === 'string' ? v : undefined; });
+  const stack = once(() => { const v = isError ? (raw as Error).stack : undefined; return typeof v === 'string' ? v : undefined; });
+  if (name !== undefined && name !== e.name) e.name = name; // an own name only where it differs: a plain Error's snapshot reads as before
+  if (stack !== undefined) e.stack = stack;
   if (code !== undefined) (e as Error & { code?: unknown }).code = code;
   if (severity !== undefined) (e as Error & { severity?: unknown }).severity = severity;
   OURS.add(e);
