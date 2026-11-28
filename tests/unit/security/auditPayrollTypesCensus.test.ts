@@ -106,6 +106,7 @@ describe('payroll audit entity types (PAYROLL_AUDIT_ENTITY_TYPES)', () => {
     '885_bank_rule_switch_definer.sql': "'approval_enforcement'",
     '908_relabel_sage_history_journals.sql': "'gl_journal_entry': a journal relabel",
     '947_budget_versions.sql': "'budget'",
+    '1050_approval_request_actor_case.sql': "'approval_request': 872's decide re-created (W18); the same sole-approver row, filtered as 872's",
   };
   const RAW = /\bINSERT\s+INTO\s+(?:public\.)?audit_log\b/i;
 

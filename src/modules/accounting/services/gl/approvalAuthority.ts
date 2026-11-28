@@ -100,10 +100,13 @@ export async function assertDecidingSession(): Promise<void> {
 export async function assertMayDecide(
   companyId: string,
   requestId: string,
-  decidedBy: string,
+  decider: string,
   decision: 'approved' | 'rejected'
 ): Promise<SoleApproverSelfApproval | null> {
   await assertDecidingSession();
+  // W18: every stored id is lower case (uuid text, GoTrue ids), so an upper-cased spelling of the requester is still
+  // the requester. Lowered once here; every comparison below reads this (migration 1050 does the same in SQL).
+  const decidedBy = decider.toLowerCase();
 
   const rows = (await sql`
     SELECT (ar.requested_by::TEXT = ${decidedBy}) AS is_self,

@@ -73,16 +73,17 @@ const WRITERS = [
 ];
 
 /**
- * The writers exactly as migration 872 creates them. A change to any of these
+ * The writers exactly as migration 872 creates them (raise and decide as 1050,
+ * W18, re-created them: the actor id is lowered once). A change to any of these
  * bodies is a change to who may write an approval: re-review N1 (the decide,
  * roles, raise, parity and forgery suites), then update the pin to
  * `SELECT md5(prosrc) FROM pg_proc WHERE oid = to_regprocedure('public.<writer>')`.
  */
 const PINNED: Record<string, { md5: string; result: string }> = {
-  'approval_request_raise(uuid,text,uuid,uuid,text)': { md5: '36fd1aac5e94fe288f62fdbfe0840b20', result: 'SETOF approval_requests' },
+  'approval_request_raise(uuid,text,uuid,uuid,text)': { md5: 'c1116a9ab606030c3c7d103933d41bee', result: 'SETOF approval_requests' },
   'approval_request_rebind(uuid,uuid,uuid,text)': { md5: '768af4d84ac628234bbdac8ffcae5532', result: 'SETOF approval_requests' },
   'approval_request_lock(uuid,uuid)': { md5: 'ff39a730494c0a39e14e456653f627b3', result: 'void' },
-  'approval_request_decide(uuid,uuid,text,text,text,text)': { md5: '9c3c2ce53d36d1872428a484f933f6b9', result: 'SETOF approval_requests' },
+  'approval_request_decide(uuid,uuid,text,text,text,text)': { md5: '579f5925c88c050339bf58dc025c1cb7', result: 'SETOF approval_requests' },
 };
 
 /** A static write naming the table: INSERT/UPDATE/DELETE/TRUNCATE/MERGE, ONLY, schema-qualified or quoted. */
