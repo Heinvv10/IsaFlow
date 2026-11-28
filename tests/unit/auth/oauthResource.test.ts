@@ -105,6 +105,19 @@ describe('authorizationErrorRedirect', () => {
     expect(url.searchParams.get('state')).toBe('st');
     expect(url.searchParams.get('iss')).toBe('https://app.isaflow.co.za');
     expect(url.searchParams.get('keep')).toBe('1');
+    expect(url.searchParams.has('error_description')).toBe(false);
+  });
+
+  it('sets error_description when given', () => {
+    const url = new URL(authorizationErrorRedirect('https://client.example/cb', 'access_denied', 'st', 'https://app.isaflow.co.za', 'The MCP connector is off.'));
+    expect(url.searchParams.get('error_description')).toBe('The MCP connector is off.');
+    expect(url.searchParams.get('iss')).toBe('https://app.isaflow.co.za');
+  });
+
+  it('omits state when empty, always sends iss', () => {
+    const url = new URL(authorizationErrorRedirect('https://client.example/cb', 'access_denied', '', 'https://app.isaflow.co.za', 'x'));
+    expect(url.searchParams.has('state')).toBe(false);
+    expect(url.searchParams.get('iss')).toBe('https://app.isaflow.co.za');
   });
 });
 

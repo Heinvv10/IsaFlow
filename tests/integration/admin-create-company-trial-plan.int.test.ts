@@ -35,6 +35,7 @@ describe.skipIf(!process.env.DATABASE_URL)('admin createCompany on a plan', () =
   });
 
   afterAll(async () => {
+    await pool().query('DELETE FROM company_feature_overrides WHERE company_id = ANY($1::uuid[])', [created]);
     await pool().query('DELETE FROM subscriptions WHERE company_id = ANY($1::uuid[])', [created]);
     await pool().query('DELETE FROM companies WHERE id = ANY($1::uuid[])', [created]);
     await pool().query('DELETE FROM plan_features WHERE plan_id = $1', [plan]);
@@ -45,7 +46,7 @@ describe.skipIf(!process.env.DATABASE_URL)('admin createCompany on a plan', () =
 
   it('an admin-created company on a plan has the plan features and a trial end (company and subscription) TRIAL_DAYS out', async () => {
     const before = Date.now();
-    const company = await createCompany({ name: `CreateCo ${tag}`, plan_id: plan });
+    const company = await createCompany({ name: `CreateCo ${tag}`, plan_id: plan, actorUserId: randomUUID() });
     created.push(company.id);
 
     expect(await hasFeature(company.id, FLAG)).toBe(true);
@@ -60,7 +61,7 @@ describe.skipIf(!process.env.DATABASE_URL)('admin createCompany on a plan', () =
   });
 
   it('an admin-created company with no plan has no subscription, no trial end and no plan feature', async () => {
-    const company = await createCompany({ name: `CreateCo none ${tag}` });
+    const company = await createCompany({ name: `CreateCo none ${tag}`, actorUserId: randomUUID() });
     created.push(company.id);
 
     expect(await hasFeature(company.id, FLAG)).toBe(false);

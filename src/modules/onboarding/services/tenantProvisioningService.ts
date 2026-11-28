@@ -17,6 +17,7 @@
  */
 
 import { log } from '@/lib/logger';
+import { enableMcpConnectorDefault } from '@/lib/mcp/connectorDefault';
 import { generateFiscalYearForDate } from '@/modules/accounting/services/gl/fiscalYearGenerator';
 import { trialEndsAt } from './trialPeriod';
 
@@ -148,6 +149,10 @@ export async function provisionTenant(
      VALUES ($1::uuid, $2, 'owner', true)`,
     [companyId, input.ownerUserId],
   );
+
+  // The MCP connector is on by default for a new company (migration 1058), in this transaction, before an
+  // accountant sign-up's bureau setup runs (its SAVEPOINT cannot roll this back).
+  await enableMcpConnectorDefault(client, companyId, input.ownerUserId);
 
   // users.email is stored lower(btrim()), the form users_email_lower_key holds unique (migration 999).
   await client.query(

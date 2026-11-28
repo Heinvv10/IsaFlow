@@ -25,7 +25,8 @@ import { partitionRequestedScopes } from '@/lib/auth/consentScopes';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { parseCookies, ACCESS_COOKIE, ACTIVE_COMPANY_COOKIE } from '@/lib/auth/cookies';
 import { resolveConsentCompany } from '@/lib/auth/consentCompany';
-import { connectorEnabledMemberships, NO_CONNECTOR_COMPANY_MESSAGE } from '@/lib/auth/connectorCompanies';
+import { connectorEnabledMemberships, MCP_SETTINGS_PATH, NO_CONNECTOR_COMPANY_MESSAGE } from '@/lib/auth/connectorCompanies';
+import { readAuthorizeQuery } from '@/lib/auth/authorizeQuery';
 import { getUserCompanies } from '@/modules/accounting/services/core/companyService';
 import { verifyToken } from '@/lib/auth/gotrue';
 import { AuthUpstreamUnavailableError } from '@/lib/auth/authUpstream';
@@ -41,7 +42,7 @@ export default function AuthorizePage(props: Props | ErrorProps) {
   const [companyId, setCompanyId] = useState(props.ok ? props.selectedCompanyId : '');
   const [optInChecked, setOptInChecked] = useState<Record<string, boolean>>({});
 
-  if (!props.ok) return <ConsentRejected error={props.error} />;
+  if (!props.ok) return <ConsentRejected error={props.error} settingsHref={props.settingsHref} />;
 
   const { app, clientId, redirectUri, scopes, state, codeChallenge, codeChallengeMethod, companies, resource, issuer } = props;
 
@@ -216,13 +217,7 @@ export const getServerSideProps: GetServerSideProps<Props | ErrorProps> = async 
   }
 
   const q = ctx.query;
-  const clientId = typeof q.client_id === 'string' ? q.client_id : '';
-  const redirectUri = typeof q.redirect_uri === 'string' ? q.redirect_uri : '';
-  const scopeStr = typeof q.scope === 'string' ? q.scope : '';
-  const state = typeof q.state === 'string' ? q.state : '';
-  const codeChallenge = typeof q.code_challenge === 'string' ? q.code_challenge : '';
-  const codeChallengeMethod = typeof q.code_challenge_method === 'string' ? q.code_challenge_method : 'S256';
-  const responseType = typeof q.response_type === 'string' ? q.response_type : '';
+  const { clientId, redirectUri, scopeStr, state, codeChallenge, codeChallengeMethod, responseType } = readAuthorizeQuery(q);
 
   if (!clientId) return { props: { ok: false, error: 'Missing client_id' } };
   if (!redirectUri) return { props: { ok: false, error: 'Missing redirect_uri' } };
@@ -271,7 +266,12 @@ export const getServerSideProps: GetServerSideProps<Props | ErrorProps> = async 
     return { props: { ok: false, error: 'Your account is not linked to a company, so there is nothing to authorise.' } };
   }
   const choice = resolveConsentCompany(await connectorEnabledMemberships(memberships), cookies[ACTIVE_COMPANY_COOKIE]);
-  if (!choice) return { props: { ok: false, error: NO_CONNECTOR_COMPANY_MESSAGE } };
+  if (!choice) {
+    // redirect_uri is registered (above). Back to the client only with a state to carry (D1); else the page, with the settings link.
+    if (!state) return { props: { ok: false, error: NO_CONNECTOR_COMPANY_MESSAGE, settingsHref: MCP_SETTINGS_PATH } };
+    const destination = authorizationErrorRedirect(redirectUri, 'access_denied', state, issuer, NO_CONNECTOR_COMPANY_MESSAGE);
+    return { redirect: { destination, permanent: false } };
+  }
 
   const appView = consentAppView(app);
   if (appView.logoUrl) {

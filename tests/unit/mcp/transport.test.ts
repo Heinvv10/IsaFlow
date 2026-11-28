@@ -326,7 +326,7 @@ describe('/api/mcp transport', () => {
       expect(err.code).toBe(-32001);
       // G3: names who can switch it on, never an upgrade.
       expect(err.message).toBe(
-        'MCP connector not enabled for this company. Contact IsaFlow support to have it switched on.',
+        'MCP connector not enabled for this company. A company owner or admin can switch it on in IsaFlow under Settings > Developer > MCP Connector (AI agents).',
       );
       expect(err.message).not.toMatch(/upgrade|plan|subscri/i);
       // The request's id, not null: a null-id reply to a request that carried
@@ -335,6 +335,18 @@ describe('/api/mcp transport', () => {
     }
     expect(hasFeature).toHaveBeenCalledWith(COMPANY_ID, 'mcp_connector');
     expect(seenContexts).toHaveLength(0);
+  });
+
+  // Migration 1058, D5: switching the connector off revokes no token. A bearer that worked gets -32001 on its very next
+  // call once hasFeature reads false, because the transport checks the flag on every request.
+  it('a token that worked gets -32001 on its next call once the connector is switched off', async () => {
+    const ok = makeRes();
+    await route(makeReq('POST', rpc('ping')) as never, ok);
+    expect((ok.body as { error?: unknown }).error).toBeUndefined();
+    vi.mocked(hasFeature).mockResolvedValue(false);
+    const off = makeRes();
+    await route(makeReq('POST', rpc('ping')) as never, off);
+    expect((off.body as { error: { code: number } }).error.code).toBe(-32001);
   });
 
   it('per-company rate limit 120/min → -32000 when exceeded', async () => {

@@ -35,7 +35,7 @@ export async function dropCompanies(companyIds: string[]): Promise<void> {
   await fixture.query('UPDATE waitlist_signups SET promoted_company_id = NULL WHERE promoted_company_id = ANY($1::uuid[])', [companyIds]);
   await fixture.query(`DELETE FROM gl_account_balances WHERE gl_account_id IN
     (SELECT id FROM gl_accounts WHERE company_id = ANY($1::uuid[]))`, [companyIds]);
-  for (const t of ['subscription_charges', 'subscriptions', 'company_users', 'gl_accounts', 'fiscal_periods']) {
+  for (const t of ['company_feature_overrides', 'subscription_charges', 'subscriptions', 'company_users', 'gl_accounts', 'fiscal_periods']) {
     await fixture.query(`DELETE FROM ${t} WHERE company_id = ANY($1::uuid[])`, [companyIds]);
   }
   await fixture.query('DELETE FROM companies WHERE id = ANY($1::uuid[])', [companyIds]);

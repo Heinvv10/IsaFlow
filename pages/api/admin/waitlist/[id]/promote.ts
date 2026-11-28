@@ -40,6 +40,7 @@ async function handler(req: PlatformAdminRequest, res: NextApiResponse): Promise
 
   const result = await promoteWaitlistSignup(parsedId.data, {
     planCodeOverride: parsedBody.data.planCodeOverride ?? null,
+    actorUserId:      req.user.id,
   });
 
   if (result.status === 'not_found') {

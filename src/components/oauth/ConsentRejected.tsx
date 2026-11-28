@@ -7,10 +7,12 @@
  *
  * Deliberately does NOT offer a retry or a link back into the app: at this
  * point the request is untrustworthy, and the safest action is to close it.
+ * The one exception is settingsHref, passed only for "no company has the MCP
+ * connector on" (a fixed IsaFlow path, never one from the request).
  */
 import { AlertTriangle } from 'lucide-react';
 
-export function ConsentRejected({ error }: { error: string }) {
+export function ConsentRejected({ error, settingsHref }: { error: string; settingsHref?: string }) {
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-950 text-slate-100 p-6">
       <div className="max-w-md w-full bg-slate-900 border border-red-800/40 rounded-xl p-6">
@@ -19,6 +21,11 @@ export function ConsentRejected({ error }: { error: string }) {
           <div>
             <h1 className="text-lg font-semibold">Authorisation request rejected</h1>
             <p className="text-sm text-slate-400 mt-1">{error}</p>
+            {settingsHref && (
+              <a href={settingsHref} className="mt-3 inline-block text-sm text-teal-400 hover:text-teal-300">
+                Open the MCP Connector settings
+              </a>
+            )}
           </div>
         </div>
         <p className="text-xs text-slate-400 mt-4">

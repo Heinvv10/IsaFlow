@@ -14,11 +14,15 @@ import { companiesWithFeature, hasFeature } from '@/modules/admin/services/featu
 
 export const MCP_CONNECTOR_FEATURE = 'mcp_connector';
 
+/** Where a company owner or admin switches the connector on (migration 1058); the nav path below names it. */
+export const MCP_SETTINGS_PATH = '/accounting/settings/integrations-mcp';
+
+/** Also the error_description of the access_denied redirect, so RFC 6749 ASCII: no double quote, no backslash. */
 export const NO_CONNECTOR_COMPANY_MESSAGE =
-  'The MCP connector is not switched on for any of your companies. Contact IsaFlow support to have it switched on.';
+  'The MCP connector is off for your companies. A company owner or admin can switch it on in IsaFlow under Settings > Developer > MCP Connector (AI agents).';
 
 export const CONNECTOR_COMPANY_REFUSED_MESSAGE =
-  'The MCP connector is not switched on for this company. Choose another company, or contact IsaFlow support to have it switched on.';
+  'The MCP connector is off for this company. Choose another company, or ask a company owner or admin to switch it on under Settings > Developer > MCP Connector (AI agents).';
 
 export async function isConnectorEnabled(companyId: string): Promise<boolean> {
   return hasFeature(companyId, MCP_CONNECTOR_FEATURE);

@@ -88,6 +88,7 @@ describe('promoteWaitlistSignup', () => {
   });
 
   const waitlistId = '00000000-0000-0000-0000-000000000042';
+  const ADMIN = '00000000-0000-0000-0000-0000000000ad';
   const row = signup({ id: waitlistId, annual_turnover_cents: 50_000_000, phone: '+27821234567' });
 
   function stubLoadSignup(r: WaitlistSignupRow | null) {
@@ -108,7 +109,7 @@ describe('promoteWaitlistSignup', () => {
 
   it('returns not_found when the waitlist row is missing', async () => {
     stubLoadSignup(null);
-    const result = await promoteWaitlistSignup(waitlistId);
+    const result = await promoteWaitlistSignup(waitlistId, { actorUserId: ADMIN });
     expect(result.status).toBe('not_found');
     expect(result.companyId).toBeNull();
     expect(mockCreateCompany).not.toHaveBeenCalled();
@@ -117,7 +118,7 @@ describe('promoteWaitlistSignup', () => {
   it('returns already_promoted without creating a duplicate company', async () => {
     stubLoadSignup(row);
     stubAlreadyPromoted('company-xyz');
-    const result = await promoteWaitlistSignup(waitlistId);
+    const result = await promoteWaitlistSignup(waitlistId, { actorUserId: ADMIN });
     expect(result.status).toBe('already_promoted');
     expect(result.companyId).toBe('company-xyz');
     expect(mockCreateCompany).not.toHaveBeenCalled();
@@ -130,7 +131,7 @@ describe('promoteWaitlistSignup', () => {
     mockCreateCompany.mockResolvedValueOnce({ id: 'company-new', name: 'Acme (Pty) Ltd' });
     stubUpdateStamp();
 
-    const result = await promoteWaitlistSignup(waitlistId);
+    const result = await promoteWaitlistSignup(waitlistId, { actorUserId: ADMIN });
 
     expect(result.status).toBe('promoted');
     expect(result.companyId).toBe('company-new');
@@ -142,7 +143,21 @@ describe('promoteWaitlistSignup', () => {
       plan_id: 'plan-payg-uuid',
       annual_turnover_cents: 50_000_000,
       payg_eligible: true,
+      actorUserId: ADMIN,
     });
+  });
+
+  it('forwards the promoting admin as the MCP connector default-on actor', async () => {
+    stubLoadSignup(row);
+    stubPending();
+    stubPlanLookup('plan-payg-uuid');
+    mockCreateCompany.mockResolvedValueOnce({ id: 'company-new', name: 'Acme (Pty) Ltd' });
+    stubUpdateStamp();
+
+    await promoteWaitlistSignup(waitlistId, { actorUserId: ADMIN });
+
+    expect(mockCreateCompany).toHaveBeenCalledTimes(1);
+    expect(mockCreateCompany.mock.calls[0]![0].actorUserId).toBe(ADMIN);
   });
 
   it('never inserts a subscription itself — createCompany owns that write', async () => {
@@ -156,7 +171,7 @@ describe('promoteWaitlistSignup', () => {
     mockCreateCompany.mockResolvedValueOnce({ id: 'company-new', name: 'Acme (Pty) Ltd' });
     stubUpdateStamp();
 
-    await promoteWaitlistSignup(waitlistId);
+    await promoteWaitlistSignup(waitlistId, { actorUserId: ADMIN });
 
     const statements = mockSql.mock.calls
       .map((call) => (Array.isArray(call[0]) ? (call[0] as string[]).join(' ? ') : ''))
@@ -171,7 +186,7 @@ describe('promoteWaitlistSignup', () => {
     mockCreateCompany.mockResolvedValueOnce({ id: 'company-new', name: 'Acme (Pty) Ltd' });
     stubUpdateStamp();
 
-    const result = await promoteWaitlistSignup(waitlistId, { planCodeOverride: 'starter' });
+    const result = await promoteWaitlistSignup(waitlistId, { planCodeOverride: 'starter', actorUserId: ADMIN });
 
     expect(result.planCode).toBe('starter');
     expect(mockCreateCompany).toHaveBeenCalledWith(expect.objectContaining({
@@ -186,7 +201,7 @@ describe('promoteWaitlistSignup', () => {
     mockCreateCompany.mockResolvedValueOnce({ id: 'company-new', name: 'Acme (Pty) Ltd' });
     stubUpdateStamp();
 
-    const result = await promoteWaitlistSignup(waitlistId, { planCodeOverride: 'bogus' });
+    const result = await promoteWaitlistSignup(waitlistId, { planCodeOverride: 'bogus', actorUserId: ADMIN });
 
     expect(result.status).toBe('promoted');
     expect(mockCreateCompany).toHaveBeenCalledWith(expect.objectContaining({ plan_id: null }));
@@ -206,7 +221,7 @@ describe('promoteWaitlistSignup', () => {
     mockCreateCompany.mockResolvedValueOnce({ id: 'company-bureau', name: 'Smith & Co' });
     stubUpdateStamp();
 
-    const result = await promoteWaitlistSignup(waitlistId);
+    const result = await promoteWaitlistSignup(waitlistId, { actorUserId: ADMIN });
 
     expect(result.planCode).toBeNull();
     expect(mockCreateCompany).toHaveBeenCalledWith(expect.objectContaining({

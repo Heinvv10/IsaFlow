@@ -1,10 +1,10 @@
 /**
  * /accounting/settings/integrations-mcp — MCP Connector (AI agents) panel.
  *
- * Flag-gated on `mcp_connector` (dark by default; only pilot companies see it).
- * Shows the endpoint URL and per-client connect instructions, links to the PAT
- * mint page (no-OAuth fallback) and the connected-apps revoke page. Static
- * content + client-side feature check — no tenant data is fetched here.
+ * Shows the session company's `mcp_connector` state with the owner/admin switch
+ * (McpConnectorSwitch; on by default for companies created since migration 1058).
+ * When on: the endpoint URL and per-client connect instructions, links to the PAT
+ * mint page (no-OAuth fallback) and the connected-apps revoke page.
  */
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
@@ -13,6 +13,7 @@ import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { Plug, Copy, Check, KeyRound, ShieldOff, Bot, Loader2 } from 'lucide-react';
 import { MCP_PROD_ENDPOINT, CLIENT_MCP_TOOL_NAMES } from '@/lib/mcp/clientMetadata';
 import { useTimeoutOnce } from '@/hooks/useTimeoutOnce';
+import { McpConnectorSwitch, type McpConnectorState } from '@/components/accounting/settings/McpConnectorSwitch';
 
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
@@ -44,21 +45,22 @@ function CodeLine({ children }: { children: string }) {
 }
 
 export default function IntegrationsMcpPage() {
-  const [enabled, setEnabled] = useState<boolean | null>(null);
+  const [setting, setSetting] = useState<McpConnectorState | null>(null);
   const [error, setError] = useState('');
+  const enabled = error ? false : setting === null ? null : setting.enabled;
 
   useEffect(() => {
     let cancelled = false;
-    apiFetch('/api/features/check?code=mcp_connector')
+    apiFetch('/api/accounting/mcp-connector-setting')
       .then(async (r) => { await assertOk(r, 'Could not check whether the MCP Connector is available - try again'); return r.json(); })
-      .then((d: { data?: { enabled?: boolean }; enabled?: boolean }) => {
-        // apiResponse wraps in { data }, but tolerate a flat shape too.
-        if (!cancelled) setEnabled(d.data?.enabled ?? d.enabled ?? false);
+      .then((d: { data?: McpConnectorState }) => {
+        if (cancelled) return;
+        if (!d.data) throw new Error('no data');
+        setSetting(d.data);
       })
       .catch((err) => {
         if (cancelled) return;
         setError(apiErrorMessage(err, 'Could not check whether the MCP Connector is available - try again'));
-        setEnabled(false);
       });
     return () => { cancelled = true; };
   }, []);
@@ -86,12 +88,7 @@ export default function IntegrationsMcpPage() {
 
         {error && <div className="rounded-xl border border-red-900/50 bg-red-950/40 p-4 text-sm text-red-300">{error}</div>}
 
-        {enabled === false && !error && (
-          <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-5 text-sm text-slate-300">
-            The MCP Connector is not enabled for this company yet. Contact your IsaFlow administrator
-            to join the pilot.
-          </div>
-        )}
+        {setting && !error && <McpConnectorSwitch state={setting} onChange={setSetting} />}
 
         {enabled === true && (
           <>

@@ -21,9 +21,9 @@ vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
 }));
 
-import { sql } from '@/lib/neon';
+import { sql, withTransaction } from '@/lib/neon';
 import { CURRENT_PLAN_ID_SQL } from '@/modules/admin/services/currentPlanSql';
-import { getCompanyEffectiveFeatures } from '@/modules/admin/services/featureFlagService';
+import { getCompanyEffectiveFeatures, removeCompanyFeatureOverride, setCompanyFeatureOverride } from '@/modules/admin/services/featureFlagService';
 
 const COMPANY = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 const GLOBAL_ID = '11111111-1111-1111-1111-111111111111';
@@ -88,5 +88,39 @@ describe('getCompanyEffectiveFeatures', () => {
     // The plan fragment is the shared CURRENT_PLAN_ID_SQL splice; the company id is the only bound value.
     expect(planQuery.slice(1)).toEqual([{ unsafeSql: CURRENT_PLAN_ID_SQL }, COMPANY]);
     expect(overridesQuery.slice(1)).toEqual([COMPANY]);
+  });
+});
+
+/** Migration 1058: a platform-admin write is stamped platform_admin, so its OFF is a lock owners cannot lift. */
+describe('setCompanyFeatureOverride', () => {
+  beforeEach(() => { vi.mocked(sql).mockReset(); });
+
+  const LOCK = "SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('mcp_connector_self_serve:' || ?::uuid::text, 0))";
+  const textOf = (i: number) => (vi.mocked(sql).mock.calls[i]![0] as unknown as string[]).join('?');
+
+  it("takes the self-serve advisory key in its own statement, inside one transaction, then upserts stamped platform_admin", async () => {
+    vi.mocked(sql).mockResolvedValue([] as never);
+    await setCompanyFeatureOverride(COMPANY, OVERRIDE_ID, false, 'compliance', 'admin-1');
+    expect(withTransaction).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(sql).mock.calls).toHaveLength(2);
+    // The lock is its own statement: a CTE the INSERT never references is never evaluated (no lock at all).
+    expect(textOf(0)).toContain(LOCK);
+    expect(textOf(0)).toMatch(/code = 'mcp_connector'/);
+    expect(vi.mocked(sql).mock.calls[0]!.slice(1)).toEqual([COMPANY, OVERRIDE_ID]);
+    const text = textOf(1);
+    expect(text).not.toMatch(/advisory|WITH /);
+    expect(text).toMatch(/\(company_id, feature_id, enabled, reason, set_by, set_via, created_at\)/);
+    expect(text).toMatch(/\?, 'platform_admin', NOW\(\)\)/);
+    expect(text).toMatch(/DO UPDATE SET[\s\S]*set_via\s*=\s*'platform_admin'/);
+    expect(vi.mocked(sql).mock.calls[1]!.slice(1)).toEqual([COMPANY, OVERRIDE_ID, false, 'compliance', 'admin-1']);
+  });
+
+  it('takes the same advisory key, first and inside one transaction, when removing an override', async () => {
+    vi.mocked(sql).mockResolvedValue([] as never);
+    await expect(removeCompanyFeatureOverride(COMPANY, OVERRIDE_ID)).resolves.toBe(false);
+    expect(withTransaction).toHaveBeenCalledTimes(1);
+    expect(textOf(0)).toContain(LOCK);
+    expect(textOf(1)).toMatch(/DELETE FROM company_feature_overrides/);
+    expect(vi.mocked(sql).mock.calls[1]!.slice(1)).toEqual([COMPANY, OVERRIDE_ID]);
   });
 });
