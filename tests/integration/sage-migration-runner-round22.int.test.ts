@@ -69,7 +69,8 @@ describe('B19-1: a live batch whose connection is killed while it waits in its r
 
 describe('R20-2: a backend killed during the COMMIT itself', () => {
   const trigger = () => `sage_r22_${s.companyId.replace(/[^0-9a-f]/g, '')}`;
-  afterEach(async () => { await pool.query(`DROP TRIGGER IF EXISTS ${trigger()} ON items`); }, 60_000);
+  // The function too: a SECURITY DEFINER function left in the shard's database fails the definer census of a later suite.
+  afterEach(async () => { await pool.query(`DROP TRIGGER IF EXISTS ${trigger()} ON items; DROP FUNCTION IF EXISTS public.sage_r22_slow_commit()`); }, 60_000);
   it('exit 4: the item batch commit unconfirmed as a lost connection, its live answer kept, nothing of it written', async () => {
     const company = s.companyId.replace(/[^0-9a-f-]/g, '');
     await pool.query(`CREATE OR REPLACE FUNCTION public.sage_r22_slow_commit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_sleep(30); RETURN NULL; END $$`);
@@ -128,7 +129,8 @@ describe('B20-1: the dry run\'s backend killed while it waits', () => {
 describe('B21-1 / B21-2: a COMMIT that fails after the tool answered', () => {
   const tag = () => s.companyId.replace(/[^0-9a-f]/g, '');
   afterEach(async () => {
-    await pool.query(`DROP TRIGGER IF EXISTS b21r_${tag()} ON items; DROP TRIGGER IF EXISTS b21s_${tag()} ON mcp_tool_calls; DROP TRIGGER IF EXISTS b21f_${tag()} ON items; DROP SEQUENCE IF EXISTS public.b21q_${tag()}`);
+    await pool.query(`DROP TRIGGER IF EXISTS b21r_${tag()} ON items; DROP TRIGGER IF EXISTS b21s_${tag()} ON mcp_tool_calls; DROP TRIGGER IF EXISTS b21f_${tag()} ON items;
+      DROP FUNCTION IF EXISTS public.b21q_${tag()}_refuse(); DROP FUNCTION IF EXISTS public.sage_r22_slow_commit(); DROP FUNCTION IF EXISTS public.b21_08(); DROP SEQUENCE IF EXISTS public.b21q_${tag()}`);
   }, 60_000);
   const args = (report: string, extra: string[]) => ['--no-env-file', 'scripts/sage-migration/run.ts', '--company', s.companyId, '--user', s.userId,
     '--file', 'tests/fixtures/sage-export/sage-export.json', '--report', report, '--live', '--expect-items', '20', '--expect-pos', '10', ...extra];

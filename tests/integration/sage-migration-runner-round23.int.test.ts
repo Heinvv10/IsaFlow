@@ -35,7 +35,8 @@ afterEach(async () => {
   for (const c of children) if (c.exitCode === null && c.signalCode === null) c.kill('SIGKILL');
   children.clear();
   if (proxy) { await proxy.close(); proxy = null; }
-  await pool.query(`DROP TRIGGER IF EXISTS b22r_${tag()} ON items; DROP SEQUENCE IF EXISTS public.b22q_${tag()}`);
+  // The function too: a SECURITY DEFINER function left in the shard's database fails the definer census of a later suite.
+  await pool.query(`DROP TRIGGER IF EXISTS b22r_${tag()} ON items; DROP FUNCTION IF EXISTS public.b22q_${tag()}_refuse(); DROP SEQUENCE IF EXISTS public.b22q_${tag()}`);
   rmSync(d, { recursive: true, force: true });
   await cleanupSageWorld(pool, s);
   await cleanupWorld(pool, s.w);
