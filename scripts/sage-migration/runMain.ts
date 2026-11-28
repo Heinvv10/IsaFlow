@@ -137,7 +137,8 @@ async function endPool(): Promise<void> {
   if (pool === null) return;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const outcome = await Promise.race([
-    pool.end().then(() => 'ended', (err: unknown) => { say(`closing the database pool failed: ${told(err)}`); return 'failed'; }),
+    // B38-4: an end() that throws synchronously is a failed close like a rejected one, never an escape into the run's own catch.
+    Promise.resolve().then(() => pool.end()).then(() => 'ended', (err: unknown) => { say(`closing the database pool failed: ${told(err)}`); return 'failed'; }),
     new Promise<'timeout'>((resolve) => { timer = setTimeout(() => resolve('timeout'), SAGE_POOL_END_TIMEOUT_MS); timer.unref?.(); }),
   ]);
   clearTimeout(timer);

@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 vi.mock('../../../../scripts/sage-migration/runConsole', async (orig) => (await import('./sageCliConsoleSpy')).spied(await orig()));
 
-const h = vi.hoisted(() => ({ behave: 'ok' as 'ok' | 'locked-out', endHangs: false, endRejects: false, poolEnded: 0, noticed: '' }));
+const h = vi.hoisted(() => ({ behave: 'ok' as 'ok' | 'locked-out', endHangs: false, endRejects: false, endThrows: false, poolEnded: 0, noticed: '' }));
 vi.mock('@/modules/accounting/services/sage-migration/sageMigrationRunner', () => ({
   runSageMigration: vi.fn(async (_p: unknown, _x: unknown, o: { onNotice?: (l: string) => void }) => {
     if (h.noticed) o.onNotice?.(h.noticed);
@@ -19,14 +19,14 @@ vi.mock('@/modules/accounting/services/sage-migration/sageMigrationRunner', () =
   }),
 }));
 vi.mock('@/modules/accounting/services/sage-migration/sageReportSummary', () => ({ CONSOLE_ERROR_CHARS: 600, summaryLines: () => ['SUMMARY LINE'], exitCodeFor: () => 0 }));
-vi.mock('pg', () => ({ default: { Pool: class { on() { return this; } end() { h.poolEnded++; return h.endHangs ? new Promise(() => undefined) : h.endRejects ? Promise.reject(new Error('end failed')) : Promise.resolve(); } } } }));
+vi.mock('pg', () => ({ default: { Pool: class { on() { return this; } end() { h.poolEnded++; if (h.endThrows) throw new Error('injected: synchronous pool.end throw'); return h.endHangs ? new Promise(() => undefined) : h.endRejects ? Promise.reject(new Error('end failed')) : Promise.resolve(); } } } }));
 
 let d: string;
 let err: string[];
 let exit: ReturnType<typeof vi.spyOn>;
 beforeEach(() => {
   d = mkdtempSync(join(tmpdir(), 'sage-cli-pool-'));
-  Object.assign(h, { behave: 'ok', endHangs: false, endRejects: false, poolEnded: 0, noticed: '' });
+  Object.assign(h, { behave: 'ok', endHangs: false, endRejects: false, endThrows: false, poolEnded: 0, noticed: '' });
   err = [];
   process.exitCode = undefined;
   vi.resetModules();
@@ -101,6 +101,15 @@ describe('R27-9: the bound of the pool end', () => {
     h.endRejects = true;
     await runCli();
     expect(err.join('')).toContain('closing the database pool failed: end failed\n');
+    expect(exit).not.toHaveBeenCalled();
+    expect(process.exitCode).toBe(0);
+  });
+  it('B38-4: a pool.end() that throws synchronously is a failed close like a rejected one: said, exit code 0, never a stop', async () => {
+    h.endThrows = true;
+    await runCli();
+    expect(h.poolEnded).toBe(1);
+    expect(err.join('')).toContain('closing the database pool failed: injected: synchronous pool.end throw\n');
+    expect(err.join('')).not.toMatch(/sage migration stopped/);
     expect(exit).not.toHaveBeenCalled();
     expect(process.exitCode).toBe(0);
   });

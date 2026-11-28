@@ -185,3 +185,56 @@ describe('R35-3: told() never throws', () => {
     expect(told(42)).toBe('42');
   });
 });
+
+describe('B38-3 / R38-1: the PIPE_BUF fit cuts by index, on a character, and fits the "could not be told" line too', () => {
+  const said = async (view: { path: string; finalWord: () => string }): Promise<string> => {
+    const r = rig(() => 1000);
+    const api = consoleApi(r.c, sys());
+    api.prepareConsole(() => view);
+    await api.exitAfterConsole(4);
+    const [[, text]] = nowWrites.filter(([fd]) => fd === 2);
+    return text!;
+  };
+  for (const pattern of ['$&', "$'", '$`', '$$']) {
+    it(`a path holding ${pattern}: no replacement pattern is applied; the claim whole, the tail the path's own`, async () => {
+      const path = `/k/${'s/'.repeat(2000)}q${pattern}${'p'.repeat(245)}/r.json`;
+      const text = await said({ path, finalWord: () => `--report ${path} holds the run's report` });
+      expect(Buffer.byteLength(text)).toBeLessThanOrEqual(4096);
+      const m = /^--report \.\.\.(.*) \(its path shortened: (\d+) bytes\) holds the run's report\n$/s.exec(text);
+      expect(m).not.toBeNull();
+      expect(path.endsWith(m![1]!)).toBe(true);
+      expect(m![1]).toContain(`q${pattern}p`);
+      expect(Number(m![2])).toBe(Buffer.byteLength(path));
+    });
+  }
+  it('a multi-byte path: cut on a character (no U+FFFD), the shown tail is the path\'s own, the line within PIPE_BUF', async () => {
+    for (const end of ['/r.json', '/rr.json', '/rrr.json']) { // the claim's length moves the cut onto each byte of a character
+      const p = `/k/${'é'.repeat(1500)}${'€'.repeat(1000)}${end}`;
+      const text = await said({ path: p, finalWord: () => `--report ${p} holds the run's report` });
+      nowWrites.length = 0;
+      expect(Buffer.byteLength(text)).toBeLessThanOrEqual(4096);
+      expect(text).not.toContain('�');
+      const tail = /^--report \.\.\.(.*) \(its path shortened/s.exec(text)![1]!;
+      expect(p.endsWith(tail)).toBe(true);
+      expect(Buffer.byteLength(text)).toBeGreaterThan(4090); // the room is used, not left by a fixed margin
+    }
+  });
+  it('no room left for any of the path (keep <= 0): none of it shown, never the whole path; the line within PIPE_BUF', async () => {
+    const path = `/k/${'d'.repeat(5000)}/r.json`;
+    const text = await said({ path, finalWord: () => `--report ${path} ${'w'.repeat(4100)}` });
+    expect(Buffer.byteLength(text)).toBeLessThanOrEqual(4096);
+    expect(text.slice(0, 60)).toBe('--report ... (its path shortened: 5010 bytes) wwwwwwwwwwwwww');
+    expect(text.endsWith('\n')).toBe(true);
+    for (const lead of ['', 'a', 'ab']) { // a multi-byte claim cut on each byte of a character: never a U+FFFD, never past PIPE_BUF
+      nowWrites.length = 0;
+      const cut = await said({ path, finalWord: () => `--report ${path} ${lead}${'€'.repeat(1400)}` });
+      expect(cut).not.toContain('\uFFFD');
+      expect(Buffer.byteLength(cut)).toBeLessThanOrEqual(4096);
+    }
+  });
+  it('a "could not be told" line with a long error text: its text shortened, its claim whole', async () => {
+    const text = await said({ path: '/k/r.json', finalWord: () => { throw new Error(`€${'x'.repeat(5000)}END`); } });
+    expect(Buffer.byteLength(text)).toBeLessThanOrEqual(4096);
+    expect(text).toMatch(/^--report: what it holds could not be told \(\.\.\.x+END \(its text shortened: 5006 bytes\)\): check the books\n$/);
+  });
+});

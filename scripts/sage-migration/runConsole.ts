@@ -49,18 +49,34 @@ const realSys: ConsoleSys = {
 
 /** A pipe takes a write of at most this many bytes whole or not at all (POSIX PIPE_BUF; 4096 on Linux). */
 const PIPE_BUF = 4096;
+/** The first `n` bytes of `b` (B38-3): never cut inside a UTF-8 character (a continuation byte starts no character). */
+const headBytes = (b: Buffer, n: number): Buffer => {
+  let end = Math.max(0, Math.min(n, b.length));
+  while (end > 0 && end < b.length && (b[end]! & 0xc0) === 0x80) end--;
+  return b.subarray(0, end);
+};
+/** The last `n` bytes of `b` (none when n <= 0, B38-3), likewise starting on a character. */
+const tailBytes = (b: Buffer, n: number): Buffer => {
+  let start = b.length - Math.max(0, Math.min(n, b.length));
+  while (start < b.length && (b[start]! & 0xc0) === 0x80) start++;
+  return b.subarray(start);
+};
 /**
  * The final word within PIPE_BUF with room for its newline and a leading one (B37-3): a longer write to a pipe with less room is taken in
- * part, and the claim would be the part cut. An over-long --report path is shortened in the line to its last part, said as such.
+ * part, and the claim would be the part cut. Its over-long `part` (the --report path, or an error's text) is shortened in the line to its
+ * last bytes, said as such, and the rest of the line (the claim) is kept whole. Cut by index, never by String.replace (B38-3: a `$&` in
+ * the path is not a pattern here).
  */
-const fitted = (line: string, path: string): string => {
+const fitted = (line: string, part: string, what: 'path' | 'text'): string => {
   const room = PIPE_BUF - 2;
   if (Buffer.byteLength(line) <= room) return line;
-  const rest = Buffer.byteLength(line) - Buffer.byteLength(path);
-  const keep = Math.max(0, room - rest - 40);
-  const tail = Buffer.from(path).subarray(-keep).toString('utf8').replace(/^\uFFFD+/, '');
-  const short = line.replace(path, `...${tail} (its path shortened: ${Buffer.byteLength(path)} bytes)`);
-  return Buffer.byteLength(short) <= room ? short : Buffer.from(short).subarray(0, room).toString('utf8');
+  const at = part === '' ? -1 : line.indexOf(part);
+  if (at < 0) return headBytes(Buffer.from(line), room).toString('utf8');
+  const [before, after] = [line.slice(0, at), line.slice(at + part.length)];
+  const note = ` (its ${what} shortened: ${Buffer.byteLength(part)} bytes)`;
+  const keep = room - Buffer.byteLength(`${before}...${note}${after}`);
+  const short = `${before}...${tailBytes(Buffer.from(part), keep).toString('utf8')}${note}${after}`;
+  return Buffer.byteLength(short) <= room ? short : headBytes(Buffer.from(short), room).toString('utf8');
 };
 
 /** The run's --report as the console sees it (runReport.ts OwnedReport): where it is, and what it holds now. */
@@ -107,9 +123,10 @@ export function consoleApi(c: Console, sys: ConsoleSys = realSys) {
     try {
       const r = report();
       if (r === null) return;
-      line = fitted(r.finalWord(), r.path);
+      line = fitted(r.finalWord(), r.path, 'path');
     } catch (err) {
-      line = `--report: what it holds could not be told (${told(err)}): check the books`;
+      const why = told(err); // read once: a value may tell differently each time
+      line = fitted(`--report: what it holds could not be told (${why}): check the books`, why, 'text');
     }
     // R35-2: with 2>&1 the lane is shared, so what either stream queued counts.
     const queued = (st: Stream): number => (c.shared ? c.queuedBytes('stdout') + c.queuedBytes('stderr') : c.queuedBytes(st));
