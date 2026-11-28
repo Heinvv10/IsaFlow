@@ -23,7 +23,7 @@ const WRITES = 'src/modules/accounting/services/gl/approvalRequestWrites.ts';
  * Approve (pages/api/payroll/runs/[id]/cancel.ts). It is the one other caller, and every call it makes passes the literal 'rejected'
  * (asserted below), so the route stays the only path that approves.
  */
-const CANCEL = 'src/modules/accounting/services/payroll/payrollOffCycleCancel.ts';
+const CANCEL = 'src/modules/accounting/services/payroll/payrollRunCancel.ts';
 
 /** The function `name` declared in `declFile` that `id` resolves to (aliases and barrel re-exports followed), else undefined. */
 function resolvesTo(checker: ts.TypeChecker, id: ts.Node, name: string, declFile: string, rel: (f: string) => string): boolean {

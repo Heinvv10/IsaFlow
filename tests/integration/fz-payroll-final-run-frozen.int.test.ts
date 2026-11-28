@@ -213,7 +213,7 @@ describe('FZ: a final run refuses money changes the app never makes', () => {
 
   it('a paid run is frozen as an approved one is; approved -> paid itself is allowed', async () => {
     const run = await approvedRun(2);
-    await app((c) => c.query("UPDATE payroll_run_headers SET status = 'paid', paid_at = now() WHERE id = $1", [run]));
+    await app((c) => c.query("UPDATE payroll_run_headers SET status = 'paid', paid_on = current_date WHERE id = $1", [run])); // 1053: paid_on required, paid_at stamped
     await expect(app((c) => c.query('UPDATE payroll_run_lines SET net_pay = 0 WHERE run_id = $1', [run]))).rejects.toThrow(FROZEN);
     await expect(app((c) => c.query('UPDATE payroll_run_headers SET total_net = 0 WHERE id = $1', [run]))).rejects.toThrow(FROZEN);
   }, 120_000);

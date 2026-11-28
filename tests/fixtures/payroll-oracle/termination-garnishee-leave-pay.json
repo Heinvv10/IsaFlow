@@ -1,0 +1,173 @@
+{
+  "id": "termination-garnishee-leave-pay",
+  "source": "UNVERIFIED",
+  "sourceRef": "SARS PAYE-GEN-01-G21 (2027) Rev 1 p. 31-32 (leave pay on termination taxed as a bonus, 3605); Magistrates' Courts Act 32 of 1944 s61 ('emoluments'), s65J(1)(b)(i), s65J(1A)(a); Maintenance Act 99 of 1998 s1 ('emoluments'), s28(1), s29(3) (Juta consolidations on justice.gov.za, read 2026-11-26); Hein rulings 6 and 15 (wave 7)",
+  "notes": "Monthly R20 000 leaver; the June regular run paid (and levied the month's UIF ceiling); the June termination run pays R10 000 accrued leave (3605). PAYE tax(250 000) - tax(240 000) = 2192.00 (as offcycle-termination-leave-after-regular). An emoluments attachment order of R5 000 a month, R20 000 owed, not taken by the regular run this month: attached to the leave pay at 25% of leave + notice pay (ruling 15) = 2500.00. Net 10 000 - 2 192 - 2 500 = 5 308.00. UNVERIFIED: the 25% base is Hein's ruling, not s65J(1A)(b)'s basic salary.",
+  "input": {
+    "period": {
+      "year": 2026,
+      "month": 6,
+      "frequency": "monthly",
+      "periodStart": "2026-06-01",
+      "periodEnd": "2026-06-30",
+      "runKind": "termination"
+    },
+    "taxYear": 2027,
+    "employee": {
+      "dateOfBirth": "1986-01-01",
+      "startDate": "2020-03-01",
+      "taxStatus": "statutory",
+      "uifExcluded": false,
+      "medicalAidMainMember": false,
+      "medicalAidDependantsCount": 0,
+      "s18aReceiptHeld": false
+    },
+    "employerAnnualRemuneration": 10000000,
+    "components": [
+      {
+        "code": "3605",
+        "name": "Leave pay on termination",
+        "type": "earning",
+        "amount": 10000,
+        "taxable": true,
+        "uif": true,
+        "sdl": true
+      }
+    ],
+    "priorPeriods": [
+      {
+        "periodStart": "2026-03-01",
+        "frequency": "monthly",
+        "runKind": "regular",
+        "components": [
+          {
+            "code": "3601",
+            "name": "Basic salary",
+            "type": "earning",
+            "amount": 20000,
+            "taxable": true,
+            "uif": true,
+            "sdl": true
+          }
+        ],
+        "paye": 2115.0,
+        "uifEmployee": 177.12,
+        "uifLeviable": 17712,
+        "periodicTaxable": 20000,
+        "annualPayments": 0,
+        "retirementDeduction": 0,
+        "medicalCredit": 0,
+        "businessKm": 0,
+        "etiRemuneration": 0,
+        "etiHours": 0
+      },
+      {
+        "periodStart": "2026-04-01",
+        "frequency": "monthly",
+        "runKind": "regular",
+        "components": [
+          {
+            "code": "3601",
+            "name": "Basic salary",
+            "type": "earning",
+            "amount": 20000,
+            "taxable": true,
+            "uif": true,
+            "sdl": true
+          }
+        ],
+        "paye": 2115.0,
+        "uifEmployee": 177.12,
+        "uifLeviable": 17712,
+        "periodicTaxable": 20000,
+        "annualPayments": 0,
+        "retirementDeduction": 0,
+        "medicalCredit": 0,
+        "businessKm": 0,
+        "etiRemuneration": 0,
+        "etiHours": 0
+      },
+      {
+        "periodStart": "2026-05-01",
+        "frequency": "monthly",
+        "runKind": "regular",
+        "components": [
+          {
+            "code": "3601",
+            "name": "Basic salary",
+            "type": "earning",
+            "amount": 20000,
+            "taxable": true,
+            "uif": true,
+            "sdl": true
+          }
+        ],
+        "paye": 2115.0,
+        "uifEmployee": 177.12,
+        "uifLeviable": 17712,
+        "periodicTaxable": 20000,
+        "annualPayments": 0,
+        "retirementDeduction": 0,
+        "medicalCredit": 0,
+        "businessKm": 0,
+        "etiRemuneration": 0,
+        "etiHours": 0
+      },
+      {
+        "periodStart": "2026-06-01",
+        "frequency": "monthly",
+        "runKind": "regular",
+        "components": [
+          {
+            "code": "3601",
+            "name": "Basic salary",
+            "type": "earning",
+            "amount": 20000,
+            "taxable": true,
+            "uif": true,
+            "sdl": true
+          }
+        ],
+        "paye": 2115.0,
+        "uifEmployee": 177.12,
+        "uifLeviable": 17712,
+        "periodicTaxable": 20000,
+        "annualPayments": 0,
+        "retirementDeduction": 0,
+        "medicalCredit": 0,
+        "businessKm": 0,
+        "etiRemuneration": 0,
+        "etiHours": 0
+      }
+    ],
+    "unmodelled": {
+      "garnisheeOrders": [
+        {
+          "kind": "emolument_attachment",
+          "monthlyAmount": 5000,
+          "balance": 20000
+        }
+      ]
+    }
+  },
+  "expected": {
+    "paye": 2192.0,
+    "net": 5308.0
+  },
+  "expectedWarnings": [
+    "GARNISHEE_LIMIT_APPLIED",
+    "GARNISHEE_ON_TERMINATION"
+  ],
+  "tolerance": {
+    "paye": {
+      "cents": 4,
+      "reason": "ruling 5: AN 365/30.4166 over G21 p. 8 ×12",
+      "engineActual": 2192.04
+    },
+    "net": {
+      "cents": 4,
+      "reason": "ruling 5: AN 365/30.4166 over G21 p. 8 ×12",
+      "engineActual": 5307.96
+    }
+  }
+}

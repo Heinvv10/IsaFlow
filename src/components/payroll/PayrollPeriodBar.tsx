@@ -34,6 +34,7 @@ const STATUS_BADGE: Record<string, { bg: string; fg: string; icon: typeof Circle
   calculated: { bg: 'bg-blue-500/10',    fg: 'text-blue-400',    icon: CircleDot,     label: 'Calculated' },
   approved:   { bg: 'bg-teal-500/10',    fg: 'text-teal-400',    icon: CheckCircle2,  label: 'Approved' },
   posted:     { bg: 'bg-emerald-500/10', fg: 'text-emerald-400', icon: Lock,          label: 'Posted (locked)' },
+  paid:       { bg: 'bg-emerald-500/10', fg: 'text-emerald-400', icon: Lock,          label: 'Paid' }, // wave 7 MP
   cancelled:  { bg: 'bg-red-500/10',     fg: 'text-red-400',     icon: AlertCircle,   label: 'Cancelled' },
   none:       { bg: 'bg-gray-500/10',    fg: 'text-gray-400',    icon: CircleDot,     label: 'No run yet' },
 };

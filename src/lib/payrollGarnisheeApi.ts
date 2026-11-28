@@ -16,8 +16,14 @@ import { getClientIp } from '@/lib/rateLimit';
 import { GARNISHEE_KINDS, GarnisheeOrderRefusal } from '@/modules/accounting/services/payroll/payrollGarnishee';
 import type { GarnisheeActor } from '@/modules/accounting/services/payroll/payrollGarnisheeOrders';
 
-/** The body keys the routes' request log never shows (rev #1574 M1): the court order, the creditor, the money, the reason. */
-export const GARNISHEE_LOG_MASK = ['reference', 'creditorName', 'instalment', 'totalDebt', 'reason'] as const;
+/** The body keys the routes' request log never shows (rev #1574 M1): the court order, the creditor, the money, the reason,
+ *  and the creditor's bank details (wave 7 GC1; accountNumber is redacted by key anyway). */
+export const GARNISHEE_LOG_MASK = [
+  'reference', 'creditorName', 'instalment', 'totalDebt', 'reason', 'bankName', 'branchCode', 'accountNumber', 'accountType', 'accountHolder',
+] as const;
+
+/** The only keys a creditor bank-details PUT may carry (rule 18: strict parsers); the values are judged by parseBankDetailsInput. */
+export const CREDITOR_BANK_KEYS: ReadonlySet<string> = new Set(['bankName', 'branchCode', 'accountNumber', 'accountType', 'accountHolder']);
 
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 

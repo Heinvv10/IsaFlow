@@ -10,6 +10,7 @@ import { normaliseSarsCode } from './payeAnnualPayment';
 import { TRAVEL_CODE } from './fringeBenefits';
 import { remunerationBeforeDeductions } from './payrollLineRemuneration';
 import { cadenceTermsOf } from './payrollLineCadence';
+import { extraPayDayWarnings } from './payFrequencyPeriods';
 import { etiMonthPartsOf, pendingEti } from './payrollLineEtiMonth';
 import { outsideTablesResult, payeUnderTreatment, PSP_NO_ETI, PSP_NO_UIF, pspFacts, taxStatusTreatment } from './taxStatusTreatment';
 import { pspComponentResults, pspDirectiveResults, pspPayeBase } from './pspLineRules';
@@ -23,6 +24,7 @@ import { costLineUif } from './payrollLineUif';
 import { applyGarnishees } from './payrollGarnishee';
 import { capDirectivePaye, contractorDirectiveResult, directiveStateResults, regularPayDirectivePaye } from './directiveRegularPay';
 import { directivePayeSteps } from './directiveExplain';
+import { netPayShortfallWarnings } from './payrollLineNetShortfall';
 import type {
   PayrollLineInput,
   PayrollLineResult,
@@ -138,6 +140,9 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
     ytd: ytdForTables,
   });
   warnings.push(...donation.warnings, ...validateEmploymentTerms(employee, classification, components));
+  // W1: a 53rd weekly / 27th fortnightly pay day stays x 52 / x 26 and says so (ruling 9; G21 (2027) Rev 1 p. 9 is silent).
+  warnings.push(...extraPayDayWarnings({ frequency: cadence.frequency, periodsWorked: trace.periods, periodsInYear: cadence.periodsInYear,
+    onTables, ...(ytdForTables?.frequencies ? { frequenciesToDate: ytdForTables.frequencies } : {}) }));
   // Taxable remuneration BEFORE the retirement fund deduction, which is its own figure (retirementDeduction): a
   // line's record can exceed its pay (a catch-up contribution), and taxable_income must not go negative.
   const taxableIncome = regularTaxable + annualTaxable;
@@ -209,30 +214,12 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
     (grossPay - totalDeductions - paye.monthlyPaye - uif.employeeContribution) * 100,
   ) / 100;
 
-  // The run service previews loan applications through this calculation before writing them. A loan shortfall is
-  // therefore a blocking decision and the stored line is rebuilt without the loan. Other deductions keep the
-  // historical nil floor and approval refusal.
-  if (netPay < 0) {
-    const fromLoan = round2(netPay + loanInstalments) >= 0;
-    // A non-cash benefit is taxed but not paid: its PAYE comes out of the cash, which may be why.
-    const nonCash = round2(allEarnings - grossPay);
-    const benefitNote = nonCash > 0 ? ` PAYE includes the tax on ${formatMoney(nonCash)} of non-cash benefits, which are taxed but not paid.` : '';
-    warnings.push(fromLoan ? {
-      code: 'LOAN_INSTALMENT_EXCEEDS_PAY',
-      severity: 'error',
-      rawNet: netPay,
-      message: `The loan instalment is ${formatMoney(-netPay)} above available pay. This payslip is blocked for manual review.${benefitNote}`,
-    } : {
-      code: 'DEDUCTIONS_EXCEED_PAY',
-      severity: 'error',
-      rawNet: netPay,
-      message: `Deductions and tax come to ${formatMoney(-netPay)} more than this employee's pay, so net pay shows as nil and `
-        + `the deductions payable are understated by that amount.${benefitNote} Reduce the deductions, then recalculate.`,
-    });
-  }
+  warnings.push(...netPayShortfallWarnings({ netPay, loanInstalments, allEarnings, grossPay }));
 
   // GA: garnishee orders come off the net pay above, after tax, never below nil (payrollGarnishee; s65J(1A)(a)).
-  const garnishee = applyGarnishees({ orders: input.garnisheeOrders ?? [], components, netPayBefore: netPay });
+  // GT: a termination line attaches its leave and notice pay only (payrollGarnisheeTermination; rulings 6, 15).
+  const garnishee = applyGarnishees({ orders: input.garnisheeOrders ?? [], components, netPayBefore: netPay,
+    ...(input.garnisheeTermination ? { termination: { directivePaye: payeSplit.directive } } : {}) });
   warnings.push(...garnishee.warnings);
 
   // "How was this calculated?" (EX-core): the figures above, arranged; payrollExplain computes none of them.

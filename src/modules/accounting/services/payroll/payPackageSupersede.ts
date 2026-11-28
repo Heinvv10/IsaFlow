@@ -165,7 +165,7 @@ export async function foreignOnceOffsOf(
   const foreign: DbRow[] = [];
   for (const componentId of packageLines.map((line) => String(line.component_id))) {
     const componentRows = (await tx`
-      SELECT c.id, c.amount, c.effective_from, c.effective_to, c.is_recurring, c.superseded_at, c.supersede_inferred, e.end_date AS employee_end
+      SELECT c.id, c.amount, c.effective_from, c.effective_to, c.is_recurring, c.superseded_at, c.supersede_inferred, e.end_date AS employee_end, e.start_date AS employee_start
         FROM payroll_employee_components c
         JOIN payroll_employees e ON e.id = c.employee_id AND e.company_id = ${companyId}::uuid
        WHERE c.employee_id = ${employeeId}::uuid AND c.component_id = ${componentId}::uuid
@@ -194,7 +194,7 @@ export async function supersedeForPackage(tx: TxSql, input: SupersedeInput): Pro
   // row and leave two overlapping windows — getEmployeeComponents returns
   // both and the run pays the component twice.
   const all = (await tx`
-    SELECT c.id, c.amount, c.effective_from, c.effective_to, c.is_recurring, c.superseded_at, c.supersede_inferred, e.end_date AS employee_end,
+    SELECT c.id, c.amount, c.effective_from, c.effective_to, c.is_recurring, c.superseded_at, c.supersede_inferred, e.end_date AS employee_end, e.start_date AS employee_start,
            c.employer_fund_as_cash, c.percent_of_rfi, c.db_member_category_factor
       FROM payroll_employee_components c
       JOIN payroll_employees e ON e.id = c.employee_id AND e.company_id = ${companyId}::uuid

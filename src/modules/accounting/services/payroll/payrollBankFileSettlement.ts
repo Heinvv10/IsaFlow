@@ -4,6 +4,8 @@
  * approved net less what the file paid them (payroll_bank_file_items). An employee new to the run is owed in full; one
  * no longer on it was overpaid in full. Owed and overpaid are reported apart, so an employee who is owed money is never
  * hidden behind another's overpayment. Read-only.
+ * Employee lines only (garnishee_order_id IS NULL): a creditor line (wave 7 GC2) is what the file paid a garnishee
+ * creditor out of the employee's deduction, never the employee's net; creditorShortfall judges those.
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
@@ -31,7 +33,7 @@ export async function fileSettlement(companyId: string, runId: string, fileId: s
        WHERE l.run_id = ${runId}::uuid
     ), paid AS (
       SELECT i.employee_id, i.amount_cents AS cents FROM payroll_bank_file_items i
-       WHERE i.file_id = ${fileId}::uuid AND i.company_id = ${companyId}::uuid
+       WHERE i.file_id = ${fileId}::uuid AND i.company_id = ${companyId}::uuid AND i.garnishee_order_id IS NULL
     )
     SELECT e.employee_number, e.first_name, e.last_name, (COALESCE(cur.cents, 0) - COALESCE(paid.cents, 0))::text AS diff
       FROM cur FULL JOIN paid ON paid.employee_id = cur.employee_id
@@ -46,4 +48,32 @@ export async function fileSettlement(companyId: string, runId: string, fileId: s
     if (diff > 0) { out.owedCents += diff; out.owedTo.push(entry); } else { out.overpaidCents -= diff; out.overpaidBy.push(entry); }
   }
   return out;
+}
+
+/**
+ * Wave 7 GC2: the run's applied garnishee deductions the file did NOT pay as creditor lines of exactly that amount
+ * (a file made before creditor lines existed, or of an earlier approval whose deductions differ). Each entry names the
+ * creditor and the amount still owed to them from the garnishee payable (or overpaid, as a negative). Read-only.
+ */
+export async function creditorShortfall(companyId: string, runId: string, fileId: string | null): Promise<Array<{
+  orderId: string; creditorName: string; employeeNumber: string; cents: number;
+}>> {
+  const rows = (await sql`
+    WITH due AS (
+      SELECT d.order_id, d.employee_id, round(d.amount * 100)::bigint AS cents FROM payroll_garnishee_deductions d
+       WHERE d.run_id = ${runId}::uuid AND d.company_id = ${companyId}::uuid AND d.balance_applied AND d.amount > 0
+    ), paid AS (
+      SELECT i.garnishee_order_id AS order_id, i.employee_id, i.amount_cents AS cents FROM payroll_bank_file_items i
+       WHERE i.file_id = ${fileId}::uuid AND i.company_id = ${companyId}::uuid AND i.garnishee_order_id IS NOT NULL
+    )
+    SELECT o.id::text AS order_id, o.creditor_name, e.employee_number, (COALESCE(due.cents, 0) - COALESCE(paid.cents, 0))::text AS diff
+      FROM due FULL JOIN paid ON paid.order_id = due.order_id
+      JOIN payroll_garnishee_orders o ON o.id = COALESCE(due.order_id, paid.order_id) AND o.company_id = ${companyId}::uuid
+      JOIN payroll_employees e ON e.id = COALESCE(due.employee_id, paid.employee_id) AND e.company_id = ${companyId}::uuid
+     WHERE COALESCE(due.cents, 0) <> COALESCE(paid.cents, 0)
+     ORDER BY o.kind, o.priority, o.created_at, o.id
+  `) as DbRow[];
+  return rows.map((r) => ({
+    orderId: String(r.order_id), creditorName: String(r.creditor_name), employeeNumber: String(r.employee_number), cents: Number(r.diff),
+  }));
 }

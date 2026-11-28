@@ -9,6 +9,12 @@ export const PAYROLL_REFUSAL = {
   REGULAR_LINE_MISSING: 'REGULAR_LINE_MISSING',
   /** A bonus amount edit's expectedAmount is not the stored amount: someone changed it since it was read. */
   AMOUNT_CHANGED: 'AMOUNT_CHANGED',
+  /** Wave 7 EL: a reopen of a run whose month's EMP201 is filed (the message names the EMP201's reference). */
+  EMP201_FILED: 'EMP201_FILED',
+  /** Wave 7 MP: a reopen of a run marked paid (payments were issued; corrections go through an off-cycle run). */
+  RUN_PAID: 'RUN_PAID',
+  /** Wave 7 CX: a cancel of a regular run that is not a calculated, never-approved run (the message names why). */
+  RUN_NOT_CANCELLABLE: 'RUN_NOT_CANCELLABLE',
 } as const;
 
 export type PayrollRefusalCode = typeof PAYROLL_REFUSAL[keyof typeof PAYROLL_REFUSAL];

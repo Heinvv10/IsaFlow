@@ -30,8 +30,9 @@ import {
 // (payrollRunLock, payRunApprovalAudit, payrollLineRemuneration, etiPeriodGuard, etiRebook -> directiveEtiJournal,
 // payrollRunKindGuard) only lock, read and post ETI journals; a run journal, if reversed, is reversed from Journal Entries,
 // whose route maps the refusal. reversePayrollRunJournal, the only payroll caller of reverseJournalEntry, has no caller.
-import { PayrollRunReopenRefusedError, reopenPayrollRun } from '@/modules/accounting/services/payroll/payrollRunReopen';
+import { PayrollRunPaidReopenError, PayrollRunReopenRefusedError, reopenPayrollRun } from '@/modules/accounting/services/payroll/payrollRunReopen';
 import { OffCycleRunRefusedError } from '@/modules/accounting/services/payroll/payrollOffCycleRun';
+import { Emp201FiledReopenError } from '@/modules/accounting/services/payroll/payrollReopenFiledMonth';
 import { log } from '@/lib/logger';
 import { refuseWithoutApprove } from '@/modules/accounting/services/core/approvePermissionResponse';
 import { withPayrollModule } from '@/lib/auth/withPayrollModule';
@@ -77,9 +78,13 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     // Only the service's own refusals, raised before its one write, are a 400.
     // withAuth COMMITs a 4xx, so anything else is rethrown: a 500 rolls back.
     if (respondIfLockTimeout(res, err)) return;
+    // Wave 7 MP: a run marked paid (409 RUN_PAID), before the generic 400 of its base class.
+    if (err instanceof PayrollRunPaidReopenError) return apiResponse.conflict(res, err.message, { code: err.code });
     if (err instanceof PayrollRunReopenRefusedError) return apiResponse.badRequestFromError(res, err, 'Reopen failed');
     // Wave 6 OC: a paid off-cycle run is not reopened (409, the reason shown: it names what to do instead).
-    if (err instanceof OffCycleRunRefusedError) return apiResponse.conflict(res, err.message, { code: err.code });
+    if (err instanceof OffCycleRunRefusedError) return apiResponse.conflict(res, err.message, { code: err.code, ...(err.refusal ? { refusal: err.refusal } : {}) });
+    // Wave 7 EL: a regular run whose month's EMP201 is filed (409 EMP201_FILED, the message names the EMP201's reference).
+    if (err instanceof Emp201FiledReopenError) return apiResponse.conflict(res, err.message, { code: err.code });
     throw err;
   }
 }

@@ -36,13 +36,15 @@ export const PII_KEY_PARTS = ['name', 'surname', 'id', 'tax', 'bank', 'account',
 
 /** The schema's own keys, per object, which may contain a PII_KEY_PARTS substring by design. */
 const SCHEMA: Record<string, readonly string[]> = {
-  case: ['id', 'source', 'sourceRef', 'notes', 'input', 'expected', 'tolerance'],
+  /** W1 (wave 7 W53): `expectedWarnings`, the exact set of warning/error line codes (oracle.ts caseProblems); absent = not asserted. */
+  case: ['id', 'source', 'sourceRef', 'notes', 'input', 'expected', 'tolerance', 'expectedWarnings'],
   input: ['period', 'taxYear', 'employee', 'employerAnnualRemuneration', 'components', 'unmodelled', 'priorPeriods'],
   period: ['year', 'month', 'frequency', 'periodStart', 'periodEnd', 'runKind'],
   /** An earlier period of the tax year (wave-6 F1): its inputs and the line figures a run stored for it. */
   priorPeriod: ['periodStart', 'frequency', 'runKind', 'components', ...PRIOR_FIGURES],
-  employee: ['dateOfBirth', 'startDate', 'taxStatus', 'uifExcluded', 'medicalAidMainMember', 'medicalAidDependantsCount', 's18aReceiptHeld'],
-  component: ['code', 'name', 'type', 'amount', 'taxable', 'uif', 'sdl'],
+  employee: ['dateOfBirth', 'startDate', 'endDate', 'taxStatus', 'uifExcluded', 'medicalAidMainMember', 'medicalAidDependantsCount', 's18aReceiptHeld'],
+  /** W29 (wave 7 PRA): effectiveFrom / effectiveTo make the row a recurring assignment with that window (oracleInput). */
+  component: ['code', 'name', 'type', 'amount', 'taxable', 'uif', 'sdl', 'effectiveFrom', 'effectiveTo'],
   toleranceEntry: ['cents', 'reason', 'engineActual'],
 };
 
@@ -128,6 +130,7 @@ export function validateCase(raw: unknown, file: string): void {
   need(isNum(input.employerAnnualRemuneration), file, 'input.employerAnnualRemuneration must be a number');
   need(input.unmodelled === undefined || isObj(input.unmodelled), file, 'input.unmodelled must be an object');
   if (input.unmodelled !== undefined) onlyKeys(input.unmodelled as Obj, UNMODELLED_KEYS, file, 'input.unmodelled');
+  if (isObj(input.unmodelled) && input.unmodelled.garnisheeOrders !== undefined) validateGarnishees(input.unmodelled.garnisheeOrders, file);
 
   need(isObj(input.employee), file, 'input.employee must be an object');
   const e = input.employee as Obj;
@@ -136,6 +139,7 @@ export function validateCase(raw: unknown, file: string): void {
   need(e.dateOfBirth === null || (typeof e.dateOfBirth === 'string' && /^\d{4}-01-01$/.test(e.dateOfBirth)), file,
     'input.employee.dateOfBirth must be null or YYYY-01-01 (year only: a real date of birth is personal data)');
   need(typeof e.startDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(e.startDate), file, 'input.employee.startDate must be YYYY-MM-DD');
+  need(e.endDate === undefined || (isDate(e.endDate) && e.endDate >= (e.startDate as string)), file, 'input.employee.endDate must be a real YYYY-MM-DD date, not before startDate');
   need(typeof e.taxStatus === 'string', file, 'input.employee.taxStatus must be a string');
   for (const b of ['uifExcluded', 'medicalAidMainMember', 's18aReceiptHeld']) need(typeof e[b] === 'boolean', file, `input.employee.${b} must be a boolean`);
   need(isInt(e.medicalAidDependantsCount), file, 'input.employee.medicalAidDependantsCount must be an integer');
@@ -150,6 +154,11 @@ export function validateCase(raw: unknown, file: string): void {
     need((ORACLE_FIELDS as readonly string[]).includes(k), file, `unknown expected field ${k}`);
     need(isNum(v), file, `expected.${k} must be a number`);
   }
+  if (c.expectedWarnings !== undefined) {
+    const w = c.expectedWarnings;
+    need(Array.isArray(w) && w.every(x => typeof x === 'string' && /^[A-Z][A-Z0-9_]*$/.test(x)) && new Set(w).size === w.length, file,
+      'expectedWarnings must be an array of distinct upper-case line codes (empty = the line raises none)');
+  }
   if (c.tolerance !== undefined) {
     need(isObj(c.tolerance), file, 'tolerance must be an object');
     for (const [k, t] of Object.entries(c.tolerance as Obj)) {
@@ -162,6 +171,25 @@ export function validateCase(raw: unknown, file: string): void {
   }
 }
 
+/**
+ * GA's garnishee orders, and W11's (wave 7 GT, grill F4) `balance` (what the order still owes; absent = no total debt)
+ * and `takenThisMonth` (the month's other final run deducted it). Each key strict, so a typo is refused.
+ */
+const GARNISHEE_KEYS = ['kind', 'monthlyAmount', 'balance', 'takenThisMonth'] as const;
+function validateGarnishees(raw: unknown, file: string): void {
+  need(Array.isArray(raw) && raw.length > 0, file, 'input.unmodelled.garnisheeOrders must be a non-empty array');
+  (raw as unknown[]).forEach((o, i) => {
+    const at = `input.unmodelled.garnisheeOrders[${i}]`;
+    need(isObj(o), file, `${at} must be an object`);
+    onlyKeys(o as Obj, GARNISHEE_KEYS, file, at);
+    const g = o as Obj;
+    need(g.kind === 'emolument_attachment' || g.kind === 'maintenance' || g.kind === 'administration', file, `${at}.kind is not a garnishee kind`);
+    need(isNum(g.monthlyAmount) && (g.monthlyAmount as number) > 0, file, `${at}.monthlyAmount must be a positive number`);
+    need(g.balance === undefined || (isNum(g.balance) && (g.balance as number) >= 0), file, `${at}.balance must be a number of at least 0`);
+    need(g.takenThisMonth === undefined || typeof g.takenThisMonth === 'boolean', file, `${at}.takenThisMonth must be a boolean`);
+  });
+}
+
 function validateComponents(list: unknown[], where: string, file: string): void {
   list.forEach((x, i) => {
     need(isObj(x), file, `${where}[${i}] must be an object`);
@@ -170,6 +198,10 @@ function validateComponents(list: unknown[], where: string, file: string): void 
     need(typeof k.code === 'string' && typeof k.name === 'string' && (k.type === 'earning' || k.type === 'deduction') && isNum(k.amount)
       && typeof k.taxable === 'boolean' && typeof k.uif === 'boolean' && typeof k.sdl === 'boolean', file,
     `${where}[${i}] needs code, name, type (earning|deduction), amount and boolean taxable/uif/sdl`);
+    // W29: a window is a recurring row's; an end alone has no row to end, and an end before the start voids the row.
+    need(k.effectiveTo === undefined || k.effectiveFrom !== undefined, file, `${where}[${i}].effectiveTo needs effectiveFrom`);
+    need(k.effectiveFrom === undefined || (isDate(k.effectiveFrom) && (k.effectiveTo === undefined || k.effectiveTo === null
+      || (isDate(k.effectiveTo) && k.effectiveTo >= k.effectiveFrom))), file, `${where}[${i}].effectiveFrom / effectiveTo must be real dates in order`);
   });
 }
 
@@ -222,6 +254,10 @@ function validatePriorPeriods(raw: unknown, period: Obj, taxYear: number, file: 
     need((RUN_KINDS as readonly unknown[]).includes(p.runKind), file, `${at}.runKind must be one of ${RUN_KINDS.join(' | ')}`);
     need(Array.isArray(p.components), file, `${at}.components must be an array`);
     validateComponents(p.components as unknown[], `${at}.components`, file);
+    // W29 (review #1901 L4): a prior's components feed the year to date as stored figures; a window there would be read by nothing.
+    for (const [k, x] of (p.components as Obj[]).entries()) {
+      need(x.effectiveFrom === undefined && x.effectiveTo === undefined, file, `${at}.components[${k}]: effectiveFrom / effectiveTo are not read on a prior period`);
+    }
     for (const f of PRIOR_FIGURES) need(isNum(p[f]), file, `${at}.${f} must be a number`);
   });
 }

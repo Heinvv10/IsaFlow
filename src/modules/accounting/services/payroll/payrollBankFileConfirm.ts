@@ -1,7 +1,10 @@
 /**
- * Confirm or void a salary bank file (wave 6 BF). Both write only payroll_bank_files (and one audit_log row), never
- * the run header: confirm records the bank's acceptance ("payment confirmed"), and the run stays `approved` and
- * reopenable (spec 0a.17). Every refusal is judged before the write (rule 12).
+ * Confirm or void a salary bank file (wave 6 BF). Neither writes the run header: confirm records the bank's acceptance
+ * ("payment confirmed"), and the run stays `approved` and reopenable (spec 0a.17). Every refusal is judged before the
+ * first write (rule 12). Writes: payroll_bank_files, one audit_log row, and (wave 7 GC2) for a file that paid garnishee
+ * creditors, the journal that clears their payable, posted in the confirm's transaction BEFORE the file is marked
+ * confirmed with its id (payrollBankFileCreditorJournal; 1057 refuses the confirm without it). A second confirm finds
+ * the file confirmed and posts nothing.
  *   confirm  a generated file, current or stale. A stale file (its approval ended at a reopen) may still have been
  *            uploaded and paid: confirming records that, and then no new file can be made (BANK_HAS_PAID). The table
  *            refuses a confirm for an approval the run never had (999h).
@@ -19,19 +22,27 @@ import { logAuditOrThrow } from '@/modules/accounting/services/core/auditTrailSe
 import { withBoundedLockWait } from './payrollRunLock';
 import { listRunBankFiles, PayrollBankFileRefusal, type BankFileStatus } from './payrollBankFileStatus';
 import type { FileSettlement } from './payrollBankFileSettlement';
+import { judgeCreditorConfirm, postCreditorJournal } from './payrollBankFileCreditorJournal';
 import type { BankFileActor } from './payrollBankFileService';
 
 export type BankFileAction = 'confirm' | 'void';
 
 export async function settleBankFile(opts: {
   companyId: string; runId: string; fileId: string; action: BankFileAction; actor: BankFileActor; notSentToBank?: boolean;
-}): Promise<{ id: string; status: BankFileStatus; settlement: FileSettlement | null }> {
+  /** GC2: confirm a file whose creditor details changed since it was made, attesting the bank paid it as made. */
+  paidAsGenerated?: boolean;
+}): Promise<{ id: string; status: BankFileStatus; settlement: FileSettlement | null; creditorJournalId: string | null }> {
   const { companyId, runId, fileId, action, actor } = opts;
   if (action === 'void' && opts.notSentToBank !== true) {
     throw new PayrollBankFileRefusal('NOT_SENT_REQUIRED', 'Void a bank file only by confirming it was not sent to the bank.');
   }
   const file = await withBoundedLockWait(runId, async (tx) => {
     await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`payroll_bank_file:${runId}`}, 0))`;
+    // GC2 (security review on #1929): the run header FOR SHARE, after the advisory lock (generate's order: advisory ->
+    // header). Approval and reopen hold the header FOR UPDATE through their garnishee writes and the re-approval guard
+    // (payrollBankFileReapproval), so a confirm and an approval of the run serialise: whichever is second reads what the
+    // first committed. Neither approval nor reopen takes the bank-file advisory lock, so no cycle is added.
+    await tx`SELECT 1 FROM payroll_run_headers WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid FOR SHARE`;
     return ((await tx`
       SELECT f.id, f.status
         FROM payroll_bank_files f
@@ -46,8 +57,15 @@ export async function settleBankFile(opts: {
   }
 
   const status: BankFileStatus = action === 'confirm' ? 'confirmed' : 'voided';
+  const creditors = action === 'confirm'
+    ? await judgeCreditorConfirm({ companyId, runId, fileId, paidAsGenerated: opts.paidAsGenerated === true })
+    : null;
+  // The writes, every refusal judged above.
+  let creditorJournalId: string | null = null;
   if (action === 'confirm') {
-    await sql`UPDATE payroll_bank_files SET status = 'confirmed', confirmed_by = ${actor.userId}, confirmed_at = now()
+    if (creditors) creditorJournalId = await postCreditorJournal(companyId, fileId, creditors, actor.userId);
+    await sql`UPDATE payroll_bank_files SET status = 'confirmed', confirmed_by = ${actor.userId}, confirmed_at = now(),
+                     creditor_journal_id = ${creditorJournalId}::uuid
                WHERE id = ${fileId}::uuid AND company_id = ${companyId}::uuid AND status = 'generated'`;
   } else {
     await sql`UPDATE payroll_bank_files SET status = 'voided', voided_by = ${actor.userId}, voided_at = now(), void_not_sent = true
@@ -55,11 +73,15 @@ export async function settleBankFile(opts: {
   }
   await logAuditOrThrow({
     companyId, userId: actor.userId, userEmail: actor.userEmail, action: 'update', entityType: 'payroll_bank_file', entityId: fileId,
-    changes: { fields: [{ field: 'status', old: 'generated', new: status, label: 'Status' }], metadata: { runId, ...(action === 'void' ? { notSentToBank: 'attested' } : {}) } },
+    changes: { fields: [{ field: 'status', old: 'generated', new: status, label: 'Status' }], metadata: {
+      runId, ...(action === 'void' ? { notSentToBank: 'attested' } : {}),
+      ...(creditorJournalId ? { creditorJournalId, creditorCents: String(creditors!.totalCents) } : {}),
+      ...(creditors && creditors.attestedChanged.length > 0 ? { paidAsGenerated: 'attested', creditorDetailsChanged: creditors.attestedChanged.join('; ') } : {}),
+    } },
     ip: actor.ip, userAgent: actor.userAgent, sessionId: actor.sessionId ?? undefined,
   });
   log.info(`Salary bank file ${status}`, { companyId, runId, fileId }, 'payroll-bank-file');
   // D-3: a pre-reopen file confirmed against a re-approved run names what is still to pay (or was overpaid).
   const settlement = (await listRunBankFiles(companyId, runId)).find((f) => f.id === fileId)?.settlement ?? null;
-  return { id: fileId, status, settlement };
+  return { id: fileId, status, settlement, creditorJournalId };
 }

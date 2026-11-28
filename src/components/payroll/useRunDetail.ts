@@ -51,6 +51,11 @@ export interface RunDetail {
   /** A cancelled off-cycle run: when and by whom (wave 6 OC). */
   cancelledAt?: string | null;
   cancelledByName?: string | null;
+  /** Wave 7 MP: a run marked paid (payrollRunHeaders mapRunRow). */
+  paidAt?: string | null;
+  paidOn?: string | null;
+  paidReference?: string | null;
+  paidByName?: string | null;
   /** Wave 6 FQd: labels a weekly or fortnightly run by its dates (RunCards.periodLabel). */
   payFrequency?: string;
   periodStart?: string | null;

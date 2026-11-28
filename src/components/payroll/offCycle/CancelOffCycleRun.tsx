@@ -1,7 +1,7 @@
 /**
  * "Cancel run" for an off-cycle run that is not final (wave 6 OC, UI review #1620 H): owner or admin, draft or
  * calculated. The run is set to cancelled and its employees are free for another off-cycle run of the month
- * (payrollOffCycleCancel). Renders nothing for any other run or role.
+ * (payrollRunCancel). Renders nothing for any other run or role.
  */
 import { useRef, useState } from 'react';
 import { Loader2, XCircle } from 'lucide-react';

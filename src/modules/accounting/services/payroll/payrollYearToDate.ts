@@ -57,6 +57,7 @@ import { payRunFinalSql } from './payRunFinalSql';
 import { PAYE_TAX_YEAR_START_MONTH } from '@/modules/accounting/utils/payeTaxYear';
 import { getTaxYear } from './taxTables';
 import type { PayeYearToDate, PayrollPeriod } from './payrollTypes';
+import type { PayFrequency } from './payrollTypesRun';
 import { loadMedicalRecord } from './payrollMedicalRecord';
 import { loadRetirementRecord } from './payrollRetirementRecord';
 import { sdlYearToDate, type SdlYearToDateLine } from './payrollSdlYearToDate';
@@ -89,7 +90,7 @@ export async function loadPayeYearToDate(
              b.annual_3605, b.original_taxable, b.donations,
              h.period_year, h.period_month, h.run_kind, ${runOrderKeySql('h')} AS run_key, l.created_at AS line_created_at, l.retirement_deduction, l.sdl,
              l.sdl_applicable AS stored_sdl_applicable, l.sdl_leviable, l.sdl_exempt, b.sdl_applicable AS rebuilt_sdl_applicable,
-             l.donation_receipted, l.donation_base, l.donation_deduction,
+             l.donation_receipted, l.donation_base, l.donation_deduction, h.pay_frequency,
              -- A month whose PAYE was not taken from the tables (a flat 25% or a contractor; taxStatusTreatment) is no table period.
              NOT COALESCE(l.validation_results @> ${outsideTablesFlag}::jsonb, false) AS on_tables,
              -- The share of the period employed (FQc; payFrequencyPeriods.periodShareOf, four decimals truncated): 1 a month.
@@ -136,6 +137,8 @@ export async function loadPayeYearToDate(
     )
     SELECT employee_id,
            COALESCE(SUM(share) FILTER (WHERE on_tables AND periodic_before_deductions > 0), 0)::float8 AS periods,
+           -- W53: the frequencies the tables lines were paid at (a mixed year raises no 53rd-pay-day warning).
+           array_agg(DISTINCT pay_frequency) FILTER (WHERE on_tables) AS frequencies,
            COALESCE(SUM(CASE WHEN periodic_before_deductions > 0 THEN share ELSE 1 END)
              -- An annual payment alone advances the cap only on a REGULAR run's line: an off-cycle bonus supplements its
              -- month's regular run, which counted the month (review #1679 M2; payeCumulative adds none for it either).
@@ -192,6 +195,7 @@ export async function loadPayeYearToDate(
     return [String(r.employee_id), {
       periods: yearToDatePeriods(Number(r.periods), (r.unpaid_lines ?? {}) as Record<string, unknown>, restored.periodicByLine),
       retirementCapPeriods: Number(r.retirement_cap_periods ?? r.periods) + restoredCapPeriods,
+      frequencies: (r.frequencies ?? []) as PayFrequency[],
       periodicTaxable: round2(Number(r.periodic) + restored.periodic),
       annualPayments: round2(Number(r.annual) + restored.annual),
       tablePaye: round2(Number(r.table_paye)),

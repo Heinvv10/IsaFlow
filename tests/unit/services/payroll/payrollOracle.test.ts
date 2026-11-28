@@ -48,12 +48,19 @@ const EXPECTED_CASE_IDS = [
   'g21-annual-bonus-statutory-table',
   'ga-emolument-attachment-capped-25pct',
   'ga-maintenance-outside-cap',
+  'leaver-mid-month-full-salary', // W29 (wave 7 PRA): ruling 19 pinned
+  'leaver-raise-mid-month-sums-to-window', // W29 review #1901 H1
+  'leaver-row-after-end-not-paid', // W29 review round 3
+  'leaver-row-ends-on-end-date-mid-month-full', // W29 review R2-M1
   'monthly-raise-averaged-with-priors',
   'offcycle-bonus-after-regular-g21',
   'offcycle-termination-leave-after-regular',
   'psp-company-27pct',
   'psp-trust-45pct',
   'ra-annual-cap-binds-2027',
+  'recurring-end-mid-month-monthly', // W29 (wave 7 PRA)
+  'recurring-start-mid-month-monthly', // W29
+  'recurring-start-mid-week-weekly', // W29
   'rf-employer-contribution-15pct-rfi-cap-binds-on-total',
   'ri-eti-hourly-overtime-counted-once',
   'ri-overtime-10h-at-1-5x',
@@ -74,10 +81,19 @@ const EXPECTED_CASE_IDS = [
   'sage-2027-03-tabraiz',
   'sage-2027-03-temba',
   'sdl-after-para-2-4-deductions',
+  'starter-mid-month-full-salary', // W29: ruling 19 pinned
+  'starter-raise-mid-month-sums-to-window', // W29 review H1
   'statutory-2027-bracket-31pct-35000',
+  'three-rows-one-amount-sums-to-month', // W29 review R2-L1
   'statutory-2027-bracket-36pct-55000',
   'statutory-2027-bracket-39pct-60000',
   'statutory-2027-bracket-41pct-100000',
+  // W11 (wave 7 GT, grill F4): a termination run's garnishee on leave and notice pay (rulings 6, 15).
+  'termination-after-regular-took-instalment',
+  'termination-garnishee-leave-pay',
+  'termination-garnishee-severance-excluded',
+  'termination-maintenance-first',
+  'termination-severance-maintenance-exceeds-leave-net', // breaker #1939 H1
   'ts-deemed-standard-tables-not-flat-25pct',
   'ts-non-standard-5h-day-over-394-flat-25pct',
   'ts-non-standard-5h-day-under-394-nil-paye',
@@ -90,7 +106,9 @@ const EXPECTED_CASE_IDS = [
   'weekly-6000-fourth-week-month-uif-ceiling',
   'weekly-6000-third-week-month-uif-ceiling',
   'weekly-starter-fourth-week-averaged',
+  'weekly-split-same-amount-sums-to-whole', // W29 review M1
   'weekly-starter-g21-3-of-7-days',
+  'weekly-week-52-pay-friday', // W1 (wave 7 W53): the WEEK_53_PAY_DAY control
   'weekly-week-53-medical-retirement',
   'weekly-week-53-pay-sunday',
 ];
@@ -127,6 +145,9 @@ describe('payroll oracle fixtures', () => {
       'psp-company-27pct', 'psp-trust-45pct',
       // RI: the BCEA-multiplier cases match the engine (adversarial payroll signed them; no current BCEA consolidation read).
       'ri-eti-hourly-overtime-counted-once', 'ri-overtime-10h-at-1-5x', 'ri-sunday-8h-at-2x',
+      // GT (wave 7): garnishee on a termination run; statutes read and Hein's rulings 6 and 15, no SARS guide or vendor figure.
+      'termination-after-regular-took-instalment', 'termination-garnishee-leave-pay', 'termination-garnishee-severance-excluded',
+      'termination-maintenance-first', 'termination-severance-maintenance-exceeds-leave-net',
       'weekly-week-53-medical-retirement', 'weekly-week-53-pay-sunday',
     ]);
   });

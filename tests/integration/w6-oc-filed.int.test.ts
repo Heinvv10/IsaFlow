@@ -100,7 +100,7 @@ describe('review #1679 codex M4: a filed EMP201 refuses the reopen on or before 
     [a.company, a.admin]);
     const re = await a.api.reopen(dec);
     expect(re.statusCode).toBe(409);
-    expect(a.msg(re)).toMatch(/its month's EMP201 is filed, so it is not reopened/);
+    expect(a.msg(re)).toMatch(/the EMP201 for 2026-12 is filed \(no reference recorded\), so it is not reopened/);
     expect((await a.header(dec)).status).toBe('approved');
   });
 });

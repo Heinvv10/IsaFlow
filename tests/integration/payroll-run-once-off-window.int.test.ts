@@ -121,13 +121,15 @@ describe(`once-offs inside the month (TZ=${process.env.TZ ?? 'unset'})`, () => {
 
 describe('no double pay', () => {
   it('a package re-applied in the same month pays its once-off once (K-025)', async () => {
-    expect(await paid(runs.nov, 'reapply')).toEqual([['Basic salary', SALARY], ['Bonus', 1200], ['Package basic', 3000]]);
+    // W29: the recurring package basic cut on the 14th and re-applied on the 15th pays 10 + 11 of November's 21 working days.
+    expect(await paid(runs.nov, 'reapply')).toEqual([['Basic salary', SALARY], ['Bonus', 1200], ['Package basic', 1428.57], ['Package basic', 1571.43]]);
     expect(await paid(runs.dec, 'reapply')).toEqual([['Basic salary', SALARY], ['Package basic', 3000]]);
   });
 
   it('a once-off ended by a same-component row starting the next day is not paid beside it', async () => {
-    expect(await paid(runs.nov, 'replaced')).toEqual([['Allowance', 650], ['Basic salary', SALARY]]);
-    expect(await paid(runs.nov, 'handPair')).toEqual([['Allowance', 400], ['Allowance', 650], ['Basic salary', SALARY]]);
+    // W29: the standing allowance from Friday the 20th pays 7 of November's 21 working days (216.67).
+    expect(await paid(runs.nov, 'replaced')).toEqual([['Allowance', 216.67], ['Basic salary', SALARY]]);
+    expect(await paid(runs.nov, 'handPair')).toEqual([['Allowance', 216.67], ['Allowance', 400], ['Basic salary', SALARY]]);
   });
 
   it('a window from 15 October to 10 November is paid in October only', async () => {

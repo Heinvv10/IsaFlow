@@ -15,9 +15,11 @@ vi.mock('@/lib/auth/withPayrollModule', () => ({ withPayrollModule: (h: H) => h 
 vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (h: H) => h }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 vi.mock('@/modules/accounting/services/core/approvePermissionResponse', () => ({ refuseWithoutApprove: vi.fn(async () => false) }));
-vi.mock('@/modules/accounting/services/payroll/payrollOffCycleCancel', () => ({ cancelOffCycleRun: vi.fn() }));
+vi.mock('@/modules/accounting/services/payroll/payrollRunCancelRegular', async (orig) => ({
+  ...(await orig<typeof import('@/modules/accounting/services/payroll/payrollRunCancelRegular')>()), cancelPayrollRun: vi.fn(),
+}));
 
-import { cancelOffCycleRun } from '@/modules/accounting/services/payroll/payrollOffCycleCancel';
+import { cancelPayrollRun as cancelOffCycleRun, RunNotCancellableError } from '@/modules/accounting/services/payroll/payrollRunCancelRegular';
 import { ApprovalRequestNotFoundError } from '@/modules/accounting/services/gl/approvalAuthority';
 import { ApprovalRequestLockTimeoutError } from '@/modules/accounting/services/gl/approvalRequestLock';
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
@@ -26,7 +28,8 @@ import handler from '../../../pages/api/payroll/runs/[id]/cancel';
 
 const RUN = '22222222-2222-4222-8222-222222222222';
 async function call() {
-  const req = { method: 'POST', query: { id: RUN }, headers: {}, cookies: {}, companyId: 'co', companyRole: 'owner', user: { id: 'u-1' } };
+  const req = { method: 'POST', query: { id: RUN }, headers: { 'user-agent': 'ua' }, cookies: {}, socket: {}, companyId: 'co', companyRole: 'owner',
+    user: { id: 'u-1', email: 'u@example.invalid', claims: { session_id: 's-1' } } };
   const res = {
     statusCode: 0, sent: undefined as unknown, headers: {} as Record<string, unknown>,
     setHeader(k: string, v: unknown) { this.headers[k] = v; return this; }, getHeader() { return undefined; },
@@ -60,6 +63,26 @@ describe('POST /api/payroll/runs/[id]/cancel: a request decided or held elsewher
   it('the canceller\'s id is passed through (no null branch, review L2)', async () => {
     vi.mocked(cancelOffCycleRun).mockResolvedValue(null);
     expect((await call()).statusCode).toBe(404);
-    expect(cancelOffCycleRun).toHaveBeenCalledWith('co', RUN, 'u-1');
+    expect(cancelOffCycleRun).toHaveBeenCalledWith('co', RUN, expect.objectContaining({
+      userId: 'u-1', userEmail: 'u@example.invalid', userAgent: 'ua', sessionId: 's-1',
+    }));
+  });
+});
+
+describe('POST /api/payroll/runs/[id]/cancel: a regular run (wave 7 CX)', () => {
+  it('cancelled: 200 with what was released (the header is gone, so no run summary)', async () => {
+    const cancelled = { runId: RUN, deleted: true as const, periodStart: '2026-03-01', payFrequency: 'monthly', lines: 2,
+      loanPaymentsReversed: 1, garnisheeDeductionsDropped: 0, approvalRequestWithdrawn: null };
+    vi.mocked(cancelOffCycleRun).mockResolvedValue({ runKind: 'regular', cancelled });
+    const res = await call();
+    expect(res.statusCode).toBe(200);
+    expect(res.sent).toMatchObject({ data: cancelled });
+  });
+  it('not cancellable: 409 with code RUN_NOT_CANCELLABLE and the reason', async () => {
+    vi.mocked(cancelOffCycleRun).mockRejectedValue(new RunNotCancellableError('it was approved before'));
+    const res = await call();
+    expect(res.statusCode).toBe(409);
+    expect(res.sent).toMatchObject({ error: { details: { code: 'RUN_NOT_CANCELLABLE' } } });
+    expect(JSON.stringify(res.sent)).toMatch(/cannot be cancelled: it was approved before/);
   });
 });

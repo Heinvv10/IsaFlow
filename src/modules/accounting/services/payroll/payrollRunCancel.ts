@@ -13,13 +13,15 @@
  *    applyRunLoans), and regular-pay directive uses and severance claims are written at APPROVAL only
  *    (payrollRunDirectiveClaim). A run that ever carried a journal, a directive use, a claim or a loan payment is
  *    therefore one that was approved before, and it is refused (reopen keeps those records).
+ *  - Garnishee deductions (wave 7 GT: a termination run takes them) are dropped (releaseCancelledRunGarnishees); a
+ *    cancellable run's are never applied, so no balance moves.
  *  - Off-cycle runs never close a month's ETI (payrollRunCadence), so no regular run's ETI depends on it.
  * A pending R-035 approval request for the run is withdrawn (rejected by the canceller, with a 'declined' audit row on
  * the pay run) in the same transaction, so it leaves the approvers' list.
  * Owner or admin, never under Login-as (the route); refused with 409 before any write.
  */
 import { withTransaction } from '@/lib/neon';
-import type { DbRow } from '@/lib/neon';
+import type { DbRow, TxSql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { mapRunRow, type PayrollRunSummary } from './payrollRunHeaders';
@@ -27,6 +29,7 @@ import { OffCycleRunRefusedError } from './payrollOffCycleRun';
 import { decideRequest } from '../gl/approvalService';
 import { lockApprovalRequestForUpdate } from '../gl/approvalRequestLock';
 import { GRANDFATHERED_PLAN_HASH, recordPayRunApprovalAudit } from './payRunApprovalAudit';
+import { releaseCancelledRunGarnishees } from './payrollGarnisheeRun';
 
 const refused = (m: string) => new OffCycleRunRefusedError(m, 409);
 const WITHDRAWN = 'Withdrawn: the off-cycle run was cancelled.';
@@ -52,29 +55,11 @@ export async function cancelOffCycleRun(companyId: string, runId: string, userId
     if (run.ever_approved === true) {
       throw refused('This off-cycle run was approved before (it carries a journal, a directive or a loan payment), so it cannot be cancelled.');
     }
-    // A pending R-035 request leaves the approvers' list (review #1620): withdrawn through the one decide path
-    // (approval_request_decide, a rejection by the canceller), with the pay run's audit row, in this transaction.
-    // Locked (review L3 of 819c2861c0) in the route's order, the run header then its request (approval-requests
-    // writes the header in preparePayRunApprovalRequest before decideRequest locks the request), through the 872
-    // definer lock (the app role holds no UPDATE, so no FOR UPDATE of its own), then read again: a decision in flight is
-    // waited for, and a request it settled is not withdrawn, so decideRequest never meets a decided one.
-    const found = ((await tx`
-      SELECT id FROM approval_requests
-       WHERE company_id = ${companyId}::uuid AND document_type = 'pay_run' AND document_id = ${runId}::uuid AND status = 'pending'
-    `) as DbRow[])[0];
-    const requestId = found ? String(found.id) : null;
-    if (requestId) await lockApprovalRequestForUpdate(companyId, requestId);
-    const pending = requestId && ((await tx`
-      SELECT id FROM approval_requests WHERE id = ${requestId}::uuid AND company_id = ${companyId}::uuid AND status = 'pending'
-    `) as DbRow[])[0];
-    if (pending) {
-      const withdrawn = await decideRequest(companyId, String(pending.id), 'rejected', userId, WITHDRAWN);
-      await recordPayRunApprovalAudit({
-        companyId, runId, actorId: userId, event: 'declined',
-        planHash: withdrawn.documentDigest ?? String(run.approval_plan_hash ?? GRANDFATHERED_PLAN_HASH),
-        metadata: { requestId: withdrawn.id, reason: 'off-cycle run cancelled' },
-      });
-    }
+    await withdrawPendingPayRunRequest(tx, companyId, runId, userId, {
+      note: WITHDRAWN, reason: 'off-cycle run cancelled', planHash: run.approval_plan_hash,
+    });
+    // Wave 7 GT (F12): a termination run's garnishee deductions go with its lines; no balance moved (never approved).
+    const garnishees = await releaseCancelledRunGarnishees(tx, companyId, runId);
     await tx`DELETE FROM payroll_run_lines WHERE run_id = ${runId}::uuid`;
     const rows = (await tx`
       UPDATE payroll_run_headers
@@ -84,7 +69,39 @@ export async function cancelOffCycleRun(companyId: string, runId: string, userId
        WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid
        RETURNING *
     `) as DbRow[];
-    log.info('Off-cycle payroll run cancelled', { companyId, runId, previousStatus: String(run.status), userId }, 'payrollOffCycleCancel');
+    log.info('Off-cycle payroll run cancelled', { companyId, runId, previousStatus: String(run.status), userId, garnishees }, 'payrollRunCancel');
     return mapRunRow(rows[0]!);
   });
+}
+
+/**
+ * A pending R-035 request leaves the approvers' list (review #1620): withdrawn through the one decide path
+ * (approval_request_decide, a rejection by the canceller), with the pay run's audit row, in the caller's transaction.
+ * Locked (review L3 of 819c2861c0) in the route's order, the run header (the caller holds it) then its request
+ * (approval-requests writes the header in preparePayRunApprovalRequest before decideRequest locks the request), through
+ * the 872 definer lock (the app role holds no UPDATE, so no FOR UPDATE of its own), then read again: a decision in flight
+ * is waited for, and a request it settled is not withdrawn, so decideRequest never meets a decided one. Shared by the
+ * off-cycle and the regular cancel (wave 7 CX). Returns the withdrawn request's id, or null when none was pending.
+ */
+export async function withdrawPendingPayRunRequest(
+  tx: TxSql, companyId: string, runId: string, userId: string,
+  why: { note: string; reason: string; planHash: unknown },
+): Promise<string | null> {
+  const found = ((await tx`
+    SELECT id FROM approval_requests
+     WHERE company_id = ${companyId}::uuid AND document_type = 'pay_run' AND document_id = ${runId}::uuid AND status = 'pending'
+  `) as DbRow[])[0];
+  const requestId = found ? String(found.id) : null;
+  if (requestId) await lockApprovalRequestForUpdate(companyId, requestId);
+  const pending = requestId && ((await tx`
+    SELECT id FROM approval_requests WHERE id = ${requestId}::uuid AND company_id = ${companyId}::uuid AND status = 'pending'
+  `) as DbRow[])[0];
+  if (!pending) return null;
+  const withdrawn = await decideRequest(companyId, String(pending.id), 'rejected', userId, why.note);
+  await recordPayRunApprovalAudit({
+    companyId, runId, actorId: userId, event: 'declined',
+    planHash: withdrawn.documentDigest ?? String(why.planHash ?? GRANDFATHERED_PLAN_HASH),
+    metadata: { requestId: withdrawn.id, reason: why.reason },
+  });
+  return withdrawn.id;
 }

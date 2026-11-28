@@ -1,7 +1,14 @@
+import type { PayFrequency } from './payrollTypesRun';
+
 /** An employee's earlier periods of the tax year, as the cumulative PAYE needs them. */
 export interface PayeYearToDate {
   /** Periods with periodic pay (the n of the cumulative formula, before this one). */
   periods: number;
+  /**
+   * The pay frequencies of those lines' runs (tables lines only). W53: a 53rd-pay-day warning is not raised when another
+   * frequency is among them (n then mixes periods of two lengths; fixing that divisor is FQe). Absent = not read.
+   */
+  frequencies?: PayFrequency[];
   /** Earlier periods with periodic pay or an annual payment, for the pro-rated s11F cap. */
   retirementCapPeriods?: number;
   /** Periodic taxable remuneration, after allowed s18A donations (PAYE 4c: before the retirement fund deduction). */
