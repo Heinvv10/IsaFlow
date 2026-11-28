@@ -89,12 +89,12 @@ describe('reopen — the status write is predicated (W3-01 breaker LOW)', () => 
       peer.release();
     }
 
-    expect(res.statusCode).toBe(400);
+    expect(res.statusCode).toBe(409); // wave 7 MP: a paid run's reopen is 409 RUN_PAID (it was a 400 before)
     expect((await pool.query('SELECT status FROM payroll_run_headers WHERE id = $1', [id])).rows[0]!.status).toBe('paid');
   });
 
-  // Round 6. The route above ends 400 whether the header lock or the status predicate stopped
-  // it, and answers "Reopen failed" either way. These two pin each guard on its own.
+  // Round 6. The route above ends in a refusal whether the header lock or the status predicate stopped
+  // it (409 RUN_PAID since wave 7 MP when the lock did; 400 from the predicate). These two pin each guard on its own.
   const approvedRun = async (month: number) => {
     const id = await calculatedRun(call, month);
     const url = (a: string) => `/api/payroll/runs/${id}/${a}`;

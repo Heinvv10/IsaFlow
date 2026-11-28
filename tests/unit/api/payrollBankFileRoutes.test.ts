@@ -99,4 +99,22 @@ describe('salary bank-file routes', () => {
     await call(settle, 'POST', 'owner', { id: RUN, fileId: FILE, action: 'void' }, { notSentToBank: 'yes' });
     expect(mocks.settle.mock.calls.map((c) => [c[0].action, c[0].notSentToBank])).toEqual([['void', true], ['void', false]]);
   });
+
+  it('GC2: confirm passes the paid-as-made attestation only when the body says true', async () => {
+    await call(settle, 'POST', 'owner', { id: RUN, fileId: FILE, action: 'confirm' }, { paidAsGenerated: true });
+    await call(settle, 'POST', 'owner', { id: RUN, fileId: FILE, action: 'confirm' }, { paidAsGenerated: 'yes' });
+    expect(mocks.settle.mock.calls.map((c) => [c[0].action, c[0].paidAsGenerated])).toEqual([['confirm', true], ['confirm', false]]);
+  });
+
+  it('GC2 (#1656): confirm and void need Payroll Approve (confirm posts the creditors\' journal); refused 403, no service call', async () => {
+    const { checkPermission } = await import('@/lib/auth/permissionService');
+    vi.mocked(checkPermission).mockImplementation(async (_c, _u, _m, action) => action !== 'approve');
+    for (const action of ['confirm', 'void']) {
+      const res = await call(settle, 'POST', 'owner', { id: RUN, fileId: FILE, action }, { notSentToBank: true });
+      expect(res.status, action).toBe(403);
+    }
+    expect(checkPermission).toHaveBeenCalledWith('co-a', 'u1', 'payroll', 'approve');
+    expect(mocks.settle).not.toHaveBeenCalled();
+    vi.mocked(checkPermission).mockImplementation(async () => true);
+  });
 });

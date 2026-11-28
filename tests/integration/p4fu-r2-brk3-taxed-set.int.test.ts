@@ -241,7 +241,7 @@ describe('R1 breaker 3: the taxed employees of each closed approval', () => {
     await reverseJournal(f, jan);
     await active(y, false);
     await calcOnly(f, jan);
-    expect((await reopenRun(f, feb)).statusCode).toBe(400); // the remedy is not available for a paid month
+    expect((await reopenRun(f, feb)).statusCode).toBe(409); // the remedy is not available for a paid month (409 RUN_PAID, wave 7 MP)
     const preview = await previewRun(f, jan);
     expect(preview.body.data?.blocker ?? null).toBeNull();
     const advisory = (preview.body.data?.plan?.advisories as Array<{ code: string; detail: string }>)
