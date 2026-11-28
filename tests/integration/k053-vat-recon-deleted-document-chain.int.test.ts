@@ -41,21 +41,17 @@ const USER = randomUUID();
 const TAG = `D7VAT-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
 
 /**
- * Every date is a day offset from ANCHOR. ANCHOR is today unless the window
- * DOC_DATE (-120) .. LATER (+35) would straddle a year boundary. In that case it
- * moves back so LATER lands on 31 December of DOC_DATE's year, and the window
- * stays in one year whatever day the suite runs.
+ * Every date is an offset from the real today, because the services date by it:
+ * the delete's own reversal R is dated TODAY (the original's period is closed,
+ * so the resolver falls back to today). The offsets keep these invariants on
+ * any day, in any year:
+ *   DOC_DATE < CLOSED_END < today = R <= LATER   (a hand reversal never precedes
+ *   the entry it reverses, R included), all inside RANGE_FROM..RANGE_TO and the
+ *   seeded fiscal years. The window DOC_DATE..LATER may span two calendar years
+ *   (it does from late November), so the multi-year summary is compared per year.
  */
-const ANCHOR = (() => {
-  const at = (days: number) => { const d = new Date(); d.setDate(d.getDate() + days); return d; };
-  const later = at(35);
-  if (at(-120).getFullYear() === later.getFullYear()) return new Date();
-  const back = new Date(later.getFullYear() - 1, 11, 31, 12); // 31 Dec of DOC_DATE's year, midday (no DST edge)
-  back.setDate(back.getDate() - 35);
-  return back;
-})();
 function shift(days: number): string {
-  const d = new Date(ANCHOR);
+  const d = new Date();
   d.setDate(d.getDate() + days);
   return fmtDate(d);
 }
@@ -170,17 +166,22 @@ async function assertArms(sub: number): Promise<void> {
   expect(recon.totals.invoiceRevenue).toBeCloseTo(sub, 2);
   expect(recon.issues.filter((i) => i.message.includes('Revenue variance'))).toEqual([]);
 
-  const year = (await getVatMultiYearSummary(COMPANY, 2)).find((y) => y.year === Number(DOC_DATE.slice(0, 4)));
-  const sum = (k: 0 | 1 | 2) => [...book.values()].reduce((a, v) => a + v[k], 0);
-  expect([year?.totalRevenue, year?.totalOutputVat, year?.totalInputVat]).toEqual([sum(0), sum(1), sum(2)]);
+  // Per calendar year: the window can straddle New Year, and every year the ledger
+  // has a line in must come back, with exactly that year's ledger and no other.
+  const byYear = new Map<number, [number, number, number]>();
+  for (const [month, v] of book) {
+    const y = Number(month.slice(0, 4));
+    const t = byYear.get(y) ?? [0, 0, 0];
+    byYear.set(y, [t[0] + v[0], t[1] + v[1], t[2] + v[2]]);
+  }
+  const summary = await getVatMultiYearSummary(COMPANY, 2);
+  expect(summary.map((y) => [y.year, y.totalRevenue, y.totalOutputVat, y.totalInputVat]))
+    .toEqual([...byYear].sort((a, b) => a[0] - b[0]).map(([y, t]) => [y, ...t]));
 }
 
 describeIfDb('D7 the VAT reconciliation\'s revenue arm excludes a deleted document\'s whole reversal chain', () => {
   beforeAll(async () => {
     assertDisposable();
-    // The hand reversals and the delete must not straddle a year boundary, or
-    // the multi-year summary would split them; the clock decides that, so say so.
-    expect(LATER.slice(0, 4)).toBe(DOC_DATE.slice(0, 4));
     await sql`INSERT INTO companies (id, name, registration_number) VALUES (${COMPANY}::UUID, ${'D7VAT ' + TAG}, ${TAG})`;
     await seedFiscalYears(COMPANY, shift(-400), OPEN_END);
     await account(receivable, '1120', 'Trade Debtors', 'asset', 'debit', 'receivable');
