@@ -20,7 +20,7 @@ vi.mock('@/lib/afterCommit', () => ({ runOwnedContext: (_c: unknown, fn: () => u
 vi.mock('@/lib/logger', () => ({ log: { error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn() } }));
 
 import { withToolSession } from '@/modules/accounting/services/sage-migration/sageToolSession';
-import { acquireRunLock, RunLockNotTakenError } from '@/modules/accounting/services/sage-migration/sageRunLock';
+import { acquireRunLock, RunInProgressError, RunLockNotTakenError } from '@/modules/accounting/services/sage-migration/sageRunLock';
 
 /** The socket side only: pg-pool's own code does the rest. */
 class FakeClient extends EventEmitter {
@@ -29,11 +29,13 @@ class FakeClient extends EventEmitter {
   ended = false;
   processID = 4242;
   static setFails = false;
+  static lockHeld = false;
   connect(cb: (e: Error | null) => void): void { setImmediate(() => cb(null)); }
   ref(): void { /* pg-pool refs an idle client it hands out; nothing to hold here */ }
   unref(): void { /* and unrefs one under allowExitOnIdle */ }
   async query(text: string): Promise<{ rows: Array<Record<string, unknown>>; command: string }> {
     if (FakeClient.setFails && text.startsWith('SET idle_session_timeout')) throw new Error('SET refused');
+    if (FakeClient.lockHeld && text.includes('pg_try_advisory_lock')) return { rows: [{ ok: false }], command: 'SELECT' };
     return { rows: [{ ok: true }], command: text.split(' ')[0]! };
   }
   end(cb?: () => void): Promise<void> { this.ended = true; this._ending = true; this._queryable = false; cb?.(); return Promise.resolve(); }
@@ -63,7 +65,7 @@ function hostilePool(mode: Mode, max = 4) {
 const ok = (text: string): McpToolResult => ({ content: [{ type: 'text', text }] });
 const A = '11111111-1111-4111-8111-111111111111';
 
-beforeEach(() => { h.call.mockReset(); FakeClient.setFails = false; });
+beforeEach(() => { h.call.mockReset(); FakeClient.setFails = false; FakeClient.lockHeld = false; });
 
 describe('R39r-1: the session, against real pg-pool', () => {
   for (const mode of ['after', 'before', 'always'] as const) {
@@ -156,5 +158,28 @@ describe('fix review: closing a connection in doubt, against real pg-pool', () =
     const lock = await acquireRunLock(pool as never, A);
     await lock.unlock();
     expect(pool.listenerCount('acquire')).toBe(0);
+  });
+  it('the clean path: a normal session and a normal lock / unlock on a real pg.Pool leave no checkout watch behind', async () => {
+    h.call.mockResolvedValueOnce(ok('{"created":1}'));
+    const pool = new pg.Pool({ Client: FakeClient as never, max: 4 } as never);
+    await withToolSession(pool as never, 'c1', 'u1', true, (s) => s.call('w', { idempotency_key: 'k' }));
+    expect(pool.listenerCount('acquire')).toBe(0);
+    const lock = await acquireRunLock(pool as never, A);
+    expect(await lock.unlock()).toBeNull();
+    expect(pool.listenerCount('acquire')).toBe(0);
+    FakeClient.lockHeld = true; // another run holds it: the clean release of RunInProgressError's path
+    await expect(acquireRunLock(pool as never, A)).rejects.toThrow(RunInProgressError);
+    expect(pool.listenerCount('acquire')).toBe(0);
+  });
+  it('a first release that delegated: pg-pool\'s own idleListener is back, so an error goes to the pool\'s error event (the CLI says it)', async () => {
+    h.call.mockResolvedValueOnce(ok('{"created":1}'));
+    const { pool, clients } = hostilePool('after');
+    const poolErrors: unknown[] = [];
+    pool.on('error', (e) => { poolErrors.push(e); });
+    await withToolSession(pool as never, 'c1', 'u1', true, (s) => s.call('w', { idempotency_key: 'k' }));
+    await settle();
+    const boom = new Error('read ETIMEDOUT');
+    expect(() => clients[0]!.emit('error', boom)).not.toThrow();
+    expect(poolErrors).toEqual([boom]);
   });
 });
