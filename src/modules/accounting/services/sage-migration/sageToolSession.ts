@@ -19,7 +19,7 @@ import { CommitRefusedError, CommitUnconfirmedError, RunEndedError, commitRefuse
 import { idempotencyLockText, takeKeyLockNow } from './sageKeyLock';
 import { watchWaits } from './sageWaitWatch';
 import { codeOf, commandOf, snapshot, told, OwnError } from './sageTold';
-import { connectionEnded, safeLog, said, toolOutcome } from './sageSessionRead';
+import { closeConnection, connectionEnded, safeLog, said, toolOutcome } from './sageSessionRead';
 
 export { toolOutcome } from './sageSessionRead';
 import { SAGE_COMMIT_TIMEOUT_MS, SAGE_LOCK_TIMEOUT_MS, SAGE_STATEMENT_TIMEOUT_MS, sageAppName } from './sageTimeouts';
@@ -230,7 +230,8 @@ export async function withToolSession<T>(
     const stalled = stall();
     if (stalled !== null) throw stalled;
     // B38-1: a savepoint whose ROLLBACK TO SAVEPOINT failed leaves the transaction unusable (als.markTxUnusable): never committed either.
-    if (txCtx.rollbackOnly || txCtx.txUnusable) throw new Error(`the request transaction was not committed: ${txCtx.rollbackOnly ?? txCtx.txUnusable}`);
+    const notCommitted = txCtx.rollbackOnly || txCtx.txUnusable; // R39r-4: one rule for the test and the message
+    if (notCommitted) throw new Error(`the request transaction was not committed: ${notCommitted}`);
     let commitTimer: ReturnType<typeof setTimeout> | undefined;
     commitSent = true;
     let answer: unknown;
@@ -286,10 +287,11 @@ export async function withToolSession<T>(
     try {
       client.release(unusable || lost !== null);
     } catch (e) {
-      // R38-4: a release that throws is a connection in doubt: destroyed, never back in the pool by a second, plain release.
+      // R38-4 / R39r-1: a connection in doubt is destroyed: released again with true (a wrapper that threw before delegating), and when
+      // that throws too (pg-pool's double release: the first had delegated) closed through the pool, never left in it.
       safeLog('releasing the connection failed after the request', e);
       unusable = true;
-      try { client.release(unusable); } catch (again) { safeLog('destroying the connection failed after the request', again); }
+      try { client.release(unusable); } catch (again) { safeLog('releasing the connection again failed, closing it', again); closeConnection(pool, client, 'the connection'); }
     }
     quietly('settling the request context', () => settleAfterRollback(owned, committed));
   }

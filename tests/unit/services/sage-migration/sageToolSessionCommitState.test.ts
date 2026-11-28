@@ -59,6 +59,16 @@ describe('B38-1: a request the registry marked unusable or rollback-only is neve
   }
 });
 
+describe('R39r-4: one rule for "not committed" and its message', () => {
+  it('rollbackOnly set but empty, txUnusable set: not committed, and the message names txUnusable', async () => {
+    h.call.mockImplementationOnce(async () => { h.ctx!.rollbackOnly = ''; h.ctx!.txUnusable = 'the savepoint rollback failed'; return ok('{"created":1}'); });
+    const { client, sent } = clientOf(() => ({ rows: [], command: 'COMMIT' }));
+    const err = await run(client).then(() => null, (e: unknown) => e);
+    expect((err as Error).message).toBe('the request transaction was not committed: the savepoint rollback failed');
+    expect(sent).not.toContain('COMMIT');
+  });
+});
+
 describe('B38-1: a COMMIT answered with the ROLLBACK command tag', () => {
   it('is a refused COMMIT: nothing written, never committed', async () => {
     h.call.mockResolvedValueOnce(ok('{"created":1}'));
