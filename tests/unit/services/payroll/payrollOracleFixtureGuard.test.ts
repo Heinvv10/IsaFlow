@@ -172,3 +172,34 @@ describe('oracle list rules: unverified.json (O3)', () => {
     expect(gapListProblems([c('a')], [], [un('a', undefined, '')])).toContain('a: unverified wouldVerify missing');
   });
 });
+
+describe('oracle fixture guard: W29 dates (wave 7 PRA)', () => {
+  const component = (c: Record<string, unknown>) => (input(c).components as Array<Record<string, unknown>>)[0]!;
+  it('takes an end date and a component window', () => {
+    const c = base();
+    employee(c).endDate = '2026-03-31';
+    Object.assign(component(c), { effectiveFrom: '2026-03-16', effectiveTo: null });
+    expect(() => validateCase(c, FILE)).not.toThrow();
+  });
+  it.each([
+    ['an end date before the start', (c: Record<string, unknown>) => { employee(c).endDate = '2000-01-01'; }, /endDate/],
+    ['an end date that is no date', (c: Record<string, unknown>) => { employee(c).endDate = '2026-02-30'; }, /endDate/],
+    ['an effectiveTo with no effectiveFrom', (c: Record<string, unknown>) => { component(c).effectiveTo = '2026-03-10'; }, /effectiveTo needs effectiveFrom/],
+    ['a window out of order', (c: Record<string, unknown>) => { Object.assign(component(c), { effectiveFrom: '2026-03-16', effectiveTo: '2026-03-10' }); }, /in order/],
+  ])('refuses %s', (_l, mutate, re) => {
+    const c = base();
+    mutate(c);
+    expect(() => validateCase(c, FILE)).toThrow(re);
+  });
+});
+
+describe('oracle fixture guard: no window on a prior period (review #1901 L4)', () => {
+  it('refuses effectiveFrom / effectiveTo on a prior period component, which nothing reads', () => {
+    const c = JSON.parse(readFileSync(join(ORACLE_DIR, 'monthly-raise-averaged-with-priors.json'), 'utf8')) as Record<string, unknown>;
+    const prior = ((c.input as Record<string, unknown>).priorPeriods as Array<{ components: Array<Record<string, unknown>> }>)[0]!;
+    expect(() => validateCase(c, 'monthly-raise-averaged-with-priors.json')).not.toThrow();
+    prior.components[0]!.effectiveFrom = '2026-03-16';
+    expect(() => validateCase(c, 'monthly-raise-averaged-with-priors.json')).toThrow(/not read on a prior period/);
+  });
+});
+

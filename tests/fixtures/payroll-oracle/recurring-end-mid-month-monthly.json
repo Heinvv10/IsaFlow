@@ -1,0 +1,52 @@
+{
+  "id": "recurring-end-mid-month-monthly",
+  "source": "sars-guide:SARS PAYE-GEN-01-G21 Guide for Employers iro Employees Tax 2027, Revision 1 p. 9-10 (annual equivalent of part-period pay; a part period as its share of days, 3 of 7 = 0.4285) and p. 13; apportionment basis: wave-7 ruling 13 (monthly working days, weekly calendar days), scope ruling 19",
+  "sourceRef": "https://www.sars.gov.za/wp-content/uploads/Ops/Guides/PAYE-GEN-01-G21-Guide-for-Employers-iro-Employees-Tax-for-2027-External-Guide.pdf",
+  "notes": "July 2026 (23 working days), employed since 1 March 2020 and still employed, age 40. Basic R4 000 (whole month) and a recurring R2 100 standby allowance that ends on Friday 10 July: 8 of 23 working days, 2 100 x 8 / 23 = 730.435 -> 730.43 (ruling 13). Gross 4 730.43; PAYE R0 (under the threshold, G21 p. 13). UIF 1% = 47.30 each side; SDL 47.30; net 4 730.43 - 47.30 = 4 683.13. Before W29 the ended row was not paid at all (gross 4 000, net 3 960).",
+  "input": {
+    "period": {
+      "year": 2026,
+      "month": 7
+    },
+    "taxYear": 2027,
+    "employee": {
+      "dateOfBirth": "1986-01-01",
+      "startDate": "2020-03-01",
+      "taxStatus": "statutory",
+      "uifExcluded": false,
+      "medicalAidMainMember": false,
+      "medicalAidDependantsCount": 0,
+      "s18aReceiptHeld": false
+    },
+    "employerAnnualRemuneration": 10000000,
+    "components": [
+      {
+        "code": "3601",
+        "name": "Basic salary",
+        "type": "earning",
+        "amount": 4000,
+        "taxable": true,
+        "uif": true,
+        "sdl": true
+      },
+      {
+        "code": "3601",
+        "name": "Standby allowance",
+        "type": "earning",
+        "amount": 2100,
+        "taxable": true,
+        "uif": true,
+        "sdl": true,
+        "effectiveFrom": "2020-03-01",
+        "effectiveTo": "2026-07-10"
+      }
+    ]
+  },
+  "expected": {
+    "paye": 0,
+    "uifEmployee": 47.3,
+    "uifEmployer": 47.3,
+    "sdl": 47.3,
+    "net": 4683.13
+  }
+}

@@ -7,14 +7,23 @@
  *    PAYE-GEN-01-G20 (2026) s7.2 pp. 8-9, the same text as G21 (2027) Rev 1 p. 8-10). Its examples count a part period
  *    as a decimal portion of the period: "R1 090 / 0.4285 x 52" for 3 of 7 days (G20 p. 9; G21 p. 10 prints 0.4285,
  *    i.e. 3/7 truncated to four decimals, which is what periodShareOf does). F (52, 26) is annualisationFactor.ts's.
- *  - A 53rd pay day in a tax year (a Sunday pay day): G20/G21 say nothing about it. n reaches 53 over F = 52, so the
- *    year's tax is tax(AE) x 53 / 52 (SimplePay's documented YTD x 52 / periods worked; wave-6 ruling 16).
- *    UNVERIFIED: G21 p. 9's "total pay periods in the tax year" could also be read as x 53.
+ *  - A 53rd weekly (27th fortnightly) pay day in a tax year, e.g. a Sunday pay day when 1 March and 28 February are both
+ *    Sundays. SARS is silent: PAYE-GEN-01-G21 (2027) Rev 1 p. 9, "ANNUAL EQUIVALENT CALCULATION" (Fourth Schedule
+ *    para 9(1), 9(2)), gives "Total remuneration received/accrued X Total pay periods in tax year / Total pay periods
+ *    worked" and says nothing of an extra pay day; PAYE-GEN-01-G01 (tax deduction tables) is silent too. The PAYE BRS
+ *    (Employer Reconciliation V25.3.0, p. 33) defines 3200 as the pay periods the employer divides the year into and
+ *    3210 as the periods worked, "Cannot be greater than the value for pay periods in year of assessment", so a
+ *    53-payday year certifies 3200 = 53 (ruling 14, wave 7 CW), but that rule is about the certificate, not the tax.
+ *    Ruling 9 (Hein 2026-11-25): with SARS silent, keep x 52 per week (F = 52 over n = 53, so the year's tax is
+ *    tax(AE) x 53 / 52: SimplePay's documented YTD x 52 / periods worked; wave-6 ruling 16) and warn on the line
+ *    (extraPayDayWarnings, WEEK_53_PAY_DAY). G21 p. 6: an employer may adopt an alternate tax period, which avoids it.
+ *    Still UNVERIFIED (unverified.json): no SARS page decides x 52 against x 53.
  *  - The EMP201 month is the month the pay is paid in: employees' tax is paid "within seven days after the end of the
  *    month during which the amount was deducted" (Fourth Schedule para 2(1)), so a week straddling two months belongs
  *    to its pay date's month (payDateOf: run_date, else period_end; payrollRunOrder's key 2).
  * Monthly is unchanged: share 1, every run closes its month.
  */
+import type { ValidationResult } from './payrollTypes';
 import type { PayFrequency, PayrollPeriod } from './payrollTypesRun';
 
 /** Days in a weekly and a fortnightly period. */
@@ -78,4 +87,34 @@ export function emp201MonthOf(payDate: string): { year: number; month: number } 
 export function closesPayMonth(frequency: PayFrequency, payDate: string): boolean {
   if (frequency === 'monthly') return true;
   return isoOfDay(dayNumber(payDate) + PERIOD_DAYS[frequency]).slice(0, 7) !== payDate.slice(0, 7);
+}
+
+/** The line code for a pay day past the tax year's statutory periods (W1; spec §0b). Non-blocking. */
+export const EXTRA_PAY_DAY = 'WEEK_53_PAY_DAY';
+
+/**
+ * WEEK_53_PAY_DAY when this line takes the periods worked past the year's statutory periods (n > P: the 53rd weekly or
+ * 27th fortnightly pay day; a starter's part week counts its share, so 52 + a part is a 53rd pay day too). PAYE stays
+ * x 52 / x 26 (ruling 9; G21 (2027) Rev 1 p. 9 is silent on it, see the header). Monthly never: P = 12 is the calendar.
+ * Compared at four decimals, the precision a share is kept at (periodShareOf), so float noise in a sum of shares
+ * (52.00000000000001) is no 53rd pay day (review #1928). Not raised when:
+ *  - the line's PAYE is not from the tables (contractor, PSP, flat 25%, a directive): nothing was annualised;
+ *  - the year's earlier tables lines include another pay frequency: n then adds periods of two lengths, so n > P does
+ *    not mean an extra pay day (review #1928 breaker). The divisor itself is FQe's (engine 23, Hein ruling 23).
+ */
+export function extraPayDayWarnings(line: {
+  frequency: PayFrequency; periodsWorked: number; periodsInYear: number; onTables: boolean;
+  /** The pay frequencies of the year's earlier tables lines (PayeYearToDate.frequencies); absent = none. */
+  frequenciesToDate?: readonly PayFrequency[];
+}): ValidationResult[] {
+  const { frequency, periodsWorked, periodsInYear } = line;
+  const at4dp = (n: number) => Math.round(n * 10_000);
+  if (frequency === 'monthly' || !line.onTables || at4dp(periodsWorked) <= at4dp(periodsInYear)) return [];
+  if ((line.frequenciesToDate ?? []).some((f) => f !== frequency)) return [];
+  const unit = frequency === 'weekly' ? 'week' : 'fortnight';
+  return [{
+    code: EXTRA_PAY_DAY, severity: 'warning',
+    message: `${periodsInYear + 1}${periodsInYear + 1 === 53 ? 'rd' : 'th'} ${frequency} pay day of the tax year. SARS's guide (PAYE-GEN-01-G21 (2027) Rev 1 p. 9) `
+      + `does not say how to annualise it; IsaFlow keeps x ${periodsInYear} per ${unit}. An alternate tax period (G21 p. 6) avoids it.`,
+  }];
 }

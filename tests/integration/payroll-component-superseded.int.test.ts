@@ -106,13 +106,14 @@ describe(`superseded_at, not a neighbour, decides (TZ=${process.env.TZ ?? 'unset
     const bonus = await rowsOf('reapply', comp.bonus);
     expect(bonus.map(r => [r.f, r.t, r.superseded_at !== null])).toEqual([['2026-11-01', '2026-11-14', true], ['2026-11-15', '2026-11-30', false]]);
     expect((await rowsOf('reapply', comp.basic)).map(r => r.superseded_at !== null)).toEqual([true, false]);
-    expect(await paid(runs.nov, 'reapply')).toEqual([['Basic salary', SALARY], ['Bonus', 1200], ['Package basic', 3000]]);
+    // W29: the recurring package basic cut on the 14th and re-applied on the 15th pays 10 + 11 of November's 21 working days.
+    expect(await paid(runs.nov, 'reapply')).toEqual([['Basic salary', SALARY], ['Bonus', 1200], ['Package basic', 1428.57], ['Package basic', 1571.43]]);
   });
 
   it('cancelling the replacement does not make the replaced once-off payable again, and is not refused', async () => {
     const [, replacement] = await rowsOf('cancelReplacement', comp.bonus);
     expect(await endEmployeeComponent(company, replacement.id, '2026-11-20', actor())).toBe(true);
-    expect(await paid(runs.nov, 'cancelReplacement')).toEqual([['Basic salary', SALARY], ['Package basic', 3000]]);
+    expect(await paid(runs.nov, 'cancelReplacement')).toEqual([['Basic salary', SALARY], ['Package basic', 1428.57], ['Package basic', 1571.43]]);
   });
 
   it('a row superseded from the 1st of the next month is still paid in the month it covered', async () => {

@@ -1,6 +1,8 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { fmtDate } from '@/lib/fmtDate';
+import { LEAVER_ROW_HAS_SUCCESSOR_SQL } from './payrollLeaverSuccessor';
 import type { PayrollComponent, EmployeeComponent, QuantityUnit } from './payrollTypes';
 import { paidOutsidePayrollRefusal } from './retirementFund';
 
@@ -60,6 +62,7 @@ export async function getEmployeeComponents(
   const rows = (await sql`
     SELECT
       pec.id AS assignment_id, pec.amount, pec.is_recurring, pec.quantity, pec.quantity_unit, pec.rate_multiplier, pec.percent_of_rfi, pec.employer_fund_as_cash, pec.db_member_category_factor, pec.db_member_retired, pec.db_fund_member_contribution,
+      pec.effective_from, pec.effective_to,
       pc.id, pc.name, pc.sars_source_code, pc.component_type,
       pc.is_taxable, pc.is_uif_applicable, pc.is_sdl_applicable, pc.paid_outside_payroll, pc.counts_as_rfi
     FROM payroll_employee_components pec
@@ -81,14 +84,8 @@ export async function getEmployeeComponents(
         OR (
           pec.is_recurring AND pec.effective_to = pe.end_date
           AND pec.effective_to >= (date_trunc('month', ${asOf}::date) + INTERVAL '26 days')::date
-          AND NOT EXISTS (
-            SELECT 1 FROM payroll_employee_components nxt
-            WHERE nxt.id <> pec.id AND nxt.employee_id = pec.employee_id AND nxt.component_id = pec.component_id
-              -- Pre-953 rows (supersede_inferred) keep the old neighbour rule, as the once-off rule above does.
-              AND (nxt.is_recurring OR pec.superseded_at IS NOT NULL OR (pec.supersede_inferred AND nxt.supersede_inferred))
-              AND nxt.effective_from = pec.effective_to + 1
-              AND (nxt.effective_to IS NULL OR nxt.effective_to >= nxt.effective_from)
-          )
+          -- One predicate with the ended-rows reader (payrollLeaverSuccessor; review #1901 round 3).
+          AND NOT ${sql.unsafe(LEAVER_ROW_HAS_SUCCESSOR_SQL)}
         )
         OR (
           pec.is_recurring = FALSE
@@ -109,7 +106,55 @@ export async function getEmployeeComponents(
     ORDER BY pc.component_type, pc.name
   `) as Row[];
 
-  return rows.map(r => ({
+  return rows.map(mapEmployeeComponent);
+}
+
+/**
+ * W29 (wave 7 PRA): the recurring earnings of the employee (in this company) with a plain amount that ended in the
+ * period [periodStart, asOf) inside employment. A leaver's own row (ending ON the employee's end date) is read here only
+ * on a weekly or fortnightly run (`leaverRowAnyDay`; review #1901 R3-L3: paid whole), unless it is replaced the next day
+ * (LEAVER_ROW_HAS_SUCCESSOR_SQL, the same predicate the last-day reader applies). On a monthly run it is never read here
+ * (coordinator ruling on #1901, 2026-11-26, option B; ruling 19 "own rows keep today's behaviour"; Hein 2026-11-02): in the
+ * 27th-to-month-end band the last-day reader pays it in full; before the band it is not paid, as on master, and the user
+ * enters the part month by hand (review R2-M1, which paid it whole on any day, is reverted: it paid that hand pro-rata twice). The last-day reader (above) also reads a leaver row in the band: the run keeps
+ * one reading of each row (payrollRecurringShareRead). A row a package cut is read too (review R2-M2): its days are paid
+ * by its share, and a package once-off beside it is a share beside a once-off, refused until acknowledged.
+ */
+export async function recurringEarningsEndedInPeriod(
+  employeeId: string, companyId: string, periodStart: string, asOf: string, leaverRowAnyDay: boolean,
+): Promise<EmployeeComponent[]> {
+  const rows = (await sql`
+    SELECT
+      pec.id AS assignment_id, pec.amount, pec.is_recurring, pec.quantity, pec.quantity_unit, pec.rate_multiplier, pec.percent_of_rfi, pec.employer_fund_as_cash, pec.db_member_category_factor, pec.db_member_retired, pec.db_fund_member_contribution,
+      pec.effective_from, pec.effective_to,
+      pc.id, pc.name, pc.sars_source_code, pc.component_type,
+      pc.is_taxable, pc.is_uif_applicable, pc.is_sdl_applicable, pc.paid_outside_payroll, pc.counts_as_rfi
+    FROM payroll_employee_components pec
+    JOIN payroll_components pc ON pc.id = pec.component_id AND pc.company_id = ${companyId}::uuid
+    JOIN payroll_employees pe ON pe.id = pec.employee_id AND pe.company_id = ${companyId}::uuid
+    WHERE pec.employee_id = ${employeeId}::uuid
+      AND pec.is_recurring = TRUE
+      AND pc.is_active = TRUE
+      AND pc.component_type = 'earning'
+      AND pec.quantity IS NULL AND pec.percent_of_rfi IS NULL AND pec.db_member_category_factor IS NULL
+      AND pec.effective_to >= pec.effective_from
+      AND pec.effective_to >= ${periodStart}::date
+      AND pec.effective_to < ${asOf}::date
+      AND (pe.end_date IS NULL OR pec.effective_to <= pe.end_date)
+      -- Ending before the employee started is outside employment (review #1901 M7): never read, never printed as 0 days.
+      AND pec.effective_to >= pe.start_date
+      -- A leaver's own row: never on a monthly run (option B, see above); on a weekly or fortnightly one unless it is
+      -- replaced the next day, exactly as the last-day reader decides (payrollLeaverSuccessor).
+      AND NOT (pe.end_date IS NOT NULL AND pec.effective_to = pe.end_date
+               AND (NOT ${leaverRowAnyDay}::boolean OR ${sql.unsafe(LEAVER_ROW_HAS_SUCCESSOR_SQL)}))
+    ORDER BY pc.name, pec.effective_from
+  `) as Row[];
+  return rows.map(mapEmployeeComponent);
+}
+
+/** One payroll_employee_components row joined to its component, as the run reads it (getEmployeeComponents, W29's ending rows). */
+export function mapEmployeeComponent(r: Row): EmployeeComponent {
+  return {
     component: mapComponent(r),
     amount: Number(r.amount),
     isRecurring: r.is_recurring !== false,
@@ -125,7 +170,9 @@ export async function getEmployeeComponents(
     ...(r.db_fund_member_contribution === true ? { dbFundMemberContribution: true } : {}),
     // RF opt-out: an assignment migration 975 found keeps the cash treatment (employerContributions.ts).
     ...(r.employer_fund_as_cash === true ? { employerFundAsCash: true } : {}),
-  }));
+    // W29: the window, so the run can apportion a row starting or ending inside employment (payrollRecurringShare).
+    ...(r.effective_from == null ? {} : { effectiveFrom: fmtDate(r.effective_from), effectiveTo: r.effective_to == null ? null : fmtDate(r.effective_to) }),
+  };
 }
 
 /** `paid_outside_payroll` on a component that cannot carry it (the route answers 400 with the message). */
