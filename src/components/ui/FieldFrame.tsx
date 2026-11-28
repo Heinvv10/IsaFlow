@@ -45,8 +45,22 @@ export function describedBy(
 
 export function FieldFrame({ id, label, labelHidden, required, requiredMark = true, error, helperText, echo, warning, help, children }: FieldFrameProps) {
   const ids = fieldIds(id);
+  const frame = React.useRef<HTMLDivElement>(null);
+  const caution = React.useRef<HTMLParagraphElement>(null);
+  const shownWarning = error ? null : warning;
+  // A warning that appears while the user is in the field must be readable: `nearest` honours the scroller's bottom
+  // scroll padding, which keeps it above a sticky action bar; its own `scroll-mb-6` leaves room for that bar to grow
+  // by a line (autosave). A frame later, so focus handed back by a popup counts.
+  // A warning on a field nobody is in (a pre-filled value) never moves the page.
+  React.useEffect(() => {
+    if (!shownWarning) return undefined;
+    const next = requestAnimationFrame(() => {
+      if (frame.current?.contains(document.activeElement)) caution.current?.scrollIntoView?.({ block: 'nearest' });
+    });
+    return () => cancelAnimationFrame(next);
+  }, [shownWarning]);
   return (
-    <div className="flex flex-col gap-1">
+    <div ref={frame} className="flex flex-col gap-1">
       <div className={labelHidden && !help ? 'sr-only' : 'flex items-center gap-1.5'}>
         <label htmlFor={id} className={labelHidden ? 'sr-only' : 'text-sm font-medium text-gray-700 dark:text-gray-300'}>
           {label}
@@ -73,9 +87,9 @@ export function FieldFrame({ id, label, labelHidden, required, requiredMark = tr
           {helperText}
         </p>
       )}
-      {!error && warning && (
-        <p id={ids.warning} role="status" className="text-xs font-medium text-amber-700 dark:text-amber-300">
-          {warning}
+      {shownWarning && (
+        <p ref={caution} id={ids.warning} role="status" className="scroll-mb-6 text-xs font-medium text-amber-700 dark:text-amber-300">
+          {shownWarning}
         </p>
       )}
       {error && (
