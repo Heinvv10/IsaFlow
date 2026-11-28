@@ -156,7 +156,7 @@ async function cancelCreditNoteInner(
 
     const cancelledRows = (await sql`
       UPDATE credit_notes
-      SET status = 'cancelled', cancelled_by = ${userId}::UUID,
+      SET status = 'cancelled', cancelled_by = ${userId},
           cancelled_at = NOW(), cancel_reason = ${reason || null},
           applied_amount = 0
       WHERE id = ${id} AND company_id = ${companyId}::UUID RETURNING *

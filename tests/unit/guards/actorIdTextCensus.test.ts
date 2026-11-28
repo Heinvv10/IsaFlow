@@ -15,6 +15,10 @@ import { describe, expect, it } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import {
+  AP_AR_CAST_CLEAN, AP_AR_CAST_SPELLINGS, AP_AR_COLUMN, AP_AR_SITES, AP_AR_TABLE, AP_AR_UUID_AUTHOR_EXEMPT, AP_AR_VALUE_BINDS, apArCastHits, apArCasts, isValuesBindLine,
+} from './apArCensusData';
+type Rec = Record<string, Record<number, string>>;
 
 const ROOT = resolve(__dirname, '../../..');
 const S = 'src/modules/accounting/services/';
@@ -257,5 +261,39 @@ describe('payroll_employees.tax_directive_number is dead (HYa marked it deprecat
       `${S}core/entityChanges/entityChangeMasking.ts:18`,
       'tests/unit/services/core/entityChangeTypes.test.ts:117',
     ]);
+  });
+});
+
+/** Wave 7 AAa (W20 part 1): the ten AP/AR tables' actor columns are uuid until AAb; the code binds the actor untyped, so AAb needs no code change. */
+describe('actor ids on the AP/AR tables are bound as text (AAa census)', () => {
+  const found: Rec = {}, casts: Rec = {}, values: Rec = {};
+  for (const f of trackedFiles()) {
+    const stripped = code(readFileSync(resolve(ROOT, f), 'utf8'));
+    if (!AP_AR_TABLE.test(stripped) || !AP_AR_COLUMN.test(stripped)) continue; // files that write an actor column
+    for (const at of apArCastHits(stripped, f)) { const n = stripped.slice(0, at).split('\n').length; (casts[f] ??= {})[n] = stripped.split('\n')[n - 1]!.trim(); }
+    stripped.split('\n').forEach((l, i) => {
+      if (AP_AR_COLUMN.test(l)) (found[f] ??= {})[i + 1] = l.trim();
+      if (isValuesBindLine(l)) (values[f] ??= {})[i + 1] = l.trim();
+    });
+  }
+
+  it('every actor-column line in those files is pinned, with its exact text', () => {
+    expect(found).toEqual(AP_AR_SITES);
+  });
+
+  it('every VALUES line that binds an actor on a line not naming the column is pinned', () => {
+    expect(values).toEqual(AP_AR_VALUE_BINDS);
+  });
+
+  it('every uuid cast in those files is a listed non-actor id or a pinned author array', () => {
+    expect(casts).toEqual(AP_AR_UUID_AUTHOR_EXEMPT);
+  });
+
+  it.each(AP_AR_CAST_SPELLINGS)('the cast patterns see %s', (line) => {
+    expect(apArCasts(line).length).toBeGreaterThan(0);
+  });
+
+  it.each(AP_AR_CAST_CLEAN)('the cast patterns pass %s', (line) => {
+    expect(apArCasts(line)).toEqual([]);
   });
 });

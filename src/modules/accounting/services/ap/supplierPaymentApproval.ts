@@ -56,7 +56,7 @@ export async function approveSupplierPayment(
 
     const rows = (await sql`
       UPDATE supplier_payments
-      SET status = 'approved', approved_by = ${userId}::UUID, approved_at = NOW()
+      SET status = 'approved', approved_by = ${userId}, approved_at = NOW()
       WHERE id = ${id} AND company_id = ${companyId}::UUID AND status = 'draft'
       RETURNING *
     `) as DbRow[];

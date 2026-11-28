@@ -171,7 +171,7 @@ export async function createSupplierInvoice(
           ${subtotal}, ${invoiceTaxRate}, ${totalTax}, ${totalAmount},
           ${input.paymentTerms || null}, ${input.reference || null},
           ${input.projectId || null}, ${input.costCenterId || null},
-          ${input.notes || null}, ${userId}::UUID,
+          ${input.notes || null}, ${userId},
           ${currencyCode}, ${exchangeRate}, public.fx_functional(${totalAmount}::NUMERIC(15,2), ${exchangeRate}::NUMERIC(18,6)),
           ${fingerprint},
           ${actor?.actorType ?? null}, ${actor?.actorTokenJti ?? null},

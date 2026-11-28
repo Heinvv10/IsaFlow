@@ -88,7 +88,7 @@ export async function createAdjustment(companyId: string,
       ${companyId}, ${input.entityType}, ${input.entityId}::UUID, ${input.adjustmentType},
       ${input.amount}, ${input.reason},
       ${input.adjustmentDate || new Date().toISOString().split('T')[0]},
-      ${userId}::UUID
+      ${userId}
     ) RETURNING *
   `) as Row[];
 
@@ -123,7 +123,7 @@ export async function approveAdjustment(companyId: string, id: string, userId: s
   // eleven lines below has always been predicated; this is the same guard.
   const claimed = await claimUnderLockTimeout('adjustment', async () => (await sql`
     UPDATE accounting_adjustments
-    SET status = 'approved', approved_by = ${userId}::UUID, approved_at = NOW()
+    SET status = 'approved', approved_by = ${userId}, approved_at = NOW()
     WHERE id = ${id} AND company_id = ${companyId} AND status = 'draft'
     RETURNING id
   `) as Row[]);

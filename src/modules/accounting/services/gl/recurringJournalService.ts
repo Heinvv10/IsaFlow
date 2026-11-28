@@ -90,7 +90,7 @@ export async function createRecurringJournal(companyId: string,
     ) VALUES (
       ${companyId}, ${input.templateName}, ${input.description || null}, ${input.frequency},
       ${input.nextRunDate}, ${input.endDate || null},
-      ${JSON.stringify(input.lines)}::JSONB, ${totalDebit}, ${userId}::UUID, ${recurringJournalAutoPosts(input.autoPost)}
+      ${JSON.stringify(input.lines)}::JSONB, ${totalDebit}, ${userId}, ${recurringJournalAutoPosts(input.autoPost)}
     ) RETURNING *
   `) as DbRow[];
 

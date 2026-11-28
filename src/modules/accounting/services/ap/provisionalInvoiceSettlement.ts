@@ -112,7 +112,7 @@ export async function settleInvoiceFromProvisional(
     ) VALUES (
       ${companyId}::UUID, ${invoice.supplierId}::UUID, ${claim.reclassDate}, ${claim.bankAmount}, 'eft',
       ${claim.bankAccountId}::UUID, ${claim.bankTxId}, ${description}, 'processed', ${journal.id}::UUID,
-      ${claim.journalEntryId}::UUID, ${createdBy}::UUID, ${createdBy}::UUID, NOW(), NOW()
+      ${claim.journalEntryId}::UUID, ${createdBy}, ${createdBy}, NOW(), NOW()
     )
     RETURNING id
   `)) as DbRow[];

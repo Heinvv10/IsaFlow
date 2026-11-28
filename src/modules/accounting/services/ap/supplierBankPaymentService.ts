@@ -253,7 +253,7 @@ export async function applyBankLineToSupplierInvoices(
       ${validation.paymentAmount}, 'eft',
       ${bankAccountId}::UUID, ${bankTxId}, ${description}, 'processed',
       ${journalEntryId}::UUID,
-      ${createdBy}::UUID, ${createdBy}::UUID, NOW(), NOW()
+      ${createdBy}, ${createdBy}, NOW(), NOW()
     )
     RETURNING id, payment_number
   `)) as DbRow[];

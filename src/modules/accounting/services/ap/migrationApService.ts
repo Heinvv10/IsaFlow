@@ -212,7 +212,7 @@ export async function importAPInvoices(
             ${inv.invoiceDate}::DATE, ${inv.dueDate}::DATE, 'document',
             ${inv.subtotal}, ${inv.taxAmount}, ${inv.totalAmount},
             ${amountPaid}, ${status},
-            ${inv.reference ?? null}, ${userId}::UUID,
+            ${inv.reference ?? null}, ${userId},
             ${migFingerprint}
           )
           RETURNING id

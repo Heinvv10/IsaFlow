@@ -105,7 +105,7 @@ export async function createWriteOff(companyId: string,
     ) VALUES (
       ${companyId}, ${input.clientId}::UUID, ${input.invoiceId}::UUID, ${input.amount},
       ${input.reason}, ${input.writeOffDate || new Date().toISOString().split('T')[0]},
-      ${userId}::UUID
+      ${userId}
     ) RETURNING *
   `) as Row[];
 
@@ -184,7 +184,7 @@ export async function approveWriteOff(companyId: string, id: string, userId: str
   // money that was written off once. The status-predicated UPDATE is the guard.
   const claimed = await claimUnderLockTimeout('write-off', async () => (await sql`
     UPDATE customer_write_offs
-    SET status = 'approved', approved_by = ${userId}::UUID, approved_at = NOW()
+    SET status = 'approved', approved_by = ${userId}, approved_at = NOW()
     WHERE id = ${id} AND company_id = ${companyId} AND status = 'draft'
     RETURNING id
   `) as Row[]);

@@ -234,7 +234,7 @@ export async function recordSupplierRefund(args: {
       ${total}, ${REFUND_PAYMENT_METHOD},
       ${bankAccountId}::UUID, ${bankTxId}, ${description}, ${'processed'},
       ${journalEntryId}::UUID,
-      ${createdBy}::UUID, ${createdBy}::UUID, NOW(), NOW()
+      ${createdBy}, ${createdBy}, NOW(), NOW()
     )
     RETURNING id
   `) as DbRow[];

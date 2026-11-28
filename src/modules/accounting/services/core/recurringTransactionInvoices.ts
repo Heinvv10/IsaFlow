@@ -92,7 +92,7 @@ export async function mintRecurringCustomerInvoice(
           ${totals.taxAmount},
           ${totals.totalAmount},
           'draft',
-          ${userId}::UUID
+          ${userId}
         ) RETURNING id
       `) as DbRow[];
       const id = String(ciRows[0]?.id);
@@ -230,7 +230,7 @@ export async function mintRecurringSupplierInvoice(
           ${totals.taxAmount},
           ${total},
           'draft',
-          ${userId}::UUID,
+          ${userId},
           ${fingerprint}
         ) RETURNING id
       `) as DbRow[];

@@ -96,7 +96,7 @@ async function approveInner(
     if (invoice.glJournalEntryId) {
       const reused = (await sql`
         UPDATE supplier_invoices
-        SET status = 'approved', approved_by = ${userId}::UUID, approved_at = NOW()
+        SET status = 'approved', approved_by = ${userId}, approved_at = NOW()
         WHERE id = ${id} AND company_id = ${companyId}::UUID
         RETURNING *
       `) as Row[];
@@ -151,7 +151,7 @@ async function approveInner(
 
     const updated = (await sql`
       UPDATE supplier_invoices
-      SET status = 'approved', approved_by = ${userId}::UUID, approved_at = NOW(),
+      SET status = 'approved', approved_by = ${userId}, approved_at = NOW(),
           gl_journal_entry_id = ${journalEntry.id}::UUID
       WHERE id = ${id} AND company_id = ${companyId}::UUID
       RETURNING *
