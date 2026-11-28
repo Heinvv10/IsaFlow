@@ -69,6 +69,7 @@ const DEV_ONLY_SPECS = [
   'z33-off-cycle-run',
   'z34-settings-dirty-state',
   'z38-portal-payslip-periods',
+  'z39-garnishee-creditor-bank',
   'z4-employee-pay-on-create',
   'z5-employee-bank-details',
   'z6-payrun-review-grid',
