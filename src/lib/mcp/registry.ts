@@ -17,7 +17,7 @@ import { debitForTool, refundForTool } from './flowMetering';
 import { insufficientFlowsText } from './flowRefusal';
 import { accessRefusal } from './toolAccess';
 import { GENERIC_FAILURE, thrownToolErrorText } from './thrownToolErrorText';
-import { told } from '@/modules/accounting/services/sage-migration/sageTold';
+import { told } from '@/lib/thrownValue';
 import { toolAnnotationsFor } from './toolAnnotations';
 import { oversizedReadRefusal } from './resultSize';
 

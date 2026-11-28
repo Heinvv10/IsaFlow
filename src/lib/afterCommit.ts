@@ -39,7 +39,7 @@
 import { als, type RequestContext } from '@/lib/als';
 import { forfeitQuotaRefund } from '@/lib/quotaUse';
 import { log } from '@/lib/logger';
-import { told } from '@/modules/accounting/services/sage-migration/sageTold';
+import { told } from '@/lib/thrownValue';
 
 /**
  * `als.run` for the code that OWNS `ctx`'s transaction (withAuth, the bearer
