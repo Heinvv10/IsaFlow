@@ -17,40 +17,62 @@
  *    sets each order's balance to its total debt less what is applied (an order reaching nil is 'satisfied').
  *  - reopen (payrollRunReopen): restoreRunGarnishees, after the header leaves 'approved', unmarks them and puts the
  *    balance back ('satisfied' returns to 'active').
+ *  - wave 7 GT: an off-cycle termination run is costed, approved and reopened through the same three steps (its line
+ *    attaches leave and notice pay, payrollGarnisheeTermination); a month deducts an order once (payrollGarnisheeMonth:
+ *    the loader's takenThisMonth, the approval's judgeMonthGarnishees); cancelling it drops its deductions
+ *    (releaseCancelledRunGarnishees).
  * Every step runs under the company's payroll approval lock and the run's header lock, which the three callers take
  * first, so two approvals cannot move one order's balance at once. The 999z triggers hold the balance to
  * total_debt - applied, and refuse an applied flag the run's status does not allow.
  */
 import { sql } from '@/lib/neon';
-import type { DbRow } from '@/lib/neon';
+import type { DbRow, TxSql } from '@/lib/neon';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { PayrollApprovalRefusedError } from './payrollApprovalRefusal';
+import { judgeConfirmedCreditorPayments } from './payrollBankFileReapproval';
 import type { GarnisheeDeduction, GarnisheeKind, GarnisheeOrderInput } from './payrollGarnishee';
 import type { ValidationResult } from './payrollTypes';
+import { judgeMonthGarnishees, orderName, runCreditorPaidSql, takenByOtherFinalRunSql } from './payrollGarnisheeMonth';
 
 const day = (v: unknown): string => (v instanceof Date ? v.toISOString().slice(0, 10) : String(v).slice(0, 10));
 
-/** Each employee's orders in force for the period [periodStart, periodEnd], keyed by employee id. */
+/**
+ * Each employee's orders in force for the period [periodStart, periodEnd], keyed by employee id. GC2 (1057): the
+ * balance this run may take adds back what a confirmed salary bank file of THIS run already paid the creditor (the
+ * order's balance keeps that payment through a reopen), so recalculating a reopened run whose file the bank paid
+ * deducts it again, and its re-approval counts it once (payroll_garnishee_order_counted), even on a last instalment
+ * or on an order ended since (breaker N1): such an order is loaded for exactly the paid amount, never apportioned.
+ */
 export async function loadRunGarnisheeOrders(
-  companyId: string, employeeIds: readonly string[], periodStart: unknown, periodEnd: unknown,
+  companyId: string, employeeIds: readonly string[], periodStart: unknown, periodEnd: unknown, runId?: string,
 ): Promise<Map<string, GarnisheeOrderInput[]>> {
   const byEmployee = new Map<string, GarnisheeOrderInput[]>();
   if (employeeIds.length === 0) return byEmployee;
   const rows = (await sql`
-    SELECT id::text AS id, employee_id::text AS employee_id, kind, reference, creditor_name, instalment, balance, priority, created_at,
-           (start_date > ${day(periodStart)}::date OR end_date < ${day(periodEnd)}::date) AS part_month
-      FROM payroll_garnishee_orders
-     WHERE company_id = ${companyId}::uuid AND employee_id::text = ANY(${[...employeeIds]}::text[])
-       AND status IN ('active', 'ended') AND start_date <= ${day(periodEnd)}::date
-       AND (end_date IS NULL OR end_date >= ${day(periodStart)}::date)
-       AND (balance IS NULL OR balance > 0)
+    SELECT o.id::text AS id, o.employee_id::text AS employee_id, o.kind, o.reference, o.creditor_name,
+           CASE WHEN p.paid > 0 THEN p.paid ELSE o.instalment END AS instalment,
+           CASE WHEN p.paid > 0 THEN p.paid ELSE o.balance END AS balance, o.priority, o.created_at,
+           (p.paid = 0 AND (o.start_date > ${day(periodStart)}::date OR o.end_date < ${day(periodEnd)}::date)) AS part_month,
+           (p.paid = 0 AND t.taken) AS taken_this_month
+      FROM payroll_garnishee_orders o
+      CROSS JOIN LATERAL (${runCreditorPaidSql(runId ?? null)}) p
+      CROSS JOIN LATERAL (${takenByOtherFinalRunSql(runId ?? null)}) t
+     WHERE o.company_id = ${companyId}::uuid AND o.employee_id::text = ANY(${[...employeeIds]}::text[])
+       AND (
+         -- GC2 (breaker N1): an order THIS run's confirmed bank file paid is taken again for exactly that amount, whatever
+         -- has happened to the order since (ended, even backdated before the period; satisfied): the bank paid it, and
+         -- the re-approval guard accepts only that amount. A part-month apportioning would make it differ.
+         p.paid > 0
+         OR (o.status IN ('active', 'ended') AND o.start_date <= ${day(periodEnd)}::date
+             AND (o.end_date IS NULL OR o.end_date >= ${day(periodStart)}::date)
+             AND (o.balance IS NULL OR o.balance > 0)))
   `) as DbRow[];
   for (const r of rows) {
     const list = byEmployee.get(String(r.employee_id)) ?? [];
     list.push({
       id: String(r.id), kind: r.kind as GarnisheeKind, reference: String(r.reference), creditorName: String(r.creditor_name),
       instalment: Number(r.instalment), balance: r.balance == null ? null : Number(r.balance), priority: Number(r.priority),
-      partMonth: r.part_month === true,
+      partMonth: r.part_month === true, takenThisMonth: r.taken_this_month === true,
       createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
     });
     byEmployee.set(String(r.employee_id), list);
@@ -80,10 +102,12 @@ export async function replaceRunGarnisheeDeductions(
  * Refused as PayrollApprovalRefusedError (a 4xx with nothing written). Locks the orders (FOR UPDATE) for the approval.
  */
 export async function judgeGarnisheeBalances(companyId: string, runId: string, alreadyApproved = false): Promise<void> {
+  await judgeConfirmedCreditorPayments(companyId, runId); // GC2: a creditor a confirmed file paid is never re-deducted differently
   const rows = (await sql`
-    SELECT o.creditor_name, o.instalment, o.balance, o.status, d.amount
+    SELECT o.creditor_name, o.instalment, o.balance + p.paid AS balance, o.status, d.amount
       FROM payroll_garnishee_deductions d
       JOIN payroll_garnishee_orders o ON o.id = d.order_id AND o.company_id = d.company_id
+      CROSS JOIN LATERAL (${runCreditorPaidSql(runId)}) p -- GC2: this run's own confirmed payment is already counted
      WHERE d.run_id = ${runId}::uuid AND d.company_id = ${companyId}::uuid AND NOT d.balance_applied
      ORDER BY o.id
        FOR UPDATE OF o
@@ -113,10 +137,9 @@ export async function judgeGarnisheeBalances(companyId: string, runId: string, a
     throw new PayrollApprovalRefusedError(`${stale.map((r) => `The garnishee order to ${orderName(r)} was ${r.entered ? 'entered' : 'ended'}`)
       .join('; ')} after this run was calculated, so the run still holds the old garnishee deductions: recalculate the run, then approve it.`);
   }
+  await judgeMonthGarnishees(companyId, runId);
 }
 
-/** An order as the refusals name it: its creditor and instalment, never the court reference (rev #1574 L4). */
-const orderName = (r: DbRow): string => `${String(r.creditor_name)} (${formatMoney(Number(r.instalment))} a month)`;
 
 /** After the header is approved: the run's deductions move their orders' balances. Returns the orders moved. */
 export async function applyRunGarnishees(companyId: string, runId: string): Promise<number> {
@@ -138,16 +161,34 @@ export async function restoreRunGarnishees(companyId: string, runId: string): Pr
   return settleBalances(companyId, restored.map((r) => String(r.order_id)));
 }
 
-/** balance = total_debt - applied deductions; nil = satisfied, above nil = active again (an ended order stays ended). */
-async function settleBalances(companyId: string, orderIds: string[]): Promise<number> {
+/**
+ * Wave 7 GT (grill F12): an off-cycle run being cancelled (payrollOffCycleCancel, in its transaction `tx`, the header
+ * locked) drops its deductions. A run that can be cancelled was never approved or is reopened, so 999z holds its
+ * deductions unapplied and the balances already exclude them; any applied row is restored first all the same, and the
+ * balance is set again from what is counted (total_debt - payroll_garnishee_order_counted). Returns the rows dropped.
+ */
+export async function releaseCancelledRunGarnishees(tx: TxSql, companyId: string, runId: string): Promise<number> {
+  const restored = (await tx`
+    UPDATE payroll_garnishee_deductions SET balance_applied = false
+     WHERE run_id = ${runId}::uuid AND company_id = ${companyId}::uuid AND balance_applied
+     RETURNING order_id
+  `) as DbRow[];
+  const dropped = (await tx`
+    DELETE FROM payroll_garnishee_deductions WHERE run_id = ${runId}::uuid AND company_id = ${companyId}::uuid RETURNING order_id
+  `) as DbRow[];
+  await settleBalances(companyId, restored.map((r) => String(r.order_id)), tx);
+  return dropped.length;
+}
+
+/** balance = total_debt - per run max(applied deduction, confirmed file's creditor payment) (1057); nil = satisfied, above nil = active again (an ended order stays ended). */
+async function settleBalances(companyId: string, orderIds: string[], q: TxSql = sql): Promise<number> {
   if (orderIds.length === 0) return 0;
-  const moved = (await sql`
+  const moved = (await q`
     UPDATE payroll_garnishee_orders o
        SET balance = o.total_debt - a.applied,
            status = CASE WHEN o.status = 'ended' THEN 'ended'
                          WHEN o.total_debt - a.applied = 0 THEN 'satisfied' ELSE 'active' END
-      FROM (SELECT o2.id, COALESCE((SELECT sum(d.amount) FROM payroll_garnishee_deductions d
-                                     WHERE d.order_id = o2.id AND d.balance_applied), 0) AS applied
+      FROM (SELECT o2.id, public.payroll_garnishee_order_counted(o2.id) AS applied -- GC2 1057: applied, or paid by a confirmed file
               FROM payroll_garnishee_orders o2
              WHERE o2.company_id = ${companyId}::uuid AND o2.id::text = ANY(${[...new Set(orderIds)]}::text[])) a
      WHERE o.id = a.id AND o.company_id = ${companyId}::uuid AND o.total_debt IS NOT NULL
@@ -193,9 +234,9 @@ export async function runGarnisheePayslipItems(companyId: string, runId: string)
 }
 
 /**
- * Wave 6 OC (review #1679e): an off-cycle run (bonus or termination) takes no garnishee instalment. The month's
- * instalment is the regular run's, so taking one again on the off-cycle line would deduct it twice in the month. A line
- * with an order in force says so (info). Attaching a termination lump sum is logged for wave 7.
+ * Wave 6 OC (review #1679e): a BONUS run takes no garnishee instalment. The month's instalment is the regular run's, so
+ * taking one again on the bonus line would deduct it twice in the month. A line with an order in force says so (info).
+ * A termination run attaches its leave and notice pay since wave 7 GT (payrollGarnisheeTermination).
  */
 export function offCycleGarnisheeNotice(orders: readonly GarnisheeOrderInput[] | undefined): ValidationResult[] {
   if (!orders || orders.length === 0) return [];

@@ -2346,5 +2346,8 @@
   "expected": {
     "paye": 684.23,
     "uifEmployee": 0
-  }
+  },
+  "expectedWarnings": [
+    "WEEK_53_PAY_DAY"
+  ]
 }

@@ -30,21 +30,56 @@ export function wasApprovedBefore(history: unknown): boolean {
   return text !== '' && text !== '{}';
 }
 
-/** A finalised or filed EMP201 (or a legacy submitted or accepted one) covers the month. */
-export async function emp201FiledForMonth(companyId: string, year: number, month: number, db: TxSql = sql): Promise<boolean> {
-  const filed = (await db`
-    SELECT 1 FROM tax_return_versions v
-     WHERE v.company_id = ${companyId}::uuid AND v.form_type = 'EMP201' AND v.status IN ('finalised', 'filed')
-       AND v.period_start <= (make_date(${year}::int, ${month}::int, 1) + INTERVAL '1 month - 1 day')::date
-       AND v.period_end >= make_date(${year}::int, ${month}::int, 1)
-    UNION ALL
-    SELECT 1 FROM sars_submissions s
-     WHERE s.company_id = ${companyId}::uuid AND s.form_type = 'EMP201' AND s.status IN ('submitted', 'accepted')
-       AND s.period_start <= (make_date(${year}::int, ${month}::int, 1) + INTERVAL '1 month - 1 day')::date
-       AND s.period_end >= make_date(${year}::int, ${month}::int, 1)
+/**
+ * What covers a month's EMP201 (wave 7 EL, W25): a version that was filed (filed_at set, so a filed version later
+ * amended still counts: SARS holds that filing; its PRN), a legacy submitted or accepted submission no version names
+ * (its recorded reference, if any; a submission the lifecycle filed is named by its version and judged there), or a
+ * finalised version not filed yet (no PRN: its version number). In that order of preference, the latest filed version
+ * first, so the refusal names the strongest record. Null when none covers the month. A plain read.
+ */
+export interface Emp201Filing {
+  source: 'filed_version' | 'legacy_submission' | 'finalised_version';
+  reference: string | null;
+  versionNo: number | null;
+}
+
+export async function emp201FilingFor(companyId: string, year: number, month: number, db: TxSql = sql): Promise<Emp201Filing | null> {
+  const rows = (await db`
+    SELECT x.source, x.reference, x.version_no FROM (
+      SELECT CASE WHEN v.filed_at IS NOT NULL THEN 'filed_version' ELSE 'finalised_version' END AS source,
+             v.filed_reference AS reference, v.version_no, CASE WHEN v.filed_at IS NOT NULL THEN 0 ELSE 2 END AS rank
+        FROM tax_return_versions v
+       WHERE v.company_id = ${companyId}::uuid AND v.form_type = 'EMP201'
+         AND (v.status IN ('finalised', 'filed') OR v.filed_at IS NOT NULL)
+         AND v.period_start <= (make_date(${year}::int, ${month}::int, 1) + INTERVAL '1 month - 1 day')::date
+         AND v.period_end >= make_date(${year}::int, ${month}::int, 1)
+      UNION ALL
+      SELECT 'legacy_submission', s.submission_reference, NULL, 1
+        FROM sars_submissions s
+       WHERE s.company_id = ${companyId}::uuid AND s.form_type = 'EMP201' AND s.status IN ('submitted', 'accepted')
+         AND s.period_start <= (make_date(${year}::int, ${month}::int, 1) + INTERVAL '1 month - 1 day')::date
+         AND s.period_end >= make_date(${year}::int, ${month}::int, 1)
+         AND NOT EXISTS (SELECT 1 FROM tax_return_versions t WHERE t.company_id = s.company_id AND t.sars_submission_id = s.id)
+    ) x
+    ORDER BY x.rank, x.version_no DESC NULLS LAST
     LIMIT 1
   `) as DbRow[];
-  return filed.length > 0;
+  const r = rows[0];
+  if (!r) return null;
+  const reference = r.reference == null || String(r.reference).trim() === '' ? null : String(r.reference);
+  return { source: r.source as Emp201Filing['source'], reference, versionNo: r.version_no == null ? null : Number(r.version_no) };
+}
+
+/** How a refusal names the filing: "filed with reference 7…", "finalised as version 2 (not filed yet)". */
+export function emp201FilingText(f: Emp201Filing): string {
+  if (f.source === 'finalised_version') return `is finalised as version ${f.versionNo ?? '?'} (not filed yet)`;
+  const ref = f.reference === null ? 'no reference recorded' : `reference ${f.reference}`;
+  return f.source === 'filed_version' ? `is filed (${ref})` : `was submitted outside the return lifecycle (${ref})`;
+}
+
+/** A finalised or filed EMP201 (a version once filed, or a legacy submitted or accepted one) covers the month. */
+export async function emp201FiledForMonth(companyId: string, year: number, month: number, db: TxSql = sql): Promise<boolean> {
+  return (await emp201FilingFor(companyId, year, month, db)) !== null;
 }
 
 /** Create (review #1679 L2), calculate and approve (delta M2): no off-cycle run of a month whose EMP201 is filed. */

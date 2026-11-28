@@ -1,0 +1,54 @@
+{
+  "id": "leaver-raise-mid-month-sums-to-window",
+  "source": "sars-guide:SARS PAYE-GEN-01-G21 Guide for Employers iro Employees Tax 2027, Revision 1 p. 9-10 (annual equivalent of part-period pay; a part period as its share of days, 3 of 7 = 0.4285) and p. 13; apportionment basis: wave-7 ruling 13 (monthly working days, weekly calendar days), scope ruling 19",
+  "sourceRef": "https://www.sars.gov.za/wp-content/uploads/Ops/Guides/PAYE-GEN-01-G21-Guide-for-Employers-iro-Employees-Tax-for-2027-External-Guide.pdf",
+  "notes": "Review #1901 H1, ruling 19: a leaver's split salary is measured against their employed window, so it sums to full pay. Employed since 1 March 2020, last day Wednesday 15 July 2026 (window 1-15 July: 11 working days), age 40. Basic R4 000 to Thursday 9 July (7 of 11 working days: 4 000 x 7 / 11 = 2 545.454 -> 2 545.45), R4 800 from Friday 10 July, open-ended as a run reads it (4 of 11: 4 800 x 4 / 11 = 1 745.454 -> 1 745.45). Gross 4 290.90; PAYE R0 (under the threshold, G21 p. 13). UIF 1% = 42.91 each side; SDL 42.91; net 4 247.99. Measured against the calendar month (23 days) it paid 1 217.39 + 834.78 = 2 052.17, below a leaver with no raise (R4 000).",
+  "input": {
+    "period": {
+      "year": 2026,
+      "month": 7
+    },
+    "taxYear": 2027,
+    "employee": {
+      "dateOfBirth": "1986-01-01",
+      "startDate": "2020-03-01",
+      "endDate": "2026-07-15",
+      "taxStatus": "statutory",
+      "uifExcluded": false,
+      "medicalAidMainMember": false,
+      "medicalAidDependantsCount": 0,
+      "s18aReceiptHeld": false
+    },
+    "employerAnnualRemuneration": 10000000,
+    "components": [
+      {
+        "code": "3601",
+        "name": "Basic salary",
+        "type": "earning",
+        "amount": 4000,
+        "taxable": true,
+        "uif": true,
+        "sdl": true,
+        "effectiveFrom": "2020-03-01",
+        "effectiveTo": "2026-07-09"
+      },
+      {
+        "code": "3601",
+        "name": "Basic salary (raised)",
+        "type": "earning",
+        "amount": 4800,
+        "taxable": true,
+        "uif": true,
+        "sdl": true,
+        "effectiveFrom": "2026-07-10"
+      }
+    ]
+  },
+  "expected": {
+    "paye": 0,
+    "uifEmployee": 42.91,
+    "uifEmployer": 42.91,
+    "sdl": 42.91,
+    "net": 4247.99
+  }
+}

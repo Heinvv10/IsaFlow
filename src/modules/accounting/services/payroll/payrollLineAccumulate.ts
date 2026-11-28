@@ -4,7 +4,7 @@ import { deemedMedicalFees, deemedRetirementContributions, isEmployerMedicalFrin
 import { effectiveInclusionRate, includedInPaye, VEHICLE_CODE } from './fringeBenefits';
 import { notPayeDeductibleWarning } from './payrollLinePaye';
 import { employerContributionWarning, employerFundBenefitWarning, isEmployerFundBenefitCode, isRetirementContributionCode, employerFundKeptAsCashWarning, retirementBenefitNotTaxableWarning } from './retirementFund';
-import type { ComponentBreakdownItem, EmployeeComponent, ValidationResult } from './payrollTypes';
+import type { ComponentBreakdownItem, EmployeeComponent, RecurringShare, ValidationResult } from './payrollTypes';
 
 /** The running totals of a line's components, by how PAYE, UIF and SDL treat each (moved out of payrollCalculator.ts, unchanged). */
 export interface ComponentAccumulation {
@@ -41,6 +41,8 @@ export interface EarningPart {
   isNonCash: boolean; taxable: boolean; uif: boolean; sdl: boolean; treatment: ReturnType<typeof payeTreatment>;
   /** DBF: a defined-benefit fund contribution valued at factor x rfi - employeeContribution (definedBenefitFund.ts). */
   db?: { factor: number; rfi: number; employeeContribution: number };
+  /** W29: the share of its period a recurring earning paid (apportionRecurringRows); `amount` is already the share. */
+  share?: RecurringShare;
 }
 
 export function accumulateComponents(components: EmployeeComponent[]): ComponentAccumulation {
@@ -80,7 +82,7 @@ export function accumulateComponents(components: EmployeeComponent[]): Component
   const employeeMedical4005 = components.filter((c) => c.component.componentType === 'deduction' && normaliseSarsCode(c.component.sarsSourceCode) === '4005').reduce((n, c) => n + c.amount, 0);
   medicalSchemeFees += employerMedicalFees;
 
-  for (const { component, amount, isRecurring, isNonCash, directive, quantity, quantityUnit, rateMultiplier, reimbursiveTravel, medicalGrossUp, payeInclusionRate: given, percentOfRfi, rfiBase, employerFundAsCash, dbMemberCategoryFactor, dbEmployeeContribution, dbEmployerContribution, dbMemberRetired } of components) {
+  for (const { component, amount, isRecurring, isNonCash, directive, quantity, quantityUnit, rateMultiplier, reimbursiveTravel, medicalGrossUp, payeInclusionRate: given, percentOfRfi, rfiBase, employerFundAsCash, dbMemberCategoryFactor, dbEmployeeContribution, dbEmployerContribution, dbMemberRetired, share } of components) {
     // 3701 is 80% remuneration unless a record says business use is at least 80%; one default (fringeBenefits.ts, G21 p. 5).
     const payeInclusionRate = component.componentType === 'earning' && component.isTaxable ? effectiveInclusionRate(component.sarsSourceCode, given) : undefined;
     const included = payeInclusionRate === undefined ? amount : includedInPaye(amount, payeInclusionRate);
@@ -114,6 +116,8 @@ export function accumulateComponents(components: EmployeeComponent[]): Component
       // DBF: what the employer pays the fund (GL 2175, 4472 / 4473), apart from the fringe X in `amount`; 12D(6) rows say so.
       ...(dbEmployerContribution !== undefined ? { dbEmployerContribution } : {}),
       ...(dbMemberRetired === true && dbMemberCategoryFactor != null ? { dbMemberRetired: true as const, dbMemberCategoryFactor } : {}),
+      // W29: the share of the period the row paid (payrollRecurringShare); the payslip line prints it.
+      ...(share ? { share } : {}),
     });
 
     if (component.componentType === 'earning') {
@@ -127,7 +131,7 @@ export function accumulateComponents(components: EmployeeComponent[]): Component
       earningParts.push({
         name: component.name, code: component.sarsSourceCode, amount, included, ...(payeInclusionRate !== undefined ? { rate: payeInclusionRate } : {}),
         isNonCash: isNonCash === true, taxable: component.isTaxable, uif: component.isUifApplicable, sdl: component.isSdlApplicable,
-        treatment: payeTreatment(component.sarsSourceCode), ...(db ? { db } : {}),
+        treatment: payeTreatment(component.sarsSourceCode), ...(db ? { db } : {}), ...(share ? { share } : {}),
       });
       if (normaliseSarsCode(component.sarsSourceCode) === VEHICLE_CODE && !isNonCash) {
         warnings.push({ code: 'FRINGE_RECORD_MISSING', severity: 'warning',

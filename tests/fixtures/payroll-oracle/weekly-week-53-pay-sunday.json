@@ -1393,5 +1393,8 @@
     "paye": 197.31,
     "uifEmployee": 30,
     "net": 2772.69
-  }
+  },
+  "expectedWarnings": [
+    "WEEK_53_PAY_DAY"
+  ]
 }

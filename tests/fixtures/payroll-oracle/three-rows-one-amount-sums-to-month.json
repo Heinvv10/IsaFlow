@@ -1,0 +1,64 @@
+{
+  "id": "three-rows-one-amount-sums-to-month",
+  "source": "sars-guide:SARS PAYE-GEN-01-G21 Guide for Employers iro Employees Tax 2027, Revision 1 p. 9-10 (annual equivalent of part-period pay; a part period as its share of days, 3 of 7 = 0.4285) and p. 13; apportionment basis: wave-7 ruling 13 (monthly working days, weekly calendar days), scope ruling 19",
+  "sourceRef": "https://www.sars.gov.za/wp-content/uploads/Ops/Guides/PAYE-GEN-01-G21-Guide-for-Employers-iro-Employees-Tax-for-2027-External-Guide.pdf",
+  "notes": "Review #1901 R2-L1: three rows of one component at one amount that tile the month foot to the cent: the last pays the full amount less the earlier rows. July 2026 (23 working days), employed since 1 March 2020, age 40. Basic R4 000 to Thursday 9 July (7 of 23: 4 000 x 7 / 23 = 1 217.391 -> 1 217.39), 10-21 July (8 of 23: 1 391.304 -> 1 391.30), from 22 July (8 of 23: 4 000 - 1 217.39 - 1 391.30 = 1 391.31). Gross 4 000.00; PAYE R0; UIF 40.00 each side; SDL 40.00; net 3 960.00.",
+  "input": {
+    "period": {
+      "year": 2026,
+      "month": 7
+    },
+    "taxYear": 2027,
+    "employee": {
+      "dateOfBirth": "1986-01-01",
+      "startDate": "2020-03-01",
+      "taxStatus": "statutory",
+      "uifExcluded": false,
+      "medicalAidMainMember": false,
+      "medicalAidDependantsCount": 0,
+      "s18aReceiptHeld": false
+    },
+    "employerAnnualRemuneration": 10000000,
+    "components": [
+      {
+        "code": "3601",
+        "name": "Basic salary",
+        "type": "earning",
+        "amount": 4000,
+        "taxable": true,
+        "uif": true,
+        "sdl": true,
+        "effectiveFrom": "2020-03-01",
+        "effectiveTo": "2026-07-09"
+      },
+      {
+        "code": "3601",
+        "name": "Basic salary",
+        "type": "earning",
+        "amount": 4000,
+        "taxable": true,
+        "uif": true,
+        "sdl": true,
+        "effectiveFrom": "2026-07-10",
+        "effectiveTo": "2026-07-21"
+      },
+      {
+        "code": "3601",
+        "name": "Basic salary",
+        "type": "earning",
+        "amount": 4000,
+        "taxable": true,
+        "uif": true,
+        "sdl": true,
+        "effectiveFrom": "2026-07-22"
+      }
+    ]
+  },
+  "expected": {
+    "paye": 0,
+    "uifEmployee": 40,
+    "uifEmployer": 40,
+    "sdl": 40,
+    "net": 3960
+  }
+}

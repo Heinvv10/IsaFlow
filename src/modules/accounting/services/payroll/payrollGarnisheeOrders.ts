@@ -19,6 +19,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { logAuditOrThrow } from '@/modules/accounting/services/core/auditTrailService';
 import { ensureGarnisheePayable } from './payrollGarnisheeAccount';
+import { creditorBankView, type CreditorBank } from './payrollGarnisheeCreditorBank';
 import { lockCompanyPayrollApprovals } from './payrollRunLock';
 import { GARNISHEE_KINDS, GarnisheeOrderRefusal, type GarnisheeKind } from './payrollGarnishee';
 
@@ -56,6 +57,8 @@ export interface GarnisheeOrder extends GarnisheeOrderInputFields {
   deducted: number;
   applied: number;
   pending: number;
+  /** The creditor's account (wave 7 GC1), always masked here; null until entered. Admin-only entry: 1051's flag. */
+  creditorBank: CreditorBank | null; creditorEntryAdminOnly: boolean;
 }
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -89,6 +92,7 @@ function mapOrder(r: DbRow): GarnisheeOrder {
     endReason: r.end_reason == null ? null : String(r.end_reason), payableAccountId: String(r.payable_account_id),
     createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
     deducted: Number(r.deducted ?? 0), applied: Number(r.applied ?? 0), pending: Number(r.pending ?? 0),
+    creditorBank: creditorBankView(r, false), creditorEntryAdminOnly: r.creditor_entry_admin_only === true,
   };
 }
 

@@ -148,16 +148,22 @@ describe('recurring rows bounded between the 28th and the month end (changed by 
     expect(await paid(runs.apr, emp.starts30)).toEqual([['Basic salary', SALARY]]);
   });
 
-  it('a salary change from 29 March: March pays the new salary only, never both, never neither', async () => {
+  // W29 (wave 7 PRA): a salary change inside employment pays each rate for its share of March's 22 working days: the old row
+  // runs to Saturday the 28th (20 days), the new one from Sunday the 29th (2 days: the 30th and 31st). Before W29 March paid
+  // the new salary only.
+  it('a salary change from 29 March: March pays each rate for its working days, never both in full, never neither', async () => {
     expect(await paid(runs.feb, emp.changes29)).toEqual([['Basic salary', SALARY]]);
-    expect(await paid(runs.mar, emp.changes29)).toEqual([['Basic salary', SALARY + 500]]);
+    expect(await paid(runs.mar, emp.changes29)).toEqual([['Basic salary', Math.round((SALARY + 500) * 2 / 22 * 100) / 100],
+      ['Basic salary', Math.round(SALARY * 20 / 22 * 100) / 100]]);
   });
 });
 
 describe('one read date for recurring and once-off rows', () => {
   it('a standing allowance superseded by a once-off on 30 March is paid once in March: the once-off', async () => {
     expect(await paid(runs.feb, emp.mixedFlags)).toEqual([['Allowance', 700], ['Basic salary', SALARY]]);
-    expect(await paid(runs.mar, emp.mixedFlags)).toEqual([['Allowance', 900], ['Basic salary', SALARY]]);
+    // W29: the standing allowance ran to Sunday the 29th, 20 of 22 working days (636.36), beside the once-off; the line warns
+    // RECURRING_SHARE_BESIDE_ONCE_OFF in case the once-off was a hand pro-rata of the same days.
+    expect(await paid(runs.mar, emp.mixedFlags)).toEqual([['Allowance', 636.36], ['Allowance', 900], ['Basic salary', SALARY]]);
     expect(await paid(runs.apr, emp.mixedFlags)).toEqual([['Basic salary', SALARY]]);
   });
 

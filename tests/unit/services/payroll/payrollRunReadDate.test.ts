@@ -10,7 +10,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const bound: unknown[][] = [];
 vi.mock('@/lib/neon', () => ({
-  sql: vi.fn(async (_strings: TemplateStringsArray, ...values: unknown[]) => { bound.push(values); return []; }),
+  sql: Object.assign(vi.fn(async (_strings: TemplateStringsArray, ...values: unknown[]) => { bound.push(values); return []; }),
+    { unsafe: (text: string) => ({ unsafe: text }) }), // W29 round 3: the leaver successor predicate is a fragment
 }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 
@@ -56,8 +57,10 @@ describe.each(['Africa/Johannesburg', 'UTC'] as const)('process in %s', (zone) =
     for (const [values, asOf] of [[bound[0]!, '2026-03-31'], [bound[1]!, '2026-02-28']] as const) {
       expect(values.slice(0, 2)).toEqual(['e-1', 'c-1']);
       expect(values.length).toBeGreaterThan(2);
-      // Every bound value after them is the read date, or the absent run start (null: a monthly run, wave 6 FQc).
-      expect(values.slice(2).every(v => v === asOf || v === null)).toBe(true);
+      // Every bound value after them is the read date, or the absent run start (null: a monthly run, wave 6 FQc), or the
+      // fixed leaver successor predicate (W29 round 3: an sql.unsafe fragment, no value).
+      const fragment = (v: unknown) => typeof v === 'object' && v !== null && 'unsafe' in v;
+      expect(values.slice(2).every(v => v === asOf || v === null || fragment(v))).toBe(true);
       expect(values.slice(2)).toContain(asOf);
     }
   });

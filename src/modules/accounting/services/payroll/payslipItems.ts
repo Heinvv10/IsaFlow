@@ -15,6 +15,7 @@
  * An employer contribution is neither pay nor a deduction: it is listed as the employer's.
  */
 import { EMPLOYER_FUND_BENEFIT_CODES } from './retirementFundCodes';
+import { describeShare } from './payrollRecurringShare';
 import type { ComponentBreakdownItem } from './payrollTypes';
 
 export interface PayslipItem {
@@ -86,8 +87,15 @@ function parse(raw: string): unknown {
 }
 
 
+/** W29: an apportioned recurring earning says its share, "Allowance, 12 of 23 working days (0.5217)" (payrollRecurringShare). */
+const shareNote = (i: ComponentBreakdownItem): string => {
+  const sh = i.share;
+  if (!sh || typeof sh !== 'object' || !Number.isFinite(sh.days) || !Number.isFinite(sh.of) || !Number.isFinite(sh.share)) return '';
+  return `, ${describeShare(sh)}`;
+};
+
 const itemOf = (i: ComponentBreakdownItem): PayslipItem => ({
-  label: String(i.componentName ?? '').trim() || 'Unnamed item',
+  label: `${String(i.componentName ?? '').trim() || 'Unnamed item'}${shareNote(i)}`,
   code: String(i.sarsSourceCode ?? '').trim(),
   amount: round2(Number(i.amount) || 0),
 });

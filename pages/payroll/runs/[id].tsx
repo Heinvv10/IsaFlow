@@ -30,6 +30,8 @@ import { SalaryBankFileCard } from '@/components/payroll/SalaryBankFileCard';
 import { runPeriodTitle } from '@/components/payroll/RunCards';
 import { emptyLinesMessage } from '@/components/payroll/runEmptyLines';
 import { FrequencyChangeCard } from '@/components/payroll/FrequencyChangeCard';
+import { RunPaidNote } from '@/components/payroll/MarkRunPaid';
+import { RecurringShareCard, sharePairsKey } from '@/components/payroll/RecurringShareCard';
 
 
 export default function PayrollRunDetailPage() {
@@ -78,7 +80,7 @@ export default function PayrollRunDetailPage() {
   const openPayslip = (l: RunLineAmounts) => setPayslip({ runId, employeeId: l.employeeId, title: `${l.employeeName}, ${period}`, employeeName: l.employeeName });
   const locked = isLocked(run.status);
   const canCalculate = !locked && (run.status === 'draft' || run.status === 'calculated');
-  const canReopen = run.status === 'approved';
+  const canReopen = run.status === 'approved'; // a paid run is never reopened (wave 7 MP)
   // approvePayrollRun's own states; an approved run without its journal was
   // stranded before K-079 and re-approving it posts the journal.
   const cleared = !isApprovalHeld(run.approval) && run.approval?.state === 'approved';
@@ -104,7 +106,8 @@ export default function PayrollRunDetailPage() {
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
         <RunHeaderActions runId={runId} period={period} run={run} companyRole={companyRole} locked={locked}
           canCalculate={canCalculate} canReopen={canReopen} canApprove={canApprove} calculating={calculating} reopening={reopening}
-          calculate={() => void grid.drained().then(calculate)} reopen={() => void grid.drained().then(reopen)} openApprove={() => void openApprove()} />
+          calculate={() => void grid.drained().then(calculate)} reopen={() => void grid.drained().then(reopen)} openApprove={() => void openApprove()}
+          onPaid={() => void load()} />
 
         <div className="p-6 space-y-6">
           <OffCycleBonusAmounts runId={runId} run={run} companyRole={companyRole} onChanged={() => void load()} />
@@ -112,8 +115,12 @@ export default function PayrollRunDetailPage() {
           <DocumentApprovalPanel documentType="pay_run" documentId={run.id} noun="pay run"
             approval={run.approval} onChanged={() => load()} />
           <SelfApprovedNote decision={run.approvalDecision} />
+          <RunPaidNote run={run} />
           {(run.status === 'draft' || run.status === 'calculated') && canWrite(companyRole) && (
             <FrequencyChangeCard runId={runId} canAcknowledge={companyRole === 'owner' || companyRole === 'admin'} />
+          )}
+          {(run.status === 'draft' || run.status === 'calculated') && canWrite(companyRole) && (
+            <RecurringShareCard runId={runId} canAcknowledge={companyRole === 'owner' || companyRole === 'admin'} refreshKey={sharePairsKey(run.lines)} />
           )}
           {error && (
             <div className="px-4 py-2 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm">{error}</div>
