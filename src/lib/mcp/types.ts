@@ -28,6 +28,12 @@ export interface McpToolContext {
   tokenExpiresAt?: string | null;
   /** OAuth only: ISO expiry of the refresh token — when the connector must be re-authorised. */
   refreshExpiresAt?: string | null;
+  /**
+   * In-process callers only (the Sage migration's tool session): called when the registry serves a STORED answer for an
+   * idempotency key instead of running the tool, so the caller knows this call wrote nothing. No transport sets it, and
+   * nothing about it reaches the wire.
+   */
+  onIdempotentReplay?: () => void;
 }
 
 export interface McpToolResult {

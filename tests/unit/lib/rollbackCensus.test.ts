@@ -62,6 +62,10 @@ const PINNED: Record<string, { rollbacks: number; unreadable: number; reason: st
     rollbacks: 0, unreadable: 1,
     reason: `boundedPoolRead: ${PASSES_TEXT_ON} (one fixed SELECT of each caller: the Login-as session record and the stash row, #1371), inside BEGIN READ ONLY; it rolls back with rollbackFailed`,
   },
+  'src/modules/accounting/services/sage-migration/sageToolSession.ts': {
+    rollbacks: 0, unreadable: 1,
+    reason: 'watchedQuery forwards the request\'s own queries unchanged (a watching view of its client, round 25); the request rolls back with rollbackError on the client itself',
+  },
   'src/modules/accounting/services/core/mcpUploadIntentStore.ts': {
     rollbacks: 0, unreadable: 2,
     reason: 'stageUploadBytes: STAGE_SQL, one fixed module constant, on its own transaction and on a test seam\'s client; it rolls back with rollbackFailed',

@@ -26,6 +26,33 @@ export function setRollbackBoundForTests(ms: number): () => void {
 
 interface Rollbackable { query(text: string): Promise<unknown> }
 
+const UNREADABLE = 'ROLLBACK failed with a value whose message cannot be read';
+
+/** A message for the log only: a string as it is, else its string form, or a marker when that throws. */
+function logText(message: unknown): string {
+  if (typeof message === 'string') return message;
+  try { return String(message); } catch { return UNREADABLE; }
+}
+
+/**
+ * A thrown value as [an Error to hand on, its message], never throwing: a value that cannot be read becomes a plain Error saying so.
+ * An Error whose message reads but is not a string is handed on as it is (R38-6: its code and class kept); only its log text is coerced.
+ */
+function readable(value: unknown): [Error, string] {
+  try {
+    if (value instanceof Error) {
+      const message: unknown = value.message;
+      return [value, logText(message)];
+    } else {
+      const message = String(value);
+      return [new Error(message), message];
+    }
+  } catch {
+    // falls through: its prototype, message or string form cannot be read
+  }
+  return [new Error(UNREADABLE), UNREADABLE];
+}
+
 /**
  * Rolls a transaction back and returns the error if that FAILED, else null (R-176). Never throws.
  *
@@ -40,26 +67,30 @@ export async function rollbackError(client: Rollbackable, source: string): Promi
   let timer: ReturnType<typeof setTimeout> | undefined;
   const bound = boundMs;
   const noAnswer = new Error(`ROLLBACK did not answer within ${bound}ms`);
-  const failure = await Promise.race([
-    (async () => client.query('ROLLBACK'))().then(() => null, (err: unknown) => err ?? new Error('ROLLBACK rejected')),
-    new Promise<Error>((resolve) => {
-      timer = setTimeout(() => resolve(noAnswer), bound);
+  // The rejection is boxed: resolving a promise with the value itself would read its `then` (a Proxy's trap may throw there).
+  const outcome = await Promise.race([
+    (async () => client.query('ROLLBACK'))().then(() => null, (err: unknown) => ({ failed: err ?? new Error('ROLLBACK rejected') })),
+    new Promise<{ failed: Error }>((resolve) => {
+      timer = setTimeout(() => resolve({ failed: noAnswer }), bound);
       timer.unref?.(); // must not keep a script alive
     }),
   ]);
   clearTimeout(timer);
-  if (failure === null) return null;
-  const error = failure instanceof Error ? failure : new Error(String(failure));
-  log.error(`${source}: ROLLBACK failed, destroying the connection`, { message: error.message }, 'DB');
+  if (outcome === null) return null;
+  const failure = outcome.failed;
+  // Never throws, whatever the driver rejected with (round 37, B37-1): a value whose formatting, message or prototype read throws is
+  // replaced by a plain Error saying so; a readable Error is returned as it is, so callers keep its code and class.
+  const [error, message] = readable(failure);
+  log.error(`${source}: ROLLBACK failed, destroying the connection`, { message }, 'DB');
   let cancelSent = false;
   try {
     cancelSent = cancelBackend(client);
   } catch (cancelErr) {
-    log.error(`${source}: backend cancel failed`, { message: cancelErr instanceof Error ? cancelErr.message : String(cancelErr) }, 'DB');
+    log.error(`${source}: backend cancel failed`, { message: readable(cancelErr)[1] }, 'DB');
   }
   // A statement is still in flight when the ROLLBACK never answered, or when node-postgres's own
   // query_timeout gave up on it (client.js: 'Query read timeout').
-  const inFlight = failure === noAnswer || error.message === 'Query read timeout';
+  const inFlight = failure === noAnswer || message === 'Query read timeout';
   if (!cancelSent && inFlight && !warnedNoCancel) {
     // Nothing could be sent to stop it (not a connected pg client, or its key fields changed
     // type). Said once per process.
