@@ -16,20 +16,12 @@ import { test, expect } from '@playwright/test';
 import { Api } from './_api';
 import { activeCompanyId, switchApiCompany, switchBrowserCompany } from './_migrationSandbox';
 import { resetHostedOnboardingLimit } from './helpers/hostedOnboardingLimit';
+import { guardDevTarget } from '../helpers/devTarget';
+
+guardDevTarget(test);
 
 // Creates a sandbox company and a permanent customer, so it is a dev/CI gate only:
 // playwright-golden.config.ts leaves it out of the production post-deploy verify.
-// Allowlist, like v-empty-states: only an explicit dev/CI localhost port, never production (app.isaflow.co.za,
-// nginx on :80/:3101, or the blue/green colours 3111/3112 that deploy.sh verifies before a switch).
-const DEV_PORTS = new Set(['3200', ...Array.from({ length: 40 }, (_, i) => String(3200 + i)), ...Array.from({ length: 500 }, (_, i) => String(3300 + i))]);
-
-test.beforeAll(({}, testInfo) => {
-  const url = new URL(String(testInfo.project.use.baseURL ?? 'http://localhost'));
-  if (url.hostname !== 'localhost' || !DEV_PORTS.has(url.port)) {
-    throw new Error(`w-setup-checklist writes a sandbox company and a customer: dev/CI localhost ports only (3200-3239, 3300-3799), not ${url.host}`);
-  }
-});
-
 const SANDBOX_NAME = '0GP Golden Checklist Sandbox';
 const SANDBOX_ONBOARDING_ID = '3b9f1c7e-52d4-4a8b-9e61-7c0d2f4a6b18';
 const CUSTOMER_NAME = '0GP-Checklist-Customer';

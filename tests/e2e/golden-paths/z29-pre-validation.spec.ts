@@ -20,6 +20,9 @@ import { Api } from './_api';
 import { clearPayRunApproval } from './helpers/payRunApproval';
 import { findOrCreateSandbox, switchApiCompany, switchBrowserCompany } from './_migrationSandbox';
 import { seedTheme, settle, THEMES } from '../helpers/themeSpec';
+import { guardDevTarget } from '../helpers/devTarget';
+
+guardDevTarget(test);
 
 const EVIDENCE_DIR = process.env.EVIDENCE_DIR;
 const SANDBOX = { name: '0GP Golden Pre-validation Sandbox', onboardingId: '5d1a9c3e-7b24-4f86-a0c9-3e8b6d2f1a47' };
@@ -65,8 +68,6 @@ async function sandboxRun(api: Api): Promise<{ runId: string; employeeId: string
 }
 
 async function sandbox(context: BrowserContext, baseURL: string) {
-  const u = new URL(baseURL);
-  expect(u.hostname === 'localhost' && u.port !== '3101', `z29 writes payroll data: dev/CI localhost only, not ${u.host}`).toBe(true);
   const api = await Api.login(baseURL);
   const sandboxId = await findOrCreateSandbox(api, SANDBOX);
   await switchApiCompany(api, sandboxId);

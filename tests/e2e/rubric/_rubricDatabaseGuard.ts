@@ -10,15 +10,10 @@
  */
 import { resolve } from 'node:path';
 import { parse as pgParse } from 'pg-connection-string';
+import { DEV_DATABASE, DEV_DB_HOST, DEV_DB_PORT } from '../helpers/devTarget';
 import { RubricGuardError } from './_rubricGuard';
 
-export const DEV_DATABASE = 'isaflow_dev';
-/**
- * Dev Supabase (the IsaFlow stack on velo-server), hardcoded. Named limit: if the dev database moves, the guard refuses
- * every server (it fails closed) until these and DEV_DB_SERVER_PORT are updated by hand.
- */
-export const DEV_DB_HOST = '100.96.203.105';
-export const DEV_DB_PORT = 7772;
+export { DEV_DATABASE, DEV_DB_HOST, DEV_DB_PORT };
 /**
  * What the dev stack's Postgres reports as `inet_server_port()` behind the 7772 mapping (measured 2026-11-06). The
  * container port, not 7772: a connected server cannot report the host-side port, so this pins the server instead.

@@ -1,4 +1,7 @@
 import { test, expect } from '@playwright/test';
+import { guardDevTarget } from './helpers/devTarget';
+
+guardDevTarget(test);
 
 test.describe('Leave page routes load', () => {
   test('GET /payroll/leave returns 200 or 307', async ({ page }) => {

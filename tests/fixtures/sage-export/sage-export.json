@@ -1,0 +1,763 @@
+{
+  "Items": {
+    "$totalResults": 20,
+    "$startIndex": 0,
+    "$itemsPerPage": 200,
+    "$resources": [
+      {
+        "ID": 50001,
+        "Code": "FIB-0001",
+        "Description": "Fibre stock item 1",
+        "Active": true,
+        "Physical": true,
+        "PriceExclusive": 107.5,
+        "PriceInclusive": 123.62499999999999,
+        "LastCost": 63.25,
+        "AverageCost": 59.123456,
+        "TaxTypeIdSales": 1,
+        "TaxTypeIdPurchases": 1,
+        "Category": {
+          "ID": 10,
+          "Description": "Optics"
+        },
+        "QuantityOnHand": 26,
+        "Created": "2024-02-01T08:00:00Z",
+        "Modified": "2026-10-30T10:15:00Z"
+      },
+      {
+        "ID": 50002,
+        "Code": "FIB-0002",
+        "Description": "Fibre stock item 2",
+        "Active": true,
+        "Physical": true,
+        "PriceExclusive": 115,
+        "PriceInclusive": 132.25,
+        "LastCost": 66.5,
+        "AverageCost": 60.123456,
+        "TaxTypeIdSales": 1,
+        "TaxTypeIdPurchases": 1,
+        "Category": {
+          "ID": 11,
+          "Description": "Poles and Hardware"
+        },
+        "QuantityOnHand": 27,
+        "Created": "2024-02-01T08:00:00Z",
+        "Modified": "2026-10-30T10:15:00Z"
+      },
+      {
+        "ID": 50003,
+        "Code": "FIB-0003",
+        "Description": "Fibre stock item 3",
+        "Active": true,
+        "Physical": true,
+        "PriceExclusive": 122.5,
+        "PriceInclusive": 140.875,
+        "LastCost": 69.75,
+        "AverageCost": 61.123456,
+        "TaxTypeIdSales": 1,
+        "TaxTypeIdPurchases": 1,
+        "Category": {
+          "ID": 13,
+          "Description": "Tools"
+        },
+        "QuantityOnHand": 28,
+        "Created": "2024-02-01T08:00:00Z",
+        "Modified": "2026-10-30T10:15:00Z"
+      },
+      {
+        "ID": 50004,
+        "Code": "FIB-0004",
+        "Description": "Fibre stock item 4",
+        "Active": true,
+        "Physical": true,
+        "PriceExclusive": 130,
+        "PriceInclusive": 149.5,
+        "LastCost": 73,
+        "AverageCost": 62.123456,
+        "TaxTypeIdSales": 1,
+        "TaxTypeIdPurchases": 1,
+        "Category": {
+          "ID": 11,
+          "Description": "Poles and Hardware"
+        },
+        "QuantityOnHand": 29,
+        "Created": "2024-02-01T08:00:00Z",
+        "Modified": "2026-10-30T10:15:00Z"
+      },
+      {
+        "ID": 50005,
+        "Code": "SVC-005",
+        "Description": "Installation service 5",
+        "Active": true,
+        "Physical": false,
+        "PriceExclusive": 455,
+        "PriceInclusive": 523.25,
+        "LastCost": 0,
+        "AverageCost": 0,
+        "TaxTypeIdSales": 1,
+        "TaxTypeIdPurchases": 1,
+        "Category": {
+          "ID": 12,
+          "Description": "Services"
+        },
+        "QuantityOnHand": 125,
+        "Created": "2024-02-01T08:00:00Z",
+        "Modified": "2026-10-30T10:15:00Z"
+      },
+      {
+        "ID": 50006,
+        "Code": "FIB-0006",
+        "Description": "Fibre stock item 6",
+        "Active": true,
+        "Physical": true,
+        "PriceExclusive": 145,
+        "PriceInclusive": 166.75,
+        "LastCost": 79.5,
+        "AverageCost": 64.123456,
+        "TaxTypeIdSales": 1,
+        "TaxTypeIdPurchases": 1,
+        "Category": {
+          "ID": 13,
+          "Description": "Tools"
+        },
+        "QuantityOnHand": 31,
+        "Created": "2024-02-01T08:00:00Z",
+        "Modified": "2026-10-30T10:15:00Z"
+      },
+      {
+        "ID": 50007,
+        "Code": "FIB-0007",
+        "Description": "Fibre stock item 7",
+        "Active": false,
+        "Physical": true,
+        "PriceExclusive": 152.5,
+        "PriceInclusive": 175.375,
+        "LastCost": 82.75,
+        "AverageCost": 65.123456,
+        "TaxTypeIdSales": 1,
+        "TaxTypeIdPurchases": 1,
+        "Category": {
+          "ID": 10,
+          "Description": "Optics"
+        },
+        "QuantityOnHand": 32,
+        "Created": "2024-02-01T08:00:00Z",
+        "Modified": "2026-10-30T10:15:00Z"
+      },
+      {
+        "ID": 50008,
+        "Code": "FIB-0008",
+        "Description": "Fibre stock item 8",
+        "Active": true,
+        "Physical": true,
+        "PriceExclusive": 160,
+        "PriceInclusive": 184,
+        "LastCost": 86,
+        "AverageCost": 66.123456,
+        "TaxTypeIdSales": 1,
+        "TaxTypeIdPurchases": 1,
+        "Category": {
+          "ID": 11,
+          "Description": "Poles and Hardware"
+        },
+        "QuantityOnHand": 33,
+        "Created": "2024-02-01T08:00:00Z",
+        "Modified": "2026-10-30T10:15:00Z"
+      },
+      {
+        "ID": 50009,
+        "Code": "FIB-0009",
+        "Description": "Fibre stock item 9",
+        "Active": true,
+        "Physical": true,
+        "PriceExclusive": 167.5,
+        "PriceInclusive": 192.62499999999997,
+        "LastCost": 89.25,
+        "AverageCost": 67.123456,
+        "TaxTypeIdSales": 2,
+        "TaxTypeIdPurchases": 1,
+        "Category": {
+          "ID": 13,
+          "Description": "Tools"
+        },
+        "QuantityOnHand": 34,
+        "Created": "2024-02-01T08:00:00Z",
+        "Modified": "2026-10-30T10:15:00Z"
+      },
+      {
+        "ID": 50010,
+        "Code": "SVC-010",
+        "Description": "Installation service 10",
+        "Active": true,
+        "Physical": false,
+        "PriceExclusive": 460,
+        "PriceInclusive": 529,
+        "LastCost": 0,
+        "AverageCost": 0,
+        "TaxTypeIdSales": 1,
+        "TaxTypeIdPurchases": 1,
+        "Category": {
+          "ID": 12,
+          "Description": "Services"
+        },
+        "QuantityOnHand": 130,
+        "Created": "2024-02-01T08:00:00Z",
+        "Modified": "2026-10-30T10:15:00Z"
+      },
+      {
+        "ID": 50011,
+        "Code": "FIB-0011",
+        "Description": "Fibre stock item 11",
+        "Active": true,
+        "Physical": true,
+        "PriceExclusive": 182.5,
+        "PriceInclusive": 209.87499999999997,
+        "LastCost": 95.75,
+        "AverageCost": 69.123456,
+        "TaxTypeIdSales": 1,
+        "TaxTypeIdPurchases": 3,
+        "Category": {
+          "ID": 10,
+          "Description": "Optics"
+        },
+        "QuantityOnHand": 36,
+        "Created": "2024-02-01T08:00:00Z",
+        "Modified": "2026-10-30T10:15:00Z"
+      },
+      {
+        "ID": 50012,
+        "Code": "FIB-0012",
+        "Description": "Fibre stock item 12",
+        "Active": true,
+        "Physical": true,
+        "PriceExclusive": 190,
+        "PriceInclusive": 218.49999999999997,
+        "LastCost": 99,
+        "AverageCost": 70.123456,
+        "TaxTypeIdSales": 1,
+        "TaxTypeIdPurchases": 1,
+        "Category": {
+          "ID": 13,
+          "Description": "Tools"
+        },
+        "QuantityOnHand": 37,
+        "Created": "2024-02-01T08:00:00Z",
+        "Modified": "2026-10-30T10:15:00Z"
+      },
+      {
+        "ID": 50013,
+        "Code": "FIB-0013",
+        "Description": "Fibre stock item 13",
+        "Active": true,
+        "Physical": true,
+        "PriceExclusive": 197.5,
+        "PriceInclusive": 227.12499999999997,
+        "LastCost": 102.25,
+        "AverageCost": 71.123456,
+        "TaxTypeIdSales": 1,
+        "TaxTypeIdPurchases": 1,
+        "Category": null,
+        "QuantityOnHand": 38,
+        "Created": "2024-02-01T08:00:00Z",
+        "Modified": "2026-10-30T10:15:00Z"
+      },
+      {
+        "ID": 50014,
+        "Code": "FIB-0014",
+        "Description": "Fibre stock item 14",
+        "Active": false,
+        "Physical": true,
+        "PriceExclusive": 205,
+        "PriceInclusive": 235.74999999999997,
+        "LastCost": 105.5,
+        "AverageCost": 72.123456,
+        "TaxTypeIdSales": 1,
+        "TaxTypeIdPurchases": 1,
+        "Category": {
+          "ID": 11,
+          "Description": "Poles and Hardware"
+        },
+        "QuantityOnHand": 39,
+        "Created": "2024-02-01T08:00:00Z",
+        "Modified": "2026-10-30T10:15:00Z"
+      },
+      {
+        "ID": 50015,
+        "Code": "SVC-015",
+        "Description": "Installation service 15",
+        "Active": true,
+        "Physical": false,
+        "PriceExclusive": 465,
+        "PriceInclusive": 534.75,
+        "LastCost": 0,
+        "AverageCost": 0,
+        "TaxTypeIdSales": 1,
+        "TaxTypeIdPurchases": 1,
+        "Category": {
+          "ID": 12,
+          "Description": "Services"
+        },
+        "QuantityOnHand": 135,
+        "Created": "2024-02-01T08:00:00Z",
+        "Modified": "2026-10-30T10:15:00Z"
+      },
+      {
+        "ID": 50016,
+        "Code": "FIB-0016",
+        "Description": "Fibre stock item 16",
+        "Active": true,
+        "Physical": true,
+        "PriceExclusive": 220,
+        "PriceInclusive": 252.99999999999997,
+        "LastCost": 112,
+        "AverageCost": 74.123456,
+        "TaxTypeIdSales": 1,
+        "TaxTypeIdPurchases": 1,
+        "Category": {
+          "ID": 11,
+          "Description": "Poles and Hardware"
+        },
+        "QuantityOnHand": 41,
+        "Created": "2024-02-01T08:00:00Z",
+        "Modified": "2026-10-30T10:15:00Z"
+      },
+      {
+        "ID": 50017,
+        "Code": "FIB-0017",
+        "Description": "Fibre stock item 17",
+        "Active": true,
+        "Physical": true,
+        "PriceExclusive": 227.5,
+        "PriceInclusive": 261.625,
+        "LastCost": 115.25,
+        "AverageCost": 75.123456,
+        "TaxTypeIdSales": 1,
+        "TaxTypeIdPurchases": 1,
+        "Category": {
+          "ID": 10,
+          "Description": "Optics"
+        },
+        "QuantityOnHand": 42,
+        "Created": "2024-02-01T08:00:00Z",
+        "Modified": "2026-10-30T10:15:00Z"
+      },
+      {
+        "ID": 50018,
+        "Code": "FIB-0018",
+        "Description": "Fibre stock item 18",
+        "Active": true,
+        "Physical": true,
+        "PriceExclusive": 235,
+        "PriceInclusive": 270.25,
+        "LastCost": 118.5,
+        "AverageCost": 76.123456,
+        "TaxTypeIdSales": 1,
+        "TaxTypeIdPurchases": 1,
+        "Category": {
+          "ID": 13,
+          "Description": "Tools"
+        },
+        "QuantityOnHand": 43,
+        "Created": "2024-02-01T08:00:00Z",
+        "Modified": "2026-10-30T10:15:00Z"
+      },
+      {
+        "ID": 50019,
+        "Code": "FIB-0019",
+        "Description": "Fibre stock item 19",
+        "Active": true,
+        "Physical": true,
+        "PriceExclusive": 242.5,
+        "PriceInclusive": 278.875,
+        "LastCost": 121.75,
+        "AverageCost": 77.123456,
+        "TaxTypeIdSales": 1,
+        "TaxTypeIdPurchases": 1,
+        "Category": {
+          "ID": 10,
+          "Description": "Optics"
+        },
+        "QuantityOnHand": 44,
+        "Created": "2024-02-01T08:00:00Z",
+        "Modified": "2026-10-30T10:15:00Z"
+      },
+      {
+        "ID": 50020,
+        "Code": "SVC-020",
+        "Description": "Installation service 20",
+        "Active": true,
+        "Physical": false,
+        "PriceExclusive": 470,
+        "PriceInclusive": 540.5,
+        "LastCost": 0,
+        "AverageCost": 0,
+        "TaxTypeIdSales": 1,
+        "TaxTypeIdPurchases": 1,
+        "Category": {
+          "ID": 12,
+          "Description": "Services"
+        },
+        "QuantityOnHand": 140,
+        "Created": "2024-02-01T08:00:00Z",
+        "Modified": "2026-10-30T10:15:00Z"
+      }
+    ]
+  },
+  "PurchaseOrders": [
+    {
+      "ID": 900197,
+      "DocumentNumber": "PO0000197",
+      "Date": "2026-01-10T00:00:00Z",
+      "DeliveryDate": "2026-01-25",
+      "Status": "Pending",
+      "Reference": "JOB-400",
+      "Comments": null,
+      "SupplierId": 301,
+      "SupplierName": "Alpha Optics (Pty) Ltd",
+      "Exclusive": 4115,
+      "Tax": 617.25,
+      "Total": 4732.25,
+      "PdfFile": "PO0000197.pdf",
+      "Lines": [
+        {
+          "Description": "Fibre cable drum (PO 197)",
+          "Quantity": 2,
+          "UnitPriceExclusive": 1200,
+          "TaxTypeId": 1,
+          "TaxPercentage": 15,
+          "Exclusive": 2400,
+          "Tax": 360,
+          "Total": 2760,
+          "ItemId": 50001
+        },
+        {
+          "Description": "Delivery charge",
+          "Quantity": 1,
+          "UnitPriceExclusive": 350,
+          "TaxTypeId": 1,
+          "TaxPercentage": 15,
+          "Exclusive": 350,
+          "Tax": 52.5,
+          "Total": 402.5
+        },
+        {
+          "Description": "Installation visit",
+          "Quantity": 3,
+          "UnitPriceExclusive": 455,
+          "TaxTypeId": 1,
+          "TaxPercentage": 15,
+          "Exclusive": 1365,
+          "Tax": 204.75,
+          "Total": 1569.75,
+          "ItemId": 50005
+        }
+      ]
+    },
+    {
+      "ID": 900198,
+      "DocumentNumber": "PO0000198",
+      "Date": "2026-02-11T00:00:00Z",
+      "DeliveryDate": null,
+      "Status": "Pending",
+      "Reference": "JOB-401",
+      "Comments": null,
+      "SupplierId": 302,
+      "SupplierName": "Bravo Poles CC",
+      "Exclusive": 3630,
+      "Tax": 544.5,
+      "Total": 4174.5,
+      "PdfFile": "PO0000198.pdf",
+      "Lines": [
+        {
+          "Description": "Fibre cable drum (PO 198)",
+          "Quantity": 3,
+          "UnitPriceExclusive": 1210,
+          "TaxTypeId": 1,
+          "TaxPercentage": 15,
+          "Exclusive": 3630,
+          "Tax": 544.5,
+          "Total": 4174.5
+        }
+      ]
+    },
+    {
+      "ID": 900199,
+      "DocumentNumber": "PO0000199",
+      "Date": "2026-03-12T00:00:00Z",
+      "DeliveryDate": null,
+      "Status": "Pending",
+      "Reference": "JOB-402",
+      "Comments": null,
+      "SupplierId": 303,
+      "SupplierName": "Charlie Tools",
+      "Exclusive": 5230,
+      "Tax": 784.5,
+      "Total": 6014.5,
+      "PdfFile": "PO0000199.pdf",
+      "Lines": [
+        {
+          "Description": "Fibre cable drum (PO 199)",
+          "Quantity": 4,
+          "UnitPriceExclusive": 1220,
+          "TaxTypeId": 1,
+          "TaxPercentage": 15,
+          "Exclusive": 4880,
+          "Tax": 732,
+          "Total": 5612
+        },
+        {
+          "Description": "Delivery charge",
+          "Quantity": 1,
+          "UnitPriceExclusive": 350,
+          "TaxTypeId": 1,
+          "TaxPercentage": 15,
+          "Exclusive": 350,
+          "Tax": 52.5,
+          "Total": 402.5
+        }
+      ]
+    },
+    {
+      "ID": 900200,
+      "DocumentNumber": "PO0000200",
+      "Date": "2026-04-13T00:00:00Z",
+      "DeliveryDate": "2026-04-25",
+      "Status": "Overdue",
+      "Reference": "JOB-403",
+      "Comments": "Urgent: chase supplier",
+      "SupplierId": 301,
+      "SupplierName": "Alpha Optics (Pty) Ltd",
+      "Exclusive": 6150,
+      "Tax": 922.5,
+      "Total": 7072.5,
+      "PdfFile": "PO0000200.pdf",
+      "Lines": [
+        {
+          "Description": "Fibre cable drum (PO 200)",
+          "Quantity": 5,
+          "UnitPriceExclusive": 1230,
+          "TaxTypeId": 1,
+          "TaxPercentage": 15,
+          "Exclusive": 6150,
+          "Tax": 922.5,
+          "Total": 7072.5
+        }
+      ]
+    },
+    {
+      "ID": 900201,
+      "DocumentNumber": "PO0000201",
+      "Date": "2026-05-14T00:00:00Z",
+      "DeliveryDate": null,
+      "Status": "Overdue",
+      "Reference": "JOB-404",
+      "Comments": null,
+      "SupplierId": 302,
+      "SupplierName": "Bravo Poles CC",
+      "Exclusive": 9155,
+      "Tax": 1373.25,
+      "Total": 10528.25,
+      "PdfFile": "PO0000201.pdf",
+      "Lines": [
+        {
+          "Description": "Fibre cable drum (PO 201)",
+          "Quantity": 6,
+          "UnitPriceExclusive": 1240,
+          "TaxTypeId": 1,
+          "TaxPercentage": 15,
+          "Exclusive": 7440,
+          "Tax": 1116,
+          "Total": 8556
+        },
+        {
+          "Description": "Delivery charge",
+          "Quantity": 1,
+          "UnitPriceExclusive": 350,
+          "TaxTypeId": 1,
+          "TaxPercentage": 15,
+          "Exclusive": 350,
+          "Tax": 52.5,
+          "Total": 402.5
+        },
+        {
+          "Description": "Installation visit",
+          "Quantity": 3,
+          "UnitPriceExclusive": 455,
+          "TaxTypeId": 1,
+          "TaxPercentage": 15,
+          "Exclusive": 1365,
+          "Tax": 204.75,
+          "Total": 1569.75,
+          "ItemId": 50005
+        }
+      ]
+    },
+    {
+      "ID": 900202,
+      "DocumentNumber": "PO0000202",
+      "Date": "2026-06-15T00:00:00Z",
+      "DeliveryDate": null,
+      "Status": "Invoiced",
+      "Reference": "JOB-405",
+      "Comments": null,
+      "SupplierId": 303,
+      "SupplierName": "Charlie Tools",
+      "Exclusive": 8750,
+      "Tax": 1312.5,
+      "Total": 10062.5,
+      "PdfFile": "PO0000202.pdf",
+      "Lines": [
+        {
+          "Description": "Fibre cable drum (PO 202)",
+          "Quantity": 7,
+          "UnitPriceExclusive": 1250,
+          "TaxTypeId": 1,
+          "TaxPercentage": 15,
+          "Exclusive": 8750,
+          "Tax": 1312.5,
+          "Total": 10062.5,
+          "ItemId": 50001
+        }
+      ]
+    },
+    {
+      "ID": 900203,
+      "DocumentNumber": "PO0000203",
+      "Date": "2026-07-16T00:00:00Z",
+      "DeliveryDate": "2026-07-25",
+      "Status": "Invoiced",
+      "Reference": "JOB-406",
+      "Comments": null,
+      "SupplierId": 301,
+      "SupplierName": "Alpha Optics (Pty) Ltd",
+      "Exclusive": 10430,
+      "Tax": 1564.5,
+      "Total": 11994.5,
+      "PdfFile": "PO0000203.pdf",
+      "Lines": [
+        {
+          "Description": "Fibre cable drum (PO 203)",
+          "Quantity": 8,
+          "UnitPriceExclusive": 1260,
+          "TaxTypeId": 1,
+          "TaxPercentage": 15,
+          "Exclusive": 10080,
+          "Tax": 1512,
+          "Total": 11592
+        },
+        {
+          "Description": "Delivery charge",
+          "Quantity": 1,
+          "UnitPriceExclusive": 350,
+          "TaxTypeId": 1,
+          "TaxPercentage": 15,
+          "Exclusive": 350,
+          "Tax": 52.5,
+          "Total": 402.5
+        }
+      ]
+    },
+    {
+      "ID": 900204,
+      "DocumentNumber": "PO0000204",
+      "Date": "2026-08-17T00:00:00Z",
+      "DeliveryDate": null,
+      "Status": "Invoiced",
+      "Reference": "JOB-407",
+      "Comments": null,
+      "SupplierId": 302,
+      "SupplierName": "Bravo Poles CC",
+      "Exclusive": 11430,
+      "Tax": 1714.5,
+      "Total": 13144.5,
+      "PdfFile": "PO0000204.pdf",
+      "Lines": [
+        {
+          "Description": "Fibre cable drum (PO 204)",
+          "Quantity": 9,
+          "UnitPriceExclusive": 1270,
+          "TaxTypeId": 1,
+          "TaxPercentage": 15,
+          "Exclusive": 11430,
+          "Tax": 1714.5,
+          "Total": 13144.5
+        }
+      ]
+    },
+    {
+      "ID": 900205,
+      "DocumentNumber": "PO0000205",
+      "Date": "2026-09-18T00:00:00Z",
+      "DeliveryDate": null,
+      "Status": "Cancelled",
+      "Reference": "JOB-408",
+      "Comments": null,
+      "SupplierId": 303,
+      "SupplierName": "Charlie Tools",
+      "Exclusive": 14515,
+      "Tax": 2177.25,
+      "Total": 16692.25,
+      "PdfFile": "PO0000205.pdf",
+      "Lines": [
+        {
+          "Description": "Fibre cable drum (PO 205)",
+          "Quantity": 10,
+          "UnitPriceExclusive": 1280,
+          "TaxTypeId": 1,
+          "TaxPercentage": 15,
+          "Exclusive": 12800,
+          "Tax": 1920,
+          "Total": 14720
+        },
+        {
+          "Description": "Delivery charge",
+          "Quantity": 1,
+          "UnitPriceExclusive": 350,
+          "TaxTypeId": 1,
+          "TaxPercentage": 15,
+          "Exclusive": 350,
+          "Tax": 52.5,
+          "Total": 402.5
+        },
+        {
+          "Description": "Installation visit",
+          "Quantity": 3,
+          "UnitPriceExclusive": 455,
+          "TaxTypeId": 1,
+          "TaxPercentage": 15,
+          "Exclusive": 1365,
+          "Tax": 204.75,
+          "Total": 1569.75,
+          "ItemId": 50005
+        }
+      ]
+    },
+    {
+      "ID": 900206,
+      "DocumentNumber": "PO0000206",
+      "Date": "2026-01-10T00:00:00Z",
+      "DeliveryDate": "2026-01-25",
+      "Status": "Cancelled",
+      "Reference": "JOB-409",
+      "Comments": null,
+      "SupplierId": 301,
+      "SupplierName": "Alpha Optics (Pty) Ltd",
+      "Exclusive": 14190,
+      "Tax": 2128.5,
+      "Total": 16318.5,
+      "PdfFile": "PO0000206.pdf",
+      "Lines": [
+        {
+          "Description": "Fibre cable drum (PO 206)",
+          "Quantity": 11,
+          "UnitPriceExclusive": 1290,
+          "TaxTypeId": 1,
+          "TaxPercentage": 15,
+          "Exclusive": 14190,
+          "Tax": 2128.5,
+          "Total": 16318.5
+        }
+      ]
+    }
+  ]
+}

@@ -13,6 +13,9 @@
 import { expect, test, type Page } from '@playwright/test';
 import { expectNoSeriousA11yViolations } from './helpers/axe';
 import { THEMES, seedTheme, settle } from '../helpers/themeSpec';
+import { guardDevTarget } from '../helpers/devTarget';
+
+guardDevTarget(test);
 
 const BANK = '/accounting/bank-transactions';
 const ROWS = '[data-testid="bank-tx-table"] tbody tr';

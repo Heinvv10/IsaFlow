@@ -1,4 +1,7 @@
 import { test, expect } from '@playwright/test';
+import { guardDevTarget } from './helpers/devTarget';
+
+guardDevTarget(test);
 
 test.describe('EFT API routes respond', () => {
   test('POST /api/accounting/eft-generate does not 404', async ({ request }) => {

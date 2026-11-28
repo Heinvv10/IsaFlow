@@ -1,4 +1,7 @@
 import { test, expect } from '@playwright/test';
+import { guardDevTarget } from './helpers/devTarget';
+
+guardDevTarget(test);
 test.describe('Month-End Close API', () => {
   test('GET does not 404', async ({ request }) => { expect((await request.get('/api/accounting/month-end-close')).status()).not.toBe(404); });
   test('returns checklist', async ({ request }) => {

@@ -1,0 +1,176 @@
+/**
+ * Sage migration runner and the PO budget check, against a real database (the budget fixture: travel BB-6200 is budgeted 500 a
+ * month, policy block). Four POs of 200 net, poBatchSize 2: each batch is under the budget alone, together they are over it.
+ *   - the DRY RUN is cumulative: its PO batches run LIVE inside its one rolled-back transaction, so batch 2 sees batch 1's approved
+ *     POs as the live run will, and the dry run fails (a dry_run batch rolls itself back and would pass);
+ *   - a failed dry run writes nothing, even with live asked: no PO, no audit row, no idempotency row, no number counter;
+ *   - what the dry run did leaves nothing behind: the live run that follows creates every PO under keys of its own;
+ *   - with skip_budget_check_for_import the run completes and the report lists the POs that would have failed.
+ * Fixture route: isaflow_schema_fixture (assertDisposable). Never skips.
+ */
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { Pool } from 'pg';
+import { assertDisposable } from './mfa-impersonation-postgres.helpers';
+import { dropBillFixture, seedBillFixture, setPolicy, type BillFixture } from './helpers/budgetBillFixture';
+import { n } from './helpers/sageMigrationWorld';
+import { parseSageExport } from '@/modules/accounting/services/sage-migration/sageExportParser';
+import { runSageMigration } from '@/modules/accounting/services/sage-migration/sageMigrationRunner';
+import { exitCodeFor, summaryLines } from '@/modules/accounting/services/sage-migration/sageReportSummary';
+
+assertDisposable();
+const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 6 });
+let f: BillFixture;
+
+let base: Awaited<ReturnType<typeof left>>;
+beforeAll(async () => {
+  f = await seedBillFixture(pool, 'sage-budget');
+  base = await left(); // the fixture's own rows (its budget version's approval is an audit row)
+}, 120_000);
+afterAll(async () => { try { await dropBillFixture(pool, f); } finally { await pool.end(); } }, 120_000);
+const afterEachClean = async () => {
+  for (const t of ['po_items', 'purchase_orders']) {
+    await pool.query(t === 'po_items'
+      ? 'DELETE FROM po_items WHERE purchase_order_id IN (SELECT id FROM purchase_orders WHERE company_id = $1)'
+      : 'DELETE FROM purchase_orders WHERE company_id = $1', [f.co]);
+  }
+  for (const t of ['mcp_tool_calls', 'company_document_numbers', 'budget_check_events']) await pool.query(`DELETE FROM ${t} WHERE company_id = $1`, [f.co]);
+  await pool.query("DELETE FROM audit_log WHERE company_id = $1 AND entity_type <> 'budget'", [f.co]);
+};
+afterEach(afterEachClean);
+
+const po = (i: number) => ({
+  ID: 800000 + i, DocumentNumber: `PO${String(9000 + i).padStart(7, '0')}`, Date: '2026-06-10', Status: 'Pending', SupplierId: 301,
+  SupplierName: 'P5-2 Supplies', Exclusive: 200, Tax: 30, Total: 230,
+  Lines: [{ Description: 'Travel', Quantity: 1, UnitPriceExclusive: 200, TaxTypeId: 1, Exclusive: 200, Tax: 30 }],
+});
+const exportFile = () => parseSageExport({ PurchaseOrders: [1, 2, 3, 4].map(po) });
+const run = (over: Record<string, unknown> = {}) => runSageMigration(pool, exportFile(), {
+  companyId: f.co, userId: f.owner, poBatchSize: 2, poGlAccountId: f.acc.travel, ...over,
+});
+const left = async () => ({
+  pos: await n(pool, 'SELECT count(*) AS n FROM purchase_orders WHERE company_id = $1', [f.co]),
+  calls: await n(pool, 'SELECT count(*) AS n FROM mcp_tool_calls WHERE company_id = $1', [f.co]),
+  audit: await n(pool, 'SELECT count(*) AS n FROM audit_log WHERE company_id = $1', [f.co]),
+  counters: await n(pool, `SELECT count(*) AS n FROM company_document_numbers WHERE company_id = $1 AND document_type = 'purchase_order'`, [f.co]),
+});
+
+describe('#5: --po-gl-account must be an active, postable expense account of this company', () => {
+  const account = async (code: string, type: string, over: { active?: boolean; co?: string } = {}) => String((await pool.query(
+    `INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, normal_balance, level, is_active)
+     VALUES ($1, $2, $2, $3, 'debit', 3, $4) RETURNING id`, [over.co ?? f.co, `S5-${code}`, type, over.active ?? true])).rows[0].id);
+  const attempt = (poGlAccountId: string) => runSageMigration(pool, exportFile(), { companyId: f.co, userId: f.owner, poGlAccountId });
+
+  it('revenue, asset, AP (liability), equity, a header, an inactive, another company\'s and an unknown account are refused before anything runs', async () => {
+    const header = await account('HDR', 'expense');
+    await pool.query(`INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, normal_balance, level, is_active, parent_account_id) VALUES ($1, 'S5-CHILD', 'child', 'expense', 'debit', 4, true, $2)`, [f.co, header]);
+    const other = await seedBillFixture(pool, 'sage-budget-other');
+    try {
+      const cases: Array<[string, string, RegExp]> = [
+        ['revenue', await account('REV', 'revenue'), /is of type revenue/],
+        ['asset (the fixture VAT input)', f.acc.vat, /is of type asset/],
+        ['AP (the fixture payable)', f.acc.ap, /is of type liability/],
+        ['equity', await account('EQ', 'equity'), /is of type equity/],
+        ['a header', header, /is a header account/],
+        ['inactive', await account('OFF', 'expense', { active: false }), /is inactive/],
+        ['another company\'s', other.acc.travel, /is not a GL account of this company/],
+        ['unknown', crypto.randomUUID(), /is not a GL account of this company/],
+      ];
+      for (const [name, id, why] of cases) await expect(attempt(id), name).rejects.toThrow(why);
+      expect(await left()).toEqual(base);
+      // The fixture's expense accounts, and the new child (postable), are accepted.
+      for (const id of [f.acc.travel, f.acc.opex]) expect((await attempt(id)).status, id).toBe('dry_run_ok');
+    } finally {
+      await dropBillFixture(pool, other);
+      await pool.query('DELETE FROM gl_accounts WHERE company_id = $1 AND account_code LIKE $2 AND parent_account_id IS NOT NULL', [f.co, 'S5-%']);
+      await pool.query('DELETE FROM gl_accounts WHERE company_id = $1 AND account_code LIKE $2', [f.co, 'S5-%']);
+    }
+  });
+});
+
+describe('M1: the block policy and POs with no GL account', () => {
+  const bare = () => ({ companyId: f.co, userId: f.owner, poBatchSize: 2, allowRefusals: true }); // no poGlAccountId: the lines have no account
+
+  it('each open PO is refused per row BEFORE any batch: the dry run is clean, nothing is written, the reason names the remedies', async () => {
+    await setPolicy(pool, f, 'block');
+    const r = await runSageMigration(pool, exportFile(), { ...bare(), live: true, liveWithoutCounts: true });
+    expect(r.status).toBe('completed');
+    expect(r.refused.map((x) => [x.label, x.code])).toEqual([1, 2, 3, 4].map((i) => [`PO000900${i}`, 'accountless_under_block_policy']));
+    expect(r.refused[0]!.reasons[0]).toMatch(/--skip-budget-check.*--po-gl-account/);
+    expect(r.dryRun.purchaseOrders.batches).toEqual([]);
+    expect(await left()).toEqual(base);
+    expect(exitCodeFor(r, false)).toBe(1);
+  });
+  it('under warn the same POs go in without an account; with the check skipped they go in under block', async () => {
+    await setPolicy(pool, f, 'warn');
+    expect((await runSageMigration(pool, exportFile(), { ...bare(), live: true, liveWithoutCounts: true })).refused).toEqual([]);
+    expect((await left()).pos).toBe(4);
+    await afterEachClean();
+    await setPolicy(pool, f, 'block');
+    const r = await runSageMigration(pool, exportFile(), { ...bare(), live: true, liveWithoutCounts: true, skipBudgetCheck: true });
+    expect(r.refused).toEqual([]);
+    expect((await left()).pos).toBe(4);
+  });
+});
+
+describe('a budget that two PO batches overrun together', () => {
+  it('the dry run fails on batch 2 (it sees batch 1), so a --live run writes nothing at all', async () => {
+    await setPolicy(pool, f, 'block');
+    const r = await run({ live: true, liveWithoutCounts: true });
+    expect(r.status).toBe('dry_run_failed');
+    expect(r.live).toBeNull();
+    expect(r.dryRun.purchaseOrders.batches.map((b) => b.status)).toEqual(['ok', 'failed']);
+    expect(r.dryRun.purchaseOrders.batches[1]!.error).toMatch(/budget_exceeded/);
+    expect(await left()).toEqual(base);
+  });
+
+  it('the same two batches under a budget they fit in: the dry run is clean and nothing of it is left', async () => {
+    await setPolicy(pool, f, 'off');
+    const dry = await run();
+    expect(dry.status).toBe('dry_run_ok');
+    expect(dry.dryRun.purchaseOrders.batches.map((b) => b.toolReported?.created)).toEqual([2, 2]);
+    expect(await left()).toEqual(base);
+  });
+
+  it('a live run after a dry run creates every PO: nothing of the dry run is replayed', async () => {
+    await setPolicy(pool, f, 'off');
+    await run();
+    const live = await run({ live: true, liveWithoutCounts: true });
+    expect(live.status).toBe('completed');
+    expect(live.live!.purchaseOrders.batches.map((b) => b.toolReported?.created)).toEqual([2, 2]);
+    expect(live.live!.purchaseOrders.batches.every((b) => !b.key.endsWith('-dry'))).toBe(true);
+    expect((await left()).pos).toBe(4);
+    expect((await left()).counters).toBe(base.counters + 1);
+  });
+
+  it('with skip_budget_check_for_import the run completes and the report names the POs that would have failed', async () => {
+    await setPolicy(pool, f, 'block');
+    const r = await run({ live: true, liveWithoutCounts: true, skipBudgetCheck: true });
+    expect(r.status).toBe('completed');
+    expect((await left()).pos).toBe(4);
+    expect(r.budgetWouldHaveFailed.length).toBeGreaterThan(0);
+    expect(r.budgetWouldHaveFailed.every((x) => /^PO000900\d$/.test(x.poNumber) && x.reasons.length > 0)).toBe(true);
+    const text = summaryLines(r).join('\n');
+    expect(text).toContain('would have failed the budget check');
+    expect(text).toContain(r.budgetWouldHaveFailed[0]!.poNumber);
+  });
+
+  it('without the skip, a run whose POs all fit reports no budget exception', async () => {
+    await setPolicy(pool, f, 'off');
+    const r = await run({ live: true, liveWithoutCounts: true });
+    expect(r.budgetWouldHaveFailed).toEqual([]);
+    expect(summaryLines(r).join('\n')).not.toContain('would have failed the budget check');
+  });
+});
+
+describe('R1b (round 4): a re-run that adds nothing does not report POs it "let past" the budget check', () => {
+  it('the second identical skip-budget run creates nothing and lists nothing as would-have-failed', async () => {
+    await setPolicy(pool, f, 'block');
+    const once = () => runSageMigration(pool, exportFile(), { companyId: f.co, userId: f.owner, poBatchSize: 2, poGlAccountId: f.acc.travel, live: true, liveWithoutCounts: true, skipBudgetCheck: true });
+    const r1 = await once();
+    expect(r1.budgetWouldHaveFailed.length).toBeGreaterThan(0); // the first run did let POs past a block
+    const r2 = await once();
+    expect(r2.reconciliation.purchaseOrders.addedByRun).toBe(0);
+    expect(r2.budgetWouldHaveFailed).toEqual([]);
+    expect(summaryLines(r2).join('\n')).not.toContain('would have failed the budget check');
+  });
+});
