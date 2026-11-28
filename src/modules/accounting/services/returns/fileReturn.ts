@@ -24,6 +24,7 @@ import { assertMayActOnReturns, visibleText } from './returnGuards';
 import { getVersionForUpdate, isLockActive, markVersionFiled } from './returnVersionWrites';
 import { ReturnRefusal, STALE_RETURN_REFUSAL, type ReturnActor, type ReturnForm, type ReturnVersion } from './returnVersionTypes';
 import { EMP501_EASYFILE_KIND } from './emp501FileLayout';
+import { emp501FilingPin } from './emp501BankPin';
 
 export interface FiledReturn {
   version: ReturnVersion;
@@ -130,6 +131,8 @@ export async function markReturnFiled(
     }
     correction = visibleText(opts.reason ?? '', 'A reason for correcting the legacy filing');
   }
+  // Wave 7 EA2: an EMP501 carrying live bank fields pins the rows of its latest download (refused if one changed since).
+  const bankPin = await emp501FilingPin(companyId, v);
   // form_data keeps what it held before wave 6: the recorded SARS form (sarsForm) stays on the version only.
   const { sarsForm: _form, ...submitted } = v.figures;
   return withSavepoint('file_return', async () => {
@@ -165,7 +168,7 @@ export async function markReturnFiled(
         fields: [{ field: 'status', old: 'finalised', new: 'filed', label: 'Status' }],
         metadata: {
           reference: ref, submissionId: submission.id, ...(overrideReason ? { vatGateOverridden: 'yes' } : {}),
-          ...(prnWarning ? { prnNotCrossChecked: prnWarning.message } : {}),
+          ...(prnWarning ? { prnNotCrossChecked: prnWarning.message } : {}), ...bankPin,
           ...(correction ? { supersededLegacySubmissions: legacy.map((l) => l.id).join(','), correctionReason: correction } : {}),
         },
       },

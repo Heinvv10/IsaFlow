@@ -32,7 +32,7 @@ import { validateCertificateTaxFields } from '@/modules/accounting/services/payr
 import {
   approveRun, calculateRun, cleanSeveranceFixtures, createRunFor, seedRetrenchedEmployee, type SeveranceFixture,
 } from './p3-severance.helpers';
-import { UNWRITTEN_FIELDS_WARNING } from '@/modules/accounting/services/payroll/easyFileCertificateCodes';
+import { UNWRITTEN_FIELDS_WARNING_BANK_WRITTEN } from '@/modules/accounting/services/payroll/easyFileCertificateCodes';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 3 });
@@ -88,7 +88,7 @@ async function seed(
   return { f, runs: ids };
 }
 
-const isFileNotice = (w: string): boolean => w === UNWRITTEN_FIELDS_WARNING || w.startsWith('e@syFile will refuse this file until');
+const isFileNotice = (w: string): boolean => w === UNWRITTEN_FIELDS_WARNING_BANK_WRITTEN || w.startsWith('e@syFile will refuse this file until');
 
 async function exportFile(f: SeveranceFixture): Promise<{ status: number; file: string; warnings: string[]; body: unknown }> {
   const req = request({ 'sb-access-token': f.token, active_company_id: f.company }, 'GET') as unknown as {

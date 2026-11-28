@@ -12,12 +12,21 @@ export const ACCOUNT_TYPES = [
 ] as const;
 export type AccountType = (typeof ACCOUNT_TYPES)[number]['value'];
 
+/** Who holds the account (e@syFile 3246, BRS V25.3.0 p. 46; wave 7 EA2). '' = not stated. */
+export const HOLDER_RELATIONSHIPS = [
+  { value: 'own', label: 'The employee (own account)' },
+  { value: 'joint', label: 'Joint account' },
+  { value: 'third_party', label: 'Someone else (third party)' },
+] as const;
+export type HolderRelationship = (typeof HOLDER_RELATIONSHIPS)[number]['value'];
+
 export interface BankForm {
   bankName: string;
   branchCode: string;
   accountNumber: string;
   accountType: AccountType;
   accountHolder: string;
+  accountHolderRelationship: HolderRelationship | '';
 }
 export type BankKey = 'bankName' | 'branchCode' | 'accountNumber' | 'accountType' | 'accountHolder';
 export type BankErrors = Partial<Record<BankKey, string>>;
@@ -25,7 +34,7 @@ export type BankErrors = Partial<Record<BankKey, string>>;
 /** Top to bottom on the page: focus goes to the first that fails. */
 export const BANK_FIELD_ORDER: readonly BankKey[] = ['bankName', 'branchCode', 'accountNumber', 'accountType', 'accountHolder'];
 
-export const emptyBank = (): BankForm => ({ bankName: '', branchCode: '', accountNumber: '', accountType: 'cheque', accountHolder: '' });
+export const emptyBank = (): BankForm => ({ bankName: '', branchCode: '', accountNumber: '', accountType: 'cheque', accountHolder: '', accountHolderRelationship: '' });
 
 /** Nothing typed: the type has a default, so it does not count. */
 export const bankIsBlank = (b: BankForm): boolean =>
@@ -49,6 +58,8 @@ export const bankBody = (b: BankForm, opts: { clearHolder?: boolean } = {}) => (
   accountType: b.accountType,
   // `null` is the explicit removal of a holder the details named; blank on a first entry is just left out.
   accountHolder: opts.clearHolder ? null : (b.accountHolder.trim() || undefined),
+  // Every save writes a new row: not stated is sent as null (the editor starts from the current value).
+  accountHolderRelationship: b.accountHolderRelationship || null,
 });
 
 /** Enter or change an employee's bank details. Throws the server's own message on a refusal. The reply (a full number for owner / admin) is not read. */

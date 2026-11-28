@@ -21,6 +21,7 @@ import { OccupationalLevelCard } from '@/components/payroll/OccupationalLevelCar
 import { EmployeeReadinessCard } from '@/components/payroll/EmployeeReadinessCard';
 import { prefetchReadiness } from '@/components/payroll/employeeBankState';
 import { EmployeeBankCard } from '@/components/payroll/EmployeeBankCard';
+import { EmployeeAddressCard } from '@/components/payroll/EmployeeAddressCard';
 import { EmployeeFringeBenefitsCard } from '@/components/payroll/EmployeeFringeBenefitsCard';
 import { GarnisheeOrdersCard } from '@/components/payroll/GarnisheeOrdersCard';
 import { EmployeeRfiContributionsCard } from '@/components/payroll/EmployeeRfiContributionsCard';
@@ -170,6 +171,8 @@ export default function EmployeeDetailPage() {
 
             {employeeId && <EmployeeFringeBenefitsCard employeeId={employeeId} />}
             {employeeId && <GarnisheeOrdersCard employeeId={employeeId} />}
+
+            {employeeId && <div id="employee-address" className={ANCHOR}><EmployeeAddressCard employeeId={employeeId} /></div>}
 
             {employeeId && <div id="employee-bank" className={ANCHOR}><EmployeeBankCard employeeId={employeeId} onChanged={() => setBankVersion(v => v + 1)} /></div>}
 

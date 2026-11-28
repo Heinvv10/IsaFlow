@@ -24,7 +24,14 @@ describe('parseBankDetailsInput', () => {
   it('accepts good details and strips spaces from the account number', () => {
     expect(parseBankDetailsInput({ ...GOOD, accountNumber: ' 6200 0123 456 ', bankName: ' FNB ' })).toEqual({
       bankName: 'FNB', branchCode: '250655', accountNumber: '62000123456', accountType: 'cheque', accountHolder: 'W Test',
+      accountHolderRelationship: null,
     });
+  });
+
+  it('the holder relationship (3246, migration 1062): own / joint / third_party, absent or null = not stated, else refused', () => {
+    for (const r of ['own', 'joint', 'third_party'] as const) expect(parseBankDetailsInput({ ...GOOD, accountHolderRelationship: r }).accountHolderRelationship).toBe(r);
+    expect(parseBankDetailsInput({ ...GOOD, accountHolderRelationship: null }).accountHolderRelationship).toBeNull();
+    expect(() => parseBankDetailsInput({ ...GOOD, accountHolderRelationship: 'spouse' })).toThrow(/Validation failed/);
   });
 
   it('holder is optional, and blank means none', () => {

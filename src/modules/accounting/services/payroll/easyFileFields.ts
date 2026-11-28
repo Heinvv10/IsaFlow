@@ -42,15 +42,16 @@ function describeChar(ch: string): string {
 function assertNoForbiddenChars(value: string, code: number): void {
   const hit = FORBIDDEN_IN_QUOTED.exec(value);
   if (hit) {
-    throw new UsageError(`Field ${code} contains ${describeChar(hit[0])}, which the SARS e@syFile format does not allow: `
-      + `"${value.replace(/[\x00-\x1f\x7f]/g, '?')}". Correct it on the record it comes from.`);
+    // The value itself is never echoed (PII breaker of #1944): the refusal reaches the 422 / EMP501 409 body and logs.
+    throw new UsageError(`Field ${code} contains ${describeChar(hit[0])}, which the SARS e@syFile format does not allow. `
+      + 'Correct it on the record it comes from.');
   }
 }
 
 /** BRS §3(m): data fields cannot start with a space. */
 function assertNoLeadingSpace(value: string, code: number): void {
   if (value.startsWith(' ')) {
-    throw new UsageError(`Field ${code} must not start with a space: "${value}"`);
+    throw new UsageError(`Field ${code} must not start with a space`);
   }
 }
 
@@ -67,7 +68,7 @@ export function formatField(code: number, value: string | number | null, type: F
 
   if (type === 'ND') {
     const digits = String(value);
-    if (!/^\d+$/.test(digits)) throw new UsageError(`Field ${code} must be digits only: "${digits}"`);
+    if (!/^\d+$/.test(digits)) throw new UsageError(`Field ${code} must be digits only`);
     return `${code},${digits}`;
   }
 

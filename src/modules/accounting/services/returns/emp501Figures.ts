@@ -50,6 +50,12 @@ export interface Emp501Figures {
   certificateEmployees?: Array<{ certificateNumber: string; employeeId: string }>;
   /** Wave 6 PSP-H: each PSP's own H certificate, in the file after the natural persons'. Absent on a version finalised before. */
   pspCertificates?: PspCertificateInput[];
+  /**
+   * Wave 7 EA2 (ruling 25): this version's filing file is served with each account read live (easyFileBankOverlay).
+   * Absent on a version finalised before EA2, which is served byte for byte as stored (it was filed without them).
+   * Not part of the drift check or of emp501PublicFigures.
+   */
+  bankOverlay?: 1;
 }
 
 const cents = (n: number): number => Math.round(n * 100) / 100;
@@ -123,6 +129,7 @@ export async function buildEmp501Figures(companyId: string, p: Emp501Period, loc
     totals: emp501Totals(input.employees, input.pspCertificates), runs: await finalRuns(companyId, p, lock), certificateEmployees: input.certificateEmployees,
     // Only when there are any: a version with none stores (and so compares) exactly as before PSP-H.
     ...(input.pspCertificates.length > 0 ? { pspCertificates: input.pspCertificates } : {}),
+    bankOverlay: 1,
   };
 }
 

@@ -15,7 +15,7 @@ import {
   applyStandalone, approvedDirective, approveRun, calculateRun, cleanSeveranceFixtures, createRunFor, directivePayments,
   seedRetrenchedEmployee, type SeveranceFixture,
 } from './p3-severance.helpers';
-import { UNWRITTEN_FIELDS_WARNING } from '@/modules/accounting/services/payroll/easyFileCertificateCodes';
+import { UNWRITTEN_FIELDS_WARNING_BANK_WRITTEN } from '@/modules/accounting/services/payroll/easyFileCertificateCodes';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 3 });
@@ -117,8 +117,8 @@ describe('G1 edges', () => {
     expect(out.status, JSON.stringify(out.body)).toBe(200);
     // The file-wide notices (wave 6 EZF: too early to file, BRS p. 32; the fields IsaFlow does not hold) come last, outside
     // the cap. The per-employee warnings are capped by encoded size: within 2 000 bytes, and the rest is counted.
-    const notice = (w: string) => w === UNWRITTEN_FIELDS_WARNING || w.startsWith('e@syFile will refuse this file until');
-    expect(out.warnings.at(-1)).toBe(UNWRITTEN_FIELDS_WARNING);
+    const notice = (w: string) => w === UNWRITTEN_FIELDS_WARNING_BANK_WRITTEN || w.startsWith('e@syFile will refuse this file until');
+    expect(out.warnings.at(-1)).toBe(UNWRITTEN_FIELDS_WARNING_BANK_WRITTEN);
     const own = out.warnings.filter((w) => !notice(w));
     const raw = encodeURIComponent(JSON.stringify(own));
     expect(raw.length).toBeLessThanOrEqual(2_000);

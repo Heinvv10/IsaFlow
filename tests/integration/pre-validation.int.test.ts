@@ -26,10 +26,20 @@ const RELEASE_YEAR = 2089;
 // What-was-paid cases: tax year 2028 (Mar 2027 - Feb 2028), with its own small code list (no 3801 in it on purpose).
 const PAID_YEAR = 2028;
 
+/**
+ * An employee with an address and an active bank account (wave 7 EA2: so the tax and ID checks below are judged alone;
+ * the address / bank warnings are tests/integration/w7-ea2-easyfile-contacts.int.test.ts's and the case below).
+ */
 async function employee(company: string, number: string, taxNumber: string | null, idNumber: string | null): Promise<string> {
-  return (await r.pool.query(
-    `INSERT INTO payroll_employees (company_id, employee_number, first_name, last_name, start_date, tax_number, id_number)
-     VALUES ($1, $2, 'Pre', $2, '2020-01-01', $3, $4) RETURNING id::text AS id`, [company, number, taxNumber, idNumber])).rows[0]!.id;
+  const id = (await r.pool.query(
+    `INSERT INTO payroll_employees (company_id, employee_number, first_name, last_name, start_date, tax_number, id_number,
+       residential_street, residential_city, residential_postal_code, residential_country_code, postal_same_as_residential)
+     VALUES ($1, $2, 'Pre', $2, '2020-01-01', $3, $4, 'Main Road', 'Pretoria', '0028', 'ZA', true) RETURNING id::text AS id`,
+    [company, number, taxNumber, idNumber])).rows[0]!.id;
+  await r.pool.query(`INSERT INTO payroll_bank_details (company_id, employee_id, bank_name, account_number, branch_code,
+      account_holder_relationship, is_active)
+    VALUES ($1, $2, 'FNB', '62000000001', '250655', 'own', true)`, [company, id]);
+  return id;
 }
 
 /** A run header with one line for the employee, set to `status` (stamped as `extra` says). */
@@ -141,6 +151,28 @@ describe('GET pre-validation (tax year)', () => {
     for (const absent of [ids.draftOnly, ids.unstamped, ids.lastYear]) expect(listed).not.toContain(absent);
     expect(data.errors).toBe(1);
     expect(data.warnings).toBe(1);
+  });
+  it('wave 7 EA2: an employee with no address and no bank account is named for both (warnings), and the other company\'s account does not count', async () => {
+    const gap = await employee(r.company, 'PV-NOCONTACT', GOOD_TAX, GOOD_ID);
+    await r.pool.query(`UPDATE payroll_employees SET residential_street = NULL WHERE id = $1`, [gap]);
+    await r.pool.query('DELETE FROM payroll_bank_details WHERE employee_id = $1', [gap]);
+    // A row naming this employee under ANOTHER company (only a forged row could): pre-validation must not count it.
+    await r.pool.query(`INSERT INTO payroll_bank_details (company_id, employee_id, bank_name, account_number, branch_code, is_active)
+      VALUES ($1, $2, 'FNB', '62000000002', '250655', true)`, [otherCompany, gap]);
+    const run = await runFor(r.company, gap, 9, 2026, 'approved', STAMPED);
+    try {
+      const data = await answer({ taxYear: String(TAX_YEAR), employeeId: gap });
+      expect(data.employees.find((e) => e.employeeId === gap)!.issues.map((i) => [i.code, i.severity, i.fixHref])).toEqual([
+        ['IRP5_ADDRESS_MISSING', 'warning', `/payroll/employees/${gap}#employee-address`],
+        ['IRP5_BANK_MISSING', 'warning', `/payroll/employees/${gap}#employee-bank`],
+      ]);
+      expect(data.errors).toBe(0);
+    } finally {
+      await r.pool.query('DELETE FROM payroll_run_lines WHERE run_id = $1', [run]);
+      await r.pool.query('DELETE FROM payroll_run_headers WHERE id = $1', [run]);
+      await r.pool.query('DELETE FROM payroll_bank_details WHERE employee_id = $1', [gap]);
+      await r.pool.query('DELETE FROM payroll_employees WHERE id = $1', [gap]);
+    }
   });
   it('never lists the other company\'s employee', async () => {
     const data = await answer({ taxYear: String(TAX_YEAR) });

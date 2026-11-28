@@ -81,7 +81,7 @@ export function EntityChangeItem({ change, canReveal, showEntity = false, onReve
       )}
       {anyMasked && canReveal && (
         <button type="button" onClick={() => { void reveal(); }} disabled={revealing}
-          className="inline-flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 disabled:opacity-50">
+          className="inline-flex items-center gap-1 text-xs text-blue-700 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 disabled:opacity-50">
           <Eye className="h-3.5 w-3.5" />{revealing ? 'Revealing…' : 'Reveal full numbers (recorded in the audit log)'}
         </button>
       )}

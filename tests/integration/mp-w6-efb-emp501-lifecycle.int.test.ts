@@ -91,7 +91,7 @@ describeIfDb('EMP501 lifecycle (interim 2026), two tenants', () => {
     await sql`INSERT INTO companies (id, name) VALUES (${other.companyId}::UUID, 'EFb other tenant')`;
     await sql`INSERT INTO users (id, email, role, is_active) VALUES (${other.userId}, ${`efb-${other.userId}@example.invalid`}, 'admin', true)`;
     await sql`INSERT INTO company_users (company_id, user_id, role) VALUES (${other.companyId}::UUID, ${other.userId}, 'admin')`;
-    other.token = await new SignJWT({ sub: other.userId, aal: 'aal2' }).setProtectedHeader({ alg: 'HS256' })
+    other.token = await new SignJWT({ sub: other.userId, aal: 'aal2', session_id: crypto.randomUUID() }).setProtectedHeader({ alg: 'HS256' })
       .setExpirationTime('1h').sign(new TextEncoder().encode(process.env.JWT_SECRET));
     await finalRun(3, [[await employee('Zed', '0123456789', other.companyId), 99_000, 9_000]], other.companyId);
   }, 240000);
@@ -187,9 +187,15 @@ describeIfDb('EMP501 lifecycle (interim 2026), two tenants', () => {
     expect(r.status).toBe(200);
     body = String(r.body);
     expect(body.split('\r\n')).toContain('2031,202608');
-    const sha = createHash('sha256').update(body, 'utf8').digest('hex');
+    // Wave 7 EA2 (Hein's ruling 25): the bank fields (3240-3246) are read live at download and never stored, so the stored
+    // bytes (H2) are the served file without them, and the stamp is the stored bytes' sha256. These employees have no
+    // account on record: each certificate carries 3240 = 0 alone.
+    const stored = String((await versionsOf())[0]!.filing_file_content);
+    const sha = createHash('sha256').update(stored, 'utf8').digest('hex');
     expect((await versionsOf())[0]).toMatchObject({ filing_file_sha256: sha, filing_file_kind: 'emp501_easyfile@2', filing_file_by: rf.admin.userId });
-    expect((await versionsOf())[0]!.filing_file_content).toBe(body); // stored: a re-download serves these bytes (H2)
+    expect(body.split('\r\n').filter((l) => !/^324[0-6],/.test(l))).toEqual(stored.split('\r\n'));
+    expect(stored).not.toMatch(/^324[0-6],/m);
+    expect(body.split('\r\n').filter((l) => l.startsWith('3240,')).every((l) => l === '3240,0')).toBe(true);
     await sql`UPDATE payroll_run_lines SET paye = paye * 10 WHERE employee_id = ${alice}::UUID`;
     expect(String((await download(versionId)).body)).toBe(body);
     await sql`UPDATE payroll_run_lines SET paye = paye / 10 WHERE employee_id = ${alice}::UUID`;

@@ -141,7 +141,8 @@ describeIfDb('EZF: EMP501 versions from before the BRS code fix, and the employe
     const oldSha = createHash('sha256').update(oldBody, 'utf8').digest('hex');
     await asSuperuser([[`UPDATE tax_return_versions SET figures = $2::jsonb, filing_file_content = $3, filing_file_sha256 = $4,
       filing_file_kind = 'emp501_easyfile@1', filing_file_at = now(), filing_file_by = $5 WHERE id = $1`,
-    [versionId, JSON.stringify(asStoredBeforeTheFix(v.figures as Row, startDates)), oldBody, oldSha, rf.admin.userId]]]);
+    // A version from before the fix is from before wave 7 EA2 too: no bankOverlay marker (its file never carried bank fields).
+    [versionId, JSON.stringify({ ...asStoredBeforeTheFix(v.figures as Row, startDates), bankOverlay: undefined }), oldBody, oldSha, rf.admin.userId]]]);
 
     const r = await callRoute(filingFile, c(), rf.admin.token, 'POST', {}, { versionId });
     expect(r.status, JSON.stringify(r.body)).toBe(200);

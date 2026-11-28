@@ -1,7 +1,7 @@
 /**
  * Which recorded values are masked (Hein's decision 2, 2026-10-10): bank
- * account numbers and ID / tax numbers are stored in full and shown as their
- * last four characters to everyone; owner / admin may reveal one change in
+ * account numbers, ID / tax numbers and addresses are stored in full, shown as
+ * their last four characters to everyone; owner / admin may reveal one change in
  * full (entityChangeReveal.ts, audited). A changed value stays visibly
  * changed: …1234 → …9876. An employee's bank details also mask the branch
  * code (last two) and the holder (first letter), as their GET does for a
@@ -15,13 +15,19 @@ export const SENSITIVE_FIELDS: Readonly<Record<EntityType, readonly string[]>> =
   supplier: ['bank_account_number'],
   customer: [],
   gl_account: ['bank_account_number'],
-  payroll_employee: ['id_number', 'passport_number', 'tax_number', 'tax_directive_number', 'uif_number'],
+  payroll_employee: ['id_number', 'passport_number', 'tax_number', 'tax_directive_number', 'uif_number',
+    // Wave 7 EA1 (1056): the residential and postal address, personal information (POPIA s1), last four as the rest.
+    'residential_unit_number', 'residential_complex', 'residential_street_number', 'residential_street', 'residential_suburb',
+    'residential_city', 'residential_postal_code', 'residential_country_code', 'postal_address_line1', 'postal_address_line2',
+    'postal_address_line3', 'postal_address_line4', 'postal_address_code', 'postal_address_country_code'],
   company_user: [],
   company_invitation: [],
   company_user_permission: [],
   company: ['bank_account_number', 'tax_number', 'paye_reference_number', 'sdl_reference_number', 'uif_reference_number'],
   approval_rule: [],
   approval_enforcement: [],
+  // Not account_holder_relationship (wave 7 EA2, 1062): own / joint / third_party names no one, every view shows it, and
+  // a last-four mask would leak the value anyway (…oint / …arty; PII breaker of #1944).
   payroll_bank_detail: ['account_number', 'branch_code', 'account_holder'],
   company_setting: [],
   supplier_invoice: [],
@@ -57,6 +63,10 @@ export function maskInitial(value: unknown): unknown {
 /** Fields masked other than to their last four. */
 const FIELD_MASKS: Partial<Record<EntityType, Readonly<Record<string, (value: unknown) => unknown>>>> = {
   payroll_bank_detail: { branch_code: maskLastTwo, account_holder: maskInitial },
+  // Wave 7 EA1 (breaker #1932 L1): an address's free-text parts to their first letter, not their last four (the last
+  // four of "PO Box 4711" is the box number). Numbers, postal codes and countries keep the default (four or fewer: hidden).
+  payroll_employee: Object.fromEntries(['residential_complex', 'residential_street', 'residential_suburb', 'residential_city',
+    'postal_address_line1', 'postal_address_line2', 'postal_address_line3', 'postal_address_line4'].map((k) => [k, maskInitial])),
 };
 
 const maskField = (type: EntityType, key: string, value: unknown): unknown => (FIELD_MASKS[type]?.[key] ?? maskValue)(value);

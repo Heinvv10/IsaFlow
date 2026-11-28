@@ -10,6 +10,9 @@
  *
  * Returns 422 with an explanation when the company is missing the
  * payroll-tax registration fields required by SARS.
+ *
+ * Wave 7 EA2: each certificate carries the employee's address (3211-3294) and, for an owner or admin, the bank account
+ * (3240-3245), each full account read recorded in audit_log (easyFileBankAccounts). A manager's file carries none.
  */
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
@@ -17,6 +20,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
+import { getClientIp } from '@/lib/rateLimit';
 import { buildIrp5File, UsageError } from '@/modules/accounting/services/payroll/easyFileExportService';
 import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
 import { assembleEasyFileInput, EasyFileInputRefusal } from '@/modules/accounting/services/payroll/easyFileInput';
@@ -27,7 +31,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   if (req.method !== 'GET') {
     return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET']);
   }
-  const { companyId } = req as CompanyAuthedRequest;
+  const { companyId, companyRole, user } = req as CompanyAuthedRequest;
   // Pentest M17: bound numeric query params — reject year 9999 / -1 / NaN.
   const taxYearRaw = req.query.taxYear ? Number(req.query.taxYear) : new Date().getFullYear();
   if (!Number.isInteger(taxYearRaw) || taxYearRaw < 2000 || taxYearRaw > 2100) {
@@ -41,7 +45,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
 
   let input;
   try {
-    input = await assembleEasyFileInput(companyId, taxYear, periodRaw);
+    // Wave 7 EA2: an owner's or admin's file carries each bank account (3240-3245), every full read on audit_log.
+    const actor = { userId: user.id, userEmail: user.email, ip: getClientIp(req), userAgent: req.headers['user-agent'] };
+    input = await assembleEasyFileInput(companyId, taxYear, periodRaw, { role: companyRole, actor });
   } catch (err) {
     if (respondIfRunKindUnsupported(res, err)) return;
     if (!(err instanceof EasyFileInputRefusal)) throw err;

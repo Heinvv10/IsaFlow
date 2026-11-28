@@ -10,13 +10,14 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { z } from 'zod';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
-import { apiResponse } from '@/lib/apiResponse';
+import { apiResponse, ErrorCode } from '@/lib/apiResponse';
+import { currentSessionActor } from '@/lib/auth/impersonationSessions';
 import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
 import { respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
 import { log } from '@/lib/logger';
-import { checkReportRateLimit, INTERACTIVE_REPORT_LIMIT } from '@/lib/rateLimit';
+import { checkReportRateLimit, getClientIp, INTERACTIVE_REPORT_LIMIT } from '@/lib/rateLimit';
 import { UUID } from '@/lib/schemas/common';
 import { downloadEmp501File } from '@/modules/accounting/services/returns/emp501FilingFile';
 import { respondReturnRefusal } from '@/modules/accounting/services/returns/respondRefusal';
@@ -35,12 +36,21 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!(await checkReportRateLimit(companyId, `emp501-filing-file:u:${userId}`, INTERACTIVE_REPORT_LIMIT))) {
     return apiResponse.tooManyRequests(res, 'Too many requests. Please try again shortly.');
   }
+  // Wave 7 EA2: the file carries employees' addresses too. A token or a job (no session id) gets none of it; Login-as
+  // is refused in downloadEmp501File. The same rule as the address and bank-details routes (assertHumanSession).
+  if ((await currentSessionActor()) === 'unknown') {
+    return apiResponse.error(res, ErrorCode.FORBIDDEN, 'Only a person signed in as themselves can download the EMP501 filing file; an agent or a job cannot.', { reason: 'AGENT_FORBIDDEN' });
+  }
   try {
-    const file = await downloadEmp501File(companyId, parsed.data.versionId, { userId, role: companyRole });
+    // Wave 7 EA2 (ruling 25): the bank accounts are read live for the downloader, each full read on audit_log.
+    const bankReader = { role: companyRole, actor: { userId, userEmail: (req as AuthenticatedNextApiRequest).user.email, ip: getClientIp(req), userAgent: req.headers['user-agent'] } };
+    const file = await downloadEmp501File(companyId, parsed.data.versionId, { userId, role: companyRole }, bankReader);
     log.info('EMP501 filing file downloaded', { companyId, versionId: parsed.data.versionId, stamped: file.stamped }, 'emp501-returns');
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${file.filename}"`);
-    res.setHeader('X-Filing-File-Sha256', file.sha256);
+    // Wave 7 EA2: the stamp is the stored file's; the bytes sent add the live bank fields (ruling 25). Both, named.
+    res.setHeader('X-Filing-File-Stored-Sha256', file.storedSha256);
+    res.setHeader('X-Filing-File-Served-Sha256', file.servedSha256);
     return res.status(200).send(file.body);
   } catch (err) {
     if (respondIfImpersonationForbidden(res, err)) return;

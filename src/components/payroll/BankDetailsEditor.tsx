@@ -4,13 +4,13 @@ import { apiErrorMessage } from '@/lib/apiFetch';
 import { BankFields } from './employeeCreate/BankFields';
 import {
   BANK_FIELD_ORDER, emptyBank, saveBankDetails, validateBank,
-  type AccountType, type BankErrors, type BankForm, type BankKey,
+  type AccountType, type BankErrors, type HolderRelationship, type BankForm, type BankKey,
 } from './employeeCreate/bankDetails';
 
 interface Props {
   employeeId: string;
   /** A change keeps the bank name and type; the numbers are always typed again (the card never holds the full ones). */
-  start?: { bankName: string; accountType: AccountType };
+  start?: { bankName: string; accountType: AccountType; accountHolderRelationship?: HolderRelationship | '' };
   /** The current details name a holder (the mask shows one): it has to be typed again on a change. */
   holderRequired?: boolean;
   onSaved: () => void;

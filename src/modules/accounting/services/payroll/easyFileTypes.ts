@@ -5,6 +5,8 @@
 import type { PspCertificateInput } from './easyFilePspCertificate';
 import type { MedicalCertificateInput } from './easyFileMedicalFields';
 import type { RetirementContributions } from './easyFileRetirementFields';
+import type { EmployeeAddress } from './payrollEmployeeAddressInput';
+import type { CertificateBankAccount } from './easyFileContactFields';
 
 export interface EmployerInput {
   tradingName: string;            // 2010
@@ -70,6 +72,10 @@ export interface EmployeeInput {
   retirementFund?: RetirementContributions;
   /** The payroll record's date of birth (local calendar day): 3080, which must be the ID number's date (birthDate3080). */
   dateOfBirth?: Date | null;
+  /** 3211-3217, 3285, 3279, 3288-3294 (wave 7 EA2, easyFileContactFields); absent = none captured. Never null: a stored EMP501 version compares key by key. */
+  address?: EmployeeAddress;
+  /** 3240-3243, 3245 (wave 7 EA2): only in an owner's or admin's own export, read through the audited reader; absent = not written. */
+  bankAccount?: CertificateBankAccount;
 }
 
 export interface LumpSumInput {

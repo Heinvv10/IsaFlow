@@ -1,6 +1,6 @@
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
-import { ACCOUNT_TYPES, type AccountType, type BankErrors, type BankForm, type BankKey } from './bankDetails';
+import { ACCOUNT_TYPES, HOLDER_RELATIONSHIPS, type AccountType, type BankErrors, type BankForm, type BankKey, type HolderRelationship } from './bankDetails';
 
 interface Props {
   bank: BankForm;
@@ -15,7 +15,7 @@ interface Props {
   required: boolean;
 }
 
-/** The five fields, shared by the create form and the profile card. */
+/** The six fields, shared by the create form and the profile card. */
 export function BankFields({ bank, errors, onChange, fieldRef, hint, holderDisabled, required }: Props) {
   const star = required ? ' *' : '';
   const req = required ? { 'aria-required': true as const } : {};
@@ -33,6 +33,10 @@ export function BankFields({ bank, errors, onChange, fieldRef, hint, holderDisab
         onChange={v => onChange('accountType', (v ?? 'cheque') as AccountType)} />
       <Input ref={ref('accountHolder')} label="Account holder" value={bank.accountHolder} error={errors.accountHolder} autoComplete="off" disabled={holderDisabled}
         helperText="Only if the account is not in the employee's own name." onChange={e => onChange('accountHolder', e.target.value)} />
+      <Select id="bank-holder-relationship" label="Account held by" value={bank.accountHolderRelationship || null} clearable
+        placeholder="Not stated" hint="SARS asks for it on the IRP5 (code 3246)."
+        options={HOLDER_RELATIONSHIPS.map(r => ({ value: r.value, label: r.label }))}
+        onChange={v => onChange('accountHolderRelationship', (v ?? '') as HolderRelationship | '')} />
     </div>
   );
 }

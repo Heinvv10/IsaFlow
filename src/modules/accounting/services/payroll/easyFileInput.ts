@@ -8,12 +8,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { formatMoney } from '@/lib/money/formatMoney';
-import {
-  buildCertificateNumber,
-  splitCertificateIncome,
-  type EmployerInput,
-  type EmployeeInput,
-} from '@/modules/accounting/services/payroll/easyFileExportService';
+import { buildCertificateNumber, splitCertificateIncome, type EmployeeInput } from '@/modules/accounting/services/payroll/easyFileExportService';
 import { emp501Period, type Emp501Kind } from '@/modules/accounting/services/payroll/emp501Period';
 import { issuedDateWarning, listRunAnnualPayments } from '@/modules/accounting/services/payroll/payrollLumpSumFiling';
 import { listCertificateLumpSums } from '@/modules/accounting/services/payroll/directivePaymentFiling';
@@ -37,35 +32,26 @@ import { assertCertificateYearMonthlyOnly } from '@/modules/accounting/services/
 import { payRunFinalSql } from '@/modules/accounting/services/payroll/payRunFinalSql';
 import { listPspFilingTotals, pspFilingWarning } from '@/modules/accounting/services/payroll/pspFiling';
 import { employerInputOf } from '@/modules/accounting/services/payroll/easyFileEmployerInput';
-import { loadPspCertificates, type PspCertificateInput } from '@/modules/accounting/services/payroll/easyFilePspCertificate';
-import { UNWRITTEN_FIELDS_WARNING } from '@/modules/accounting/services/payroll/easyFileCertificateCodes';
+import { loadPspCertificates } from '@/modules/accounting/services/payroll/easyFilePspCertificate';
+import { EasyFileInputRefusal, type EasyFileInput } from '@/modules/accounting/services/payroll/easyFileInputTypes';
+import {
+  UNWRITTEN_FIELDS_WARNING, UNWRITTEN_FIELDS_WARNING_BANK_WRITTEN, UNWRITTEN_FIELDS_WARNING_NO_CONTACTS,
+} from '@/modules/accounting/services/payroll/easyFileCertificateCodes';
+import { addressFromRow } from '@/modules/accounting/services/payroll/payrollEmployeeAddress';
+import { contactPolicyOf, loadCertificateBankAccounts, type CertificateBankReader } from '@/modules/accounting/services/payroll/easyFileBankAccounts';
 import { filingDateWarning } from '@/modules/accounting/services/payroll/easyFileEmployeeChecks';
 
-/** A refusal the route answers as-is: 404 (no company), 422 VALIDATION_ERROR, or 400. */
-export class EasyFileInputRefusal extends Error {
-  constructor(readonly kind: 'not_found' | 'validation' | 'bad_request', message: string,
-    readonly details: Record<string, unknown> | undefined = undefined) {
-    super(message);
-    this.name = 'EasyFileInputRefusal';
-  }
-}
+export { EasyFileInputRefusal, type EasyFileInput } from '@/modules/accounting/services/payroll/easyFileInputTypes';
 
-export interface EasyFileInput {
-  employer: EmployerInput;
-  employees: EmployeeInput[];
-  payeRef: string;
-  /** Capped for the header (capWarningsForHeader). */
-  warnings: string[];
-  warningsTotal: number;
-  unlinkedPaymentIds: string[];
-  /** The payroll employee each certificate is for, by certificate number (wave 6 SS-c: the employee portal's IRP5). */
-  certificateEmployees: Array<{ certificateNumber: string; employeeId: string }>;
-  /** Wave 6 PSP-H: each PSP's own H certificate, numbered after the natural persons'. */
-  pspCertificates: PspCertificateInput[];
-}
-
-/** `kind` 'interim' (wave 6 EFb): March to August only, period code 08; 'annual' is the whole tax year, 02. */
-export async function assembleEasyFileInput(companyId: string, taxYear: number, kind: Emp501Kind = 'annual'): Promise<EasyFileInput> {
+/**
+ * `kind` 'interim' (wave 6 EFb): March to August only, period code 08; 'annual' is the whole tax year, 02.
+ * `bankReader` (wave 7 EA2): the caller of the ad-hoc export. A person in their own session gets the addresses, an
+ * owner or admin the bank accounts too (3240-3245, read and audited per employee); Login-as, a token or a job neither
+ * (contactPolicyOf). Without one (the EMP501 lifecycle's stored figures): the addresses, never an account.
+ */
+export async function assembleEasyFileInput(
+  companyId: string, taxYear: number, kind: Emp501Kind = 'annual', bankReader?: CertificateBankReader,
+): Promise<EasyFileInput> {
   const period = emp501Period(taxYear, kind);
   const { startMonth, startYear, endMonth, endYear } = period;
   // Monthly-only certificates this wave (#1622 x EFb #1568): a tax year with an approved weekly or fortnightly run is
@@ -101,7 +87,12 @@ export async function assembleEasyFileInput(companyId: string, taxYear: number, 
       WHERE id = ${companyId}::uuid
     ` as Promise<DbRow[]>,
     sql`
-      SELECT id, first_name, last_name, id_number, tax_number, start_date, end_date, date_of_birth
+      SELECT id, first_name, last_name, id_number, tax_number, start_date, end_date, date_of_birth,
+             -- Wave 7 EA2: the address (EA1, migration 1056), written as 3211-3217, 3285, 3279, 3288-3294.
+             residential_unit_number, residential_complex, residential_street_number, residential_street,
+             residential_suburb, residential_city, residential_postal_code, residential_country_code,
+             postal_same_as_residential, postal_address_line1, postal_address_line2, postal_address_line3,
+             postal_address_line4, postal_address_code, postal_address_country_code
       FROM   payroll_employees
       WHERE  company_id = ${companyId}::uuid
       ORDER  BY last_name, first_name
@@ -149,6 +140,7 @@ export async function assembleEasyFileInput(companyId: string, taxYear: number, 
   const aggMap = new Map<string, DbRow>();
   aggRows.forEach((r) => aggMap.set(String(r.employee_id), r));
 
+  const contacts = await contactPolicyOf(bankReader);
   const yoaStart = bounds.start.replaceAll('-', '');
   // Annual: the last day of February, 29th in a leap year. Interim: 31 August.
   const yoaEndInclusive = bounds.end.replaceAll('-', '');
@@ -224,6 +216,7 @@ export async function assembleEasyFileInput(companyId: string, taxYear: number, 
     const { start: periodStart, end: periodEnd } = taxPeriod;
 
     const certificateNumber = buildCertificateNumber(payeRef, taxYear, period.mm, seq);
+    const address = contacts.address ? addressFromRow(row) : null;
     certificateEmployees.push({ certificateNumber, employeeId: String(row.id) });
     employees.push({
       certificateNumber,
@@ -262,8 +255,15 @@ export async function assembleEasyFileInput(companyId: string, taxYear: number, 
       uifEmployee: Number(agg.total_uif_emp ?? 0),
       uifEmployer: Number(agg.total_uif_empr ?? 0),
       sdl4142: Number(agg.total_sdl ?? 0),
+      ...(address ? { address } : {}), // absent, never null: see EmployeeInput.address
     });
   }
+
+  // Wave 7 EA2: each certificate's bank account, only for an owner's or admin's own export (audited per employee).
+  const names = new Map(empRows.map((r) => [String(r.id), `${String(r.first_name ?? '')} ${String(r.last_name ?? '')}`.trim()]));
+  const bank = await loadCertificateBankAccounts(companyId, certificateEmployees.map((c) => ({ id: c.employeeId, name: names.get(c.employeeId) ?? '' })), contacts.bank ? bankReader : undefined);
+  certificateEmployees.forEach((c, i) => { const account = bank.byEmployee.get(c.employeeId); if (account) employees[i]!.bankAccount = account; });
+  warnings.push(...bank.warnings);
 
   // Wave 6 PSP-H: each PSP with its particulars gets its own H certificate, numbered after these; one without stays off, named.
   // Never in certificateEmployees: an H certificate is the entity's, so the employee portal never shows it to the person.
@@ -285,7 +285,7 @@ export async function assembleEasyFileInput(companyId: string, taxYear: number, 
   // The file-wide notices (wave 6 EZF) come after the capped list, outside the cap: two fixed, short lines (too early to
   // file, BRS p. 32; the fields IsaFlow does not hold), so the per-employee warnings keep the whole header budget.
   const early = filingDateWarning([...employees, ...pspCertificates.map((c) => ({ taxPeriodEnd: c.periodEnd }))], new Date());
-  const notices = [...(early ? [early] : []), UNWRITTEN_FIELDS_WARNING];
+  const notices = [...(early ? [early] : []), !contacts.address ? UNWRITTEN_FIELDS_WARNING_NO_CONTACTS : bank.written ? UNWRITTEN_FIELDS_WARNING_BANK_WRITTEN : UNWRITTEN_FIELDS_WARNING];
   const warningsTotal = warnings.length + notices.length;
   warnings.splice(0, warnings.length, ...capWarningsForHeader(warnings), ...notices);
 

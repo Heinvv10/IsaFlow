@@ -98,7 +98,7 @@ async function exportFile(of = company): Promise<{ status: number; body: string;
       // The file-wide notices (wave 6 EZF: unwritten BRS fields; too early to file) are left out: not what this suite judges.
       if (name === 'X-IsaFlow-Warnings') {
         out.warnings = (JSON.parse(decodeURIComponent(value)) as string[])
-          .filter((w) => w !== UNWRITTEN_FIELDS_WARNING && !w.startsWith('e@syFile will refuse this file until'));
+          .filter((w) => !w.startsWith(UNWRITTEN_FIELDS_WARNING.slice(0, 48)) && !w.startsWith('e@syFile will refuse this file until'));
       }
       return res;
     },
