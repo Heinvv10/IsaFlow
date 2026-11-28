@@ -47,6 +47,7 @@ const cli = (file: string, ms = 120_000, preload?: string, when = 'in-flight'): 
 describe('R30-1 / R30-6: an uncaught error while a live COMMIT is in flight', () => {
   it('no batch after it; the batch in flight settles and is said; books = report = console; exit 4', async () => {
     const r = await cli('tests/fixtures/sage-export/sage-export.json', 120_000, './tests/integration/helpers/sageCrashPreload.ts');
+    expect(r.err, 'the preload\'s hold never fired (COMMIT 2 not seen as a promise-style query)').toContain('[sage-crash-preload] held COMMIT 2 until the crash');
     expect(r.code, r.err).toBe(4);
     const books = (await pool.query(`SELECT (SELECT count(*)::int FROM item_categories WHERE company_id = $1) AS cats, (SELECT count(*)::int FROM items WHERE company_id = $1) AS items`, [s.companyId])).rows[0];
     const report = JSON.parse(readFileSync(join(d, 'r.json'), 'utf8'));
@@ -64,6 +65,7 @@ describe('R30-1 / R30-6: an uncaught error while a live COMMIT is in flight', ()
   }, 240_000);
   it('the crash between two batches (batch 2 committed and recorded, batch 3 not sent): nothing named in flight; books = report = console', async () => {
     const r = await cli('tests/fixtures/sage-export/sage-export.json', 120_000, './tests/integration/helpers/sageCrashPreload.ts', 'between');
+    expect(r.err, 'the preload\'s hold never fired: is the run lock check still the literal \'SELECT 1\' (sageRunLock.ts check())?').toContain('[sage-crash-preload] held the run lock check after COMMIT 2 until the crash');
     expect(r.code, r.err).toBe(4);
     const books = (await pool.query(`SELECT (SELECT count(*)::int FROM item_categories WHERE company_id = $1) AS cats, (SELECT count(*)::int FROM items WHERE company_id = $1) AS items`, [s.companyId])).rows[0];
     const report = JSON.parse(readFileSync(join(d, 'r.json'), 'utf8'));
