@@ -46,9 +46,14 @@ export function watchHandOver(pool: unknown, client: unknown): { stop: () => boo
  * already handed back always throws ("Release called on client which has already been released to the pool"), so when a wrapper threw
  * AFTER delegating, the retry destroys nothing and the client sits idle in the pool. It is then closed through the pool's own destroy
  * path (pg-pool's `_remove`: off its idle and client lists, socket ended, the queue pulsed so a waiter for the freed slot is woken, L2),
- * and the server drops whatever the session held (the run lock's advisory lock). First a logged 'error' listener is attached (MED): the
- * session and the run lock removed theirs and pg-pool drops its own on checkout, so an error while it ends would otherwise be uncaught.
- * Limits (L3): a pool without `_remove` gets `client.end()`, which ends the socket but leaves the pool's slot (and an idle entry) until
+ * and the server drops whatever the session held (the run lock's advisory lock). First a logged 'error' listener is attached (MED).
+ * After a first release that DELEGATED, pg-pool's own idleListener is back on the client (its _release re-adds it), so an error there
+ * reaches pool.emit('error'), which the CLI listens to (runMain.ts: "database pool error: ..."); only a client never handed back (the
+ * wrapper threw before delegating, both times) has no listener but ours: the session and the run lock removed theirs and pg-pool drops
+ * its own on checkout, so without ours an error while it ends would be uncaught.
+ * Limits (L3): the queue is woken only through `_remove`'s callback argument (pg-pool 3.13.0, pinned by bun.lock): a pg-pool whose
+ * `_remove` ignores it frees the slot without waking a waiter, which then waits for the next release or its connectionTimeoutMillis.
+ * A pool without `_remove` gets `client.end()`, which ends the socket but leaves the pool's slot (and an idle entry) until
  * the pool notices; a wrapper pool or client that hands out another object than pg-pool's own never matches `_remove` by identity, so
  * nothing is taken off the inner pool's lists. Never throws: a failure is logged.
  */
