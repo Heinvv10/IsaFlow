@@ -18,6 +18,7 @@ const h = vi.hoisted(() => ({
   liveLockWaitAt: null as string | null, // "<entity> live": a lock timeout inside it (the committing session throws)
   dryHeldError: null as 'no-result' | 'after' | 'held-with-lockstop' | null,
   unlockWarning: null as string | null,
+  unlockThrows: null as unknown, // the run lock's unlock throws this (B38-2: a pool wrapper whose release throws)
   stmtAt: null as string | null, // "<entity> <dry|live>": a statement timeout inside it
   callStall: null as string | null, // "<entity> dry": the call rejects with the session's stall (StatementTimeoutError)
   sessions: [] as Array<{ commit: boolean; wrote: boolean; notice: unknown; ended?: unknown }>,
@@ -28,7 +29,7 @@ const h = vi.hoisted(() => ({
   commitRefusedAt: null as string | null, // "<entity> live": the server refuses that batch's COMMIT (B28-2)
 }));
 vi.mock('@/modules/accounting/services/sage-migration/localGuard', () => ({ assertLocalDatabase: () => undefined, assertLocalPool: () => undefined }));
-vi.mock('@/modules/accounting/services/sage-migration/sageRunLock', () => ({ acquireRunLock: async (_p: unknown, _c: unknown, notice?: unknown) => { h.lockNotice = notice; return { check: async () => undefined, unlock: async () => h.unlockWarning }; } }));
+vi.mock('@/modules/accounting/services/sage-migration/sageRunLock', () => ({ acquireRunLock: async (_p: unknown, _c: unknown, notice?: unknown) => { h.lockNotice = notice; return { check: async () => undefined, unlock: async () => { if (h.unlockThrows !== null) throw h.unlockThrows; return h.unlockWarning; } }; } }));
 vi.mock('@/modules/accounting/services/sage-migration/sageToolSession', async () => {
   const real = await vi.importActual<typeof import('@/modules/accounting/services/sage-migration/sageSessionErrors')>('@/modules/accounting/services/sage-migration/sageSessionErrors');
   return {
@@ -86,7 +87,7 @@ const parsed = () => parseSageExport({ Items: [
 ] });
 const run = (over: Record<string, unknown> = {}) => runSageMigration({ options: { max: 4 } } as never, parsed(), { companyId: 'c', userId: 'u', live: true, expect: { items: 2, purchaseOrders: 0 }, ...over });
 const live = () => h.sent.filter((x) => x.endsWith('live'));
-beforeEach(() => { h.sent.length = 0; h.held = null; h.lockWaitAt = null; h.liveLockWaitAt = null; h.dryHeldError = null; h.unlockWarning = null; h.stmtAt = null; h.callStall = null; h.failReadsAfterLive = false; h.commitRefusedAt = null; h.readFails = null; h.refused = 0; h.sessions.length = 0; });
+beforeEach(() => { h.sent.length = 0; h.held = null; h.lockWaitAt = null; h.liveLockWaitAt = null; h.dryHeldError = null; h.unlockWarning = null; h.unlockThrows = null; h.stmtAt = null; h.callStall = null; h.failReadsAfterLive = false; h.commitRefusedAt = null; h.readFails = null; h.refused = 0; h.sessions.length = 0; });
 
 describe('R29-6: a books read that fails for any typed reason is worded from its cause', () => {
   it('a statement timeout or a lock wait: why the read failed, never its "nothing of it was written"', async () => {
@@ -228,6 +229,22 @@ describe('B25-3: a run lock release not confirmed', () => {
     h.lockWaitAt = 'category dry';
     await run({ onNotice: (l: string) => notices.push(l) }).catch(() => null);
     expect(notices).toEqual([`WARNING: ${h.unlockWarning}`]);
+  });
+});
+
+describe('B38-2: an unlock that throws never replaces the run\'s own outcome', () => {
+  it('a finished run stays finished (the failure said as its warning); a stopped run throws its own stop, the failure a notice', async () => {
+    h.unlockThrows = new Error('injected: hostile run-lock release');
+    const r = await run({ live: false });
+    expect(r.runLockUnconfirmed).toMatch(/^its run lock release failed \(injected: hostile run-lock release\)/);
+    h.lockWaitAt = 'category dry';
+    h.unlockThrows = null;
+    const plain = await run({}).then(() => null, (e: unknown) => e);
+    h.unlockThrows = new Error('injected: hostile run-lock release');
+    const notices: string[] = [];
+    const stopped = await run({ onNotice: (l: string) => notices.push(l) }).then(() => null, (e: unknown) => e);
+    expect(String(stopped)).toBe(String(plain));
+    expect(notices.some((l) => l.startsWith('WARNING: its run lock release failed (injected'))).toBe(true);
   });
 });
 

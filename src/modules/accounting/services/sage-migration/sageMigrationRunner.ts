@@ -177,15 +177,19 @@ export async function runSageMigration(pool: Pool, parsed: ParsedExport, opts: M
   // The run lock holds one connection for the whole run and every tool session needs another: with one in all, the run would wait forever.
   if ((pool.options?.max ?? 10) < 2) throw new Error('the Sage migration needs a pool of at least 2 connections (the run lock holds one for the whole run)');
   const lock = await acquireRunLock(pool, opts.companyId, opts.onNotice); // watched: a connect with no answer is said (R27-6)
+  // B38-2: the run's own outcome (its report, or the stop it threw) comes first: an unlock that throws is a warning, never the outcome.
+  const unlock = async (): Promise<string | null> => {
+    try { return await lock.unlock(); } catch (raw) { return `its run lock release failed (${told(raw)}): the lock's connection may still hold it`; }
+  };
   let report: MigrationReport;
   try {
     report = await runLocked(pool, parsed, { ...opts, runLockAt: Date.now() }, lock); // when the lock was taken: told to every session
   } catch (err) {
-    const unconfirmed = await lock.unlock(); // B25-3: said even when the run itself stopped
+    const unconfirmed = await unlock(); // B25-3: said even when the run itself stopped
     if (unconfirmed) opts.onNotice?.(`WARNING: ${unconfirmed}`);
     throw err;
   }
-  const unconfirmed = await lock.unlock();
+  const unconfirmed = await unlock();
   return unconfirmed ? { ...report, runLockUnconfirmed: unconfirmed } : report;
 }
 

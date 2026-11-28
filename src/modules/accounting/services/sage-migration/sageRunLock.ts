@@ -10,6 +10,7 @@ import { ConnectionLostError } from './sageSessionErrors';
 import { watchWaits } from './sageWaitWatch';
 import { asError, told, OwnError } from './sageTold';
 import { log } from '@/lib/logger';
+import { safeLog } from './sageSessionRead';
 
 export class RunInProgressError extends OwnError {}
 
@@ -24,6 +25,17 @@ export class RunLockNotTakenError extends OwnError {
     this.name = 'RunLockNotTakenError';
   }
 }
+
+/**
+ * A release of the lock connection that threw (B38-2: a pool wrapper): said, and returned as the Error to release it again with (a truthy
+ * release: pg destroys the connection, and its session lock with it). The caller's own outcome stands; nothing here throws.
+ */
+const releaseThrew = (raw: unknown): Error => {
+  const e = asError(raw);
+  safeLog('releasing the run lock connection failed', e);
+  return e;
+};
+const DESTROY_FAILED = 'destroying the run lock connection failed';
 
 const int32 = (text: string): number => createHash('sha256').update(text).digest().readInt32BE(0);
 
@@ -102,7 +114,8 @@ async function takeRunLock(pool: Pool, companyId: string, watched: <T>(run: () =
     }
     // One release for both: with the error when a query failed (pg destroys the connection), plain when someone else holds the lock (it is fine).
     client.removeListener('error', onError);
-    client.release(failure ?? lookupFailure);
+    let back = failure ?? lookupFailure;
+    try { client.release(back); } catch (raw) { back = releaseThrew(raw); try { client.release(back); } catch (again) { safeLog(DESTROY_FAILED, again); } }
     const who = holder === undefined ? 'its holder\'s backend pid unknown' : `held by backend pid ${holder}; if no run is running, that is a dead run's connection: SELECT pg_terminate_backend(${holder})`;
     if (failure) throw new RunLockNotTakenError(failure, pid);
     throw new RunInProgressError(`another Sage migration is running for this company (${companyId}; ${who}): wait for it to finish, then run again; nothing was written`);
@@ -114,7 +127,8 @@ async function takeRunLock(pool: Pool, companyId: string, watched: <T>(run: () =
   } catch (err) {
     failure = asError(err);
     client.removeListener('error', onError);
-    client.release(failure);
+    let back: Error = failure;
+    try { client.release(back); } catch (raw) { back = releaseThrew(raw); try { client.release(back); } catch (again) { safeLog(DESTROY_FAILED, again); } }
     throw new RunLockNotTakenError(failure, pid);
   }
   /** A query on the lock connection that gives up after CHECK_TIMEOUT_MS: a half-open connection never answers and never errors. */
@@ -156,7 +170,12 @@ async function takeRunLock(pool: Pool, companyId: string, watched: <T>(run: () =
       }
     }
     client.removeListener('error', onError);
-    client.release(unlockFailure);
+    try {
+      client.release(unlockFailure);
+    } catch (raw) {
+      unlockFailure = releaseThrew(raw); // the lock's fate is not known: said as not confirmed
+      try { client.release(unlockFailure); } catch (again) { safeLog(DESTROY_FAILED, again); }
+    }
     if (!unlockFailure) return null;
     const pid = typeof processID === 'number' ? `backend pid ${processID}: if a re-run is refused as running, it still holds it: SELECT pg_terminate_backend(${processID})` : 'backend pid unknown';
     return `its run lock release was not confirmed (${told(unlockFailure)}); ${pid}`;
