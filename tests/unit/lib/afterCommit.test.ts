@@ -112,6 +112,23 @@ describe('runAfterCommit', () => {
     expect(logError).toHaveBeenCalledWith('after-commit work failed', { label: 'throws sync', error: 'sync boom' }, 'DB');
   });
 
+  it('B38 (c): a callback that rejects with a value whose message cannot be read is logged, never a second throw', async () => {
+    const { ctx } = makeCtx({ afterCommit: [] });
+    const unhandled = vi.fn();
+    process.on('unhandledRejection', unhandled);
+    try {
+      await runOwnedContext(ctx, async () => {
+        runAfterCommit('hostile', async () => { throw new Proxy({}, { get: () => { throw new Error('injected: proxy get'); } }); });
+      });
+      expect(() => drainAfterCommit(ctx)).not.toThrow();
+      await new Promise((r) => setTimeout(r, 5));
+    } finally {
+      process.off('unhandledRejection', unhandled);
+    }
+    expect(unhandled).not.toHaveBeenCalled();
+    expect(logError).toHaveBeenCalledWith('after-commit work failed', { label: 'hostile', error: 'an error whose message cannot be read' }, 'DB');
+  });
+
   it('refuses a context whose owner does not drain, rather than dropping the work', async () => {
     const { ctx } = makeCtx();
     await als.run(ctx, async () => {

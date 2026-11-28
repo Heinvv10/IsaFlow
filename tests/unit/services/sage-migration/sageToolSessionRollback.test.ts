@@ -52,10 +52,12 @@ describe('B37-1: the COMMIT and its ROLLBACK, every combination, with the real r
 
 describe('R37-1: rollbackError never throws, whatever the ROLLBACK rejects with', () => {
   for (const [what, make] of hostileValues) {
-    it(`${what}: an Error whose message reads, never a throw`, async () => {
-      const e = await rollbackError({ query: async () => { throw make(); } }, 'test');
+    it(`${what}: an Error, never a throw (one whose message reads; R38-6: an Error whose message is not a string, itself)`, async () => {
+      const thrown = make();
+      const e = await rollbackError({ query: async () => { throw thrown; } }, 'test');
       expect(e).toBeInstanceOf(Error);
-      expect(typeof (e as Error).message).toBe('string');
+      if (what === 'an Error whose message is a hostile object') expect(e).toBe(thrown);
+      else expect(typeof (e as Error).message).toBe('string');
     });
   }
   it('a readable Error is handed on as it is (its code and class kept for the other callers)', async () => {

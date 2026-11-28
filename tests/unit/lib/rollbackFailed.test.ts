@@ -160,3 +160,22 @@ describe('rollbackFailed', () => {
     expect(logged()).toHaveLength(1);
   });
 });
+
+describe('R38-6: an Error whose message is not a string', () => {
+  it('is handed on as it is (its code and class kept); only its log text is coerced', async () => {
+    class DriverError extends Error { code = '57P01'; }
+    for (const message of [42, null, { toString: () => 'an object message' }]) {
+      const real = new DriverError('x');
+      Object.defineProperty(real, 'message', { value: message });
+      vi.mocked(log.error).mockClear();
+      expect(await rollbackError({ query: async () => { throw real; } }, 'owner')).toBe(real);
+      expect(logged()[0]![1]).toEqual({ message: String(message) });
+    }
+  });
+  it('one whose message cannot be coerced: still itself, the log says it cannot be read', async () => {
+    const real = new Error('x');
+    Object.defineProperty(real, 'message', { value: { toString: () => { throw new Error('injected'); } } });
+    expect(await rollbackError({ query: async () => { throw real; } }, 'owner')).toBe(real);
+    expect(logged()[0]![1]).toEqual({ message: 'ROLLBACK failed with a value whose message cannot be read' });
+  });
+});

@@ -16,7 +16,8 @@ import { acquireIdempotencyLock, findIdempotentReplay, hashArgs, recordToolCall 
 import { debitForTool, refundForTool } from './flowMetering';
 import { insufficientFlowsText } from './flowRefusal';
 import { accessRefusal } from './toolAccess';
-import { thrownToolErrorText } from './thrownToolErrorText';
+import { GENERIC_FAILURE, thrownToolErrorText } from './thrownToolErrorText';
+import { told } from '@/modules/accounting/services/sage-migration/sageTold';
 import { toolAnnotationsFor } from './toolAnnotations';
 import { oversizedReadRefusal } from './resultSize';
 
@@ -251,7 +252,7 @@ export class McpRegistry {
     } catch (err) {
       log.error(
         'MCP tool handler failed',
-        { tool: name, companyId: ctx.companyId, err: err instanceof Error ? err.message : String(err) },
+        { tool: name, companyId: ctx.companyId, err: told(err) }, // any value a driver rejected with, read without a throw (B38 (c))
         'mcp',
       );
       if (debit.handle) await refundForTool(ctx.companyId, debit.handle);
@@ -271,7 +272,13 @@ export class McpRegistry {
         ctx, tool: name, argsHash, idempotencyKey: null,
         status: 'error', result: null, durationMs: Date.now() - started,
       });
-      return errorResult(thrownToolErrorText(name, err));
+      let text = GENERIC_FAILURE;
+      try {
+        text = thrownToolErrorText(name, err); // its instanceof / code reads can throw on a hostile value: then the generic text
+      } catch (unreadable) {
+        log.error('MCP tool error could not be classified', { tool: name, err: told(unreadable) }, 'mcp');
+      }
+      return errorResult(text);
     }
   }
 }

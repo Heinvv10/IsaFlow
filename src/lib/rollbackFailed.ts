@@ -26,12 +26,23 @@ export function setRollbackBoundForTests(ms: number): () => void {
 
 interface Rollbackable { query(text: string): Promise<unknown> }
 
-/** A thrown value as [an Error to hand on, its message], never throwing: a value that cannot be read becomes a plain Error saying so. */
+const UNREADABLE = 'ROLLBACK failed with a value whose message cannot be read';
+
+/** A message for the log only: a string as it is, else its string form, or a marker when that throws. */
+function logText(message: unknown): string {
+  if (typeof message === 'string') return message;
+  try { return String(message); } catch { return UNREADABLE; }
+}
+
+/**
+ * A thrown value as [an Error to hand on, its message], never throwing: a value that cannot be read becomes a plain Error saying so.
+ * An Error whose message reads but is not a string is handed on as it is (R38-6: its code and class kept); only its log text is coerced.
+ */
 function readable(value: unknown): [Error, string] {
   try {
     if (value instanceof Error) {
-      const message = value.message;
-      if (typeof message === 'string') return [value, message];
+      const message: unknown = value.message;
+      return [value, logText(message)];
     } else {
       const message = String(value);
       return [new Error(message), message];
@@ -39,8 +50,7 @@ function readable(value: unknown): [Error, string] {
   } catch {
     // falls through: its prototype, message or string form cannot be read
   }
-  const message = 'ROLLBACK failed with a value whose message cannot be read';
-  return [new Error(message), message];
+  return [new Error(UNREADABLE), UNREADABLE];
 }
 
 /**

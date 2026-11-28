@@ -39,6 +39,7 @@
 import { als, type RequestContext } from '@/lib/als';
 import { forfeitQuotaRefund } from '@/lib/quotaUse';
 import { log } from '@/lib/logger';
+import { told } from '@/modules/accounting/services/sage-migration/sageTold';
 
 /**
  * `als.run` for the code that OWNS `ctx`'s transaction (withAuth, the bearer
@@ -140,7 +141,7 @@ function detach(label: string, fn: () => Promise<unknown>): void {
   started.catch((err: unknown) => {
     log.error('after-commit work failed', {
       label,
-      error: err instanceof Error ? err.message : String(err),
+      error: told(err), // never a second throw from a value whose message cannot be read (B38 (c))
     }, 'DB');
   });
 }
