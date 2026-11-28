@@ -1,5 +1,7 @@
 /**
- * R39r-1 / R39r-2 (round 39) against REAL pg-pool (its own checkout, release-once and destroy code; only the socket is a fake client).
+ * R39r-1 / R39r-2 (round 39) against REAL pg-pool (pg.Pool, the CLI's own: its checkout, release-once and destroy code; only the socket
+ * is a fake client, given as pg-pool's `Client` option). Also the fix-review findings: MED (an error while the connection is closed is
+ * listened to), L2 (a queued waiter is woken when the slot is freed), L4 (a client the pool already handed on is left alone).
  * A release wrapper that delegates and THEN throws leaves the client released to the pool, so the retry is pg-pool's double release,
  * which always throws: nothing is destroyed by it. The session and the run lock then close the connection through the pool's destroy
  * path: it leaves the pool (idle 0, total 0) and its socket is ended, so a run-lock connection cannot keep the advisory lock. A wrapper
@@ -7,7 +9,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { EventEmitter } from 'node:events';
-import Pool from 'pg-pool';
+import pg from 'pg';
 import type { McpToolContext, McpToolResult } from '@/lib/mcp/types';
 
 const h = vi.hoisted(() => ({ call: vi.fn<(name: string, args: Record<string, unknown>, ctx: McpToolContext) => Promise<McpToolResult>>() }));
@@ -28,6 +30,8 @@ class FakeClient extends EventEmitter {
   processID = 4242;
   static setFails = false;
   connect(cb: (e: Error | null) => void): void { setImmediate(() => cb(null)); }
+  ref(): void { /* pg-pool refs an idle client it hands out; nothing to hold here */ }
+  unref(): void { /* and unrefs one under allowExitOnIdle */ }
   async query(text: string): Promise<{ rows: Array<Record<string, unknown>>; command: string }> {
     if (FakeClient.setFails && text.startsWith('SET idle_session_timeout')) throw new Error('SET refused');
     return { rows: [{ ok: true }], command: text.split(' ')[0]! };
@@ -35,10 +39,10 @@ class FakeClient extends EventEmitter {
   end(cb?: () => void): Promise<void> { this.ended = true; this._ending = true; this._queryable = false; cb?.(); return Promise.resolve(); }
 }
 
-type Mode = 'after' | 'before' | 'always';
+type Mode = 'after' | 'before' | 'always' | 'foreign';
 /** A real pool whose checked-out clients get a release wrapper: throws after delegating, before (once), or always without delegating. */
-function hostilePool(mode: Mode) {
-  const pool = new Pool({ Client: FakeClient as never, max: 4 });
+function hostilePool(mode: Mode, max = 4) {
+  const pool = new pg.Pool({ Client: FakeClient as never, max } as never);
   const clients: FakeClient[] = [];
   const connect = pool.connect.bind(pool) as () => Promise<FakeClient & { release: (e?: unknown) => void }>;
   (pool as unknown as { connect: () => Promise<unknown> }).connect = async () => {
@@ -49,6 +53,7 @@ function hostilePool(mode: Mode) {
     c.release = (e?: unknown) => {
       if (mode === 'after') { real(e); throw new Error('injected: release threw after delegating'); }
       if (mode === 'before' && n++ > 0) return real(e);
+      if (mode === 'foreign') (pool as unknown as { emit: (ev: string, c: unknown) => void }).emit('acquire', new FakeClient()); // another client checked out
       throw new Error('injected: release threw before delegating');
     };
     return c;
@@ -99,5 +104,57 @@ describe('R39r-1 / R39r-2: the run lock, against real pg-pool', () => {
     const err = await acquireRunLock(pool as never, A).then(() => null, (e: unknown) => e);
     expect((err as Error).message).not.toMatch(/may still be held/);
     expect(pool.totalCount).toBe(0);
+  });
+});
+
+describe('fix review: closing a connection in doubt, against real pg-pool', () => {
+  const settle = () => new Promise((r) => setImmediate(r));
+  it('MED: an error the client emits after it was closed is listened to, never an uncaught error (no listener of ours or pg-pool\'s left)', async () => {
+    h.call.mockResolvedValueOnce(ok('{"created":1}'));
+    const { pool, clients } = hostilePool('always');
+    await withToolSession(pool as never, 'c1', 'u1', true, (s) => s.call('w', { idempotency_key: 'k' }));
+    await settle();
+    expect(clients[0]!.ended).toBe(true);
+    expect(clients[0]!.listenerCount('error')).toBeGreaterThan(0);
+    expect(() => clients[0]!.emit('error', Object.assign(new Error('read ETIMEDOUT'), { code: 'ETIMEDOUT' }))).not.toThrow();
+  });
+  it('L2: a request queued for the only slot gets a connection once the one in doubt is closed', async () => {
+    const { pool } = hostilePool('always', 1);
+    let waiter: Promise<unknown> | null = null;
+    h.call.mockImplementationOnce(async () => { waiter = pool.connect(); return ok('{"created":1}'); });
+    await withToolSession(pool as never, 'c1', 'u1', true, (s) => s.call('w', { idempotency_key: 'k' }));
+    const got = await Promise.race([waiter!, new Promise((r) => setTimeout(() => r('still waiting'), 1000))]);
+    expect(got).toBeInstanceOf(FakeClient);
+    expect((got as FakeClient).ended).toBe(false);
+  });
+  it('L4: a clean release that hands the client to a queued request before the wrapper throws: neither released again nor closed', async () => {
+    const { pool, clients } = hostilePool('after', 1);
+    let waiter: Promise<FakeClient> | null = null;
+    h.call.mockImplementationOnce(async () => { waiter = pool.connect() as Promise<FakeClient>; return ok('{"created":1}'); });
+    await expect(withToolSession(pool as never, 'c1', 'u1', true, (s) => s.call('w', { idempotency_key: 'k' }))).resolves.toMatchObject({ isError: false });
+    const theirs = await waiter!;
+    expect(theirs).toBe(clients[0]);
+    expect(theirs.ended).toBe(false);
+    expect([pool.totalCount, pool.idleCount]).toEqual([1, 0]);
+  });
+  it('L4, the run lock: unlock whose clean release hands it on before the wrapper throws: the waiter keeps a live connection', async () => {
+    const { pool, clients } = hostilePool('after', 1);
+    const lock = await acquireRunLock(pool as never, A);
+    const waiter = pool.connect() as Promise<FakeClient>;
+    expect(await lock.unlock()).toMatch(/not confirmed/);
+    const theirs = await waiter;
+    expect(theirs).toBe(clients[0]);
+    expect(theirs.ended).toBe(false);
+  });
+  it('L4: only THIS client handed on counts; another checkout during the release does not stop the close; the watch is removed', async () => {
+    h.call.mockResolvedValueOnce(ok('{"created":1}'));
+    const { pool, clients } = hostilePool('foreign');
+    await withToolSession(pool as never, 'c1', 'u1', true, (s) => s.call('w', { idempotency_key: 'k' }));
+    await settle();
+    expect(clients[0]!.ended).toBe(true);
+    expect(pool.listenerCount('acquire')).toBe(0);
+    const lock = await acquireRunLock(pool as never, A);
+    await lock.unlock();
+    expect(pool.listenerCount('acquire')).toBe(0);
   });
 });

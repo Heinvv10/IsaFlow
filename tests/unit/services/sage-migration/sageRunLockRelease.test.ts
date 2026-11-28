@@ -38,7 +38,8 @@ describe('B38-2: a run lock release that throws', () => {
       expect(client.release).toHaveBeenCalledTimes(2);
       expect(client.release.mock.calls[0]).toEqual([undefined]);
       expect(destroys(client.release.mock.calls[1]![0])).toBe(true);
-      expect(client.listenerCount('error')).toBe(0);
+      // Its own listener removed; when both releases threw, the close's logged listener (fix review MED) is the only one.
+      expect(client.listenerCount('error')).toBe(mode === 'always' ? 1 : 0);
     });
     it(`(${mode}) when someone else holds the lock: still RunInProgressError`, async () => {
       const { pool, client } = hostilePool({ ok: false, mode });

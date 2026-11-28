@@ -19,13 +19,11 @@ import { CommitRefusedError, CommitUnconfirmedError, RunEndedError, commitRefuse
 import { idempotencyLockText, takeKeyLockNow } from './sageKeyLock';
 import { watchWaits } from './sageWaitWatch';
 import { codeOf, commandOf, snapshot, told, OwnError } from './sageTold';
-import { closeConnection, connectionEnded, safeLog, said, toolOutcome } from './sageSessionRead';
+import { closeConnection, connectionEnded, safeLog, said, toolOutcome, watchHandOver } from './sageSessionRead';
 
 export { toolOutcome } from './sageSessionRead';
 import { SAGE_COMMIT_TIMEOUT_MS, SAGE_LOCK_TIMEOUT_MS, SAGE_STATEMENT_TIMEOUT_MS, sageAppName } from './sageTimeouts';
-
 export { SAGE_CONNECT_TIMEOUT_MS, SAGE_KEEPALIVE_INITIAL_DELAY_MS, SAGE_LOCK_TIMEOUT_MS, SAGE_QUERY_TIMEOUT_MS, SAGE_STATEMENT_TIMEOUT_MS, sagePoolConfig } from './sageTimeouts';
-
 export { BatchKeyHeldError, CommitRefusedError, CommitUnconfirmedError, RunEndedError, ConnectionLostError, DryRollbackUnconfirmedError, LockWaitError, LostBeforeCommitError, StatementTimeoutError } from './sageSessionErrors';
 
 export const MIGRATION_SCOPES = ['read:items', 'write:items', 'read:invoices', 'write:invoices', 'read:contacts'];
@@ -284,14 +282,18 @@ export async function withToolSession<T>(
     const quietly = (what: string, step: () => void): void => { try { step(); } catch (e) { safeLog(`${what} failed after the request`, e); } };
     quietly('stopping the wait watch', () => watch.stop());
     quietly('removing the error listener', () => { client.off('error', onError); });
+    const handOver = watchHandOver(pool, client); // L4: a clean release may hand it to a queued request before a wrapper throws
     try {
       client.release(unusable || lost !== null);
+      handOver.stop();
     } catch (e) {
-      // R38-4 / R39r-1: a connection in doubt is destroyed: released again with true (a wrapper that threw before delegating), and when
-      // that throws too (pg-pool's double release: the first had delegated) closed through the pool, never left in it.
+      // R38-4 / R39r-1: a connection in doubt is released again with true (a wrapper that threw before delegating), and when that throws
+      // too (pg-pool's double release: the first had delegated) closed through the pool; one the pool already handed on is left alone.
       safeLog('releasing the connection failed after the request', e);
       unusable = true;
-      try { client.release(unusable); } catch (again) { safeLog('releasing the connection again failed, closing it', again); closeConnection(pool, client, 'the connection'); }
+      if (!handOver.stop()) {
+        try { client.release(unusable); } catch (again) { safeLog('releasing the connection again failed, closing it', again); closeConnection(pool, client, 'the connection'); }
+      }
     }
     quietly('settling the request context', () => settleAfterRollback(owned, committed));
   }

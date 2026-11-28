@@ -16,21 +16,53 @@ export const safeLog = (what: string, e: unknown): void => {
   }
 };
 
+type Listen = (event: string, listener: (c: unknown) => void) => unknown;
+/**
+ * Whether the pool hands `client` to another checkout between now and stop() (L4): pg-pool's release of a clean client wakes a queued
+ * waiter at once, emitting 'acquire' with it, before a wrapper that delegated and then threw returns. Such a client is the waiter's: it is
+ * neither released again nor closed. A pool that emits nothing is never "handed over". stop() is idempotent and says what was seen.
+ */
+export function watchHandOver(pool: unknown, client: unknown): { stop: () => boolean } {
+  let handed = false;
+  let listening = false;
+  const seen = (c: unknown): void => { if (c === client) handed = true; };
+  const p = pool as { on?: unknown; off?: unknown } | null;
+  try {
+    if (typeof p?.on === 'function' && typeof p.off === 'function') { (p.on as Listen).call(p, 'acquire', seen); listening = true; }
+  } catch (e) { safeLog('watching the pool\'s checkouts failed', e); }
+  return {
+    stop: () => {
+      if (listening) {
+        listening = false;
+        try { (p!.off as Listen).call(p, 'acquire', seen); } catch (e) { safeLog('removing the pool\'s checkout watch failed', e); }
+      }
+      return handed;
+    },
+  };
+}
+
 /**
  * The last resort for a connection whose release threw twice (R39r-1). Against pg-pool the second release of a client the first one had
  * already handed back always throws ("Release called on client which has already been released to the pool"), so when a wrapper threw
- * AFTER delegating, the retry destroys nothing and the client sits in the pool. It is then closed through the pool's own destroy path
- * (pg-pool's `_remove`: taken off its idle and client lists, its socket ended), so the pool never hands out a closed client and the
- * server drops whatever the session held (the run lock's advisory lock); a pool without that path gets `client.end()`. Never throws:
- * a failure is logged.
+ * AFTER delegating, the retry destroys nothing and the client sits idle in the pool. It is then closed through the pool's own destroy
+ * path (pg-pool's `_remove`: off its idle and client lists, socket ended, the queue pulsed so a waiter for the freed slot is woken, L2),
+ * and the server drops whatever the session held (the run lock's advisory lock). First a logged 'error' listener is attached (MED): the
+ * session and the run lock removed theirs and pg-pool drops its own on checkout, so an error while it ends would otherwise be uncaught.
+ * Limits (L3): a pool without `_remove` gets `client.end()`, which ends the socket but leaves the pool's slot (and an idle entry) until
+ * the pool notices; a wrapper pool or client that hands out another object than pg-pool's own never matches `_remove` by identity, so
+ * nothing is taken off the inner pool's lists. Never throws: a failure is logged.
  */
 export function closeConnection(pool: unknown, client: unknown, what: string): void {
   try {
-    const remove = (pool as { _remove?: unknown } | null)?._remove;
-    if (typeof remove === 'function') { (remove as (c: unknown) => void).call(pool, client); return; }
-    const end = (client as { end?: unknown } | null)?.end;
-    if (typeof end !== 'function') { safeLog(`closing ${what} failed: neither its pool nor the client can close it`, null); return; }
-    Promise.resolve((end as () => unknown).call(client)).catch((e: unknown) => { safeLog(`closing ${what} failed`, e); });
+    const c = client as { on?: unknown; end?: unknown } | null;
+    if (typeof c?.on === 'function') (c.on as Listen).call(c, 'error', (e: unknown) => { safeLog(`${what} reported an error while it was closed`, e); });
+    const p = pool as { _remove?: unknown; _pulseQueue?: unknown } | null;
+    const pulse = (): void => {
+      try { if (typeof p?._pulseQueue === 'function') (p._pulseQueue as () => void).call(p); } catch (e) { safeLog(`waking the pool after closing ${what} failed`, e); }
+    };
+    if (typeof p?._remove === 'function') { (p._remove as (cl: unknown, cb: () => void) => void).call(p, client, pulse); return; }
+    if (typeof c?.end !== 'function') { safeLog(`closing ${what} failed: neither its pool nor the client can close it`, null); return; }
+    Promise.resolve((c.end as () => unknown).call(c)).catch((e: unknown) => { safeLog(`closing ${what} failed`, e); });
   } catch (e) {
     safeLog(`closing ${what} failed`, e);
   }

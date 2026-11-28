@@ -10,7 +10,7 @@ import { ConnectionLostError } from './sageSessionErrors';
 import { watchWaits } from './sageWaitWatch';
 import { asError, told, OwnError } from './sageTold';
 import { log } from '@/lib/logger';
-import { closeConnection, safeLog } from './sageSessionRead';
+import { closeConnection, safeLog, watchHandOver } from './sageSessionRead';
 
 export class RunInProgressError extends OwnError {}
 
@@ -31,8 +31,9 @@ export class RunLockNotTakenError extends OwnError {
 /**
  * A release of the lock connection that threw (B38-2: a pool wrapper): said, and returned as the Error to release it again with (a truthy
  * release: pg destroys the connection, and its session lock with it). When that second release throws too (pg-pool's double release:
- * the first had delegated, R39r-1), the connection is closed through the pool (closeConnection), so no pooled connection keeps the
- * advisory lock. The caller's own outcome stands; nothing here throws.
+ * the first had delegated, R39r-1), the connection is closed through pg-pool's destroy path (closeConnection), which ends its socket and
+ * so the advisory lock with it; a client the pool already handed to a queued request is left alone (L4); closeConnection names the
+ * limits of a pool that is not pg-pool's (L3). The caller's own outcome stands; nothing here throws.
  */
 const releaseThrew = (raw: unknown): Error => {
   const e = asError(raw);
@@ -122,7 +123,8 @@ async function takeRunLock(pool: Pool, companyId: string, watched: <T>(run: () =
     // One release for both: with the error when a query failed (pg destroys the connection), plain when someone else holds the lock (it is fine).
     client.removeListener('error', onError);
     let back = failure ?? lookupFailure;
-    try { client.release(back); } catch (raw) { back = releaseThrew(raw); try { client.release(back); } catch (again) { releaseAgainThrew(pool, client, again); } }
+    const handOver = watchHandOver(pool, client); // L4: a clean release may hand it to a queued request before a wrapper throws
+    try { client.release(back); handOver.stop(); } catch (raw) { back = releaseThrew(raw); if (!handOver.stop()) try { client.release(back); } catch (again) { releaseAgainThrew(pool, client, again); } }
     const who = holder === undefined ? 'its holder\'s backend pid unknown' : `held by backend pid ${holder}; if no run is running, that is a dead run's connection: SELECT pg_terminate_backend(${holder})`;
     if (failure) throw new RunLockNotTakenError(failure, pid);
     throw new RunInProgressError(`another Sage migration is running for this company (${companyId}; ${who}): wait for it to finish, then run again; nothing was written`);
@@ -136,6 +138,7 @@ async function takeRunLock(pool: Pool, companyId: string, watched: <T>(run: () =
     client.removeListener('error', onError);
     let back: Error = failure;
     let mayHold: Error | undefined; // R39r-2: both releases threw: the lock this connection took may outlive the close
+    // Released with its error: pg-pool removes it, never hands it on, so no hand-over watch here.
     try { client.release(back); } catch (raw) { back = releaseThrew(raw); try { client.release(back); } catch (again) { mayHold = back; releaseAgainThrew(pool, client, again); } }
     throw new RunLockNotTakenError(failure, pid, mayHold);
   }
@@ -178,11 +181,13 @@ async function takeRunLock(pool: Pool, companyId: string, watched: <T>(run: () =
       }
     }
     client.removeListener('error', onError);
+    const handOver = watchHandOver(pool, client); // L4: as above
     try {
       client.release(unlockFailure);
+      handOver.stop();
     } catch (raw) {
       unlockFailure = releaseThrew(raw); // the lock's fate is not known: said as not confirmed
-      try { client.release(unlockFailure); } catch (again) { releaseAgainThrew(pool, client, again); }
+      if (!handOver.stop()) try { client.release(unlockFailure); } catch (again) { releaseAgainThrew(pool, client, again); }
     }
     if (!unlockFailure) return null;
     const pid = typeof processID === 'number' ? `backend pid ${processID}: if a re-run is refused as running, it still holds it: SELECT pg_terminate_backend(${processID})` : 'backend pid unknown';
