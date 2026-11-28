@@ -15,6 +15,7 @@
  * report row.
  */
 import { formatMoney } from '@/lib/money/formatMoney';
+import { formatDisplayDate } from '@/utils/dateFormat';
 import {
   endOfNextMonth,
   severityForDate,
@@ -102,17 +103,29 @@ function countRows(input: AttentionInput): AttentionItem[] {
   return rows;
 }
 
+/** How the reported run's net pay is known to be paid (wave 7 OCP): evidence is stated, an inference is labelled. */
+function payrollNotes(p: NonNullable<OwnerCashPosition['payroll']>): string[] {
+  const notes: string[] = [];
+  if (p.garnisheeOwed) notes.push(`Includes ${formatMoney(p.garnisheeOwed)} owed to garnishee creditors.`);
+  if (p.paidBasis === 'recorded') notes.push(p.paidOn ? `Net pay was paid on ${formatDisplayDate(p.paidOn)}.` : 'Net pay was marked paid.');
+  if (p.paidBasis === 'bank_file') notes.push('Net pay was paid: its salary bank file was confirmed.');
+  if (p.paidBasis === 'inferred') notes.push('Net pay is assumed paid on its pay date; mark the run paid to confirm.');
+  return notes;
+}
+
 function payrollRows(input: AttentionInput): AttentionItem[] {
   const rows: AttentionItem[] = [];
   const p = input.cash.payroll;
   if (p && !p.canPay && p.totalRequired > 0) {
     const estimate = p.status === 'estimated' ? ' Estimate: the run is not approved yet.' : '';
+    const notes = payrollNotes(p);
+    const noteText = notes.length ? `${estimate ? '' : '.'} ${notes.join(' ')}` : '';
     rows.push({
       key: 'payroll-shortfall', area: 'Payroll', severity: 'due_soon', amount: p.shortfall,
       label: `Cash is short for the ${p.periodLabel} pay run`,
       detail: `Cash ${formatMoney(input.cash.cash)} against ${formatMoney(p.totalRequired)}`
         + `${p.runsCounted > 1 ? ` for this and ${p.runsCounted - 1} earlier pay run${s(p.runsCounted - 1)} still due` : ''}`
-        + ` (net pay plus PAYE, UIF and SDL, less ETI)${estimate}`,
+        + ` (net pay plus PAYE, UIF and SDL, less ETI)${estimate}${noteText}`,
       href: `/payroll/runs/${p.runId}`,
     });
   }

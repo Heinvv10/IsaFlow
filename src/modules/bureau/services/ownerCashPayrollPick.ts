@@ -1,0 +1,209 @@
+/**
+ * The payroll half of the owner cash position, pure (split out of ownerCashPositionService, wave 7 OCP): what each open
+ * run still needs from cash on a day, and which run the dashboard reports.
+ */
+import { previousBusinessDay } from './vatPeriodHelper';
+
+export interface PayrollRunRow {
+  id: string;
+  period_month: number;
+  period_year: number;
+  status: string;
+  total_net: string | number;
+  total_paye: string | number;
+  total_uif: string | number;
+  total_sdl: string | number;
+  total_eti: string | number;
+  /** The run's pay date, COALESCE(run_date, period_end) as YYYY-MM-DD; absent means still due. */
+  pay_date?: string | null;
+  /** Final (payRunFinalSql): only a final run past its pay date has been paid (review #1679 M3); absent = not final. */
+  final?: boolean;
+  /**
+   * Review M1 of e9f437f366: an approval of the run overlapped its payday, the SAST day of its pay date (approval_history,
+   * approvalCoveredPaydaySql), so its salaries were disbursed even if it has since been reopened; its gross, and an off-cycle run's paid gross (999x snapshot).
+   */
+  disbursed?: boolean;
+  total_gross?: string | number;
+  paid_gross?: string | number | null;
+  /** Mark paid's payment date (paid_on, 1053; either path); null on a legacy paid row, absent when not read. */
+  paid_on?: string | null;
+  /** The action date of the run's confirmed salary bank file (payroll_bank_files, 999h): the bank has accepted it. Absent = none. */
+  bank_paid_on?: string | null;
+  /** The run's garnishee deductions (payroll_garnishee_deductions, company-scoped): paid to creditors from the same salary file, on top of net pay (review O1 of a4486fab49). */
+  garnishee?: string | number | null;
+  /** The confirmed bank file's id, when the run has one; with it, `creditor_short` and `employee_owed` are what that file left unpaid. */
+  bank_file_id?: string | null;
+  /** The run's applied garnishee deductions the confirmed file did not pay its creditors (creditorShortfall, GC2), positive entries only. */
+  creditor_short?: string | number | null;
+  /** What the confirmed file left unpaid to employees against the run's current lines (fileSettlement.owedCents / 100; review O2). */
+  employee_owed?: string | number | null;
+}
+
+/**
+ * What says a run's net pay has left (wave 7 OCP, W34/W36), in this order: `recorded` (the run was marked paid, by a
+ * confirmed file or a typed bank reference), `bank_file` (a confirmed salary bank file, though the run may since have
+ * been reopened), `inferred` (neither: the run is final and past its pay date, or an approval overlapped its payday).
+ * Only `inferred` is a guess; the dashboard says so.
+ */
+export type PaidBasis = 'recorded' | 'bank_file' | 'inferred';
+
+export interface CashPositionPayroll {
+  runId: string;
+  periodLabel: string;
+  status: 'approved' | 'paid' | 'estimated';
+  totalRequired: number;
+  canPay: boolean;
+  shortfall: number;
+  /** The open runs `totalRequired` adds up: this run and every earlier one (pickPayrollRun). */
+  runsCounted: number;
+  /** The reported run's garnishee creditors still to be paid out of cash (included in totalRequired). */
+  garnisheeOwed?: number;
+  /** Set when the reported run's net pay has been paid: what says so (PaidBasis) and the date (null = not recorded). */
+  paidBasis?: PaidBasis;
+  paidOn?: string | null;
+}
+
+const r2 = (n: number): number => Math.round(n * 100) / 100;
+
+/** Null/undefined branch is defensive only — payroll money columns are NOT NULL DEFAULT 0 (migration 382). */
+const num = (v: string | number | null | undefined): number => (v == null ? 0 : Number(v)) || 0;
+
+// Deliberately local, not shared: the plain-language payroll label wants full month names, while the VAT label matches the bureau short-form via MONTHS.
+const MONTH_FULL = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+] as const;
+
+
+
+export function shapePayrollAffordability(
+  run: PayrollRunRow | null,
+  cash: number,
+): CashPositionPayroll | null {
+  if (!run) return null;
+  const totalRequired =
+    num(run.total_net) + num(run.total_paye) + num(run.total_uif) + num(run.total_sdl) - num(run.total_eti);
+  const canPay = cash >= totalRequired;
+  return {
+    runId: run.id,
+    periodLabel: `${MONTH_FULL[run.period_month - 1]!} ${run.period_year}`,
+    status: run.status === 'approved' || run.status === 'paid' ? run.status : 'estimated',
+    totalRequired,
+    canPay,
+    shortfall: canPay ? 0 : r2(totalRequired - cash),
+    runsCounted: 1,
+  };
+}
+
+/**
+ * Which run of the window to report. Cash pays runs by PAY DATE (review #1679 codex 3), whatever order costs them
+ * (runOrderKeySql puts a regular run before its month's off-cycle runs): rows are taken in pay-date order, the given
+ * order breaking ties. A run whose pay date is today or later is STILL DUE: each is judged against what the due runs
+ * before it left (review #1549 L1), so `totalRequired` is the due runs up to and including it and `runsCounted` how many.
+ * Each run counts what it still needs (owedOf): a run paid on its pay date (final, or reopened after it) needs only its
+ * statutory amounts until its EMP201 is due, and a reopened bonus the gross above what was paid; a run that needs
+ * nothing more is reported only when no run needs anything, as covered (review #1679 codex 4). ACCEPTED LIMIT (review L1
+ * of ed7bdab53e, wave 7 "regular-run paid snapshot"): a REGULAR run reopened after payday and recalculated higher owes
+ * only its statutory amounts here, as regular runs keep no paid snapshot (999x snapshots off-cycle runs only). The first due run cash cannot cover is reported; when every due run is covered, the latest one (its
+ * cumulative figure). A run with no totals yet (a draft) needs nothing and never hides a shortfall on another run; with
+ * no totals at all, the earliest run. No `asAt`: every run is due.
+ */
+/**
+ * The day a month's EMP201 is due: the 7th of the next month, moved back to the business day before when it falls on a
+ * weekend or SA public holiday (previousBusinessDay, as the compliance calendar does). After it the 13-week forecast
+ * assumes it paid (readSars).
+ */
+const emp201Due = (r: PayrollRunRow): string =>
+  (r.period_month === 12 ? previousBusinessDay(r.period_year + 1, 1, 7) : previousBusinessDay(r.period_year, r.period_month + 1, 7));
+
+const day = (v: string | null | undefined): string | null => (v == null ? null : String(v).slice(0, 10));
+
+/**
+ * Whether a run's net pay has left by `asAt`, and what says so (PaidBasis; wave 7 OCP, W34/W36). Evidence first: the run
+ * is marked paid (its net pay has left whatever its pay date says, gate item 3 on 06c106a94d), else a confirmed salary
+ * bank file whose action date has come (the bank accepted it, though the run may since have been reopened). Only a run
+ * with neither falls back to the inference of waves 5 and 6, which stays and is labelled: its pay date has passed and it
+ * is final (review #1679 M3) or an approval of it overlapped its payday (review M1 of e9f437f366).
+ */
+function paidBasisOf(r: PayrollRunRow, asAt: string | undefined): { basis: PaidBasis; on: string | null } | null {
+  if (r.status === 'paid') return { basis: 'recorded', on: day(r.paid_on) };
+  const bank = day(r.bank_paid_on);
+  if (asAt !== undefined && bank !== null && bank <= asAt) return { basis: 'bank_file', on: bank };
+  const payDay = day(r.pay_date);
+  if (asAt !== undefined && payDay !== null && payDay < asAt && (r.final === true || r.disbursed === true)) return { basis: 'inferred', on: payDay };
+  return null;
+}
+
+/**
+ * What a run still needs from cash on `asAt` (gate rulings 4 and 5 on 7630d9379f). Not paid (paidBasisOf): all of it.
+ * Paid: its net pay has left, so it needs its PAYE (less ETI, never below nil), UIF and SDL until the month's EMP201 is
+ * due, and a reopened off-cycle run also the gross above its paid snapshot (999x off_cycle_paid_gross).
+ */
+function owedOf(r: PayrollRunRow, asAt: string | undefined): {
+  owed: number; paye: number; credit: number; paid: boolean; basis: { basis: PaidBasis; on: string | null } | null; garnishee: number;
+} {
+  // ETI offsets PAYE only (gate ruling 2 on e0eec1dea1): PAYE less ETI, floored at nil; what ETI leaves beyond PAYE is a
+  // credit against the month's other PAYE. UIF and SDL stay owed in full.
+  const payeNet = r2(num(r.total_paye) - num(r.total_eti));
+  const paye = Math.max(0, payeNet);
+  const credit = Math.min(0, payeNet);
+  const other = r2(num(r.total_uif) + num(r.total_sdl));
+  const basis = paidBasisOf(r, asAt);
+  const paid = basis !== null;
+  // Garnishee creditors are paid from the same salary file (GC2): cash the run needs beyond net pay (review O1). Until
+  // paid, all of it; once the net pay has left, what a confirmed file's creditor lines did not pay (a typed-reference
+  // Mark paid leaves the payable open, so all of it).
+  const garnAll = Math.max(0, num(r.garnishee));
+  const garnishee = !paid || r.bank_file_id == null || r.creditor_short == null ? garnAll : Math.min(garnAll, Math.max(0, num(r.creditor_short)));
+  if (!paid) return { owed: r2(num(r.total_net) + paye + other + garnishee), paye, credit, paid, basis, garnishee };
+  // What a confirmed file left unpaid to employees (a re-approval at other figures, review O2) replaces the off-cycle snapshot's gap.
+  const above = r.bank_file_id != null && r.employee_owed != null ? Math.max(0, num(r.employee_owed))
+    : r.final !== true && r.paid_gross != null ? Math.max(0, r2(num(r.total_gross) - num(r.paid_gross))) : 0;
+  if (asAt !== undefined && asAt > emp201Due(r)) return { owed: r2(above + garnishee), paye: 0, credit: 0, paid, basis, garnishee };
+  return { owed: r2(paye + other + above + garnishee), paye, credit, paid, basis, garnishee };
+}
+
+export function pickPayrollRun(runs: PayrollRunRow[], cash: number, asAt?: string): CashPositionPayroll | null {
+  const payDate = (r: PayrollRunRow): string => (r.pay_date == null ? '\uffff' : String(r.pay_date).slice(0, 10));
+  const byPayDate = runs.map((r, i) => ({ r, i }))
+    .sort((a, b) => (payDate(a.r) < payDate(b.r) ? -1 : payDate(a.r) > payDate(b.r) ? 1 : a.i - b.i)).map((x) => x.r);
+  // A paid run's statutory figure can be negative (ETI above its PAYE, UIF and SDL): the month's EMP201 nets it, so it
+  // is a credit against the statutory part of the month's other runs, never dropped (review L2 of ed7bdab53e; never
+  // against net pay, F1 of 3401802134). Another month's is not.
+  const monthOf = (r: PayrollRunRow) => `${r.period_year}-${r.period_month}`;
+  const owedBy = new Map(runs.map((r) => [r, owedOf(r, asAt)] as const));
+  const credit = new Map<string, number>();
+  for (const [r, { credit: c }] of owedBy) if (c < 0) credit.set(monthOf(r), r2((credit.get(monthOf(r)) ?? 0) + c));
+  let required = 0;
+  let counted = 0;
+  let latestPaid: CashPositionPayroll | null = null;
+  let latestDue: CashPositionPayroll | null = null;
+  for (const r of byPayDate) {
+    const { owed: owes, paye, paid, basis, garnishee } = owedBy.get(r)!;
+    const full = { ...shapePayrollAffordability(r, cash)!, ...(basis ? { paidBasis: basis.basis, paidOn: basis.on } : {}), ...(garnishee > 0 ? { garnisheeOwed: garnishee } : {}) };
+    // Judged on what it owes (owedOf: ETI off PAYE only, review L1 of f37f0f15a6), never on the whole run netted: a run
+    // not paid that owes nothing (a draft with no totals) needs nothing and hides nothing.
+    if (!paid && owes <= 0) continue;
+    let owed = owes;
+    const left = credit.get(monthOf(r)) ?? 0;
+    // Against the run's PAYE only: ETI offsets PAYE, never net pay, UIF or SDL (review F1 of 3401802134, gate ruling 2).
+    if (owed > 0 && left < 0 && paye > 0) {
+      const used = Math.max(left, -Math.min(owed, paye));
+      owed = r2(owed + used);
+      credit.set(monthOf(r), r2(left - used));
+    }
+    if (owed <= 0) { latestPaid = { ...full, totalRequired: 0, canPay: true, shortfall: 0, runsCounted: 0 }; continue; }
+    const own = { ...full, totalRequired: owed };
+    required = r2(required + owed);
+    counted += 1;
+    const judged = { ...own, totalRequired: required, canPay: cash >= required, shortfall: cash >= required ? 0 : r2(required - cash), runsCounted: counted };
+    if (!judged.canPay) return judged;
+    latestDue = judged;
+  }
+  if (latestDue || latestPaid) return latestDue ?? latestPaid;
+  const first = runs[0];
+  if (!first) return null;
+  const { owed, basis, garnishee } = owedBy.get(first)!;
+  const owedFirst = Math.max(0, owed);
+  return { ...shapePayrollAffordability(first, cash)!, ...(basis ? { paidBasis: basis.basis, paidOn: basis.on } : {}), ...(garnishee > 0 ? { garnisheeOwed: garnishee } : {}), totalRequired: owedFirst, canPay: cash >= owedFirst, shortfall: cash >= owedFirst ? 0 : r2(owedFirst - cash) };
+}

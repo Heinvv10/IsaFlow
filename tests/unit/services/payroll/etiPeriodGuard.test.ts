@@ -16,6 +16,12 @@ vi.mock('@/modules/accounting/services/payroll/payrollOffCycleGates', async (ori
   ...await orig<typeof import('@/modules/accounting/services/payroll/payrollOffCycleGates')>(),
   laterOffCycleRefusal: vi.fn(async () => null),
 }));
+// Wave 7 EL: reopen also asks whether the run's month's EMP201 is filed (its own suites: payrollReopenFiledMonth,
+// w7-el-emp201-filed-reopen); none here, so the queued sql rows reach the ETI checks under test.
+vi.mock('@/modules/accounting/services/payroll/payrollReopenFiledMonth', async (orig) => ({
+  ...await orig<typeof import('@/modules/accounting/services/payroll/payrollReopenFiledMonth')>(),
+  regularReopenFiledRefusal: vi.fn(async () => null),
+}));
 
 vi.mock('@/modules/accounting/services/payroll/payrollRunLoanComponents', () => ({
   appendLoanComponents: (components: unknown[]) => components,

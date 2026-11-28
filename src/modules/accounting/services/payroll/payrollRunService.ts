@@ -137,7 +137,7 @@ export async function calculatePayrollRun(
     : await prepareRunComponents({ companyId, runId, period, readDate, population });
 
   // GA: each employee's garnishee orders in force for the period (a severance-only leaver's line takes none).
-  const garnishees = await loadRunGarnisheeOrders(companyId, employees.map(e => e.id), run.period_start, run.period_end);
+  const garnishees = await loadRunGarnisheeOrders(companyId, employees.map(e => e.id), run.period_start, run.period_end, runId);
 
   // Preview all due loans before any payment write. A blocked employee takes none of them.
   const loanComponents = await loadLoanComponents(companyId);

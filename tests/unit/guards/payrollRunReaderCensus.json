@@ -197,7 +197,11 @@
    {"line":142,"text":"FROM payroll_run_headers h","class":"S","owner":"FQb1","why":"EXISTS an approved run paying the employee"}
   ],
   "src/modules/accounting/services/payroll/payrollBankFileConfirm.ts": [
-   {"line":38,"text":"JOIN payroll_run_headers h ON h.id = f.run_id AND h.company_id = f.company_id","class":"S","owner":"FQb1","why":"bank file by id, joined to its own run by run id"}
+   {"line":45,"text":"await tx`SELECT 1 FROM payroll_run_headers WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid FOR SHARE`;","class":"S","owner":"FQb1","why":"GC2: share-lock the file's own run by id, so confirm serialises with approval / reopen"},
+   {"line":49,"text":"JOIN payroll_run_headers h ON h.id = f.run_id AND h.company_id = f.company_id","class":"S","owner":"FQb1","why":"bank file by id, joined to its own run by run id"}
+  ],
+  "src/modules/accounting/services/payroll/payrollBankFileCreditorJournal.ts": [
+   {"line":92,"text":"FROM payroll_run_headers WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid","class":"S","owner":"FQb1","why":"GC2: the file's own run by id, for its journal description"}
   ],
   "src/modules/accounting/services/payroll/payrollBankFileJudge.ts": [
    {"line":48,"text":"FROM payroll_bank_files f JOIN payroll_run_headers h ON h.id = f.run_id AND h.company_id = f.company_id","class":"S","owner":"FQb1","why":"the run's live bank files, by run id"},
@@ -470,7 +474,13 @@
    {"line":172,"text":"OR EXISTS (SELECT 1 FROM payroll_run_directive_uses u WHERE u.company_id = h.company_id AND u.run_id = h.id AND u.employee_id = ${employeeId}::uuid))","class":"S","owner":"FQb1","why":"directive uses by run id"}
   ],
   "src/modules/accounting/services/payroll/payrollRunReopen.ts": [
-   {"line":76,"text":"UPDATE payroll_run_headers h","class":"S","owner":"FQb1","why":"write by run id"}
+   {"line":111,"text":"UPDATE payroll_run_headers h","class":"S","owner":"FQb1","why":"write by run id"}
+  ],
+  "src/modules/accounting/services/payroll/payrollRunMarkPaid.ts": [
+   {"line":76,"text":"UPDATE payroll_run_headers","class":"S","owner":"FQb1","why":"wave 7 MP: mark paid, a write by run id (predicated on status approved)"}
+  ],
+  "src/modules/accounting/services/payroll/payrollRunMarkPaidJudge.ts": [
+   {"line":89,"text":"FROM payroll_run_headers h","class":"S","owner":"FQb1","why":"wave 7 MP: the run's own journal and approval day, a read by run id"}
   ],
   "src/modules/accounting/services/payroll/payrollRunRowWrite.ts": [
    {"line":53,"text":"await tx`DELETE FROM payroll_employee_components WHERE id = ${rowId}::uuid AND employee_id = ${employeeId}::uuid`;","class":"S","owner":"FQb1","why":"assignment delete by id"},
@@ -611,6 +621,9 @@
   "src/modules/bureau/services/ownerCashPositionService.ts": [
    {"line":226,"text":"${sql.unsafe(payRunFinalSql('payroll_run_headers'))} AS final,","class":"S","owner":"OC","why":"each open run's own finality (payRunFinalSql, review #1679 M3): only a final run past its pay date counts as paid"},
    {"line":227,"text":"total_gross, ${sql.unsafe(approvalCoveredPaydaySql('payroll_run_headers'))} AS disbursed,","class":"S","owner":"OC","why":"each run's own approval history (approvalCoveredPaydaySql, gate item 1 on 06c106a94d): approved through its payday, so its net pay left"},
+   {"line":78,"text":"WHERE f.company_id = payroll_run_headers.company_id AND f.run_id = payroll_run_headers.id AND f.status = 'confirmed') AS bank_paid_on,","class":"S","owner":"OC","why":"wave 7 OCP: the run's own confirmed salary bank file, by run id and company (W34/W36): the evidence its net pay has left"},
+   {"line":80,"text":"WHERE f.company_id = payroll_run_headers.company_id AND f.run_id = payroll_run_headers.id AND f.status = 'confirmed'","class":"S","owner":"OC","why":"the run's own confirmed salary bank file id, by run id and company (OCP review O2): what that file left unpaid is read by id"},
+   {"line":83,"text":"WHERE d.company_id = payroll_run_headers.company_id AND d.run_id = payroll_run_headers.id) AS garnishee,","class":"S","owner":"OC","why":"the run's garnishee deductions, a sum by run id and company (OCP review O1): creditors are paid from the same salary file"},
    {"line":229,"text":"FROM payroll_run_headers","class":"S","owner":"FQb2","why":"FQb2 converted (R): the window's open runs in pay order, so pickPayrollRun's earliest/latest is one run"},
    {"line":231,"text":"AND (status IN ('draft','calculated','approved') OR ${sql.unsafe(payRunFinalSql('payroll_run_headers'))})","class":"S","owner":"OC","why":"the window's open runs and its final ones (payRunFinalSql): a run marked paid still owes its statutory amounts until the EMP201 is due (owedOf)"},
    {"line":233,"text":"ORDER BY ${runOrderKeySql('payroll_run_headers')}","class":"S","owner":"FQb2","why":"the pay order of the query above (the alias argument names the table)"}
