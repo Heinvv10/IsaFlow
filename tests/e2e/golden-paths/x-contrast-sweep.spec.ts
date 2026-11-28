@@ -11,6 +11,9 @@ import { expect, test, type Page } from '@playwright/test';
 import { mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { auditContrast } from '../helpers/themeContrast';
+import { guardDevTarget } from '../helpers/devTarget';
+
+guardDevTarget(test);
 
 const THEMES = ['light', 'dark'] as const;
 

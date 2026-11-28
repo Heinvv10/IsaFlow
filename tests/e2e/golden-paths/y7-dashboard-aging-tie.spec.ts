@@ -20,17 +20,15 @@ import { mkdirSync } from 'fs';
 import { Api } from './_api';
 import { findOrCreateSandbox, switchBrowserCompany } from './_migrationSandbox';
 import { settle } from '../helpers/themeSpec';
+import { guardDevTarget } from '../helpers/devTarget';
+
+guardDevTarget(test);
 
 const SHOTS = 'docs/evidence/master-plan/wave2/H';
 /** The empty sandbox v-empty-states uses: a true first run. */
 const EMPTY_SANDBOX = { name: '0GP Golden Empty Sandbox', onboardingId: '7d3e9a14-2b6c-4f58-9a01-c3e5b7d9f102' };
 
 test.use({ timezoneId: 'Africa/Johannesburg' });
-
-test.beforeAll(({}, testInfo) => {
-  const u = new URL(String(testInfo.project.use.baseURL ?? 'http://localhost'));
-  expect(u.hostname, 'y7 creates a sandbox company: dev/CI localhost only').toBe('localhost');
-});
 
 async function shot(page: Page, name: string): Promise<void> {
   if (process.env.EVIDENCE !== '1') return;

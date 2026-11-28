@@ -17,6 +17,9 @@ import { test, expect, type Page } from '@playwright/test';
 import { mkdirSync } from 'fs';
 import { expectNoSeriousA11yViolations } from './helpers/axe';
 import { seedTheme, settle, THEMES } from '../helpers/themeSpec';
+import { guardDevTarget } from '../helpers/devTarget';
+
+guardDevTarget(test);
 
 const EVIDENCE_DIR = 'docs/evidence/master-plan/wave1/palette';
 const DIALOG = '[role="dialog"][aria-label="Command palette"]';

@@ -1,11 +1,14 @@
 import { defineConfig } from '@playwright/test';
+import { DEFAULT_DEV_BASE_URL } from './tests/e2e/helpers/devTarget';
 
 export default defineConfig({
   testDir: './tests/e2e',
+  globalSetup: './tests/e2e/helpers/devTargetGlobalSetup.ts',
   timeout: 30_000,
   retries: 0,
   use: {
-    baseURL: 'http://localhost:3101',
+    // Dev and CI only (the global setup refuses anything else): :3101 is production on velo-server.
+    baseURL: process.env.BASE_URL || DEFAULT_DEV_BASE_URL,
     headless: true,
   },
   projects: [

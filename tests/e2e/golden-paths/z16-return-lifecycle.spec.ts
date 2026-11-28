@@ -28,6 +28,9 @@ import { expectNoSeriousA11yViolations } from './helpers/axe';
 import { vatPrn } from './helpers/prn';
 import { settleAnimations } from './helpers/settleAnimations';
 import { THEMES, rootTheme, settle } from '../helpers/themeSpec';
+import { guardDevTarget } from '../helpers/devTarget';
+
+guardDevTarget(test);
 
 const PAGE = '/accounting/sars/vat201';
 const SANDBOX = { name: '0GP Golden Return Lifecycle Sandbox', onboardingId: '9b3c6e1a-2f4d-4a8b-9c7e-5d1f0a2b3c16' };

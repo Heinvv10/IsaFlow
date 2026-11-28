@@ -22,6 +22,9 @@ import { clearPayRunApproval } from './helpers/payRunApproval';
 import { findOrCreateSandbox, switchApiCompany, switchBrowserCompany } from './_migrationSandbox';
 import { seedTheme, settle, THEMES } from '../helpers/themeSpec';
 import { formatDayRange, formatPayDate, formatPeriodRange, periodsAround, DEFAULT_PAY_WEEK } from '@/modules/accounting/services/payroll/payrollPayWeek';
+import { guardDevTarget } from '../helpers/devTarget';
+
+guardDevTarget(test);
 
 const EVIDENCE_DIR = process.env.EVIDENCE_DIR;
 const SANDBOX_NAME = '0GP Golden Weekly Sandbox';
@@ -49,7 +52,6 @@ async function person(api: Api, p: typeof WEEKLY, salaryId: string): Promise<str
 }
 
 async function sandbox(context: BrowserContext, baseURL: string) {
-  expect(new URL(baseURL).hostname, 'z14 writes payroll data: dev/CI localhost only').toBe('localhost');
   const api = await Api.login(baseURL);
   const sandboxId = await findOrCreateSandbox(api, { name: SANDBOX_NAME, onboardingId: SANDBOX_ONBOARDING_ID });
   await switchApiCompany(api, sandboxId);

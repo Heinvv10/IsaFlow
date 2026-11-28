@@ -1,4 +1,7 @@
 import { test, expect } from '@playwright/test';
+import { guardDevTarget } from './helpers/devTarget';
+
+guardDevTarget(test);
 
 const PO_ROUTES = ['/accounting/purchase-orders', '/accounting/purchase-orders/new'];
 

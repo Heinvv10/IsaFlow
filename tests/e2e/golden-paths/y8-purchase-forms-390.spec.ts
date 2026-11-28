@@ -11,6 +11,9 @@
 // Dev only: it measures layout, which the post-deploy run has no use for. The post-deploy run skips it by this marker.
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { seedTheme, settle, THEMES } from '../helpers/themeSpec';
+import { guardDevTarget } from '../helpers/devTarget';
+
+guardDevTarget(test);
 
 const FORMS = [
   { path: '/accounting/purchase-orders/new', title: 'Purchase Order', summary: 'Order Summary', notes: 'Add any notes or delivery instructions…', lines: 'Purchase order lines' },

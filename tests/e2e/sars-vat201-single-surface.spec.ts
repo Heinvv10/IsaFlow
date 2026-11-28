@@ -19,6 +19,9 @@
  *     tests/e2e/sars-vat201-single-surface.spec.ts --config playwright-standalone.config.ts
  */
 import { test, expect, type Page } from '@playwright/test';
+import { guardDevTarget } from './helpers/devTarget';
+
+guardDevTarget(test);
 
 test.use({ storageState: process.env.E2E_STORAGE_STATE ?? 'tests/e2e/.auth/golden-session.json' });
 

@@ -19,6 +19,9 @@ import { test, expect, type Page } from '@playwright/test';
 import { mkdirSync } from 'fs';
 import { seedTheme, settle, THEMES } from '../helpers/themeSpec';
 import { SHELL_HEIGHTS } from '../../../src/components/layout/shellHeights';
+import { guardDevTarget } from '../helpers/devTarget';
+
+guardDevTarget(test);
 
 const EVIDENCE_DIR = 'docs/evidence/master-plan/wave1/shell';
 const INVOICES = '/accounting/customer-invoices';

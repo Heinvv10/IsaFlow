@@ -13,6 +13,7 @@
  * after layout so a slip that flows onto more pages carries them too.
  */
 import { COLORS, type JsPdfDoc } from '@/modules/accounting/services/core/pdfShared';
+import { isMonthlyRegular, payslipPeriodTitle, payslipPeriodToken } from './payslipPeriod';
 import { cleanAddress, money, particulars, shortDate } from './payslipFacts';
 import { BENEFIT_NOTE, notItemisedNote, PAID_DIRECTLY_NOTE, type PayslipItem } from './payslipItems';
 import type { Payslip, PayslipRun } from './payslipModel';
@@ -99,7 +100,9 @@ function heading(doc: JsPdfDoc, run: PayslipRun, slip: Payslip, pageW: number): 
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(...COLORS.TEXT_PRIMARY);
   let y = 24 + address.length * 3.6;
-  const periodLabel = `${MONTHS[run.periodMonth - 1]} ${run.periodYear}: ${payPeriodLabel(run.periodMonth, run.periodYear)}`;
+  const periodLabel = isMonthlyRegular(run)
+    ? `${MONTHS[run.periodMonth - 1]} ${run.periodYear}: ${payPeriodLabel(run.periodMonth, run.periodYear)}`
+    : payslipPeriodTitle(run); // wave 7 PP (RS1): a weekly or fortnightly run prints its own dates, an off-cycle run says what it is
   const facts = particulars(run, slip, periodLabel);
   y = Math.max(y, 30);
   for (const [label, value] of facts) {
@@ -165,17 +168,16 @@ function slipPage(doc: JsPdfDoc, autoTable: AutoTable, run: PayslipRun, slip: Pa
 }
 
 /**
- * Wave 6 PE (payslipEmailPdf): a password (jsPDF's own encryption, owner = user password, print only) and a fixed
- * creation date and file id, so the same slip renders to the same bytes. Omitted: as before.
+ * Wave 6 PE (payslipEmailPdf): a fixed creation date and file id, so the same slip renders to the same bytes. Omitted:
+ * as before. Never encrypted here: the emailed slip is encrypted AES-256 afterwards (wave 7 PX, payslipEncrypt).
  */
-export interface PayslipPdfOptions { password?: string; createdAt?: Date; fileId?: string }
+export interface PayslipPdfOptions { createdAt?: Date; fileId?: string }
 
 export async function buildPayslipPdf(run: PayslipRun, opts: PayslipPdfOptions = {}): Promise<Buffer> {
   const [{ jsPDF }, { default: autoTable }] = await Promise.all([import('jspdf'), import('jspdf-autotable')]);
-  const encryption = opts.password ? { userPassword: opts.password, ownerPassword: opts.password, userPermissions: ['print' as const] } : undefined;
-  const doc: JsPdfDoc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4', ...(encryption ? { encryption } : {}) });
+  const doc: JsPdfDoc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   if (opts.createdAt) doc.setCreationDate(opts.createdAt);
-  if (opts.fileId) doc.setFileId(opts.fileId); // after the constructor: it re-keys the encryption with this id
+  if (opts.fileId) doc.setFileId(opts.fileId);
   run.payslips.forEach((slip, index) => {
     if (index > 0) doc.addPage();
     slipPage(doc, autoTable as unknown as AutoTable, run, slip);
@@ -187,6 +189,6 @@ export async function buildPayslipPdf(run: PayslipRun, opts: PayslipPdfOptions =
 /** A filename that can only hold safe characters, whatever an employee number holds. */
 export function payslipFilename(run: PayslipRun, employeeNumber?: string): string {
   const safe = (s: string) => s.replace(/[^A-Za-z0-9_-]/g, '');
-  const period = `${run.periodYear}-${pad(run.periodMonth)}`;
+  const period = payslipPeriodToken(run);
   return employeeNumber ? `payslip-${period}-${safe(employeeNumber) || 'employee'}.pdf` : `payslips-${period}.pdf`;
 }

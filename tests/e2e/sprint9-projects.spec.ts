@@ -1,4 +1,7 @@
 import { test, expect } from '@playwright/test';
+import { guardDevTarget } from './helpers/devTarget';
+
+guardDevTarget(test);
 
 test.describe('Project API routes', () => {
   for (const route of ['/api/accounting/projects', '/api/accounting/project-time-entries']) {

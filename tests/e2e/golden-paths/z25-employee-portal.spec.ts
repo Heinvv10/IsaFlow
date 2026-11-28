@@ -19,6 +19,9 @@ import AxeBuilder from '@axe-core/playwright';
 import { Api } from './_api';
 import { findOrCreateSandbox, switchApiCompany, switchBrowserCompany } from './_migrationSandbox';
 import { seedTheme, settle, THEMES } from '../helpers/themeSpec';
+import { guardDevTarget } from '../helpers/devTarget';
+
+guardDevTarget(test);
 
 const EVIDENCE_DIR = process.env.EVIDENCE_DIR;
 const SANDBOX_NAME = '0GP Golden Employee Portal Sandbox';
@@ -29,7 +32,6 @@ const TOKEN = 'z'.repeat(43);
 const ok = (data: unknown) => ({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, data }) });
 
 async function sandbox(context: BrowserContext, baseURL: string): Promise<{ api: Api; employeeId: string }> {
-  expect(new URL(baseURL).hostname, 'z25 writes payroll data: dev/CI localhost only').toBe('localhost');
   const api = await Api.login(baseURL);
   const sandboxId = await findOrCreateSandbox(api, { name: SANDBOX_NAME, onboardingId: SANDBOX_ONBOARDING_ID });
   await switchApiCompany(api, sandboxId);
@@ -98,8 +100,8 @@ async function portalPages(page: Page, theme: string): Promise<{ accepted: unkno
   await page.route('**/api/employee-portal/logout', (route) => route.fulfill(ok({ signedIn: false })));
   await page.route('**/api/employee-portal/me', (route) => route.fulfill(ok({ employeeName: 'Zola Portal', employeeNumber: 'Z25-1', employer: SANDBOX_NAME })));
   await page.route('**/api/employee-portal/payslips', (route) => route.fulfill(ok([
-    { runId: '00000000-0000-4000-8000-000000000025', periodYear: 2026, periodMonth: 10, runDate: '2026-10-25', netPay: 21456.78 },
-    { runId: '00000000-0000-4000-8000-000000000024', periodYear: 2026, periodMonth: 9, runDate: '2026-09-25', netPay: 21456.78 },
+    { runId: '00000000-0000-4000-8000-000000000025', periodYear: 2026, periodMonth: 10, periodLabel: 'October 2026', runDate: '2026-10-25', netPay: 21456.78 },
+    { runId: '00000000-0000-4000-8000-000000000024', periodYear: 2026, periodMonth: 9, periodLabel: 'September 2026', runDate: '2026-09-25', netPay: 21456.78 },
   ])));
   await page.route('**/api/employee-portal/leave', (route) => route.fulfill(ok([
     { leaveType: 'Annual', year: 2026, accrued: 15, taken: 3, pending: 0, balance: 12 },

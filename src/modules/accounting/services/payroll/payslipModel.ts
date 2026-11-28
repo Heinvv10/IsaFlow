@@ -18,11 +18,11 @@
 import { sql } from '@/lib/neon';
 import { getCompanyDetailsFromCompany } from '@/modules/accounting/services/core/pdfShared';
 import { quantitiesFromBreakdown, type WorkedQuantity } from './payslipQuantities';
-import { itemisePayslip, readBreakdown, type PayslipLines } from './payslipItems';
+import { itemisePayslip, type PayslipLines } from './payslipItems';
 import { payslipYearToDate, type PayslipYearToDate } from './payslipYearToDate';
 import { pspTaxBasis } from './pspLineRules';
 import { assertRunKindSupported } from './payrollRunKindGuard';
-import { detailsOf, snapshotIsThisApproval, type DetailsRow } from './payslipSnapshot';
+import { componentTypesOf, detailsOf, snapshotIsThisApproval, type DetailsRow } from './payslipSnapshot';
 import { runGarnisheePayslipItems } from './payrollGarnisheeRun';
 
 export class PayslipNotFound extends Error {
@@ -63,6 +63,12 @@ export interface PayslipRun {
   runId: string;
   periodMonth: number;
   periodYear: number;
+  /** Wave 7 PP: the run's own dates (null on a monthly run), frequency and kind: what the slip's period line prints. */
+  periodStart: string | null;
+  periodEnd: string | null;
+  payFrequency: string;
+  runKind: string;
+  offCycleReason: string | null;
   runDate: string | null;
   /** R-035 cleared (or grandfathered): false prints DRAFT on every page. */
   final: boolean;
@@ -72,7 +78,10 @@ export interface PayslipRun {
   payslips: Payslip[];
 }
 
-interface HeaderRow { period_month: number; period_year: number; run_date: string | Date | null }
+interface HeaderRow {
+  period_month: number; period_year: number; run_date: string | Date | null;
+  period_start: string | Date | null; period_end: string | Date | null; pay_frequency: string; run_kind: string; off_cycle_reason: string | null;
+}
 
 interface LineRow extends Omit<DetailsRow, 'details_frozen'> {
   snapshot_approved_at: string | null;
@@ -126,21 +135,9 @@ async function readLines(companyId: string, runId: string, employeeIds: string[]
   `) as LineRow[];
 }
 
-/** The catalogue type of each component the breakdowns name, in this company only. */
-async function componentTypes(companyId: string, lines: LineRow[]): Promise<Map<string, string>> {
-  const ids = [...new Set(lines.flatMap((l) => readBreakdown(l.component_breakdown)
-    .map((i) => String(i.componentId ?? '')).filter(Boolean)))];
-  if (ids.length === 0) return new Map();
-  const rows = (await sql`
-    SELECT id::text AS id, component_type FROM payroll_components
-     WHERE company_id = ${companyId}::uuid AND id::text = ANY(${ids}::text[])
-  `) as Array<{ id: string; component_type: string }>;
-  return new Map(rows.map((r) => [r.id, r.component_type]));
-}
-
 export async function getPayslips(companyId: string, runId: string, employeeIds?: string[]): Promise<PayslipRun> {
   const headers = (await sql`
-    SELECT period_month, period_year, run_date FROM payroll_run_headers
+    SELECT period_month, period_year, run_date, period_start, period_end, pay_frequency, run_kind, off_cycle_reason FROM payroll_run_headers
      WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid AND status <> 'cancelled'
   `) as HeaderRow[];
   const header = headers[0];
@@ -153,7 +150,6 @@ export async function getPayslips(companyId: string, runId: string, employeeIds?
   const run = { id: runId, periodMonth: Number(header.period_month), periodYear: Number(header.period_year) };
   // One after another: they share the request's transaction connection.
   const final = lines[0]!.run_final === true; // read in the lines' own statement: the figures and their final state cannot tear
-  const types = await componentTypes(companyId, lines);
   const garnishees = await runGarnisheePayslipItems(companyId, runId); // GA: itemised, not "Not itemised"
   const ytd = await payslipYearToDate(companyId, run, lines.map((l) => l.employee_id));
   const company = await getCompanyDetailsFromCompany(companyId);
@@ -161,16 +157,25 @@ export async function getPayslips(companyId: string, runId: string, employeeIds?
   const frozen = final && lines.every((l) => snapshotIsThisApproval(l.snapshot_approved_at, l.approved_at_us));
   const live = { name: company.name, address: company.address };
   const shown = lines.map((l) => ({ l, ...detailsOf({ ...l, details_frozen: frozen }, live) }));
+  // W16 (wave 7 PX): a frozen slip itemises by the types frozen at approval; live only for a pre-PX snapshot or a draft.
+  const liveTypes = shown.some((s) => s.componentTypes === null)
+    ? await componentTypesOf(companyId, lines.filter((_, i) => shown[i]!.componentTypes === null).map((l) => l.component_breakdown))
+    : new Map<string, string>();
 
   return {
     runId, periodMonth: run.periodMonth, periodYear: run.periodYear, runDate: dateOnly(header.run_date), final,
+    // A monthly regular run carries no dates (payrollFrequency.runPeriodOf); only a weekly or fortnightly one prints them.
+    periodStart: header.pay_frequency === 'monthly' ? null : dateOnly(header.period_start),
+    periodEnd: header.pay_frequency === 'monthly' ? null : dateOnly(header.period_end),
+    payFrequency: String(header.pay_frequency), runKind: String(header.run_kind),
+    offCycleReason: header.off_cycle_reason == null ? null : String(header.off_cycle_reason),
     detailsAsAt: frozen ? 'approval' : 'download',
     employer: shown[0]!.employer,
-    payslips: shown.map(({ l, details: d, yearToDate: frozenYtd }): Payslip => ({
+    payslips: shown.map(({ l, details: d, yearToDate: frozenYtd, componentTypes: frozenTypes }): Payslip => ({
       ...itemisePayslip({
         grossPay: Number(l.gross_pay), paye: Number(l.paye), uifEmployee: Number(l.uif_employee),
         uifEmployer: Number(l.uif_employer), sdl: Number(l.sdl), netPay: Number(l.net_pay), breakdown: l.component_breakdown,
-      }, types, garnishees.get(l.employee_id)),
+      }, frozenTypes ?? liveTypes, garnishees.get(l.employee_id)),
       employeeId: l.employee_id,
       employeeNumber: String(d.employee_number),
       employeeName: `${d.first_name} ${d.last_name}`.trim(),

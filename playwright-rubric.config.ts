@@ -16,6 +16,7 @@ import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
   testDir: './tests/e2e/rubric',
+  globalSetup: './tests/e2e/helpers/devTargetGlobalSetup.ts',
   testMatch: 'rubric.harness.ts',
   timeout: 45 * 60_000,
   retries: 0,

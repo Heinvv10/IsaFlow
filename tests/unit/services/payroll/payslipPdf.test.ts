@@ -32,7 +32,7 @@ function slipOf(breakdown: object[], types: Map<string, string>, stored: { gross
 }
 
 const runOf = (slip: Payslip, final: boolean, address = '1 Main Road, Durban', detailsAsAt: PayslipRun['detailsAsAt'] = 'approval'): PayslipRun => ({
-  runId: 'r1', periodMonth: 11, periodYear: 2026, runDate: '2026-11-25', final, detailsAsAt,
+  runId: 'r1', periodMonth: 11, periodYear: 2026, periodStart: null, periodEnd: null, payFrequency: 'monthly', runKind: 'regular', offCycleReason: null, runDate: '2026-11-25', final, detailsAsAt,
   employer: { name: 'Fixture Payroll (Pty) Ltd', address }, payslips: [slip],
 });
 
@@ -207,5 +207,29 @@ describe('PS3: details as at download', () => {
     expect((await pages(await buildPayslipPdf(runOf(plain(), true, undefined, 'download')))).join(' ')).toContain(note);
     expect((await pages(await buildPayslipPdf(runOf(plain(), true, undefined, 'approval')))).join(' ')).not.toContain(note);
     expect((await pages(await buildPayslipPdf(runOf(plain(), false, undefined, 'download')))).join(' ')).not.toContain(note);
+  });
+});
+
+describe('the period line (wave 7 PP, RS1)', () => {
+  const base = runOf(slipOf([], new Map(), { gross: 1000, paye: 0, uif: 0, net: 1000 }), true);
+  const line = async (over: Partial<PayslipRun>) => (await pages(await buildPayslipPdf({ ...base, ...over }))).join(' ');
+
+  it('a monthly regular run prints its calendar month, as before', async () => {
+    expect(await line({})).toContain('Pay period: November 2026: 01 Nov 2026 to 30 Nov 2026');
+  });
+
+  it('a weekly run prints its own week, not the calendar month it falls in', async () => {
+    const t = await line({ periodMonth: 2, periodYear: 2027, payFrequency: 'weekly', periodStart: '2027-02-22', periodEnd: '2027-02-28' });
+    expect(t).toContain('Pay period: Week 22–28 Feb 2027');
+    expect(t).not.toContain('1 Feb 2027 to 28 Feb 2027');
+  });
+
+  it('a fortnightly run across a month end prints both ends', async () => {
+    const t = await line({ periodMonth: 3, periodYear: 2027, payFrequency: 'fortnightly', periodStart: '2027-02-22', periodEnd: '2027-03-07' });
+    expect(t).toContain('Pay period: Fortnight 22 Feb – 7 Mar 2027');
+  });
+
+  it('an off-cycle bonus run says what it is', async () => {
+    expect(await line({ runKind: 'off_cycle', offCycleReason: 'bonus' })).toContain('Pay period: Bonus, Nov 2026');
   });
 });

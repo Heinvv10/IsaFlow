@@ -75,6 +75,15 @@ describe('retryDropped', () => {
       write.mockRestore();
     });
 
+    // The post-deploy run: one dropped socket on a colour must not roll the deploy back.
+    it.each(['http://localhost:3111', 'http://localhost:3112', 'http://localhost:3101'])('re-sends against %s', async (baseURL) => {
+      const write = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+      const d = dropOnce();
+      await expect(retryDropped(d.call, 5000, ctxAt(baseURL, []))).resolves.toBe('ok');
+      expect(d.calls()).toBe(2);
+      write.mockRestore();
+    });
+
     it.each(['https://app.isaflow.co.za', 'http://10.0.0.5:3101', undefined])('does not re-send against %s (a reset there is an outage signal)', async (baseURL) => {
       const notes: string[] = [];
       const d = dropOnce();

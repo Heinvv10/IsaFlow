@@ -17,6 +17,9 @@
  *     tests/e2e/sars-vat201-exceptions-gate.spec.ts --config playwright-standalone.config.ts
  */
 import { test, expect, type Page } from '@playwright/test';
+import { guardDevTarget } from './helpers/devTarget';
+
+guardDevTarget(test);
 
 const GOLDEN_STATE_FILE = 'tests/e2e/.auth/golden-session.json';
 test.use({ storageState: GOLDEN_STATE_FILE });
